@@ -32,6 +32,26 @@ export type DualContouringCellVertexOptions = {
 
 export type DualContouringMeshOptions = DualContouringCellVertexOptions;
 
+export type DualContouringVertexFallbackReason =
+  | "none"
+  | "empty"
+  | "forcedCentroid"
+  | "underconstrained"
+  | "nonFinite"
+  | "outOfBounds";
+
+export type DualContouringCellVertexDebug = {
+  readonly placement: DualContouringVertexPlacement | "none";
+  readonly fallbackReason: DualContouringVertexFallbackReason;
+  readonly position?: Vec3;
+  readonly centroid?: Vec3;
+  readonly qefPosition?: Vec3;
+  readonly intersectionCount: number;
+  readonly finalError: number;
+  readonly centroidError: number;
+  readonly qefError?: number;
+};
+
 type CellCorner = TerrainChunkSampleCoord;
 
 const CELL_CORNERS: readonly CellCorner[] = [
@@ -100,6 +120,44 @@ export function extractHermiteIntersections(
   return intersections;
 }
 
+export function extractHermiteIntersectionsForBounds(
+  bounds: TerrainChunkBounds,
+  source: TerrainDensitySource
+): HermiteIntersection[] {
+  const cornerDensities = CELL_CORNERS.map((corner) => {
+    return source.densityAt(positionForBoundsCorner(bounds, corner));
+  });
+  const intersections: HermiteIntersection[] = [];
+
+  for (let edgeIndex = 0; edgeIndex < CELL_EDGES.length; edgeIndex += 1) {
+    const [startCornerIndex, endCornerIndex] = CELL_EDGES[edgeIndex];
+    const startDensity = cornerDensities[startCornerIndex];
+    const endDensity = cornerDensities[endCornerIndex];
+    if (!hasSignChange(startDensity, endDensity)) {
+      continue;
+    }
+
+    const startSample = CELL_CORNERS[startCornerIndex];
+    const endSample = CELL_CORNERS[endCornerIndex];
+    const startPosition = positionForBoundsCorner(bounds, startSample);
+    const endPosition = positionForBoundsCorner(bounds, endSample);
+    const t = clamp01(startDensity / (startDensity - endDensity));
+    const position = lerpVec3(startPosition, endPosition, t);
+    const normal = normalize(sampleTerrainDensity(source, position).gradient);
+
+    intersections.push({
+      edgeIndex,
+      startSample,
+      endSample,
+      t,
+      position,
+      normal
+    });
+  }
+
+  return intersections;
+}
+
 export function dualContouringCellBounds(
   chunk: TerrainDensityChunk,
   cell: TerrainCellCoord
@@ -122,21 +180,92 @@ export function placeDualContouringCellVertex(
   bounds: TerrainChunkBounds,
   options: DualContouringCellVertexOptions = {}
 ): Vec3 | undefined {
+  return analyzeDualContouringCellVertex(intersections, bounds, options).position;
+}
+
+export function analyzeDualContouringCellVertex(
+  intersections: readonly HermiteIntersection[],
+  bounds: TerrainChunkBounds,
+  options: DualContouringCellVertexOptions = {}
+): DualContouringCellVertexDebug {
   if (intersections.length === 0) {
-    return undefined;
+    return {
+      placement: "none",
+      fallbackReason: "empty",
+      intersectionCount: 0,
+      finalError: 0,
+      centroidError: 0
+    };
   }
 
   const centroid = centroidOfIntersections(intersections);
+  const centroidPosition = clampToBounds(centroid, bounds);
+  const centroidError = qefErrorAt(intersections, centroidPosition);
   if (options.placement === "centroid") {
-    return clampToBounds(centroid, bounds);
+    return {
+      placement: "centroid",
+      fallbackReason: "forcedCentroid",
+      position: centroidPosition,
+      centroid,
+      intersectionCount: intersections.length,
+      finalError: centroidError,
+      centroidError
+    };
   }
 
   const qefPosition = solveQef(intersections);
-  if (qefPosition !== undefined && isFiniteVec3(qefPosition) && isInsideBounds(qefPosition, bounds)) {
-    return qefPosition;
+  if (qefPosition === undefined) {
+    return {
+      placement: "centroid",
+      fallbackReason: "underconstrained",
+      position: centroidPosition,
+      centroid,
+      intersectionCount: intersections.length,
+      finalError: centroidError,
+      centroidError
+    };
   }
 
-  return clampToBounds(centroid, bounds);
+  const qefError = qefErrorAt(intersections, qefPosition);
+  if (!isFiniteVec3(qefPosition)) {
+    return {
+      placement: "centroid",
+      fallbackReason: "nonFinite",
+      position: centroidPosition,
+      centroid,
+      qefPosition,
+      intersectionCount: intersections.length,
+      finalError: centroidError,
+      centroidError,
+      qefError
+    };
+  }
+
+  if (!isInsideBounds(qefPosition, bounds)) {
+    return {
+      placement: "centroid",
+      fallbackReason: "outOfBounds",
+      position: centroidPosition,
+      centroid,
+      qefPosition,
+      intersectionCount: intersections.length,
+      finalError: centroidError,
+      centroidError,
+      qefError
+    };
+  }
+
+  return {
+    placement: "qef",
+    fallbackReason: "none",
+    position: qefPosition,
+    centroid,
+    qefPosition,
+    intersectionCount: intersections.length,
+    finalError: qefError,
+    centroidError,
+    qefError
+  };
 }
 
 export function meshChunkDualContouring(
@@ -508,6 +637,24 @@ function solveQef(intersections: readonly HermiteIntersection[]): Vec3 | undefin
   ]);
 }
 
+function qefErrorAt(intersections: readonly HermiteIntersection[], position: Vec3): number {
+  if (intersections.length === 0) {
+    return 0;
+  }
+
+  let error = 0;
+  for (const intersection of intersections) {
+    const planeDistance = dot(intersection.normal, vec3(
+      position.x - intersection.position.x,
+      position.y - intersection.position.y,
+      position.z - intersection.position.z
+    ));
+    error += planeDistance * planeDistance;
+  }
+
+  return error / intersections.length;
+}
+
 function solve3x3(matrix: number[][]): Vec3 | undefined {
   for (let column = 0; column < 3; column += 1) {
     let pivotRow = column;
@@ -573,6 +720,14 @@ function sampleForCellCorner(
     y: cell.y + corner.y,
     z: cell.z + corner.z
   };
+}
+
+function positionForBoundsCorner(bounds: TerrainChunkBounds, corner: CellCorner): Vec3 {
+  return vec3(
+    corner.x === 0 ? bounds.min.x : bounds.max.x,
+    corner.y === 0 ? bounds.min.y : bounds.max.y,
+    corner.z === 0 ? bounds.min.z : bounds.max.z
+  );
 }
 
 function cellVertexIndex(

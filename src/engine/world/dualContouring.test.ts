@@ -1,8 +1,10 @@
 import { deepEqual, equal, ok, throws } from "node:assert/strict";
 import { dot, length, normalize, vec3, type Vec3 } from "../math/vec3.js";
 import {
+  analyzeDualContouringCellVertex,
   dualContouringCellBounds,
   extractHermiteIntersections,
+  extractHermiteIntersectionsForBounds,
   meshChunkDualContouring,
   meshChunksDualContouring,
   placeDualContouringCellVertex,
@@ -82,6 +84,23 @@ describe("dualContouring", () => {
     }
   });
 
+  it("extracts Hermite intersections directly from arbitrary cell bounds", () => {
+    const source = createPlaneSource(vec3(0, 1, 0), 10.25);
+    const bounds = {
+      min: vec3(2, 10, -4),
+      max: vec3(3, 11, -3)
+    };
+
+    const intersections = extractHermiteIntersectionsForBounds(bounds, source);
+
+    equal(intersections.length, 4);
+    for (const intersection of intersections) {
+      ok(Math.abs(intersection.position.y - 10.25) < 1e-6);
+      ok(Math.abs(intersection.t - 0.25) < 1e-6);
+      deepEqual(intersection.normal, vec3(0, 1, 0));
+    }
+  });
+
   it("extracts Hermite intersections from a diagonal plane cell", () => {
     const normal = normalize(vec3(1, 1, 1));
     const source = createPlaneSource(normal, dot(normal, vec3(1.5, 1.5, 1.5)));
@@ -147,6 +166,28 @@ describe("dualContouring", () => {
     deepEqual(vertex, vec3(0.25, 0.5, 0.75));
   });
 
+  it("reports QEF placement diagnostics for unique solves", () => {
+    const intersections = [
+      createIntersection(vec3(0.25, 0.1, 0.1), vec3(1, 0, 0)),
+      createIntersection(vec3(0.1, 0.5, 0.1), vec3(0, 1, 0)),
+      createIntersection(vec3(0.1, 0.1, 0.75), vec3(0, 0, 1))
+    ];
+
+    const debug = analyzeDualContouringCellVertex(intersections, {
+      min: vec3(0, 0, 0),
+      max: vec3(1, 1, 1)
+    });
+
+    equal(debug.placement, "qef");
+    equal(debug.fallbackReason, "none");
+    deepEqual(debug.position, vec3(0.25, 0.5, 0.75));
+    deepEqual(debug.qefPosition, vec3(0.25, 0.5, 0.75));
+    equal(debug.intersectionCount, 3);
+    ok(debug.finalError < 1e-24);
+    ok(debug.qefError !== undefined && debug.qefError < 1e-24);
+    ok(debug.centroidError > debug.finalError);
+  });
+
   it("falls back to the centroid when QEF placement is underconstrained", () => {
     const intersections = [
       createIntersection(vec3(0.25, 0.25, 0.25), vec3(0, 1, 0)),
@@ -159,6 +200,25 @@ describe("dualContouring", () => {
     });
 
     deepEqual(vertex, vec3(0.5, 0.5, 0.5));
+  });
+
+  it("reports underconstrained QEF fallback diagnostics", () => {
+    const intersections = [
+      createIntersection(vec3(0.25, 0.25, 0.25), vec3(0, 1, 0)),
+      createIntersection(vec3(0.75, 0.75, 0.75), vec3(0, 1, 0))
+    ];
+
+    const debug = analyzeDualContouringCellVertex(intersections, {
+      min: vec3(0, 0, 0),
+      max: vec3(1, 1, 1)
+    });
+
+    equal(debug.placement, "centroid");
+    equal(debug.fallbackReason, "underconstrained");
+    deepEqual(debug.position, vec3(0.5, 0.5, 0.5));
+    equal(debug.qefPosition, undefined);
+    ok(debug.finalError >= 0);
+    equal(debug.finalError, debug.centroidError);
   });
 
   it("falls back to the centroid when QEF placement leaves the owning cell", () => {
@@ -174,6 +234,25 @@ describe("dualContouring", () => {
     });
 
     deepEqual(vertex, vec3(0.5, 0.5, 0.5));
+  });
+
+  it("reports out-of-bounds QEF fallback diagnostics", () => {
+    const intersections = [
+      createIntersection(vec3(1, 0.5, 0.5), vec3(1, 0, 0)),
+      createIntersection(vec3(0, 0.5, 0.5), normalize(vec3(1, 0.01, 0))),
+      createIntersection(vec3(0.5, 0.5, 0.5), vec3(0, 0, 1))
+    ];
+
+    const debug = analyzeDualContouringCellVertex(intersections, {
+      min: vec3(0, 0, 0),
+      max: vec3(1, 1, 1)
+    });
+
+    equal(debug.placement, "centroid");
+    equal(debug.fallbackReason, "outOfBounds");
+    deepEqual(debug.position, vec3(0.5, 0.5, 0.5));
+    ok(debug.qefPosition !== undefined);
+    ok(debug.qefError !== undefined);
   });
 
   it("clamps centroid placement to the owning cell bounds", () => {

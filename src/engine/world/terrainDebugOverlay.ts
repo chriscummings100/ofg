@@ -1,4 +1,8 @@
 import { clamp, normalize, vec3, type Vec3 } from "../math/vec3.js";
+import {
+  analyzeDualContouringCellVertex,
+  extractHermiteIntersectionsForBounds
+} from "./dualContouring.js";
 import { TERRAIN_CHUNK_CELLS_PER_AXIS } from "./terrainChunk.js";
 import type { TerrainGenerator, TerrainMaterialWeight } from "./terrainGenerator.js";
 
@@ -9,6 +13,7 @@ export const TERRAIN_DEBUG_OVERLAY_MODES = [
   "normal",
   "densitySlice",
   "materialWeights",
+  "qefError",
   "chunkBorders"
 ] as const;
 
@@ -142,12 +147,58 @@ function sampleDebugColor(
     return materialWeightColor(surface.materialWeights);
   }
 
+  if (mode === "qefError") {
+    return qefErrorColor(terrain, position);
+  }
+
   const base = elevationRamp((terrain.macroAt(position).baseElevation - centerHeight) / 42);
   if (isNearChunkBoundary(position.x, chunkSize) || isNearChunkBoundary(position.z, chunkSize)) {
     return vec3(255, 232, 112);
   }
 
   return vec3(base.x * 0.32, base.y * 0.4, base.z * 0.46);
+}
+
+function qefErrorColor(terrain: TerrainGenerator, position: Vec3): Vec3 {
+  const surfaceY = terrain.heightAt(position.x, position.z);
+  const debug = analyzeSurfaceCellQef(terrain, position.x, surfaceY, position.z);
+  if (debug === undefined) {
+    return vec3(16, 20, 38);
+  }
+
+  const error = clamp(Math.log2(debug.finalError * 256 + 1) / 8, 0, 1);
+  const fallback = debug.fallbackReason === "none" ? 0 : 1;
+  const intersectionSignal = clamp(debug.intersectionCount / 6, 0, 1);
+
+  return vec3(
+    24 + error * 180 + fallback * 50,
+    62 + (1 - error) * 150 - fallback * 40,
+    90 + intersectionSignal * 118 - fallback * 50
+  );
+}
+
+function analyzeSurfaceCellQef(
+  terrain: TerrainGenerator,
+  x: number,
+  y: number,
+  z: number
+) {
+  const firstCellY = Math.floor(y);
+  for (let yOffset = -1; yOffset <= 1; yOffset += 1) {
+    const min = vec3(Math.floor(x), firstCellY + yOffset, Math.floor(z));
+    const bounds = {
+      min,
+      max: vec3(min.x + 1, min.y + 1, min.z + 1)
+    };
+    const intersections = extractHermiteIntersectionsForBounds(bounds, terrain);
+    if (intersections.length === 0) {
+      continue;
+    }
+
+    return analyzeDualContouringCellVertex(intersections, bounds);
+  }
+
+  return undefined;
 }
 
 function materialWeightColor(weights: readonly TerrainMaterialWeight[]): Vec3 {
