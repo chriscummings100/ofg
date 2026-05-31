@@ -41,6 +41,11 @@ describe("uber shader build", () => {
     ok(UBER_SHADER_SOURCE.includes("pow(max(dot(normal, halfDirection), 0.0), 32.0)"));
   });
 
+  it("does not flip lighting normals based on the camera view", () => {
+    ok(!UBER_SHADER_SOURCE.includes("normal = -normal"));
+    ok(!UBER_SHADER_SOURCE.includes("dot(normal, viewDirection) < 0.0"));
+  });
+
   it("contains the procedural sky contract", () => {
     ok(UBER_SHADER_SOURCE.includes("fn skyVertexMain"));
     ok(UBER_SHADER_SOURCE.includes("fn skyFragmentMain"));

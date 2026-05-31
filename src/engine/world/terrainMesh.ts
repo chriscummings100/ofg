@@ -11,6 +11,15 @@ export type HeightfieldMeshOptions = {
 };
 
 const FLOATS_PER_VERTEX = 11;
+export const POSITION_COLOR_NORMAL_UV_LAYOUT = {
+  floatsPerVertex: FLOATS_PER_VERTEX,
+  attributes: [
+    { name: "position", offset: 0, size: 3 },
+    { name: "color", offset: 3, size: 3 },
+    { name: "normal", offset: 6, size: 3 },
+    { name: "uv", offset: 9, size: 2 }
+  ]
+} as const;
 
 export function getFloatsPerVertex(): number {
   return FLOATS_PER_VERTEX;
@@ -71,7 +80,7 @@ export function buildHeightfieldMesh(
   return { vertices, indices };
 }
 
-function colorForHeight(height: number): readonly [number, number, number] {
+export function colorForHeight(height: number): readonly [number, number, number] {
   if (height > 2.2) {
     return [0.72, 0.75, 0.7];
   }

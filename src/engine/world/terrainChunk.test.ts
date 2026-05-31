@@ -11,6 +11,7 @@ import {
   generateTerrainDensityChunk,
   parseTerrainChunkKey,
   terrainChunkBounds,
+  terrainChunkCoordContainingPosition,
   terrainChunkCoord,
   terrainChunkKey,
   terrainChunkOrigin,
@@ -49,6 +50,14 @@ describe("terrainChunk", () => {
       min: vec3(32, -16, 48),
       max: vec3(48, 0, 64)
     });
+  });
+
+  it("finds the 3D chunk coordinate containing a world position", () => {
+    deepEqual(terrainChunkCoordContainingPosition(vec3(0, 0, 0)), terrainChunkCoord(0, 0, 0));
+    deepEqual(terrainChunkCoordContainingPosition(vec3(31.99, 31.99, 31.99)), terrainChunkCoord(0, 0, 0));
+    deepEqual(terrainChunkCoordContainingPosition(vec3(32, 32, 32)), terrainChunkCoord(1, 1, 1));
+    deepEqual(terrainChunkCoordContainingPosition(vec3(-0.01, -0.01, -0.01)), terrainChunkCoord(-1, -1, -1));
+    deepEqual(terrainChunkCoordContainingPosition(vec3(16, -16, 48), 0.5), terrainChunkCoord(1, -1, 3));
   });
 
   it("rejects non-positive cell sizes", () => {

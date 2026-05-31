@@ -12,12 +12,12 @@ import { WebGpuRenderer } from "../engine/render/webgpuRenderer.js";
 import { createDirectionalLight } from "../engine/render/Lighting.js";
 import { createScene } from "../engine/scene/activeScene.js";
 import type { Entity } from "../engine/scene/Entity.js";
+import { TerrainChunkStreamer } from "../game/components/TerrainChunkStreamer.js";
 import { createBoxMesh } from "../engine/world/primitiveMesh.js";
 import { createSeedTerrainField } from "../engine/world/scalarField.js";
-import { terrainChunkCoord, terrainChunkKey } from "../engine/world/terrainChunk.js";
+import { EditableTerrainDensitySource } from "../engine/world/terrainChunk.js";
 import {
-  buildHeightfieldMesh,
-  getFloatsPerVertex,
+  POSITION_COLOR_NORMAL_UV_LAYOUT,
   type MeshData
 } from "../engine/world/terrainMesh.js";
 import {
@@ -32,32 +32,28 @@ type GameElements = {
   readonly frameTime: HTMLElement;
 };
 
-const POSITION_COLOR_LAYOUT = {
-  floatsPerVertex: getFloatsPerVertex(),
-  attributes: [
-    { name: "position", offset: 0, size: 3 },
-    { name: "color", offset: 3, size: 3 },
-    { name: "normal", offset: 6, size: 3 },
-    { name: "uv", offset: 9, size: 2 }
-  ]
-} as const;
+declare global {
+  interface Window {
+    __ofgDebug?: {
+      getLoadedTerrainChunkKeys: () => string[];
+      getTerrainChunkKeys: () => string[];
+      setPlayerPosition: (x: number, z: number) => void;
+    };
+  }
+}
 
 export async function startGame(elements: GameElements): Promise<void> {
   const scene = createScene();
   const renderer = new WebGpuRenderer(elements.canvas);
   const input = new InputTracker();
   const field = createSeedTerrainField();
+  const terrainSource = new EditableTerrainDensitySource(field);
   scene.mainLight = createDirectionalLight({
     direction: vec3(0.89, 0.25, 0.38),
     color: vec3(1, 0.96, 0.88),
     intensity: 1,
     ambient: 0.34
   });
-  const terrainMesh = buildHeightfieldMesh(field, {
-    halfExtent: 64,
-    cellsPerAxis: 96
-  });
-  const terrain = meshFromData("mesh:terrain.seed", terrainMesh);
   const playerMarker = meshFromData(
     "mesh:player.marker",
     createBoxMesh(vec3(0, 0.9, 0), vec3(0.28, 0.9, 0.22), vec3(0.96, 0.7, 0.24))
@@ -76,23 +72,26 @@ export async function startGame(elements: GameElements): Promise<void> {
     specular: vec3(1, 0.92, 0.65),
     specularFactor: 0.45
   });
-  const terrainEntity = scene.createEntity("Terrain");
   const playerEntity = scene.createEntity("Player");
+  const terrainEntity = scene.createEntity("Terrain");
   const playerMarkerEntity = scene.createEntity("Player marker");
   const cameraEntity = scene.createEntity("Camera");
 
-  scene.resources.addMesh(terrain);
   scene.resources.addMesh(playerMarker);
   scene.resources.addTexture(terrainAlbedo);
   scene.resources.addMaterial(terrainMaterial);
   scene.resources.addMaterial(playerMarkerMaterial);
-  terrainEntity.addComponent(new TerrainRenderer(
-    field,
-    [{
-      key: terrainChunkKey(terrainChunkCoord(0, 0, 0)),
-      mesh: terrain,
-      material: terrainMaterial.id
-    }]
+  const terrainRenderer = terrainEntity.addComponent(new TerrainRenderer(field));
+  const terrainStreamer = terrainEntity.addComponent(new TerrainChunkStreamer(
+    terrainRenderer,
+    terrainSource,
+    {
+      target: playerEntity,
+      material: terrainMaterial.id,
+      horizontalRadius: 1,
+      verticalChunkOffsets: [-2, -1, 0, 1],
+      cellSize: 1
+    }
   ));
   playerEntity.transform.setPosition(vec3(0, field.heightAt(0, 0), 0));
   const playerController = playerEntity.addComponent(new PlayerController());
@@ -109,6 +108,16 @@ export async function startGame(elements: GameElements): Promise<void> {
   playerEntity.addChild(playerMarkerEntity);
   scene.activeCamera = cameraEntity;
   syncCameraEntity(cameraEntity, playerController.getEyeTransform());
+  terrainStreamer.syncAround(playerEntity.transform.getWorldPosition());
+  window.__ofgDebug = {
+    getLoadedTerrainChunkKeys: () => terrainStreamer.getLoadedChunkKeys(),
+    getTerrainChunkKeys: () => terrainRenderer.chunks.map((chunk) => chunk.key).sort(),
+    setPlayerPosition(x, z) {
+      playerEntity.transform.setPosition(vec3(x, field.heightAt(x, z), z));
+      terrainStreamer.syncAround(playerEntity.transform.getWorldPosition());
+      syncCameraEntity(cameraEntity, playerController.getEyeTransform());
+    }
+  };
 
   await renderer.initialize();
   input.attach(elements.canvas);
@@ -128,6 +137,7 @@ export async function startGame(elements: GameElements): Promise<void> {
 
     playerController.setMovementIntent(intent);
     scene.update(deltaSeconds);
+    terrainStreamer.syncAround(playerEntity.transform.getWorldPosition());
     markerRenderer.visible = playerController.mode === "debugFly";
     syncCameraEntity(cameraEntity, playerController.getEyeTransform());
 
@@ -144,7 +154,7 @@ export async function startGame(elements: GameElements): Promise<void> {
 }
 
 function meshFromData(id: string, data: MeshData): Mesh {
-  return new Mesh(id, data.vertices, data.indices, POSITION_COLOR_LAYOUT);
+  return new Mesh(id, data.vertices, data.indices, POSITION_COLOR_NORMAL_UV_LAYOUT);
 }
 
 function syncCameraEntity(cameraEntity: Entity, eye: TransformSnapshot): void {

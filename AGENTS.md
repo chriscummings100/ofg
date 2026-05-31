@@ -12,7 +12,8 @@ a Rust/TypeScript toolchain that stays friendly to automated AI development.
 
 The current playable seed is still simple:
 
-- Generated heightfield terrain.
+- Chunk-streamed generated terrain from 3D density chunks.
+- Basic highest-surface chunk meshing as a temporary step before Dual Contouring.
 - First-person camera/player movement.
 - Debug fly camera toggled with `C` or `F1`.
 - A yellow player marker visible in debug fly mode.
@@ -66,9 +67,10 @@ src/engine/input
   DOM input tracker for keys, edge-triggered presses, pointer-lock mouse deltas.
 
 src/engine/world
-  Seed terrain scalar field, 3D density chunk model, heightfield mesh generation,
-  primitive box mesh. Runtime meshes currently use position/color/normal/uv vertex
-  data.
+  Seed terrain scalar field backed by low-frequency x/z noise plus octave 3D
+  simplex density detail with gradients, 3D density chunk model, highest-surface
+  chunk meshing, legacy heightfield mesh generation, primitive box mesh. Runtime
+  meshes currently use position/color/normal/uv vertex data.
 
 src/engine/scene
   Global Scene, Entity tree, Component lifecycle, Transform hierarchy,
@@ -89,7 +91,7 @@ src/generated
   Deterministic generated TypeScript artifacts, currently shader source modules.
 
 src/game/components
-  Game-level components such as PlayerController.
+  Game-level components such as PlayerController and TerrainChunkStreamer.
 
 tools
   Local scripts, including shader generation, the static dev server, and browser
@@ -129,11 +131,12 @@ Current test areas include:
   render extraction.
 - Shader boundary: generated shader source artifact metadata and vertex layout
   contract.
-- World terrain: 3D density chunks, baseline field sampling, terrain edits,
+- World terrain: simplex noise generation, 3D density chunks, baseline field
+  sampling, terrain edits, highest-surface chunk meshing, chunk streaming,
   heightfield and primitive meshes.
 - Gameplay/input: player controller and input tracker.
 - Browser smoke: actual Chrome/Edge WebGPU render, screenshots, pixel checks, HUD
-  and camera toggle verification.
+  camera toggle verification, and a basic player-position chunk streaming check.
 
 When adding behavior, add tests near the behavior first or in the same change. Prefer
 behavior names such as `reparenting removes the child from its previous parent`.

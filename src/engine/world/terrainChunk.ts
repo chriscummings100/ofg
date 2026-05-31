@@ -166,6 +166,19 @@ export function terrainChunkBounds(coord: TerrainChunkCoord, cellSize = 1): Terr
   };
 }
 
+export function terrainChunkCoordContainingPosition(
+  position: Vec3,
+  cellSize = 1
+): TerrainChunkCoord {
+  assertPositiveCellSize(cellSize);
+  const chunkSize = TERRAIN_CHUNK_CELLS_PER_AXIS * cellSize;
+  return terrainChunkCoord(
+    Math.floor(position.x / chunkSize),
+    Math.floor(position.y / chunkSize),
+    Math.floor(position.z / chunkSize)
+  );
+}
+
 export function terrainChunkSampleIndex(sample: TerrainChunkSampleCoord): number {
   assertSampleCoord("x", sample.x);
   assertSampleCoord("y", sample.y);

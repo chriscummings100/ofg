@@ -18,6 +18,8 @@ The command:
 - Reads HUD state from the page.
 - Samples screenshot pixels to catch blank or solid-fill frames.
 - Presses `C` and verifies the camera mode changes from `FIRST` to `FLY`.
+- Returns to first-person, moves the player across terrain chunk columns through
+  the debug hook, verifies streamed chunk keys, and captures a streamed view.
 
 ## Useful Environment Variables
 
@@ -32,10 +34,12 @@ The command:
 - Regressions where the first-person scene is hidden by the player marker.
 - HUD mode not matching expected camera state.
 - Keyboard toggle regressions for the debug fly camera.
+- Basic terrain chunk streaming regressions where moving the player no longer
+  causes the expected chunk column to load.
 
 ## Current Limit
 
 This is a smoke test, not a full visual diff. It verifies that the page renders
 meaningful pixels and that core interaction works. Future browser tests can add
-targeted checks for pointer-lock look controls, movement, chunk streaming, and
-object placement.
+targeted checks for pointer-lock look controls, real keyboard movement, terrain
+edit visibility, and object placement.

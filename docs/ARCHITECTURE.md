@@ -18,8 +18,8 @@ src/engine/input
   DOM input tracking with edge-triggered key events and mouse deltas.
 
 src/engine/world
-  Deterministic terrain fields, 3D density chunks, terrain edits, and mesh
-  generation.
+  Deterministic terrain fields, 3D simplex noise, 3D density chunks, terrain
+  edits, and mesh generation.
 
 src/engine/math
   Small vector and matrix primitives.
@@ -40,7 +40,8 @@ src/engine/scene
   CPU-side ResourceStore.
 
 src/game/components
-  Game-specific behavior components, currently PlayerController.
+  Game-specific behavior components, currently PlayerController and
+  TerrainChunkStreamer.
 ```
 
 ## Scene Model
@@ -64,15 +65,36 @@ The detailed API and next rollout steps are tracked in
 
 ## Terrain Direction
 
-The visible seed terrain is still a heightfield, not voxel Dual Contouring. It
-exists to prove the rendering, controls, and test workflow before adding the harder
-terrain system.
+The visible seed terrain is not Dual Contouring yet. It exists to prove rendering,
+controls, chunk boundaries, and the test workflow before adding the harder terrain
+system.
 
 The terrain data model is 3D from the start. A terrain density chunk has 32 cells
 per axis and 33 samples per axis, so adjacent chunks share boundary samples cleanly.
 Baseline generation samples any `TerrainDensitySource`, and edits are applied on
 top. The first edit operation is subtracting a sphere, which turns solid density
 into air inside the sphere and sets up cave/mining-style operations.
+
+The seed terrain generator is an implicit density field. Low-frequency x/z noise
+sets a broad preferred surface height, then octave 3D simplex noise perturbs the
+density near that surface:
+
+```text
+density(p) = p.y - largeFeatureHeight(p.x, p.z) - detail3D(p) * amplitude
+```
+
+The simplex module exposes analytic gradients, and the seed field uses the density
+gradient for terrain normals. `heightAt(x, z)` is now a compatibility query that
+scans a density column for the highest zero crossing so player grounding can keep
+working until movement is density/mesh aware.
+
+The current runtime mesher is deliberately simple: it scans each x/z column in a
+vertical stack of density chunks, finds the highest solid-to-air crossing, and emits
+a shared-vertex surface mesh with smooth normals. `TerrainChunkStreamer` keeps a
+square x/z neighborhood of density chunks around a target entity, centers its
+vertical chunk-offset stack on the target chunk y coordinate, and replaces the
+visible render chunks as the player crosses chunk boundaries. Render chunks are
+keyed by their x/z column at y=0, while loaded density chunk keys remain fully 3D.
 
 The intended Dual Contouring boundary is:
 
@@ -111,7 +133,8 @@ renders a blue gradient plus a sun disk in the direction of `scene.mainLight`.
   generation code.
 - Shader tests verify generated shader metadata and the renderer vertex layout
   contract.
-- Browser smoke tests cover canvas rendering, input toggles, and resize behavior.
+- Browser smoke tests cover canvas rendering, input toggles, resize behavior, and
+  basic chunk streaming after moving the player across chunk columns.
 - Golden fixture tests cover terrain meshing once voxel chunks exist.
 - Performance tests should be explicit scripts with stable scene seeds, not hidden
   assertions inside regular unit tests.

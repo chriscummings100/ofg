@@ -12,6 +12,7 @@ const headed = process.env.OFG_SMOKE_HEADED === "1";
 const artifactRoot = resolve(root, "artifacts", "browser-smoke");
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
 const artifactDir = resolve(artifactRoot, runId);
+const expectedRenderChunkCount = 9;
 
 mkdirSync(artifactDir, { recursive: true });
 
@@ -73,6 +74,8 @@ async function runBrowserSmoke(url) {
     const firstScreenshot = await saveScreenshot(page, "first-person.png");
     screenshots.push(firstScreenshot.path);
     assertPixelStats(firstScreenshot.stats, "first-person", consoleMessages);
+    const initialTerrain = await readTerrainDebug(page);
+    assertTerrainDebug(initialTerrain, "initial terrain");
 
     await page.keyboard.press("KeyC");
     await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "FLY");
@@ -87,6 +90,19 @@ async function runBrowserSmoke(url) {
     await page.keyboard.press("KeyC");
     await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "FIRST");
 
+    await page.evaluate(() => window.__ofgDebug?.setPlayerPosition(96, 0));
+    await page.waitForFunction(() => window.__ofgDebug
+      ?.getLoadedTerrainChunkKeys()
+      .includes("3,0,0"));
+    await page.waitForTimeout(250);
+
+    const streamedTerrain = await readTerrainDebug(page);
+    assertTerrainDebug(streamedTerrain, "streamed terrain");
+    assertTerrainStreamed(initialTerrain, streamedTerrain);
+    const streamedScreenshot = await saveScreenshot(page, "streamed-first-person.png");
+    screenshots.push(streamedScreenshot.path);
+    assertPixelStats(streamedScreenshot.stats, "streamed-first-person", consoleMessages);
+
     return {
       url,
       browserPath,
@@ -94,7 +110,10 @@ async function runBrowserSmoke(url) {
       screenshots,
       firstHud,
       flyHud,
+      initialTerrain,
+      streamedTerrain,
       firstPixelStats: firstScreenshot.stats,
+      streamedPixelStats: streamedScreenshot.stats,
       flyPixelStats: flyScreenshot.stats,
       consoleMessages
     };
@@ -113,6 +132,14 @@ async function readHud(page) {
   }));
 }
 
+async function readTerrainDebug(page) {
+  return page.evaluate(() => ({
+    hasDebug: window.__ofgDebug !== undefined,
+    loadedChunkKeys: window.__ofgDebug?.getLoadedTerrainChunkKeys() ?? [],
+    renderChunkKeys: window.__ofgDebug?.getTerrainChunkKeys() ?? []
+  }));
+}
+
 function assertHud(hud, expectedMode, consoleMessages) {
   if (hud.cameraMode !== expectedMode) {
     throw new Error(
@@ -127,6 +154,42 @@ function assertHud(hud, expectedMode, consoleMessages) {
 
   if (hud.canvasWidth <= 0 || hud.canvasHeight <= 0) {
     throw new Error(`Canvas has invalid dimensions: ${hud.canvasWidth}x${hud.canvasHeight}`);
+  }
+}
+
+function assertTerrainDebug(debug, label) {
+  if (!debug.hasDebug) {
+    throw new Error(`${label} debug API is unavailable.`);
+  }
+
+  if (debug.loadedChunkKeys.length === 0) {
+    throw new Error(`${label} has no loaded terrain chunks: ${JSON.stringify(debug)}`);
+  }
+
+  if (debug.renderChunkKeys.length === 0) {
+    throw new Error(`${label} has no rendered terrain chunks: ${JSON.stringify(debug)}`);
+  }
+
+  if (debug.renderChunkKeys.length !== expectedRenderChunkCount) {
+    throw new Error(
+      `${label} rendered ${debug.renderChunkKeys.length} terrain chunks; ` +
+      `expected ${expectedRenderChunkCount}: ${JSON.stringify(debug)}`
+    );
+  }
+}
+
+function assertTerrainStreamed(initialTerrain, streamedTerrain) {
+  if (initialTerrain.loadedChunkKeys.join("|") === streamedTerrain.loadedChunkKeys.join("|")) {
+    throw new Error(
+      `Terrain chunk keys did not change after moving player: ` +
+      `${JSON.stringify({ initialTerrain, streamedTerrain })}`
+    );
+  }
+
+  if (!streamedTerrain.loadedChunkKeys.includes("3,0,0")) {
+    throw new Error(
+      `Terrain did not stream the expected destination chunk: ${JSON.stringify(streamedTerrain)}`
+    );
   }
 }
 

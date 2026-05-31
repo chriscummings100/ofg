@@ -48,10 +48,7 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
   let viewDirection = normalize(camera.eyeWorld.xyz - input.worldPosition);
-  var normal = normalize(input.worldNormal);
-  if (dot(normal, viewDirection) < 0.0) {
-    normal = -normal;
-  }
+  let normal = normalize(input.worldNormal);
 
   let lightDirection = normalize(camera.sunDirectionAndIntensity.xyz);
   let halfDirection = normalize(lightDirection + viewDirection);

@@ -39,9 +39,12 @@ src/engine/render/
 
 src/game/components/
   PlayerController.ts
+  TerrainChunkStreamer.ts
 
 src/engine/world/
+  simplexNoise3D.ts
   terrainChunk.ts
+  terrainChunkMesher.ts
 ```
 
 ## Global Scene API
@@ -312,6 +315,19 @@ Implementation:
 
 ### Terrain Density Chunks
 
+The current seed `TerrainField` is an implicit density field. Low-frequency x/z
+noise produces a broad preferred surface height, and octave 3D simplex noise adds
+density detail:
+
+```text
+density(p) = p.y - largeFeatureHeight(p.x, p.z) - detail3D(p) * amplitude
+```
+
+The simplex module returns both values and analytic gradients; the seed field uses
+the density gradient for smooth normals. `heightAt(x, z)` remains available for the
+temporary player grounding path by scanning the density column for the highest zero
+crossing.
+
 ```ts
 const TERRAIN_CHUNK_CELLS_PER_AXIS = 32;
 const TERRAIN_CHUNK_SAMPLES_PER_AXIS = 33;
@@ -339,6 +355,60 @@ Rules:
 - Baseline generation samples a `TerrainDensitySource`.
 - Terrain edits apply after the baseline density. The first edit operation is a
   subtract-sphere edit for cave/mining-style cuts.
+
+### Highest-Surface Chunk Meshing
+
+```ts
+function findHighestSurfaceInColumn(
+  chunk: TerrainDensityChunk,
+  x: number,
+  z: number
+): number | undefined;
+
+function meshChunkHighestSurface(chunk: TerrainDensityChunk): MeshData;
+function meshChunkHighestSurfaceStack(chunks: readonly TerrainDensityChunk[]): MeshData;
+```
+
+Current role:
+
+- Provide a small, testable meshing bridge before Dual Contouring exists.
+- Scan density columns from top to bottom and interpolate the first solid-to-air
+  crossing.
+- Mesh a vertical stack as one x/z render column so surfaces can cross density
+  chunk y boundaries without visible holes.
+- Emit the same position/color/normal/uv layout used by regular terrain meshes.
+
+Non-goals:
+
+- This is not the final voxel mesher.
+- It does not represent overhangs or caves; lower surfaces in a column are ignored.
+
+### TerrainChunkStreamer
+
+```ts
+class TerrainChunkStreamer extends Component {
+  terrain: TerrainRenderer;
+  source: TerrainDensitySource;
+  target?: Entity;
+  material?: ResourceId;
+  horizontalRadius: number;
+  verticalChunkOffsets: readonly number[];
+  cellSize: number;
+
+  syncAround(center: Vec3): void;
+  rebuildChunk(chunk: TerrainChunkKey | TerrainChunkCoord): void;
+  invalidateAll(): void;
+  getLoadedChunkKeys(): string[];
+}
+```
+
+Responsibilities:
+
+- Keep a square x/z neighborhood of density chunks loaded around a target position.
+- Generate density chunks from the source and mesh each x/z column through the
+  configured vertical chunk-offset stack centered on the target chunk y coordinate.
+- Add and remove visible render chunks through `TerrainRenderer`.
+- Remain deterministic and easy to test without WebGPU.
 
 ### RenderWorld
 
@@ -466,6 +536,38 @@ Implementation note:
 - `applies subtract sphere edits after baseline density`
 - `generates chunks with edits applied on top of the baseline`
 
+### `src/engine/world/simplexNoise3D.test.ts`
+
+- `returns deterministic values for a seed`
+- `uses the seed to choose a different gradient lattice`
+- `reports analytic gradients that match finite differences`
+- `combines octaves while keeping gradients in input coordinate space`
+
+### `src/engine/world/scalarField.test.ts`
+
+- `reports zero density on the terrain surface`
+- `uses deterministic noise terrain with useful height variation`
+- `uses 3D detail noise inside the density field`
+- `returns normals that point from solid toward air`
+
+### `src/engine/world/terrainChunkMesher.test.ts`
+
+- `finds an interpolated highest surface in a density column`
+- `meshes a flat chunk surface with shared vertices and full cell coverage`
+- `skips cells whose corners have no surface`
+- `meshes a complete surface across a vertical stack of density chunks`
+- `writes sloped normals from neighboring surface heights`
+
+### `src/game/components/TerrainChunkStreamer.test.ts`
+
+- `generates a render chunk around the target entity`
+- `generates square xz neighborhoods for every requested vertical chunk offset`
+- `centers vertical chunk offsets on the target y coordinate`
+- `moves the loaded chunk window as the target crosses chunk boundaries`
+- `skips render chunks with no surface while remembering they were loaded`
+- `can rebuild an already loaded chunk`
+- `updates from scene traversal when attached as a component`
+
 ### `src/engine/render/SceneRenderExtractor.test.ts`
 
 - `builds a render world from the active scene`
@@ -484,9 +586,9 @@ Implementation note:
 
 ## Implementation Phases
 
-Status: Phases 1 through 5 have an initial implementation. The next graphics-facing
-work is to expand material data that the uber shader can consume, or replace the
-WGSL source step with Slang output.
+Status: Phases 1 through 6 have an initial implementation. The next terrain-facing
+work is to move from highest-surface meshing toward a tested voxel mesher, with
+Dual Contouring as the intended destination.
 
 ### Phase 1: Scene Core
 
@@ -560,6 +662,29 @@ Done when:
 - Shader source is no longer embedded in `WebGpuRenderer`.
 - Shader build output is committed or generated deterministically.
 - A test or script verifies shader artifacts can be produced.
+
+### Phase 6: Chunk Meshing And Streaming
+
+Add a minimal terrain mesher and a scene component that streams chunk columns around
+the player.
+
+Implemented notes:
+
+- `TerrainDensityChunk` stores 33x33x33 samples for 32x32x32 chunk cells.
+- `terrainChunkMesher` finds the highest surface in each x/z column and emits a
+  shared-vertex render mesh.
+- `meshChunkHighestSurfaceStack()` meshes a vertical density stack into one render
+  chunk to avoid y-boundary gaps in the temporary height-style surface.
+- `TerrainChunkStreamer` follows a target entity, generates density chunks on
+  demand, and updates the `TerrainRenderer` chunk list.
+- Browser smoke moves the player across chunk columns and verifies streamed chunk
+  keys before taking a third screenshot.
+
+Done when:
+
+- Chunk and mesher unit tests pass.
+- Streamer tests cover movement, rebuild, invalidation, and no-surface chunks.
+- Browser smoke verifies terrain still renders after a chunk-window move.
 
 ## Constraints
 
