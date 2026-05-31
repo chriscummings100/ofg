@@ -268,6 +268,7 @@ Initial renderer support:
 - Vertex color is treated as mesh albedo input.
 - `albedoFactor` and optional `albedoTexture` multiply vertex color.
 - `specular` and `specularFactor` feed a simple Blinn-Phong highlight.
+- Terrain materials can enable triplanar albedo sampling with a texture scale.
 - Texture resources remain CPU-side descriptions; the WebGPU renderer owns upload
   and sampler state.
 
@@ -722,10 +723,10 @@ Done when:
 - `npm test` passes.
 - Browser smoke test exists or is created in the same phase.
 
-### Phase 5: Shader Build Boundary
+### Phase 5: WGSL Shader Build Boundary
 
 Before adding richer materials or more render component types, add the shader source
-boundary for a single uber shader and prepare the Slang build path.
+boundary for a single WGSL uber shader.
 
 Implemented notes:
 

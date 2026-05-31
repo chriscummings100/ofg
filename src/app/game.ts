@@ -2,12 +2,12 @@ import { InputTracker } from "../engine/input/inputTracker.js";
 import { quatFromYawPitch } from "../engine/math/quat.js";
 import { vec3 } from "../engine/math/vec3.js";
 import { vec4 } from "../engine/math/vec4.js";
-import { Material } from "../engine/render/Material.js";
+import { MATERIAL_FLAG_TRIPLANAR_ALBEDO, Material } from "../engine/render/Material.js";
 import { Mesh } from "../engine/render/Mesh.js";
 import { MeshRenderer } from "../engine/render/MeshRenderer.js";
 import { SceneRenderExtractor } from "../engine/render/SceneRenderExtractor.js";
 import { TerrainRenderer } from "../engine/render/TerrainRenderer.js";
-import { Texture } from "../engine/render/Texture.js";
+import { loadTerrainAlbedoTexture } from "../engine/render/terrainTextures.js";
 import { WebGpuRenderer } from "../engine/render/webgpuRenderer.js";
 import { createDirectionalLight } from "../engine/render/Lighting.js";
 import { createScene } from "../engine/scene/activeScene.js";
@@ -58,14 +58,14 @@ export async function startGame(elements: GameElements): Promise<void> {
     "mesh:player.marker",
     createBoxMesh(vec3(0, 0.9, 0), vec3(0.28, 0.9, 0.22), vec3(0.96, 0.7, 0.24))
   );
-  const terrainAlbedo = new Texture("texture:terrain.albedo", 1, 1, "rgba8unorm", {
-    data: new Uint8Array([255, 255, 255, 255])
-  });
+  const terrainAlbedo = await loadTerrainAlbedoTexture();
   const terrainMaterial = new Material("material:terrain.seed", {
     albedoTexture: terrainAlbedo.id,
     albedoFactor: vec4(1, 1, 1, 1),
     specular: vec3(0.55, 0.58, 0.52),
-    specularFactor: 0.04
+    specularFactor: 0.04,
+    flags: MATERIAL_FLAG_TRIPLANAR_ALBEDO,
+    textureScale: 0.08
   });
   const playerMarkerMaterial = new Material("material:player.marker", {
     albedoFactor: vec4(1, 1, 1, 1),

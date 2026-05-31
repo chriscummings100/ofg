@@ -35,7 +35,7 @@ automatable so AI agents can make changes with confidence.
 - Chunk mesh upload and reuse.
 - GPU-side material IDs and simple lighting.
 - Frustum-aware chunk visibility.
-- Shader build boundary ready for Slang-generated WGSL/SPIR-V outputs.
+- Plain WGSL shader artifacts with tests for renderer contracts.
 
 ## Milestone 4: Factory Toy Loop
 

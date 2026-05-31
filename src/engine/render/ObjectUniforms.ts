@@ -3,10 +3,11 @@ import {
   DEFAULT_ALBEDO_FACTOR,
   DEFAULT_SPECULAR,
   DEFAULT_SPECULAR_FACTOR,
+  DEFAULT_TEXTURE_SCALE,
   type Material
 } from "./Material.js";
 
-export const OBJECT_UNIFORM_FLOATS = 40;
+export const OBJECT_UNIFORM_FLOATS = 44;
 export const OBJECT_UNIFORM_BYTES = OBJECT_UNIFORM_FLOATS * Float32Array.BYTES_PER_ELEMENT;
 
 export function buildObjectUniformValues(
@@ -17,6 +18,8 @@ export function buildObjectUniformValues(
   const albedo = material?.albedoFactor ?? DEFAULT_ALBEDO_FACTOR;
   const specular = material?.specular ?? DEFAULT_SPECULAR;
   const specularFactor = material?.specularFactor ?? DEFAULT_SPECULAR_FACTOR;
+  const flags = material?.flags ?? 0;
+  const textureScale = material?.textureScale ?? DEFAULT_TEXTURE_SCALE;
   const normalMatrix = transposeMat4(inverseMat4(worldMatrix));
 
   target.set(worldMatrix, 0);
@@ -29,6 +32,10 @@ export function buildObjectUniformValues(
   target[37] = specular.y;
   target[38] = specular.z;
   target[39] = specularFactor;
+  target[40] = flags;
+  target[41] = textureScale;
+  target[42] = 0;
+  target[43] = 0;
 
   return target;
 }

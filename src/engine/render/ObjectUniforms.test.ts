@@ -12,8 +12,8 @@ describe("ObjectUniforms", () => {
 
     const values = buildObjectUniformValues(world);
 
-    equal(OBJECT_UNIFORM_FLOATS, 40);
-    equal(OBJECT_UNIFORM_BYTES, 160);
+    equal(OBJECT_UNIFORM_FLOATS, 44);
+    equal(OBJECT_UNIFORM_BYTES, 176);
     equal(values[12], 3);
     equal(values[16], 1);
     equal(values[21], 1);
@@ -26,13 +26,19 @@ describe("ObjectUniforms", () => {
     equal(values[37], 1);
     equal(values[38], 1);
     ok(Math.abs(values[39] - 0.18) < 1e-6);
+    equal(values[40], 0);
+    equal(values[41], 1);
+    equal(values[42], 0);
+    equal(values[43], 0);
   });
 
   it("packs material albedo and specular values", () => {
     const material = new Material("material:test", {
       albedoFactor: vec4(0.25, 0.5, 0.75, 1),
       specular: vec3(0.9, 0.8, 0.7),
-      specularFactor: 0.35
+      specularFactor: 0.35,
+      flags: 3,
+      textureScale: 0.125
     });
 
     const values = buildObjectUniformValues(identityMat4(), material);
@@ -45,6 +51,8 @@ describe("ObjectUniforms", () => {
     ok(Math.abs(values[37] - 0.8) < 1e-6);
     ok(Math.abs(values[38] - 0.7) < 1e-6);
     ok(Math.abs(values[39] - 0.35) < 1e-6);
+    equal(values[40], 3);
+    equal(values[41], 0.125);
   });
 
   it("packs an inverse-transpose normal matrix", () => {

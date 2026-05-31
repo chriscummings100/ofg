@@ -1,7 +1,7 @@
-import { equal } from "node:assert/strict";
+import { equal, throws } from "node:assert/strict";
 import { vec3 } from "../math/vec3.js";
 import { vec4 } from "../math/vec4.js";
-import { Material } from "./Material.js";
+import { MATERIAL_FLAG_TRIPLANAR_ALBEDO, Material } from "./Material.js";
 
 describe("Material", () => {
   it("stores basic material properties", () => {
@@ -12,7 +12,8 @@ describe("Material", () => {
       albedoTexture: "texture:albedo",
       specular,
       specularFactor: 0.42,
-      flags: 7
+      flags: MATERIAL_FLAG_TRIPLANAR_ALBEDO,
+      textureScale: 0.125
     });
 
     equal(material.id, "material:test");
@@ -20,7 +21,8 @@ describe("Material", () => {
     equal(material.albedoTexture, "texture:albedo");
     equal(material.specular, specular);
     equal(material.specularFactor, 0.42);
-    equal(material.flags, 7);
+    equal(material.flags, MATERIAL_FLAG_TRIPLANAR_ALBEDO);
+    equal(material.textureScale, 0.125);
   });
 
   it("uses useful lighting defaults", () => {
@@ -36,6 +38,7 @@ describe("Material", () => {
     equal(material.specular.z, 1);
     equal(material.specularFactor, 0.18);
     equal(material.flags, 0);
+    equal(material.textureScale, 1);
   });
 
   it("allows albedo texture assignment to change", () => {
@@ -44,5 +47,9 @@ describe("Material", () => {
     material.albedoTexture = "texture:second";
 
     equal(material.albedoTexture, "texture:second");
+  });
+
+  it("rejects invalid texture scales", () => {
+    throws(() => new Material("material:test", { textureScale: 0 }), /textureScale/);
   });
 });

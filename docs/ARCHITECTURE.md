@@ -127,16 +127,20 @@ Shader source sits behind `tools/build-shaders.mjs`. The current input is
 `src/engine/render/shaders/uber.wgsl`, and the generated runtime artifact is
 `src/generated/render/uberShader.ts`.
 
-The renderer imports shader source and entry-point metadata from the generated
-artifact rather than embedding shader text. This keeps the current WGSL path simple
-while leaving one clear build boundary for Slang-generated WGSL or SPIR-V outputs
-later.
+The renderer imports WGSL source and entry-point metadata from the generated
+artifact rather than embedding shader text. WGSL is the intended shader language
+for this project because it is browser-native, direct, and familiar enough for
+AI-driven changes.
 
 The first material model is intentionally pre-PBR: mesh vertex color multiplied by
 an albedo factor and optional albedo texture sample, plus specular color and
 specular factor. The shader uses a simple Lambert diffuse plus Blinn-Phong specular
 model. `Texture` stores CPU-side rgba8 data that the WebGPU renderer uploads into
 GPU-owned texture resources.
+
+Terrain uses a checked-in albedo PNG atlas with grass, rock, and soil tiles.
+Terrain materials opt into world-space triplanar sampling through a material flag
+and texture scale, so steep slopes and vertical faces do not depend on mesh UVs.
 
 The sky is also shader-driven. `WebGpuRenderer` draws a full-screen sky pass before
 scene geometry, reconstructs world rays from the inverse view-projection matrix, and

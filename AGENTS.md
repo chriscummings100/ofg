@@ -167,8 +167,8 @@ important.
 - Keep WebGPU details behind render-facing boundaries.
 - Do not introduce a full ECS.
 - Do not migrate to Rust/WASM until TypeScript contracts are stable and tested.
-- Keep shader work behind `tools/build-shaders.mjs` so the Slang build path can
-  replace the current WGSL source step cleanly.
+- Keep shader work in plain WGSL behind `tools/build-shaders.mjs`. Do not introduce
+  alternate shader languages unless the project direction changes again.
 
 ## Git Notes
 

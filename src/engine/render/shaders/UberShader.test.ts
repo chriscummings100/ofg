@@ -34,11 +34,22 @@ describe("uber shader build", () => {
     ok(UBER_SHADER_SOURCE.includes("sunColorAndAmbient: vec4<f32>"));
     ok(UBER_SHADER_SOURCE.includes("albedoFactor: vec4<f32>"));
     ok(UBER_SHADER_SOURCE.includes("specularAndFactor: vec4<f32>"));
+    ok(UBER_SHADER_SOURCE.includes("textureOptions: vec4<f32>"));
     ok(UBER_SHADER_SOURCE.includes("normalWorld: mat4x4<f32>"));
     ok(UBER_SHADER_SOURCE.includes("var albedoTexture: texture_2d<f32>"));
-    ok(UBER_SHADER_SOURCE.includes("textureSample(albedoTexture, albedoSampler, input.uv)"));
+    ok(UBER_SHADER_SOURCE.includes("fn sampleAlbedo"));
+    ok(UBER_SHADER_SOURCE.includes("textureSample(albedoTexture, albedoSampler"));
     ok(UBER_SHADER_SOURCE.includes("input.worldNormal"));
     ok(UBER_SHADER_SOURCE.includes("pow(max(dot(normal, halfDirection), 0.0), 32.0)"));
+  });
+
+  it("contains the triplanar terrain sampling contract", () => {
+    ok(UBER_SHADER_SOURCE.includes("MATERIAL_FLAG_TRIPLANAR_ALBEDO"));
+    ok(UBER_SHADER_SOURCE.includes("fn sampleTriplanarTerrainTile"));
+    ok(UBER_SHADER_SOURCE.includes("worldPosition.zy * textureScale"));
+    ok(UBER_SHADER_SOURCE.includes("worldPosition.xz * textureScale"));
+    ok(UBER_SHADER_SOURCE.includes("worldPosition.xy * textureScale"));
+    ok(UBER_SHADER_SOURCE.includes("smoothstep(0.42, 0.74, slope)"));
   });
 
   it("does not flip lighting normals based on the camera view", () => {
