@@ -4,6 +4,7 @@ import { vec3 } from "../math/vec3.js";
 import { vec4 } from "../math/vec4.js";
 import { resetScene } from "../scene/activeScene.js";
 import { createSeedTerrainField } from "../world/scalarField.js";
+import { terrainChunkCoord, terrainChunkKey } from "../world/terrainChunk.js";
 import { Material } from "./Material.js";
 import { Mesh } from "./Mesh.js";
 import { TerrainRenderer } from "./TerrainRenderer.js";
@@ -95,6 +96,74 @@ describe("TerrainRenderer", () => {
     equal(items[1].mesh, secondMesh);
     equal(items[1].material, material);
     equal(items[1].worldMatrix[12], 32);
+  });
+
+  it("adds and replaces chunks by key", () => {
+    const terrain = new TerrainRenderer(createSeedTerrainField());
+    const first = { key: "0,0,0", mesh: createMesh("mesh:first") };
+    const second = { key: "1,0,0", mesh: createMesh("mesh:second") };
+    const replacement = { key: "0,0,0", mesh: createMesh("mesh:replacement") };
+
+    terrain.addChunk(first);
+    terrain.addChunk(second);
+    terrain.addChunk(replacement);
+
+    equal(terrain.chunks.length, 2);
+    equal(terrain.getChunk("0,0,0"), replacement);
+    equal(terrain.chunks[0], replacement);
+    equal(terrain.chunks[1], second);
+  });
+
+  it("does not retain ownership of the constructor chunk array", () => {
+    const first = { key: "0,0,0", mesh: createMesh("mesh:first") };
+    const second = { key: "1,0,0", mesh: createMesh("mesh:second") };
+    const chunks = [first];
+
+    const terrain = new TerrainRenderer(createSeedTerrainField(), chunks);
+    chunks.push(second);
+
+    equal(terrain.chunks.length, 1);
+    equal(terrain.chunks[0], first);
+  });
+
+  it("finds and removes chunks by 3D chunk coordinates", () => {
+    const coord = terrainChunkCoord(1, -2, 3);
+    const key = terrainChunkKey(coord);
+    const chunk = { key, mesh: createMesh("mesh:terrain") };
+    const terrain = new TerrainRenderer(createSeedTerrainField(), [chunk]);
+
+    equal(terrain.getChunk(coord), chunk);
+    equal(terrain.removeChunk(coord), true);
+    equal(terrain.removeChunk(coord), false);
+    equal(terrain.chunks.length, 0);
+  });
+
+  it("returns undefined for missing chunks", () => {
+    const terrain = new TerrainRenderer(createSeedTerrainField());
+
+    equal(terrain.getChunk("9,9,9"), undefined);
+    equal(terrain.rebuildChunk(terrainChunkCoord(9, 9, 9)), undefined);
+  });
+
+  it("replaces the full chunk list without retaining external array ownership", () => {
+    const first = { key: "0,0,0", mesh: createMesh("mesh:first") };
+    const second = { key: "1,0,0", mesh: createMesh("mesh:second") };
+    const chunks = [first];
+    const terrain = new TerrainRenderer(createSeedTerrainField());
+
+    terrain.setChunks(chunks);
+    chunks.push(second);
+
+    equal(terrain.chunks.length, 1);
+    equal(terrain.chunks[0], first);
+  });
+
+  it("returns the current chunk from rebuildChunk until meshing is wired in", () => {
+    const coord = terrainChunkCoord(0, 0, 1);
+    const chunk = { key: terrainChunkKey(coord), mesh: createMesh("mesh:terrain") };
+    const terrain = new TerrainRenderer(createSeedTerrainField(), [chunk]);
+
+    equal(terrain.rebuildChunk(coord), chunk);
   });
 
   it("resolves terrain albedo textures from scene resources", () => {

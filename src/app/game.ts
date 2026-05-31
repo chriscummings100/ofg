@@ -14,6 +14,7 @@ import { createScene } from "../engine/scene/activeScene.js";
 import type { Entity } from "../engine/scene/Entity.js";
 import { createBoxMesh } from "../engine/world/primitiveMesh.js";
 import { createSeedTerrainField } from "../engine/world/scalarField.js";
+import { terrainChunkCoord, terrainChunkKey } from "../engine/world/terrainChunk.js";
 import {
   buildHeightfieldMesh,
   getFloatsPerVertex,
@@ -87,7 +88,11 @@ export async function startGame(elements: GameElements): Promise<void> {
   scene.resources.addMaterial(playerMarkerMaterial);
   terrainEntity.addComponent(new TerrainRenderer(
     field,
-    [{ key: "seed", mesh: terrain, material: terrainMaterial.id }]
+    [{
+      key: terrainChunkKey(terrainChunkCoord(0, 0, 0)),
+      mesh: terrain,
+      material: terrainMaterial.id
+    }]
   ));
   playerEntity.transform.setPosition(vec3(0, field.heightAt(0, 0), 0));
   const playerController = playerEntity.addComponent(new PlayerController());

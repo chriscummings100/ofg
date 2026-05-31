@@ -1,8 +1,8 @@
 import { vec3, type Vec3 } from "../math/vec3.js";
+import type { TerrainDensitySource } from "./terrainChunk.js";
 
-export type TerrainField = {
+export type TerrainField = TerrainDensitySource & {
   readonly heightAt: (x: number, z: number) => number;
-  readonly densityAt: (position: Vec3) => number;
   readonly normalAt: (x: number, z: number) => Vec3;
 };
 

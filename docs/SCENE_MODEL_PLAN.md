@@ -39,6 +39,9 @@ src/engine/render/
 
 src/game/components/
   PlayerController.ts
+
+src/engine/world/
+  terrainChunk.ts
 ```
 
 ## Global Scene API
@@ -291,16 +294,51 @@ class TerrainRenderer extends Component {
 
   heightAt(x: number, z: number): number;
   densityAt(position: Vec3): number;
-  rebuildChunk(chunkKey: ChunkKey): void;
+  addChunk(chunk: TerrainChunk): void;
+  getChunk(chunk: ChunkKey | TerrainChunkCoord): TerrainChunk | undefined;
+  removeChunk(chunk: ChunkKey | TerrainChunkCoord): boolean;
+  setChunks(chunks: TerrainChunk[]): void;
+  rebuildChunk(chunkKey: ChunkKey | TerrainChunkCoord): TerrainChunk | undefined;
   getRenderItems(): RenderItem[];
 }
 ```
 
-Initial implementation:
+Implementation:
 
 - Wrap the current seed heightfield mesh.
 - Expose `heightAt()` and `densityAt()`.
+- Track render chunks by stable 3D terrain chunk keys.
 - Later, this becomes the boundary for chunked Dual Contouring terrain.
+
+### Terrain Density Chunks
+
+```ts
+const TERRAIN_CHUNK_CELLS_PER_AXIS = 32;
+const TERRAIN_CHUNK_SAMPLES_PER_AXIS = 33;
+
+type TerrainChunkCoord = { x: number; y: number; z: number };
+type TerrainDensitySource = { densityAt(position: Vec3): number };
+
+class TerrainDensityChunk {
+  readonly coord: TerrainChunkCoord;
+  readonly key: TerrainChunkKey;
+  readonly cellSize: number;
+  readonly densities: Float32Array;
+
+  densityAtSample(sample: TerrainChunkSampleCoord): number;
+  setDensityAtSample(sample: TerrainChunkSampleCoord, density: number): void;
+  samplePosition(sample: TerrainChunkSampleCoord): Vec3;
+  bounds(): TerrainChunkBounds;
+}
+```
+
+Rules:
+
+- Chunks are fully 3D, with 32x32x32 cells and 33x33x33 density samples.
+- Adjacent chunks share seam positions by construction.
+- Baseline generation samples a `TerrainDensitySource`.
+- Terrain edits apply after the baseline density. The first edit operation is a
+  subtract-sphere edit for cave/mining-style cuts.
 
 ### RenderWorld
 
@@ -417,6 +455,16 @@ Implementation note:
 - `registers itself as scene terrain when attached`
 - `clears scene terrain when detached`
 - `emits terrain render items`
+- `adds and replaces chunks by key`
+- `finds and removes chunks by 3D chunk coordinates`
+
+### `src/engine/world/terrainChunk.test.ts`
+
+- `uses 32 cells and 33 samples per axis`
+- `creates stable chunk keys that support negative coordinates`
+- `samples adjacent chunks with matching seam densities`
+- `applies subtract sphere edits after baseline density`
+- `generates chunks with edits applied on top of the baseline`
 
 ### `src/engine/render/SceneRenderExtractor.test.ts`
 

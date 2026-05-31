@@ -18,7 +18,8 @@ src/engine/input
   DOM input tracking with edge-triggered key events and mouse deltas.
 
 src/engine/world
-  Deterministic terrain field and mesh generation.
+  Deterministic terrain fields, 3D density chunks, terrain edits, and mesh
+  generation.
 
 src/engine/math
   Small vector and matrix primitives.
@@ -63,13 +64,20 @@ The detailed API and next rollout steps are tracked in
 
 ## Terrain Direction
 
-The seed terrain is a heightfield, not voxel Dual Contouring. It exists to prove the
-rendering, controls, and test workflow before adding the harder terrain system.
+The visible seed terrain is still a heightfield, not voxel Dual Contouring. It
+exists to prove the rendering, controls, and test workflow before adding the harder
+terrain system.
+
+The terrain data model is 3D from the start. A terrain density chunk has 32 cells
+per axis and 33 samples per axis, so adjacent chunks share boundary samples cleanly.
+Baseline generation samples any `TerrainDensitySource`, and edits are applied on
+top. The first edit operation is subtracting a sphere, which turns solid density
+into air inside the sphere and sets up cave/mining-style operations.
 
 The intended Dual Contouring boundary is:
 
 - Density field interface: sample signed density and material at world positions.
-- Chunk sampler: evaluate density at deterministic chunk lattice points.
+- Chunk sampler: evaluate density at deterministic 33x33x33 chunk lattice points.
 - Mesher: produce compact vertex/index/material buffers with smooth normals.
 - Renderer: upload chunk meshes without knowing how they were generated.
 

@@ -66,8 +66,9 @@ src/engine/input
   DOM input tracker for keys, edge-triggered presses, pointer-lock mouse deltas.
 
 src/engine/world
-  Seed terrain scalar field, heightfield mesh generation, primitive box mesh.
-  Runtime meshes currently use position/color/normal/uv vertex data.
+  Seed terrain scalar field, 3D density chunk model, heightfield mesh generation,
+  primitive box mesh. Runtime meshes currently use position/color/normal/uv vertex
+  data.
 
 src/engine/scene
   Global Scene, Entity tree, Component lifecycle, Transform hierarchy,
@@ -128,7 +129,8 @@ Current test areas include:
   render extraction.
 - Shader boundary: generated shader source artifact metadata and vertex layout
   contract.
-- World mesh generation: heightfield and primitive meshes.
+- World terrain: 3D density chunks, baseline field sampling, terrain edits,
+  heightfield and primitive meshes.
 - Gameplay/input: player controller and input tracker.
 - Browser smoke: actual Chrome/Edge WebGPU render, screenshots, pixel checks, HUD
   and camera toggle verification.
