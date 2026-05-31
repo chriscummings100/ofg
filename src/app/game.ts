@@ -12,6 +12,10 @@ import { WebGpuRenderer } from "../engine/render/webgpuRenderer.js";
 import { createDirectionalLight } from "../engine/render/Lighting.js";
 import { createScene } from "../engine/scene/activeScene.js";
 import type { Entity } from "../engine/scene/Entity.js";
+import {
+  isTerrainDebugOverlayMode,
+  type TerrainDebugOverlayState
+} from "../engine/world/terrainDebugOverlay.js";
 import { TerrainChunkStreamer } from "../game/components/TerrainChunkStreamer.js";
 import { createBoxMesh } from "../engine/world/primitiveMesh.js";
 import { EditableTerrainDensitySource } from "../engine/world/terrainChunk.js";
@@ -31,9 +35,11 @@ import {
   type PlayerMovementIntent,
   type TransformSnapshot
 } from "../game/components/PlayerController.js";
+import { TerrainDebugOverlayView } from "./terrainDebugOverlayView.js";
 
 type GameElements = {
   readonly canvas: HTMLCanvasElement;
+  readonly terrainDebugOverlay: HTMLCanvasElement;
   readonly cameraMode: HTMLElement;
   readonly frameTime: HTMLElement;
 };
@@ -44,6 +50,9 @@ declare global {
       getLoadedTerrainChunkKeys: () => string[];
       getTerrainChunkKeys: () => string[];
       getTerrainPreset: () => TerrainPresetId;
+      getTerrainDebugOverlayMode: () => TerrainDebugOverlayState;
+      setTerrainDebugOverlayMode: (mode: TerrainDebugOverlayState) => void;
+      cycleTerrainDebugOverlayMode: () => TerrainDebugOverlayState;
       setPlayerPosition: (x: number, z: number) => void;
     };
   }
@@ -55,6 +64,10 @@ export async function startGame(elements: GameElements): Promise<void> {
   const input = new InputTracker();
   const descriptor = readWorldDescriptor();
   const field = createTerrainGenerator(descriptor);
+  const terrainDebugOverlay = new TerrainDebugOverlayView(
+    elements.terrainDebugOverlay,
+    readTerrainDebugOverlayState()
+  );
   const terrainSource = new EditableTerrainDensitySource(field);
   scene.mainLight = createDirectionalLight({
     direction: vec3(0.89, 0.25, 0.38),
@@ -121,10 +134,21 @@ export async function startGame(elements: GameElements): Promise<void> {
     getLoadedTerrainChunkKeys: () => terrainStreamer.getLoadedChunkKeys(),
     getTerrainChunkKeys: () => terrainRenderer.chunks.map((chunk) => chunk.key).sort(),
     getTerrainPreset: () => descriptor.terrainPreset,
+    getTerrainDebugOverlayMode: () => terrainDebugOverlay.getState(),
+    setTerrainDebugOverlayMode(mode) {
+      terrainDebugOverlay.setState(validateTerrainDebugOverlayState(mode));
+      terrainDebugOverlay.render(field, playerEntity.transform.getWorldPosition());
+    },
+    cycleTerrainDebugOverlayMode() {
+      const mode = terrainDebugOverlay.cycleState();
+      terrainDebugOverlay.render(field, playerEntity.transform.getWorldPosition());
+      return mode;
+    },
     setPlayerPosition(x, z) {
       playerEntity.transform.setPosition(vec3(x, field.heightAt(x, z), z));
       terrainStreamer.syncAround(playerEntity.transform.getWorldPosition());
       syncCameraEntity(cameraEntity, playerController.getEyeTransform());
+      terrainDebugOverlay.render(field, playerEntity.transform.getWorldPosition());
     }
   };
 
@@ -141,6 +165,10 @@ export async function startGame(elements: GameElements): Promise<void> {
       playerController.toggleCameraMode();
     }
 
+    if (input.consumePress("F2")) {
+      terrainDebugOverlay.cycleState();
+    }
+
     const snapshot = input.consumeFrameSnapshot();
     const intent = readMovementIntent(input, snapshot.mouseDeltaX, snapshot.mouseDeltaY);
 
@@ -149,6 +177,7 @@ export async function startGame(elements: GameElements): Promise<void> {
     terrainStreamer.syncAround(playerEntity.transform.getWorldPosition());
     markerRenderer.visible = playerController.mode === "debugFly";
     syncCameraEntity(cameraEntity, playerController.getEyeTransform());
+    terrainDebugOverlay.update(deltaSeconds, field, playerEntity.transform.getWorldPosition());
 
     renderer.render(SceneRenderExtractor.buildRenderWorld(renderer.getAspectRatio()));
 
@@ -184,6 +213,30 @@ function readTerrainPreset(value: string | null): TerrainPresetId | undefined {
 
   console.warn(`Unknown terrain preset '${value}', using the default preset.`);
   return undefined;
+}
+
+function readTerrainDebugOverlayState(): TerrainDebugOverlayState {
+  const params = new URLSearchParams(window.location.search);
+  const value = params.get("terrainDebug");
+
+  if (value === null || value.trim() === "" || value === "off") {
+    return "off";
+  }
+
+  if (isTerrainDebugOverlayMode(value)) {
+    return value;
+  }
+
+  console.warn(`Unknown terrain debug overlay '${value}', hiding the debug overlay.`);
+  return "off";
+}
+
+function validateTerrainDebugOverlayState(mode: string): TerrainDebugOverlayState {
+  if (mode === "off" || isTerrainDebugOverlayMode(mode)) {
+    return mode;
+  }
+
+  throw new Error(`Unknown terrain debug overlay '${mode}'.`);
 }
 
 function meshFromData(id: string, data: MeshData): Mesh {

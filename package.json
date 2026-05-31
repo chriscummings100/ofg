@@ -11,6 +11,7 @@
     "test": "npm run build && mocha \"dist/**/*.test.js\"",
     "dev": "npm run build && node tools/dev-server.mjs",
     "smoke:browser": "npm run build && node tools/browser-smoke.mjs",
+    "smoke:terrain-debug": "npm run build && node tools/terrain-debug-smoke.mjs",
     "smoke:terrain-presets": "npm run build && node tools/terrain-preset-smoke.mjs",
     "watch": "npm run build:shaders && tsc -p tsconfig.json --watch"
   },

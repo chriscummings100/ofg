@@ -244,7 +244,7 @@ Progress notes:
 
 | Date | Status | Notes |
 |---|---|---|
-| | Not started | |
+| 2026-05-31 | In progress | Added a CPU-built debug overlay pipeline with browser canvas display, `F2` cycling, `?terrainDebug=` startup selection, and debug API controls. Current overlay modes: macro elevation, mountainness, slope, normal, density slice, material weights, and chunk borders. Added unit coverage and `npm run smoke:terrain-debug`; `npm test`, terrain debug smoke, and browser smoke pass. Remaining work: QEF/error overlays, biome-specific overlays once biome solver exists, hydrology/wetness/cave overlays once those systems exist, and fuller in-app controls. |
 
 ## Milestone 4: Dual Contouring Hardening
 

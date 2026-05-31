@@ -28,6 +28,20 @@ body {
   outline: none;
 }
 
+#terrain-debug-overlay {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 256px;
+  height: 256px;
+  border: 1px solid rgb(242 238 230 / 42%);
+  border-radius: 6px;
+  background: #121614;
+  box-shadow: 0 14px 34px rgb(0 0 0 / 34%);
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
 #hud {
   position: fixed;
   top: 14px;
