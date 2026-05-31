@@ -32,6 +32,7 @@ import {
 } from "../engine/world/terrainMesh.js";
 import {
   PlayerController,
+  type PlayerMode,
   type PlayerMovementIntent,
   type TransformSnapshot
 } from "../game/components/PlayerController.js";
@@ -53,6 +54,9 @@ declare global {
       getTerrainDebugOverlayMode: () => TerrainDebugOverlayState;
       setTerrainDebugOverlayMode: (mode: TerrainDebugOverlayState) => void;
       cycleTerrainDebugOverlayMode: () => TerrainDebugOverlayState;
+      getTerrainHeight: (x: number, z: number) => number;
+      setCameraMode: (mode: PlayerMode) => void;
+      setDebugCamera: (x: number, y: number, z: number, yaw: number, pitch: number) => void;
       setPlayerPosition: (x: number, z: number) => void;
     };
   }
@@ -143,6 +147,20 @@ export async function startGame(elements: GameElements): Promise<void> {
       const mode = terrainDebugOverlay.cycleState();
       terrainDebugOverlay.render(field, playerEntity.transform.getWorldPosition());
       return mode;
+    },
+    getTerrainHeight(x, z) {
+      return field.heightAt(x, z);
+    },
+    setCameraMode(mode) {
+      playerController.mode = validatePlayerMode(mode);
+      syncCameraEntity(cameraEntity, playerController.getEyeTransform());
+    },
+    setDebugCamera(x, y, z, yaw, pitch) {
+      playerController.mode = "debugFly";
+      playerController.debugPosition = vec3(x, y, z);
+      playerController.debugYaw = yaw;
+      playerController.debugPitch = pitch;
+      syncCameraEntity(cameraEntity, playerController.getEyeTransform());
     },
     setPlayerPosition(x, z) {
       playerEntity.transform.setPosition(vec3(x, field.heightAt(x, z), z));
@@ -237,6 +255,14 @@ function validateTerrainDebugOverlayState(mode: string): TerrainDebugOverlayStat
   }
 
   throw new Error(`Unknown terrain debug overlay '${mode}'.`);
+}
+
+function validatePlayerMode(mode: string): PlayerMode {
+  if (mode === "firstPerson" || mode === "debugFly") {
+    return mode;
+  }
+
+  throw new Error(`Unknown player camera mode '${mode}'.`);
 }
 
 function meshFromData(id: string, data: MeshData): Mesh {
