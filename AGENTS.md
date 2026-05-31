@@ -70,6 +70,7 @@ src/engine/camera
 
 src/engine/world
   Seed terrain scalar field, heightfield mesh generation, primitive box mesh.
+  Runtime meshes currently use position/color/normal vertex data.
 
 src/engine/scene
   Global Scene, Entity tree, Component lifecycle, Transform hierarchy,

@@ -1,4 +1,4 @@
-import { equal } from "node:assert/strict";
+import { equal, ok } from "node:assert/strict";
 import { vec3 } from "../math/vec3.js";
 import { createBoxMesh } from "./primitiveMesh.js";
 import { getFloatsPerVertex } from "./terrainMesh.js";
@@ -17,9 +17,9 @@ describe("primitiveMesh", () => {
     equal(mesh.vertices[0], 9);
     equal(mesh.vertices[1], 18);
     equal(mesh.vertices[2], 27);
-    equal(mesh.vertices[6], 11);
-    equal(mesh.vertices[7], 18);
-    equal(mesh.vertices[8], 27);
+    equal(mesh.vertices[getFloatsPerVertex()], 11);
+    equal(mesh.vertices[getFloatsPerVertex() + 1], 18);
+    equal(mesh.vertices[getFloatsPerVertex() + 2], 27);
   });
 
   it("writes vertex colors for every box corner", () => {
@@ -30,5 +30,14 @@ describe("primitiveMesh", () => {
       equal(mesh.vertices[offset + 4], 0.5);
       equal(mesh.vertices[offset + 5], 0.75);
     }
+  });
+
+  it("writes normalized corner normals", () => {
+    const mesh = createBoxMesh(vec3(0, 0, 0), vec3(1, 1, 1), vec3(1, 0, 0));
+    const invSqrt3 = 1 / Math.sqrt(3);
+
+    ok(Math.abs(mesh.vertices[6] + invSqrt3) < 1e-6);
+    ok(Math.abs(mesh.vertices[7] + invSqrt3) < 1e-6);
+    ok(Math.abs(mesh.vertices[8] + invSqrt3) < 1e-6);
   });
 });

@@ -34,7 +34,8 @@ const POSITION_COLOR_LAYOUT = {
   floatsPerVertex: getFloatsPerVertex(),
   attributes: [
     { name: "position", offset: 0, size: 3 },
-    { name: "color", offset: 3, size: 3 }
+    { name: "color", offset: 3, size: 3 },
+    { name: "normal", offset: 6, size: 3 }
   ]
 } as const;
 

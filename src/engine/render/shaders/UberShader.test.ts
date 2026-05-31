@@ -24,6 +24,7 @@ describe("uber shader build", () => {
   it("matches the renderer vertex layout contract", () => {
     ok(UBER_SHADER_SOURCE.includes("@location(0) position: vec3<f32>"));
     ok(UBER_SHADER_SOURCE.includes("@location(1) color: vec3<f32>"));
+    ok(UBER_SHADER_SOURCE.includes("@location(2) normal: vec3<f32>"));
   });
 
   it("contains the basic material lighting contract", () => {
@@ -32,7 +33,7 @@ describe("uber shader build", () => {
     ok(UBER_SHADER_SOURCE.includes("sunColorAndAmbient: vec4<f32>"));
     ok(UBER_SHADER_SOURCE.includes("albedoFactor: vec4<f32>"));
     ok(UBER_SHADER_SOURCE.includes("specularAndFactor: vec4<f32>"));
-    ok(UBER_SHADER_SOURCE.includes("dpdx(input.worldPosition)"));
+    ok(UBER_SHADER_SOURCE.includes("input.worldNormal"));
     ok(UBER_SHADER_SOURCE.includes("pow(max(dot(normal, halfDirection), 0.0), 32.0)"));
   });
 

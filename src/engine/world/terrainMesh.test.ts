@@ -45,7 +45,7 @@ describe("terrainMesh", () => {
     equal(mesh.vertices.length, 4 * getFloatsPerVertex());
     equal(mesh.indices.length, 6);
     equal(mesh.vertices[1], 2);
-    equal(mesh.vertices[7], 2);
+    equal(mesh.vertices[getFloatsPerVertex() + 1], 2);
   });
 
   it("samples field height for every vertex", () => {
@@ -74,6 +74,19 @@ describe("terrainMesh", () => {
       ok(index < vertexCount);
     }
   });
+
+  it("writes smooth field normals for every vertex", () => {
+    const mesh = buildHeightfieldMesh(createFieldWithKnownNormal(), {
+      halfExtent: 1,
+      cellsPerAxis: 2
+    });
+
+    for (let offset = 0; offset < mesh.vertices.length; offset += getFloatsPerVertex()) {
+      equal(mesh.vertices[offset + 6], 0.25);
+      equal(mesh.vertices[offset + 7], 0.5);
+      equal(mesh.vertices[offset + 8], 0.75);
+    }
+  });
 });
 
 function createFlatField(height: number): TerrainField {
@@ -89,5 +102,13 @@ function createSlopedField(): TerrainField {
     heightAt: (x, z) => x + z,
     densityAt: (position) => position.y - position.x - position.z,
     normalAt: () => vec3(0, 1, 0)
+  };
+}
+
+function createFieldWithKnownNormal(): TerrainField {
+  return {
+    heightAt: () => 0,
+    densityAt: (position) => position.y,
+    normalAt: () => vec3(0.25, 0.5, 0.75)
   };
 }

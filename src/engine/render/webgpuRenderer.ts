@@ -114,6 +114,11 @@ export class WebGpuRenderer {
                 shaderLocation: 1,
                 offset: 3 * Float32Array.BYTES_PER_ELEMENT,
                 format: "float32x3"
+              },
+              {
+                shaderLocation: 2,
+                offset: 6 * Float32Array.BYTES_PER_ELEMENT,
+                format: "float32x3"
               }
             ]
           }

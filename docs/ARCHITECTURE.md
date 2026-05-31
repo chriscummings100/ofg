@@ -74,7 +74,7 @@ The intended Dual Contouring boundary is:
 
 - Density field interface: sample signed density and material at world positions.
 - Chunk sampler: evaluate density at deterministic chunk lattice points.
-- Mesher: produce compact vertex/index/material buffers.
+- Mesher: produce compact vertex/index/material buffers with smooth normals.
 - Renderer: upload chunk meshes without knowing how they were generated.
 
 The first implementation can be TypeScript for iteration speed. Rust/WASM becomes

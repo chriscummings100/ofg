@@ -18,12 +18,14 @@ struct ObjectUniforms {
 struct VertexInput {
   @location(0) position: vec3<f32>,
   @location(1) color: vec3<f32>,
+  @location(2) normal: vec3<f32>,
 };
 
 struct VertexOutput {
   @builtin(position) clipPosition: vec4<f32>,
   @location(0) color: vec3<f32>,
   @location(1) worldPosition: vec3<f32>,
+  @location(2) worldNormal: vec3<f32>,
 };
 
 @vertex
@@ -33,13 +35,14 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
   output.clipPosition = camera.viewProjection * worldPosition;
   output.color = input.color;
   output.worldPosition = worldPosition.xyz;
+  output.worldNormal = normalize((object.world * vec4<f32>(input.normal, 0.0)).xyz);
   return output;
 }
 
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
   let viewDirection = normalize(camera.eyeWorld.xyz - input.worldPosition);
-  var normal = normalize(cross(dpdx(input.worldPosition), dpdy(input.worldPosition)));
+  var normal = normalize(input.worldNormal);
   if (dot(normal, viewDirection) < 0.0) {
     normal = -normal;
   }

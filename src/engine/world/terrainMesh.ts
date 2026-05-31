@@ -10,7 +10,7 @@ export type HeightfieldMeshOptions = {
   readonly cellsPerAxis: number;
 };
 
-const FLOATS_PER_VERTEX = 6;
+const FLOATS_PER_VERTEX = 9;
 
 export function getFloatsPerVertex(): number {
   return FLOATS_PER_VERTEX;
@@ -40,6 +40,10 @@ export function buildHeightfieldMesh(
       vertices[vertexOffset + 3] = color[0];
       vertices[vertexOffset + 4] = color[1];
       vertices[vertexOffset + 5] = color[2];
+      const normal = field.normalAt(x, z);
+      vertices[vertexOffset + 6] = normal.x;
+      vertices[vertexOffset + 7] = normal.y;
+      vertices[vertexOffset + 8] = normal.z;
       vertexOffset += FLOATS_PER_VERTEX;
     }
   }
