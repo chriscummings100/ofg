@@ -12,7 +12,6 @@ const headed = process.env.OFG_SMOKE_HEADED === "1";
 const artifactRoot = resolve(root, "artifacts", "browser-smoke");
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
 const artifactDir = resolve(artifactRoot, runId);
-const expectedRenderChunkCount = 1;
 
 mkdirSync(artifactDir, { recursive: true });
 
@@ -170,10 +169,18 @@ function assertTerrainDebug(debug, label) {
     throw new Error(`${label} has no rendered terrain chunks: ${JSON.stringify(debug)}`);
   }
 
-  if (debug.renderChunkKeys.length !== expectedRenderChunkCount) {
+  if (debug.renderChunkKeys.length > debug.loadedChunkKeys.length) {
     throw new Error(
-      `${label} rendered ${debug.renderChunkKeys.length} terrain chunks; ` +
-      `expected ${expectedRenderChunkCount}: ${JSON.stringify(debug)}`
+      `${label} rendered more terrain chunks than were loaded: ${JSON.stringify(debug)}`
+    );
+  }
+
+  const loadedChunkKeys = new Set(debug.loadedChunkKeys);
+  const strayRenderChunkKeys = debug.renderChunkKeys.filter((key) => !loadedChunkKeys.has(key));
+  if (strayRenderChunkKeys.length > 0) {
+    throw new Error(
+      `${label} rendered terrain chunks outside the loaded window: ` +
+      `${JSON.stringify({ strayRenderChunkKeys, debug })}`
     );
   }
 }

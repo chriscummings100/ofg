@@ -39,6 +39,8 @@ describe("TerrainChunkStreamer", () => {
     equal(streamer.getLoadedChunkKeys().length, 18);
     equal(streamer.getLoadedChunkKeys().includes("-1,0,-1"), true);
     equal(streamer.getLoadedChunkKeys().includes("1,-1,1"), true);
+    equal(terrain.chunks.length, 9);
+    equal(terrain.chunks.every((chunk) => streamer.getLoadedChunkKeys().includes(chunk.key)), true);
     equal(terrain.chunks.some((chunk) => chunk.key === "0,0,0"), true);
   });
 
@@ -146,6 +148,7 @@ describe("TerrainChunkStreamer", () => {
 
     streamer.rebuildChunk("0,0,0");
 
+    equal(streamer.getLoadedChunkKeys().join(","), "0,0,0");
     equal(terrain.chunks.length, 1);
     equal(terrain.chunks[0].key, "0,0,0");
     ok(terrain.chunks[0].mesh !== firstMesh);

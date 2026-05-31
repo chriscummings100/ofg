@@ -14,7 +14,7 @@ import {
   type TerrainChunkKey,
   type TerrainDensitySource
 } from "../../engine/world/terrainChunk.js";
-import { meshChunksDualContouring } from "../../engine/world/dualContouring.js";
+import { meshChunkDualContouringWithNeighbors } from "../../engine/world/dualContouring.js";
 import { POSITION_COLOR_NORMAL_UV_LAYOUT } from "../../engine/world/terrainMesh.js";
 
 export type TerrainChunkStreamerOptions = {
@@ -95,7 +95,10 @@ export class TerrainChunkStreamer extends Component {
       this.terrain.removeChunk(key);
     }
     this.renderChunkKeys.clear();
-    this.loadedChunkKeys.delete(terrainChunkKey(coord));
+    this.loadedChunkKeys.clear();
+    for (const key of this.buildDesiredDensityChunkKeys(centerCoord)) {
+      this.loadedChunkKeys.add(key);
+    }
 
     this.loadRenderWindow(centerCoord);
   }
@@ -115,49 +118,79 @@ export class TerrainChunkStreamer extends Component {
 
   private buildDesiredDensityChunkKeys(centerCoord: TerrainChunkCoord): Set<TerrainChunkKey> {
     const desired = new Set<TerrainChunkKey>();
-    for (let z = centerCoord.z - this.horizontalRadius; z <= centerCoord.z + this.horizontalRadius; z += 1) {
-      for (let x = centerCoord.x - this.horizontalRadius; x <= centerCoord.x + this.horizontalRadius; x += 1) {
-        for (const coord of this.buildDensityChunkCoordsForColumn(x, centerCoord.y, z)) {
-          desired.add(terrainChunkKey(coord));
-        }
-      }
+    for (const coord of this.buildRenderChunkCoords(centerCoord)) {
+      desired.add(terrainChunkKey(coord));
     }
 
     return desired;
   }
 
   private loadRenderWindow(centerCoord: TerrainChunkCoord): void {
-    const densityChunks = this.buildDensityChunkCoords(centerCoord).map((coord) => {
-      this.loadedChunkKeys.add(terrainChunkKey(coord));
-      return generateTerrainDensityChunk(this.source, coord, { cellSize: this.cellSize });
-    });
-    const meshData = meshChunksDualContouring(densityChunks, this.source, {
-      // Raw QEF placement is too unstable on noisy terrain until it is regularized.
-      placement: "centroid"
-    });
-    if (meshData.indices.length === 0) {
-      return;
-    }
+    const densityChunks = new Map<TerrainChunkKey, ReturnType<typeof generateTerrainDensityChunk>>();
 
-    const key = terrainChunkKey(centerCoord);
-    this.terrain.addChunk({
-      key,
-      mesh: new Mesh(
-        `${this.meshIdPrefix}:${key}`,
-        meshData.vertices,
-        meshData.indices,
-        POSITION_COLOR_NORMAL_UV_LAYOUT
-      ),
-      material: this.material
-    });
-    this.renderChunkKeys.add(key);
+    for (const coord of this.buildRenderChunkCoords(centerCoord)) {
+      const centerChunk = this.getOrGenerateDensityChunk(densityChunks, coord);
+      if (!chunkMayContainSurface(centerChunk)) {
+        continue;
+      }
+
+      const neighborChunks = this.buildNeighborChunkCoords(coord)
+        .map((neighborCoord) => this.getOrGenerateDensityChunk(densityChunks, neighborCoord));
+      const meshData = meshChunkDualContouringWithNeighbors(neighborChunks, coord, this.source, {
+        // Raw QEF placement is too unstable on noisy terrain until it is regularized.
+        placement: "centroid"
+      });
+      if (meshData.indices.length === 0) {
+        continue;
+      }
+
+      const key = terrainChunkKey(coord);
+      this.terrain.addChunk({
+        key,
+        mesh: new Mesh(
+          `${this.meshIdPrefix}:${key}`,
+          meshData.vertices,
+          meshData.indices,
+          POSITION_COLOR_NORMAL_UV_LAYOUT
+        ),
+        material: this.material
+      });
+      this.renderChunkKeys.add(key);
+    }
   }
 
-  private buildDensityChunkCoords(centerCoord: TerrainChunkCoord): TerrainChunkCoord[] {
+  private getOrGenerateDensityChunk(
+    chunks: Map<TerrainChunkKey, ReturnType<typeof generateTerrainDensityChunk>>,
+    coord: TerrainChunkCoord
+  ): ReturnType<typeof generateTerrainDensityChunk> {
+    const key = terrainChunkKey(coord);
+    let chunk = chunks.get(key);
+    if (chunk === undefined) {
+      chunk = generateTerrainDensityChunk(this.source, coord, { cellSize: this.cellSize });
+      chunks.set(key, chunk);
+    }
+
+    return chunk;
+  }
+
+  private buildRenderChunkCoords(centerCoord: TerrainChunkCoord): TerrainChunkCoord[] {
     const coords: TerrainChunkCoord[] = [];
     for (let z = centerCoord.z - this.horizontalRadius; z <= centerCoord.z + this.horizontalRadius; z += 1) {
       for (let x = centerCoord.x - this.horizontalRadius; x <= centerCoord.x + this.horizontalRadius; x += 1) {
         coords.push(...this.buildDensityChunkCoordsForColumn(x, centerCoord.y, z));
+      }
+    }
+
+    return coords;
+  }
+
+  private buildNeighborChunkCoords(centerCoord: TerrainChunkCoord): TerrainChunkCoord[] {
+    const coords: TerrainChunkCoord[] = [];
+    for (let z = centerCoord.z; z <= centerCoord.z + 1; z += 1) {
+      for (let y = centerCoord.y; y <= centerCoord.y + 1; y += 1) {
+        for (let x = centerCoord.x; x <= centerCoord.x + 1; x += 1) {
+          coords.push(terrainChunkCoord(x, y, z));
+        }
       }
     }
 
@@ -206,4 +239,19 @@ function validateOptions(
   if (cellSize <= 0) {
     throw new Error("TerrainChunkStreamer cellSize must be positive.");
   }
+}
+
+function chunkMayContainSurface(chunk: ReturnType<typeof generateTerrainDensityChunk>): boolean {
+  let hasSolid = false;
+  let hasAir = false;
+
+  for (const density of chunk.densities) {
+    hasSolid ||= density <= 0;
+    hasAir ||= density > 0;
+    if (hasSolid && hasAir) {
+      return true;
+    }
+  }
+
+  return false;
 }
