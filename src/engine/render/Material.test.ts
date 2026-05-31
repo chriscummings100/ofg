@@ -1,22 +1,48 @@
 import { equal } from "node:assert/strict";
+import { vec3 } from "../math/vec3.js";
 import { vec4 } from "../math/vec4.js";
 import { Material } from "./Material.js";
 
 describe("Material", () => {
-  it("stores base color and flags", () => {
-    const color = vec4(0.1, 0.2, 0.3, 1);
-    const material = new Material("material:test", color, 7);
+  it("stores basic material properties", () => {
+    const albedoFactor = vec4(0.1, 0.2, 0.3, 1);
+    const specular = vec3(0.8, 0.7, 0.6);
+    const material = new Material("material:test", {
+      albedoFactor,
+      albedoTexture: "texture:albedo",
+      specular,
+      specularFactor: 0.42,
+      flags: 7
+    });
 
     equal(material.id, "material:test");
-    equal(material.baseColor, color);
+    equal(material.albedoFactor, albedoFactor);
+    equal(material.albedoTexture, "texture:albedo");
+    equal(material.specular, specular);
+    equal(material.specularFactor, 0.42);
     equal(material.flags, 7);
   });
 
-  it("allows texture assignment to change", () => {
-    const material = new Material("material:test", vec4(1, 1, 1, 1), 0, "texture:first");
+  it("uses useful lighting defaults", () => {
+    const material = new Material("material:test");
 
-    material.texture = "texture:second";
+    equal(material.albedoFactor.x, 1);
+    equal(material.albedoFactor.y, 1);
+    equal(material.albedoFactor.z, 1);
+    equal(material.albedoFactor.w, 1);
+    equal(material.albedoTexture, undefined);
+    equal(material.specular.x, 1);
+    equal(material.specular.y, 1);
+    equal(material.specular.z, 1);
+    equal(material.specularFactor, 0.18);
+    equal(material.flags, 0);
+  });
 
-    equal(material.texture, "texture:second");
+  it("allows albedo texture assignment to change", () => {
+    const material = new Material("material:test", { albedoTexture: "texture:first" });
+
+    material.albedoTexture = "texture:second";
+
+    equal(material.albedoTexture, "texture:second");
   });
 });

@@ -1,5 +1,8 @@
+import { UBER_SHADER_METADATA, UBER_SHADER_SOURCE } from "../../generated/render/uberShader.js";
 import { getFloatsPerVertex } from "../world/terrainMesh.js";
+import { FRAME_UNIFORM_BYTES, buildFrameUniformValues } from "./FrameUniforms.js";
 import type { Mesh } from "./Mesh.js";
+import { OBJECT_UNIFORM_BYTES, buildObjectUniformValues } from "./ObjectUniforms.js";
 import type { RenderItem, RenderWorld } from "./RenderWorld.js";
 
 type GpuMesh = {
@@ -13,47 +16,12 @@ type GpuObject = {
   readonly bindGroup: GpuAny;
 };
 
-const SHADER_SOURCE = `
-struct Camera {
-  viewProjection: mat4x4<f32>,
-};
-
-struct ObjectUniforms {
-  world: mat4x4<f32>,
-};
-
-@group(0) @binding(0) var<uniform> camera: Camera;
-@group(1) @binding(0) var<uniform> object: ObjectUniforms;
-
-struct VertexInput {
-  @location(0) position: vec3<f32>,
-  @location(1) color: vec3<f32>,
-};
-
-struct VertexOutput {
-  @builtin(position) clipPosition: vec4<f32>,
-  @location(0) color: vec3<f32>,
-};
-
-@vertex
-fn vertexMain(input: VertexInput) -> VertexOutput {
-  var output: VertexOutput;
-  output.clipPosition = camera.viewProjection * object.world * vec4<f32>(input.position, 1.0);
-  output.color = input.color;
-  return output;
-}
-
-@fragment
-fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
-  return vec4<f32>(input.color, 1.0);
-}
-`;
-
 export class WebGpuRenderer {
   private readonly canvas: HTMLCanvasElement;
   private context: GpuAny = undefined;
   private device: GpuAny = undefined;
   private format = "";
+  private skyPipeline: GpuAny = undefined;
   private pipeline: GpuAny = undefined;
   private cameraUniformBuffer: GpuAny = undefined;
   private cameraBindGroup: GpuAny = undefined;
@@ -89,20 +57,20 @@ export class WebGpuRenderer {
     this.format = gpu.getPreferredCanvasFormat();
     this.cameraUniformBuffer = this.device.createBuffer({
       label: "camera uniforms",
-      size: 64,
+      size: FRAME_UNIFORM_BYTES,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
     const shaderModule = this.device.createShaderModule({
-      label: "seed terrain shader",
-      code: SHADER_SOURCE
+      label: `${UBER_SHADER_METADATA.id} shader`,
+      code: UBER_SHADER_SOURCE
     });
     const cameraBindGroupLayout = this.device.createBindGroupLayout({
       label: "camera bind group layout",
       entries: [
         {
           binding: 0,
-          visibility: GPUShaderStage.VERTEX,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
           buffer: { type: "uniform" }
         }
       ]
@@ -112,7 +80,7 @@ export class WebGpuRenderer {
       entries: [
         {
           binding: 0,
-          visibility: GPUShaderStage.VERTEX,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
           buffer: { type: "uniform" }
         }
       ]
@@ -136,7 +104,7 @@ export class WebGpuRenderer {
       }),
       vertex: {
         module: shaderModule,
-        entryPoint: "vertexMain",
+        entryPoint: UBER_SHADER_METADATA.vertexEntryPoint,
         buffers: [
           {
             arrayStride: getFloatsPerVertex() * Float32Array.BYTES_PER_ELEMENT,
@@ -153,7 +121,7 @@ export class WebGpuRenderer {
       },
       fragment: {
         module: shaderModule,
-        entryPoint: "fragmentMain",
+        entryPoint: UBER_SHADER_METADATA.fragmentEntryPoint,
         targets: [{ format: this.format }]
       },
       primitive: {
@@ -164,6 +132,28 @@ export class WebGpuRenderer {
         format: "depth24plus",
         depthWriteEnabled: true,
         depthCompare: "less"
+      }
+    });
+    this.skyPipeline = this.device.createRenderPipeline({
+      label: "sky pipeline",
+      layout: this.device.createPipelineLayout({ bindGroupLayouts: [cameraBindGroupLayout] }),
+      vertex: {
+        module: shaderModule,
+        entryPoint: UBER_SHADER_METADATA.skyVertexEntryPoint
+      },
+      fragment: {
+        module: shaderModule,
+        entryPoint: UBER_SHADER_METADATA.skyFragmentEntryPoint,
+        targets: [{ format: this.format }]
+      },
+      primitive: {
+        topology: "triangle-list",
+        cullMode: "none"
+      },
+      depthStencil: {
+        format: "depth24plus",
+        depthWriteEnabled: false,
+        depthCompare: "always"
       }
     });
 
@@ -205,7 +195,7 @@ export class WebGpuRenderer {
     this.device.queue.writeBuffer(
       this.cameraUniformBuffer,
       0,
-      renderWorld.camera.viewProjection
+      buildFrameUniformValues(renderWorld.camera, renderWorld.mainLight)
     );
 
     const encoder = this.device.createCommandEncoder({ label: "frame encoder" });
@@ -226,8 +216,11 @@ export class WebGpuRenderer {
       }
     });
 
-    pass.setPipeline(this.pipeline);
     pass.setBindGroup(0, this.cameraBindGroup);
+    pass.setPipeline(this.skyPipeline);
+    pass.draw(3);
+
+    pass.setPipeline(this.pipeline);
     for (const item of renderWorld.items) {
       this.drawItem(pass, item);
     }
@@ -293,7 +286,7 @@ export class WebGpuRenderer {
 
     const uniformBuffer = this.device.createBuffer({
       label: `${item.id} object uniforms`,
-      size: 64,
+      size: OBJECT_UNIFORM_BYTES,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     const bindGroup = this.device.createBindGroup({
@@ -315,7 +308,11 @@ export class WebGpuRenderer {
     const mesh = this.getGpuMesh(item.mesh);
     const object = this.getGpuObject(item);
 
-    this.device.queue.writeBuffer(object.uniformBuffer, 0, item.worldMatrix);
+    this.device.queue.writeBuffer(
+      object.uniformBuffer,
+      0,
+      buildObjectUniformValues(item.worldMatrix, item.material)
+    );
     pass.setBindGroup(1, object.bindGroup);
     pass.setVertexBuffer(0, mesh.vertexBuffer);
     pass.setIndexBuffer(mesh.indexBuffer, "uint32");

@@ -1,11 +1,14 @@
 import { InputTracker } from "../engine/input/inputTracker.js";
 import { quatFromYawPitch } from "../engine/math/quat.js";
 import { vec3 } from "../engine/math/vec3.js";
+import { vec4 } from "../engine/math/vec4.js";
+import { Material } from "../engine/render/Material.js";
 import { Mesh } from "../engine/render/Mesh.js";
 import { MeshRenderer } from "../engine/render/MeshRenderer.js";
 import { SceneRenderExtractor } from "../engine/render/SceneRenderExtractor.js";
 import { TerrainRenderer } from "../engine/render/TerrainRenderer.js";
 import { WebGpuRenderer } from "../engine/render/webgpuRenderer.js";
+import { createDirectionalLight } from "../engine/render/Lighting.js";
 import { createScene } from "../engine/scene/activeScene.js";
 import type { Entity } from "../engine/scene/Entity.js";
 import { createBoxMesh } from "../engine/world/primitiveMesh.js";
@@ -40,6 +43,12 @@ export async function startGame(elements: GameElements): Promise<void> {
   const renderer = new WebGpuRenderer(elements.canvas);
   const input = new InputTracker();
   const field = createSeedTerrainField();
+  scene.mainLight = createDirectionalLight({
+    direction: vec3(0.89, 0.25, 0.38),
+    color: vec3(1, 0.96, 0.88),
+    intensity: 1,
+    ambient: 0.34
+  });
   const terrainMesh = buildHeightfieldMesh(field, {
     halfExtent: 64,
     cellsPerAxis: 96
@@ -49,6 +58,16 @@ export async function startGame(elements: GameElements): Promise<void> {
     "mesh:player.marker",
     createBoxMesh(vec3(0, 0.9, 0), vec3(0.28, 0.9, 0.22), vec3(0.96, 0.7, 0.24))
   );
+  const terrainMaterial = new Material("material:terrain.seed", {
+    albedoFactor: vec4(1, 1, 1, 1),
+    specular: vec3(0.55, 0.58, 0.52),
+    specularFactor: 0.04
+  });
+  const playerMarkerMaterial = new Material("material:player.marker", {
+    albedoFactor: vec4(1, 1, 1, 1),
+    specular: vec3(1, 0.92, 0.65),
+    specularFactor: 0.45
+  });
   const terrainEntity = scene.createEntity("Terrain");
   const playerEntity = scene.createEntity("Player");
   const playerMarkerEntity = scene.createEntity("Player marker");
@@ -56,7 +75,12 @@ export async function startGame(elements: GameElements): Promise<void> {
 
   scene.resources.addMesh(terrain);
   scene.resources.addMesh(playerMarker);
-  terrainEntity.addComponent(new TerrainRenderer(field, [{ key: "seed", mesh: terrain }]));
+  scene.resources.addMaterial(terrainMaterial);
+  scene.resources.addMaterial(playerMarkerMaterial);
+  terrainEntity.addComponent(new TerrainRenderer(
+    field,
+    [{ key: "seed", mesh: terrain, material: terrainMaterial }]
+  ));
   playerEntity.transform.setPosition(vec3(0, field.heightAt(0, 0), 0));
   const playerController = playerEntity.addComponent(new PlayerController());
   playerController.yaw = Math.PI * 0.18;
@@ -65,7 +89,9 @@ export async function startGame(elements: GameElements): Promise<void> {
   playerController.debugYaw = Math.PI * 1.24;
   playerController.debugPitch = -0.48;
 
-  const markerRenderer = playerMarkerEntity.addComponent(new MeshRenderer(playerMarker.id));
+  const markerRenderer = playerMarkerEntity.addComponent(
+    new MeshRenderer(playerMarker.id, playerMarkerMaterial.id)
+  );
   markerRenderer.visible = false;
   playerEntity.addChild(playerMarkerEntity);
   scene.activeCamera = cameraEntity;

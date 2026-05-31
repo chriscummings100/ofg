@@ -23,19 +23,23 @@ test workflow, and world data boundaries are stable.
 
 ```powershell
 npm run build
+npm run build:shaders
+npm run check:shaders
 npm test
 npm run dev
 npm run smoke:browser
 ```
 
-The dev server serves the built app at `http://127.0.0.1:5173`. Run `npm run build`
-after source changes, or keep `npm run watch` open in another terminal.
+The dev server serves the built app at `http://127.0.0.1:5173`. `npm run build`
+generates shader artifacts before running TypeScript. Run it after source changes,
+or keep `npm run watch` open in another terminal.
 
 ## Project Shape
 
 - `src/engine`: deterministic engine modules that should stay easy to unit test.
 - `src/app`: browser lifecycle, input, and game loop glue.
 - `src/platform`: temporary local type shims for platform APIs.
+- `src/generated`: deterministic generated TypeScript artifacts, currently shaders.
 - `docs`: roadmap, architecture notes, and AI workflow guidance.
 - `tools`: small repository scripts with no framework dependency.
 

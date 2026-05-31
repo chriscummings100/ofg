@@ -9,7 +9,7 @@ import {
   yawRight,
   type Vec3
 } from "../math/vec3.js";
-import { lookAtMat4, multiplyMat4, perspectiveMat4, type Mat4 } from "../math/mat4.js";
+import { inverseMat4, lookAtMat4, multiplyMat4, perspectiveMat4, type Mat4 } from "../math/mat4.js";
 
 export type CameraMode = "firstPerson" | "debugFly";
 
@@ -36,6 +36,7 @@ export type CameraFrame = {
   readonly eye: Vec3;
   readonly target: Vec3;
   readonly viewProjection: Mat4;
+  readonly inverseViewProjection: Mat4;
 };
 
 const PLAYER_EYE_HEIGHT = 1.65;
@@ -86,11 +87,13 @@ export function getCameraFrame(rig: CameraRig, aspect: number): CameraFrame {
   const target = add(eye, forward);
   const projection = perspectiveMat4((70 * Math.PI) / 180, aspect, 0.05, 500);
   const view = lookAtMat4(eye, target, VEC3_UP);
+  const viewProjection = multiplyMat4(projection, view);
 
   return {
     eye,
     target,
-    viewProjection: multiplyMat4(projection, view)
+    viewProjection,
+    inverseViewProjection: inverseMat4(viewProjection)
   };
 }
 

@@ -1,7 +1,7 @@
 import { getScene } from "../scene/activeScene.js";
 import { add, vec3, VEC3_UP } from "../math/vec3.js";
 import { rotateVec3ByQuat } from "../math/quat.js";
-import { lookAtMat4, multiplyMat4, perspectiveMat4 } from "../math/mat4.js";
+import { inverseMat4, lookAtMat4, multiplyMat4, perspectiveMat4 } from "../math/mat4.js";
 import { MeshRenderer } from "./MeshRenderer.js";
 import { TerrainRenderer } from "./TerrainRenderer.js";
 import type { CameraFrame } from "../camera/cameraRig.js";
@@ -31,6 +31,7 @@ export class SceneRenderExtractor {
 
     return {
       camera: buildCameraFrame(activeCamera, aspect),
+      mainLight: scene.mainLight,
       items
     };
   }
@@ -42,10 +43,12 @@ function buildCameraFrame(cameraEntity: Entity, aspect: number): CameraFrame {
   const target = add(eye, forward);
   const projection = perspectiveMat4((70 * Math.PI) / 180, aspect, 0.05, 500);
   const view = lookAtMat4(eye, target, VEC3_UP);
+  const viewProjection = multiplyMat4(projection, view);
 
   return {
     eye,
     target,
-    viewProjection: multiplyMat4(projection, view)
+    viewProjection,
+    inverseViewProjection: inverseMat4(viewProjection)
   };
 }

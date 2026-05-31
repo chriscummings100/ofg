@@ -74,6 +74,7 @@ type ResourceId = string;
 class Scene {
   readonly root: Entity;
   readonly resources: ResourceStore;
+  mainLight: DirectionalLight;
   terrain?: TerrainRenderer;
   activeCamera?: Entity;
 
@@ -91,6 +92,7 @@ Responsibilities:
 
 - Own the root entity and global resources.
 - Maintain scene-wide convenience references such as `terrain` and `activeCamera`.
+- Maintain the main directional light used as the sun.
 - Traverse enabled entities and update enabled components.
 - Delegate terrain height queries to `terrain`.
 
@@ -246,11 +248,21 @@ The initial material exists to shape the single uber-shader contract.
 ```ts
 class Material {
   readonly id: ResourceId;
-  baseColor: Vec4;
-  texture?: ResourceId;
+  albedoFactor: Vec4;
+  albedoTexture?: ResourceId;
+  specular: Vec3;
+  specularFactor: number;
   flags: number;
 }
 ```
+
+Initial renderer support:
+
+- Vertex color is treated as mesh albedo input.
+- `albedoFactor` multiplies vertex color.
+- `specular` and `specularFactor` feed a simple Blinn-Phong highlight.
+- `albedoTexture` is part of the CPU resource contract but GPU texture sampling is
+  deferred until texture upload exists.
 
 ### MeshRenderer
 
@@ -295,6 +307,7 @@ Initial implementation:
 ```ts
 type RenderWorld = {
   camera: CameraFrame;
+  mainLight: DirectionalLight;
   items: RenderItem[];
 };
 
@@ -422,8 +435,9 @@ Initial implementation note:
 
 ## Implementation Phases
 
-Status: Phases 1 through 4 are implemented. Phase 5 is the next graphics-facing
-architecture step.
+Status: Phases 1 through 5 have an initial implementation. The next graphics-facing
+work is to expand material data that the uber shader can consume, or replace the
+WGSL source step with Slang output.
 
 ### Phase 1: Scene Core
 
@@ -482,6 +496,15 @@ Done when:
 
 Before adding richer materials or more render component types, add the shader source
 boundary for a single uber shader and prepare the Slang build path.
+
+Implemented notes:
+
+- `src/engine/render/shaders/uber.wgsl` owns the current WGSL source.
+- `tools/build-shaders.mjs` generates `src/generated/render/uberShader.ts` with
+  source, entry-point metadata, and a deterministic source hash.
+- `WebGpuRenderer` imports the generated shader artifact instead of embedding WGSL.
+- The shader includes both the mesh material pass and the procedural sky pass.
+- `RenderWorld.mainLight` drives Lambert/Blinn-Phong lighting and the sky sun disk.
 
 Done when:
 

@@ -1,6 +1,7 @@
 import { equal } from "node:assert/strict";
 import { Component } from "./Component.js";
 import { resetScene } from "./activeScene.js";
+import { createDirectionalLight } from "../render/Lighting.js";
 import { TerrainRenderer } from "../render/TerrainRenderer.js";
 import type { TerrainField } from "../world/scalarField.js";
 import { vec3 } from "../math/vec3.js";
@@ -68,6 +69,15 @@ describe("Scene", () => {
       .addComponent(new TerrainRenderer(createFlatField(7)));
 
     equal(scene.getTerrainHeight(1, 2), 7);
+  });
+
+  it("stores the main directional light for render extraction", () => {
+    const scene = resetScene();
+    const light = createDirectionalLight({ direction: vec3(1, 1, 0), ambient: 0.4 });
+
+    scene.mainLight = light;
+
+    equal(scene.mainLight, light);
   });
 
   it("destroyEntity clears activeCamera when destroying an ancestor", () => {

@@ -31,6 +31,13 @@ src/engine/render
   CPU-side render resources, scene render components, RenderWorld extraction, and
   WebGPU resource setup/draw submission.
 
+src/engine/render/shaders
+  Shader source inputs. The current `uber.wgsl` is the single shader contract for
+  render items.
+
+src/generated
+  Deterministically generated TypeScript artifacts used by runtime code.
+
 src/engine/scene
   Global active Scene, Entity tree, Component lifecycle, Transform hierarchy, and
   CPU-side ResourceStore.
@@ -52,6 +59,7 @@ The current playable is backed by this model:
 - A player entity owns `PlayerController`.
 - A child marker entity owns `MeshRenderer` and is visible in debug fly mode.
 - A camera entity is assigned to `scene.activeCamera`.
+- `scene.mainLight` defines the sun direction, color, intensity, and ambient term.
 - `SceneRenderExtractor` builds plain `RenderWorld` data for `WebGpuRenderer`.
 
 The detailed API and next rollout steps are tracked in
@@ -74,14 +82,30 @@ worthwhile once the mesher contract and test fixtures are stable.
 
 ## Shader Direction
 
-The current seed uses inline WGSL to avoid adding build complexity on day one.
-Longer term, shader source should move behind a build step that can accept Slang and
-emit browser-ready artifacts. That build step should be testable without launching
-the game.
+Shader source sits behind `tools/build-shaders.mjs`. The current input is
+`src/engine/render/shaders/uber.wgsl`, and the generated runtime artifact is
+`src/generated/render/uberShader.ts`.
+
+The renderer imports shader source and entry-point metadata from the generated
+artifact rather than embedding shader text. This keeps the current WGSL path simple
+while leaving one clear build boundary for Slang-generated WGSL or SPIR-V outputs
+later.
+
+The first material model is intentionally pre-PBR: mesh vertex color multiplied by
+an albedo factor, optional CPU-side albedo texture id, specular color, and specular
+factor. The shader uses a simple Lambert diffuse plus Blinn-Phong specular model.
+Texture sampling is a later renderer slice because `Texture` currently stores
+metadata only.
+
+The sky is also shader-driven. `WebGpuRenderer` draws a full-screen sky pass before
+scene geometry, reconstructs world rays from the inverse view-projection matrix, and
+renders a blue gradient plus a sun disk in the direction of `scene.mainLight`.
 
 ## Testing Direction
 
 - Unit tests cover deterministic math, camera, world, and mesh generation code.
+- Shader tests verify generated shader metadata and the renderer vertex layout
+  contract.
 - Browser smoke tests cover canvas rendering, input toggles, and resize behavior.
 - Golden fixture tests cover terrain meshing once voxel chunks exist.
 - Performance tests should be explicit scripts with stable scene seeds, not hidden

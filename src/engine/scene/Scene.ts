@@ -2,11 +2,13 @@ import { Component } from "./Component.js";
 import { Entity } from "./Entity.js";
 import { ResourceStore } from "./ResourceStore.js";
 import type { ComponentType } from "./types.js";
+import { createDirectionalLight, type DirectionalLight } from "../render/Lighting.js";
 import type { TerrainRenderer } from "../render/TerrainRenderer.js";
 
 export class Scene {
   readonly root: Entity;
   readonly resources = new ResourceStore();
+  mainLight: DirectionalLight = createDirectionalLight();
   terrain?: TerrainRenderer;
   activeCamera?: Entity;
 

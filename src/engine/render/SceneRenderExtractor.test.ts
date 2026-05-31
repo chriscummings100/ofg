@@ -17,6 +17,23 @@ describe("SceneRenderExtractor", () => {
 
     equal(renderWorld.items.length, 0);
     equal(renderWorld.camera.eye.x, 0);
+    equal(renderWorld.camera.inverseViewProjection.length, 16);
+    equal(renderWorld.mainLight, scene.mainLight);
+  });
+
+  it("uses the scene main light", () => {
+    const scene = resetScene();
+    scene.activeCamera = scene.createEntity("Camera");
+    scene.mainLight = {
+      direction: vec3(1, 0, 0),
+      color: vec3(1, 0.8, 0.6),
+      intensity: 1.5,
+      ambient: 0.2
+    };
+
+    const renderWorld = SceneRenderExtractor.buildRenderWorld();
+
+    equal(renderWorld.mainLight, scene.mainLight);
   });
 
   it("includes mesh renderer items", () => {

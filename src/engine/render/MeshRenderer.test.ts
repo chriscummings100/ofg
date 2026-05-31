@@ -27,7 +27,7 @@ describe("MeshRenderer", () => {
   it("resolves mesh and material from the global scene resources", () => {
     const scene = resetScene();
     const mesh = createMesh("mesh:test");
-    const material = new Material("material:test", vec4(1, 1, 1, 1));
+    const material = new Material("material:test", { albedoFactor: vec4(1, 1, 1, 1) });
     scene.resources.addMesh(mesh);
     scene.resources.addMaterial(material);
     const renderer = scene
@@ -44,8 +44,8 @@ describe("MeshRenderer", () => {
     const scene = resetScene();
     const firstMesh = createMesh("mesh:first");
     const secondMesh = createMesh("mesh:second");
-    const firstMaterial = new Material("material:first", vec4(1, 0, 0, 1));
-    const secondMaterial = new Material("material:second", vec4(0, 1, 0, 1));
+    const firstMaterial = new Material("material:first", { albedoFactor: vec4(1, 0, 0, 1) });
+    const secondMaterial = new Material("material:second", { albedoFactor: vec4(0, 1, 0, 1) });
     scene.resources.addMesh(firstMesh);
     scene.resources.addMesh(secondMesh);
     scene.resources.addMaterial(firstMaterial);
@@ -65,7 +65,7 @@ describe("MeshRenderer", () => {
   it("allows material to be cleared", () => {
     const scene = resetScene();
     const mesh = createMesh("mesh:test");
-    const material = new Material("material:test", vec4(1, 1, 1, 1));
+    const material = new Material("material:test", { albedoFactor: vec4(1, 1, 1, 1) });
     scene.resources.addMesh(mesh);
     scene.resources.addMaterial(material);
     const renderer = scene

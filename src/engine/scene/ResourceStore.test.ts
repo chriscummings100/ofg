@@ -48,7 +48,7 @@ describe("ResourceStore", () => {
   it("stores materials and textures independently", () => {
     const store = new ResourceStore();
     const texture = new Texture("texture:test", 1, 1, "rgba8unorm");
-    const material = new Material("material:test", vec4(1, 0, 0, 1));
+    const material = new Material("material:test", { albedoFactor: vec4(1, 0, 0, 1) });
 
     store.addTexture(texture);
     store.addMaterial(material);
@@ -67,7 +67,7 @@ describe("ResourceStore", () => {
   it("removes materials and textures", () => {
     const store = new ResourceStore();
     store.addTexture(new Texture("texture:test", 1, 1, "rgba8unorm"));
-    store.addMaterial(new Material("material:test", vec4(1, 0, 0, 1)));
+    store.addMaterial(new Material("material:test", { albedoFactor: vec4(1, 0, 0, 1) }));
 
     store.removeTexture("texture:test");
     store.removeMaterial("material:test");

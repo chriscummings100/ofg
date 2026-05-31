@@ -124,6 +124,7 @@ describe("cameraRig", () => {
     const frame = getCameraFrame(rig, 1);
 
     equal(frame.eye.y, 4.65);
+    equal(frame.inverseViewProjection.length, 16);
   });
 
   it("returns debug camera frame from debug position", () => {

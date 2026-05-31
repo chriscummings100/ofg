@@ -16,7 +16,7 @@ The current playable seed is still simple:
 - First-person camera/player movement.
 - Debug fly camera toggled with `C` or `F1`.
 - A yellow player marker visible in debug fly mode.
-- WebGPU renderer with inline WGSL.
+- WebGPU renderer using generated WGSL shader artifacts.
 
 The current terrain is deliberately not Dual Contouring yet.
 
@@ -38,6 +38,8 @@ If context is compacted or you are unsure about scene architecture, reread
 
 ```powershell
 npm run build
+npm run build:shaders
+npm run check:shaders
 npm test
 npm run smoke:browser
 npm run dev
@@ -76,12 +78,23 @@ src/engine/scene
 src/engine/render
   WebGPU renderer plus scene render data types. Runtime rendering flows through
   MeshRenderer, TerrainRenderer, RenderWorld, and SceneRenderExtractor.
+  Materials currently support albedo factor, CPU-side albedo texture id, specular,
+  and specular factor; the shader uses Lambert plus Blinn-Phong lighting.
+  `RenderWorld.mainLight` also drives the procedural sky sun disk.
+
+src/engine/render/shaders
+  Shader source inputs. `uber.wgsl` is compiled into a TypeScript artifact before
+  `tsc` runs.
+
+src/generated
+  Deterministic generated TypeScript artifacts, currently shader source modules.
 
 src/game/components
   Game-level components such as PlayerController.
 
 tools
-  Local scripts, including the static dev server and browser smoke test.
+  Local scripts, including shader generation, the static dev server, and browser
+  smoke test.
 ```
 
 ## Scene Model Rules
@@ -98,6 +111,7 @@ There is one global active `Scene`.
   `ResourceStore`.
 - Render extraction produces plain `RenderWorld` data. The WebGPU renderer should
   not know about entities.
+- `scene.mainLight` is the sun: use it for world lighting and sky placement.
 
 The playable app is scene-model backed: terrain, player, camera, and the debug
 player marker are scene entities/components. Keep new runtime behavior on that
@@ -114,6 +128,8 @@ Current test areas include:
   transform propagation, resource storage.
 - Render data: mesh/material/texture metadata, mesh renderer, terrain renderer,
   render extraction.
+- Shader boundary: generated shader source artifact metadata and vertex layout
+  contract.
 - World mesh generation: heightfield and primitive meshes.
 - Gameplay/input: player controller, camera rig, input tracker.
 - Browser smoke: actual Chrome/Edge WebGPU render, screenshots, pixel checks, HUD
@@ -146,7 +162,8 @@ important.
 - Keep WebGPU details behind render-facing boundaries.
 - Do not introduce a full ECS.
 - Do not migrate to Rust/WASM until TypeScript contracts are stable and tested.
-- Keep shader work simple until the Slang build path is introduced.
+- Keep shader work behind `tools/build-shaders.mjs` so the Slang build path can
+  replace the current WGSL source step cleanly.
 
 ## Git Notes
 
