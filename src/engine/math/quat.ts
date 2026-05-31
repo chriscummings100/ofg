@@ -24,6 +24,22 @@ export function quatFromYaw(yawRadians: number): Quat {
   return quatFromAxisAngle(vec3(0, 1, 0), yawRadians);
 }
 
+export function quatFromYawPitch(yawRadians: number, pitchRadians: number): Quat {
+  return multiplyQuat(
+    quatFromYaw(yawRadians),
+    quatFromAxisAngle(vec3(1, 0, 0), -pitchRadians)
+  );
+}
+
+export function multiplyQuat(a: Quat, b: Quat): Quat {
+  return normalizeQuat(quat(
+    a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+    a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+    a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+    a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z
+  ));
+}
+
 export function normalizeQuat(value: Quat): Quat {
   const length = Math.hypot(value.x, value.y, value.z, value.w);
   if (length <= Number.EPSILON) {

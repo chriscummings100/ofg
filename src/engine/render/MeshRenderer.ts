@@ -21,6 +21,7 @@ export class MeshRenderer extends Component {
 
     const resources = getScene().resources;
     return {
+      id: `mesh-renderer:${this.entity.id}`,
       mesh: resources.getMesh(this.mesh),
       material: this.material === undefined ? undefined : resources.getMaterial(this.material),
       worldMatrix: this.entity.transform.getWorldMatrix()

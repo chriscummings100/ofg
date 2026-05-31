@@ -67,6 +67,7 @@ describe("TerrainRenderer", () => {
     const items = terrain.getRenderItems();
 
     equal(items.length, 1);
+    equal(items[0].id, `terrain:${terrain.entity?.id}:0,0,0`);
     equal(items[0].mesh, mesh);
   });
 
@@ -92,6 +93,22 @@ describe("TerrainRenderer", () => {
     equal(items[1].mesh, secondMesh);
     equal(items[1].material, material);
     equal(items[1].worldMatrix[12], 32);
+  });
+
+  it("applies the terrain entity world transform to chunk matrices", () => {
+    const scene = resetScene();
+    const entity = scene.createEntity("Terrain");
+    entity.transform.setPosition(vec3(5, 0, 0));
+    const chunkMatrix = identityMat4();
+    chunkMatrix[12] = 32;
+    const terrain = entity.addComponent(new TerrainRenderer(
+      createSeedTerrainField(),
+      [{ key: "1,0,0", mesh: createMesh("mesh:terrain"), worldMatrix: chunkMatrix }]
+    ));
+
+    const items = terrain.getRenderItems();
+
+    equal(items[0].worldMatrix[12], 37);
   });
 
   it("emits no render items when disabled", () => {

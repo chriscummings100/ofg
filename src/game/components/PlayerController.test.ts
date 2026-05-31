@@ -32,6 +32,7 @@ describe("PlayerController", () => {
     player.transform.setPosition(vec3(0, 10, 0));
     const controller = player.addComponent(new PlayerController());
     controller.mode = "debugFly";
+    controller.debugPosition = vec3(0, 10, 0);
     controller.setMovementIntent({
       forward: 0,
       right: 0,
@@ -43,8 +44,9 @@ describe("PlayerController", () => {
 
     scene.update(1);
 
-    ok(player.transform.position.y > 10);
-    ok(player.transform.position.y < 100);
+    equal(player.transform.position.y, 10);
+    ok(controller.getEyeTransform().position.y > 10);
+    ok(controller.getEyeTransform().position.y < 100);
   });
 
   it("first-person movement preserves height when there is no terrain", () => {
@@ -149,6 +151,7 @@ describe("PlayerController", () => {
     const player = scene.createEntity("Player");
     const controller = player.addComponent(new PlayerController());
     controller.mode = "debugFly";
+    controller.debugPosition = vec3(0, 0, 0);
     controller.debugFlySpeed = 2;
     controller.setMovementIntent({
       forward: 0,
@@ -161,7 +164,34 @@ describe("PlayerController", () => {
 
     scene.update(1);
 
-    equal(player.transform.position.y, 2);
+    equal(player.transform.position.y, 0);
+    equal(controller.getEyeTransform().position.y, 2);
+  });
+
+  it("debug fly look deltas update debug orientation only", () => {
+    const scene = resetScene();
+    const player = scene.createEntity("Player");
+    const controller = player.addComponent(new PlayerController());
+    controller.mode = "debugFly";
+    controller.yaw = 1;
+    controller.pitch = 0.5;
+    controller.debugYaw = 2;
+    controller.debugPitch = 0.25;
+    controller.setMovementIntent({
+      forward: 0,
+      right: 0,
+      up: 0,
+      fast: false,
+      lookDeltaX: 100,
+      lookDeltaY: 100
+    });
+
+    scene.update(1);
+
+    equal(controller.yaw, 1);
+    equal(controller.pitch, 0.5);
+    equal(controller.debugYaw, 1.75);
+    equal(controller.debugPitch, 0);
   });
 
   it("toggleCameraMode switches between first-person and debug fly", () => {
@@ -184,6 +214,25 @@ describe("PlayerController", () => {
     equal(eye.position.x, 1);
     equal(eye.position.y, 3.5);
     equal(eye.position.z, 3);
+  });
+
+  it("getEyeTransform returns debug camera position in debug fly", () => {
+    const scene = resetScene();
+    const player = scene.createEntity("Player");
+    player.transform.setPosition(vec3(1, 2, 3));
+    const controller = player.addComponent(new PlayerController());
+    controller.mode = "debugFly";
+    controller.debugPosition = vec3(7, 8, 9);
+    controller.debugYaw = 0.25;
+    controller.debugPitch = -0.5;
+
+    const eye = controller.getEyeTransform();
+
+    equal(eye.position.x, 7);
+    equal(eye.position.y, 8);
+    equal(eye.position.z, 9);
+    equal(eye.yaw, 0.25);
+    equal(eye.pitch, -0.5);
   });
 
   it("getEyeTransform throws while unattached", () => {

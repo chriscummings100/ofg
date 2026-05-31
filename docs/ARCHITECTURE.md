@@ -12,13 +12,14 @@
 
 ```text
 src/app
-  Browser lifecycle, canvas setup, frame loop, HUD state.
+  Browser lifecycle, canvas setup, frame loop, HUD state, and scene bootstrapping.
 
 src/engine/input
   DOM input tracking with edge-triggered key events and mouse deltas.
 
 src/engine/camera
-  First-person and debug fly camera state updates.
+  Legacy tested camera rig helpers. Runtime camera state now comes from scene
+  entities and PlayerController.
 
 src/engine/world
   Deterministic terrain field and mesh generation.
@@ -27,17 +28,33 @@ src/engine/math
   Small vector and matrix primitives.
 
 src/engine/render
-  WebGPU resource setup and draw submission.
+  CPU-side render resources, scene render components, RenderWorld extraction, and
+  WebGPU resource setup/draw submission.
+
+src/engine/scene
+  Global active Scene, Entity tree, Component lifecycle, Transform hierarchy, and
+  CPU-side ResourceStore.
+
+src/game/components
+  Game-specific behavior components, currently PlayerController.
 ```
 
 ## Scene Model
 
-The engine will use one global active `Scene`. The scene owns a tree of `Entity`
+The engine uses one global active `Scene`. The scene owns a tree of `Entity`
 objects, each entity has a `Transform`, and behavior/renderability is attached with
 `Component` objects. This is intentionally a small scene graph and component model,
 not a general-purpose ECS.
 
-The detailed API and test rollout are tracked in
+The current playable is backed by this model:
+
+- A terrain entity owns `TerrainRenderer`.
+- A player entity owns `PlayerController`.
+- A child marker entity owns `MeshRenderer` and is visible in debug fly mode.
+- A camera entity is assigned to `scene.activeCamera`.
+- `SceneRenderExtractor` builds plain `RenderWorld` data for `WebGpuRenderer`.
+
+The detailed API and next rollout steps are tracked in
 [SCENE_MODEL_PLAN.md](SCENE_MODEL_PLAN.md).
 
 ## Terrain Direction

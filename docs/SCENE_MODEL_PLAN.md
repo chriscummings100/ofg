@@ -299,6 +299,7 @@ type RenderWorld = {
 };
 
 type RenderItem = {
+  id: string;
   mesh: Mesh;
   material?: Material;
   worldMatrix: Mat4;
@@ -421,6 +422,9 @@ Initial implementation note:
 
 ## Implementation Phases
 
+Status: Phases 1 through 4 are implemented. Phase 5 is the next graphics-facing
+architecture step.
+
 ### Phase 1: Scene Core
 
 Add `activeScene`, `Scene`, `Entity`, `Component`, and basic traversal/update tests.
@@ -457,6 +461,15 @@ Done when:
 Move the current heightfield terrain and player marker into the scene model.
 Replace direct renderer mesh setup in `startGame()` with scene setup plus render
 extraction.
+
+Implemented notes:
+
+- `src/app/game.ts` creates the global scene and bootstraps terrain, player, marker,
+  and camera entities.
+- `PlayerController` owns first-person movement and a separate debug fly camera
+  position/orientation.
+- `WebGpuRenderer` consumes `RenderWorld` and draws render items with per-object
+  transforms.
 
 Done when:
 

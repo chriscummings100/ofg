@@ -54,7 +54,7 @@ saves screenshots in `artifacts/browser-smoke/`, samples pixels, and verifies th
 
 ```text
 src/app
-  Browser setup, game loop, HUD, current direct runtime wiring.
+  Browser setup, game loop, HUD, and scene bootstrapping.
 
 src/engine/math
   Vec3, Vec4, Quat, Mat4 primitives.
@@ -63,7 +63,8 @@ src/engine/input
   DOM input tracker for keys, edge-triggered presses, pointer-lock mouse deltas.
 
 src/engine/camera
-  Existing first-person/debug-fly camera rig used by the current playable.
+  Legacy tested camera rig helpers. The current playable camera is driven by
+  PlayerController plus SceneRenderExtractor.
 
 src/engine/world
   Seed terrain scalar field, heightfield mesh generation, primitive box mesh.
@@ -73,8 +74,8 @@ src/engine/scene
   ResourceStore, and related tests.
 
 src/engine/render
-  WebGPU renderer plus scene render data types: Mesh, Texture, Material,
-  MeshRenderer, TerrainRenderer, RenderWorld, SceneRenderExtractor.
+  WebGPU renderer plus scene render data types. Runtime rendering flows through
+  MeshRenderer, TerrainRenderer, RenderWorld, and SceneRenderExtractor.
 
 src/game/components
   Game-level components such as PlayerController.
@@ -98,9 +99,9 @@ There is one global active `Scene`.
 - Render extraction produces plain `RenderWorld` data. The WebGPU renderer should
   not know about entities.
 
-The current playable app has not yet been migrated fully onto the scene model.
-Expect both the older camera/game-loop path and the newer scene-component structure
-to exist until that migration is done.
+The playable app is scene-model backed: terrain, player, camera, and the debug
+player marker are scene entities/components. Keep new runtime behavior on that
+path unless a change explicitly targets legacy camera helpers.
 
 ## Testing Expectations
 

@@ -1,4 +1,4 @@
-import { identityMat4, type Mat4 } from "../math/mat4.js";
+import { multiplyMat4, type Mat4 } from "../math/mat4.js";
 import type { Vec3 } from "../math/vec3.js";
 import { Component } from "../scene/Component.js";
 import { getScene } from "../scene/activeScene.js";
@@ -50,14 +50,19 @@ export class TerrainRenderer extends Component {
   }
 
   getRenderItems(): RenderItem[] {
-    if (!this.enabled || this.entity === undefined) {
+    const entity = this.entity;
+    if (!this.enabled || entity === undefined) {
       return [];
     }
 
+    const entityWorldMatrix = entity.transform.getWorldMatrix();
     return this.chunks.map((chunk) => ({
+      id: `terrain:${entity.id}:${chunk.key}`,
       mesh: chunk.mesh,
       material: chunk.material,
-      worldMatrix: chunk.worldMatrix ?? identityMat4()
+      worldMatrix: chunk.worldMatrix === undefined
+        ? entityWorldMatrix
+        : multiplyMat4(entityWorldMatrix, chunk.worldMatrix)
     }));
   }
 }

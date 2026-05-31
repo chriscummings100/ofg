@@ -50,6 +50,9 @@ export class PlayerController extends Component {
   mode: PlayerMode = "firstPerson";
   yaw = 0;
   pitch = 0;
+  debugPosition: Vec3 = vec3(0, 12, 0);
+  debugYaw = 0;
+  debugPitch = -0.35;
 
   private movementIntent: PlayerMovementIntent = ZERO_INTENT;
 
@@ -62,20 +65,24 @@ export class PlayerController extends Component {
       return;
     }
 
-    this.yaw -= this.movementIntent.lookDeltaX * LOOK_SENSITIVITY;
-    this.pitch = clamp(
-      this.pitch - this.movementIntent.lookDeltaY * LOOK_SENSITIVITY,
-      -MAX_PITCH,
-      MAX_PITCH
-    );
-
     if (this.mode === "firstPerson") {
+      this.yaw -= this.movementIntent.lookDeltaX * LOOK_SENSITIVITY;
+      this.pitch = clamp(
+        this.pitch - this.movementIntent.lookDeltaY * LOOK_SENSITIVITY,
+        -MAX_PITCH,
+        MAX_PITCH
+      );
       this.updateFirstPerson(deltaSeconds);
+      this.entity.transform.setRotation(quatFromYaw(this.yaw));
     } else {
+      this.debugYaw -= this.movementIntent.lookDeltaX * LOOK_SENSITIVITY;
+      this.debugPitch = clamp(
+        this.debugPitch - this.movementIntent.lookDeltaY * LOOK_SENSITIVITY,
+        -MAX_PITCH,
+        MAX_PITCH
+      );
       this.updateDebugFly(deltaSeconds);
     }
-
-    this.entity.transform.setRotation(quatFromYaw(this.yaw));
   }
 
   toggleCameraMode(): void {
@@ -85,6 +92,14 @@ export class PlayerController extends Component {
   getEyeTransform(): TransformSnapshot {
     if (this.entity === undefined) {
       throw new Error("PlayerController must be attached to an entity before reading eye transform.");
+    }
+
+    if (this.mode === "debugFly") {
+      return {
+        position: this.debugPosition,
+        yaw: this.debugYaw,
+        pitch: this.debugPitch
+      };
     }
 
     return {
@@ -116,18 +131,17 @@ export class PlayerController extends Component {
   }
 
   private updateDebugFly(deltaSeconds: number): void {
-    const entity = this.requireEntity();
-    const forward = yawPitchForward(this.yaw, this.pitch);
-    const right = yawRight(this.yaw);
+    const forward = yawPitchForward(this.debugYaw, this.debugPitch);
+    const right = yawRight(this.debugYaw);
     const move = normalize(add(
       add(scale(forward, this.movementIntent.forward), scale(right, this.movementIntent.right)),
       scale(VEC3_UP, this.movementIntent.up)
     ));
 
-    entity.transform.setPosition(add(
-      entity.transform.position,
+    this.debugPosition = add(
+      this.debugPosition,
       scale(move, this.debugFlySpeed * speedMultiplier(this.movementIntent) * deltaSeconds)
-    ));
+    );
   }
 
   private requireEntity() {

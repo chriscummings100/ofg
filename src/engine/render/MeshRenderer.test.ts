@@ -17,6 +17,7 @@ describe("MeshRenderer", () => {
 
     const item = renderer.getRenderItem();
 
+    equal(item?.id, `mesh-renderer:${entity.id}`);
     equal(item?.mesh, mesh);
     equal(item?.worldMatrix[12], 3);
     equal(item?.worldMatrix[13], 4);

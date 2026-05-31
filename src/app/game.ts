@@ -1,17 +1,25 @@
-import {
-  createCameraRig,
-  getCameraFrame,
-  getPlayerMarkerCenter,
-  toggleCameraMode,
-  updateCameraRig,
-  type MovementIntent
-} from "../engine/camera/cameraRig.js";
 import { InputTracker } from "../engine/input/inputTracker.js";
+import { quatFromYawPitch } from "../engine/math/quat.js";
 import { vec3 } from "../engine/math/vec3.js";
+import { Mesh } from "../engine/render/Mesh.js";
+import { MeshRenderer } from "../engine/render/MeshRenderer.js";
+import { SceneRenderExtractor } from "../engine/render/SceneRenderExtractor.js";
+import { TerrainRenderer } from "../engine/render/TerrainRenderer.js";
 import { WebGpuRenderer } from "../engine/render/webgpuRenderer.js";
+import { createScene } from "../engine/scene/activeScene.js";
+import type { Entity } from "../engine/scene/Entity.js";
 import { createBoxMesh } from "../engine/world/primitiveMesh.js";
 import { createSeedTerrainField } from "../engine/world/scalarField.js";
-import { buildHeightfieldMesh } from "../engine/world/terrainMesh.js";
+import {
+  buildHeightfieldMesh,
+  getFloatsPerVertex,
+  type MeshData
+} from "../engine/world/terrainMesh.js";
+import {
+  PlayerController,
+  type PlayerMovementIntent,
+  type TransformSnapshot
+} from "../game/components/PlayerController.js";
 
 type GameElements = {
   readonly canvas: HTMLCanvasElement;
@@ -19,18 +27,51 @@ type GameElements = {
   readonly frameTime: HTMLElement;
 };
 
+const POSITION_COLOR_LAYOUT = {
+  floatsPerVertex: getFloatsPerVertex(),
+  attributes: [
+    { name: "position", offset: 0, size: 3 },
+    { name: "color", offset: 3, size: 3 }
+  ]
+} as const;
+
 export async function startGame(elements: GameElements): Promise<void> {
+  const scene = createScene();
   const renderer = new WebGpuRenderer(elements.canvas);
   const input = new InputTracker();
   const field = createSeedTerrainField();
-  const rig = createCameraRig(field.heightAt(0, 0));
   const terrainMesh = buildHeightfieldMesh(field, {
     halfExtent: 64,
     cellsPerAxis: 96
   });
+  const terrain = meshFromData("mesh:terrain.seed", terrainMesh);
+  const playerMarker = meshFromData(
+    "mesh:player.marker",
+    createBoxMesh(vec3(0, 0.9, 0), vec3(0.28, 0.9, 0.22), vec3(0.96, 0.7, 0.24))
+  );
+  const terrainEntity = scene.createEntity("Terrain");
+  const playerEntity = scene.createEntity("Player");
+  const playerMarkerEntity = scene.createEntity("Player marker");
+  const cameraEntity = scene.createEntity("Camera");
+
+  scene.resources.addMesh(terrain);
+  scene.resources.addMesh(playerMarker);
+  terrainEntity.addComponent(new TerrainRenderer(field, [{ key: "seed", mesh: terrain }]));
+  playerEntity.transform.setPosition(vec3(0, field.heightAt(0, 0), 0));
+  const playerController = playerEntity.addComponent(new PlayerController());
+  playerController.yaw = Math.PI * 0.18;
+  playerController.pitch = -0.08;
+  playerController.debugPosition = vec3(14, field.heightAt(0, 0) + 12, 18);
+  playerController.debugYaw = Math.PI * 1.24;
+  playerController.debugPitch = -0.48;
+
+  const markerRenderer = playerMarkerEntity.addComponent(new MeshRenderer(playerMarker.id));
+  markerRenderer.visible = false;
+  playerEntity.addChild(playerMarkerEntity);
+  scene.activeCamera = cameraEntity;
+  syncCameraEntity(cameraEntity, playerController.getEyeTransform());
 
   await renderer.initialize();
-  renderer.setTerrainMesh(terrainMesh);
   input.attach(elements.canvas);
 
   let lastTimestamp = performance.now();
@@ -40,27 +81,21 @@ export async function startGame(elements: GameElements): Promise<void> {
     lastTimestamp = timestamp;
 
     if (input.consumePress("KeyC") || input.consumePress("F1")) {
-      toggleCameraMode(rig);
+      playerController.toggleCameraMode();
     }
 
     const snapshot = input.consumeFrameSnapshot();
     const intent = readMovementIntent(input, snapshot.mouseDeltaX, snapshot.mouseDeltaY);
 
-    updateCameraRig(rig, intent, deltaSeconds, field.heightAt);
-    renderer.setActorMesh(rig.mode === "debugFly"
-      ? createBoxMesh(
-        getPlayerMarkerCenter(rig),
-        vec3(0.28, 0.9, 0.22),
-        vec3(0.96, 0.7, 0.24)
-      )
-      : undefined
-    );
+    playerController.setMovementIntent(intent);
+    scene.update(deltaSeconds);
+    markerRenderer.visible = playerController.mode === "debugFly";
+    syncCameraEntity(cameraEntity, playerController.getEyeTransform());
 
-    const camera = getCameraFrame(rig, renderer.getAspectRatio());
-    renderer.render(camera.viewProjection);
+    renderer.render(SceneRenderExtractor.buildRenderWorld(renderer.getAspectRatio()));
 
-    elements.cameraMode.textContent = rig.mode === "firstPerson" ? "FIRST" : "FLY";
-    elements.cameraMode.dataset.mode = rig.mode;
+    elements.cameraMode.textContent = playerController.mode === "firstPerson" ? "FIRST" : "FLY";
+    elements.cameraMode.dataset.mode = playerController.mode;
     elements.frameTime.textContent = `${(deltaSeconds * 1000).toFixed(1)} ms`;
 
     requestAnimationFrame(frame);
@@ -69,11 +104,20 @@ export async function startGame(elements: GameElements): Promise<void> {
   requestAnimationFrame(frame);
 }
 
+function meshFromData(id: string, data: MeshData): Mesh {
+  return new Mesh(id, data.vertices, data.indices, POSITION_COLOR_LAYOUT);
+}
+
+function syncCameraEntity(cameraEntity: Entity, eye: TransformSnapshot): void {
+  cameraEntity.transform.setPosition(eye.position);
+  cameraEntity.transform.setRotation(quatFromYawPitch(eye.yaw, eye.pitch));
+}
+
 function readMovementIntent(
   input: InputTracker,
   lookDeltaX: number,
   lookDeltaY: number
-): MovementIntent {
+): PlayerMovementIntent {
   return {
     forward: axis(input, "KeyW", "KeyS"),
     right: axis(input, "KeyD", "KeyA"),

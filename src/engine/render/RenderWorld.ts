@@ -9,6 +9,7 @@ export type RenderWorld = {
 };
 
 export type RenderItem = {
+  readonly id: string;
   readonly mesh: Mesh;
   readonly material?: Material;
   readonly worldMatrix: Mat4;
