@@ -1,16 +1,30 @@
-# Godot 4+ specific ignores
-.godot/
-.nomedia
+# Build outputs
+dist/
+coverage/
+*.tsbuildinfo
 
-# Godot-specific ignores
-.import/
-export.cfg
-export_credentials.cfg
+# Dependencies
+node_modules/
 
-# Imported translations (automatically generated from CSV files)
-*.translation
+# Rust
+target/
+Cargo.lock
 
-# Mono-specific ignores
-.mono/
-data_*/
-mono_crash.*.json
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Editors and OS metadata
+.idea/
+.vscode/
+*.swp
+*.swo
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
