@@ -5,6 +5,7 @@ import {
   dualContouringCellBounds,
   extractHermiteIntersections,
   extractHermiteIntersectionsForBounds,
+  meshChunkDualContouringWithNeighbors,
   meshChunkDualContouring,
   meshChunksDualContouring,
   placeDualContouringCellVertex,
@@ -405,6 +406,64 @@ describe("dualContouring", () => {
     assertMeshHasValidTriangles(stitched);
   });
 
+  it("meshes one chunk with neighbor cell vertices for owned seam quads", () => {
+    const source = createPlaneSource(vec3(0, 1, 0), 1.5);
+    const center = generateTerrainDensityChunk(source, terrainChunkCoord(0, 0, 0));
+    const right = generateTerrainDensityChunk(source, terrainChunkCoord(1, 0, 0));
+    const single = meshChunkDualContouring(center, source);
+
+    const neighborAware = meshChunkDualContouringWithNeighbors(
+      [center, right],
+      center.coord,
+      source,
+      { placement: "centroid" }
+    );
+
+    ok(neighborAware.indices.length > single.indices.length);
+    assertMeshHasValidTriangles(neighborAware);
+    ok(maxVertexX(neighborAware.vertices) > center.bounds().max.x);
+  });
+
+  it("assigns shared seam quads to exactly one neighboring chunk mesh", () => {
+    const source = createPlaneSource(vec3(0, 1, 0), 1.5);
+    const left = generateTerrainDensityChunk(source, terrainChunkCoord(0, 0, 0));
+    const right = generateTerrainDensityChunk(source, terrainChunkCoord(1, 0, 0));
+    const chunks = [left, right];
+
+    const stitched = meshChunksDualContouring(chunks, source, { placement: "centroid" });
+    const leftMesh = meshChunkDualContouringWithNeighbors(chunks, left.coord, source, {
+      placement: "centroid"
+    });
+    const rightMesh = meshChunkDualContouringWithNeighbors(chunks, right.coord, source, {
+      placement: "centroid"
+    });
+
+    equal(leftMesh.indices.length + rightMesh.indices.length, stitched.indices.length);
+    assertMeshHasValidTriangles(leftMesh);
+    assertMeshHasValidTriangles(rightMesh);
+  });
+
+  it("validates neighbor-aware chunk mesh inputs", () => {
+    const source = createPlaneSource(vec3(0, 1, 0), 1.5);
+    const center = generateTerrainDensityChunk(source, terrainChunkCoord(0, 0, 0));
+    const scaled = generateTerrainDensityChunk(source, terrainChunkCoord(1, 0, 0), {
+      cellSize: 0.5
+    });
+
+    throws(
+      () => meshChunkDualContouringWithNeighbors([], center.coord, source),
+      /at least one/
+    );
+    throws(
+      () => meshChunkDualContouringWithNeighbors([scaled], center.coord, source),
+      /center chunk/
+    );
+    throws(
+      () => meshChunkDualContouringWithNeighbors([center, scaled], center.coord, source),
+      /cellSize/
+    );
+  });
+
   it("rejects empty and differently scaled multi-chunk meshes", () => {
     const source = createPlaneSource(vec3(0, 1, 0), 1.5);
     const first = generateTerrainDensityChunk(source, terrainChunkCoord(0, 0, 0), {
@@ -484,6 +543,15 @@ function assertMeshHasValidTriangles(mesh: {
     ok(a !== c);
     ok(b !== c);
   }
+}
+
+function maxVertexX(vertices: Float32Array): number {
+  let maxX = Number.NEGATIVE_INFINITY;
+  for (let offset = 0; offset < vertices.length; offset += getFloatsPerVertex()) {
+    maxX = Math.max(maxX, vertices[offset]);
+  }
+
+  return maxX;
 }
 
 function createSphereSource(center: Vec3, radius: number): TerrainDensitySource {

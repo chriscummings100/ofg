@@ -3,6 +3,7 @@ import {
   sampleTerrainDensity,
   TERRAIN_CHUNK_CELLS_PER_AXIS,
   TerrainDensityChunk,
+  type TerrainChunkCoord,
   type TerrainChunkBounds,
   type TerrainChunkSampleCoord,
   type TerrainDensitySource
@@ -31,6 +32,8 @@ export type DualContouringCellVertexOptions = {
 };
 
 export type DualContouringMeshOptions = DualContouringCellVertexOptions;
+
+type DualContouringEdgeAxis = "x" | "y" | "z";
 
 export type DualContouringVertexFallbackReason =
   | "none"
@@ -369,11 +372,77 @@ export function meshChunksDualContouring(
   };
 }
 
+export function meshChunkDualContouringWithNeighbors(
+  chunks: readonly TerrainDensityChunk[],
+  centerCoord: TerrainChunkCoord,
+  source: TerrainDensitySource,
+  options: DualContouringMeshOptions = {}
+): MeshData {
+  if (chunks.length === 0) {
+    throw new Error("meshChunkDualContouringWithNeighbors requires at least one terrain density chunk.");
+  }
+
+  const sortedChunks = [...chunks].sort(compareChunks);
+  const centerChunk = sortedChunks.find((chunk) =>
+    chunk.coord.x === centerCoord.x &&
+    chunk.coord.y === centerCoord.y &&
+    chunk.coord.z === centerCoord.z
+  );
+  if (centerChunk === undefined) {
+    throw new Error("Neighbor-aware Dual Contouring requires the center chunk.");
+  }
+
+  for (const chunk of sortedChunks) {
+    if (chunk.cellSize !== centerChunk.cellSize) {
+      throw new Error("Neighbor-aware Dual Contouring chunks must share cellSize.");
+    }
+  }
+
+  const vertexIndices = new Map<string, number>();
+  const vertices: number[] = [];
+  const meshBounds = centerChunk.bounds();
+
+  for (const chunk of sortedChunks) {
+    for (let z = 0; z < TERRAIN_CHUNK_CELLS_PER_AXIS; z += 1) {
+      for (let y = 0; y < TERRAIN_CHUNK_CELLS_PER_AXIS; y += 1) {
+        for (let x = 0; x < TERRAIN_CHUNK_CELLS_PER_AXIS; x += 1) {
+          const cell = { x, y, z };
+          const intersections = extractHermiteIntersections(chunk, cell, source);
+          const position = placeDualContouringCellVertex(
+            intersections,
+            dualContouringCellBounds(chunk, cell),
+            options
+          );
+          if (position === undefined) {
+            continue;
+          }
+
+          const vertexIndex = vertices.length / getFloatsPerVertex();
+          vertexIndices.set(globalCellKey(chunk, x, y, z), vertexIndex);
+          writeDualContouringVertex(vertices, meshBounds, position, averageNormal(intersections));
+        }
+      }
+    }
+  }
+
+  const indices: number[] = [];
+  const emittedEdges = new Set<string>();
+  const ownsEdge = (axis: DualContouringEdgeAxis, global: TerrainCellCoord) =>
+    edgeOwnerMatches(axis, global, centerCoord);
+
+  emitMultiChunkXEdgeQuads(sortedChunks, vertexIndices, emittedEdges, indices, ownsEdge);
+  emitMultiChunkYEdgeQuads(sortedChunks, vertexIndices, emittedEdges, indices, ownsEdge);
+  emitMultiChunkZEdgeQuads(sortedChunks, vertexIndices, emittedEdges, indices, ownsEdge);
+
+  return compactMeshData(vertices, indices);
+}
+
 function emitMultiChunkXEdgeQuads(
   chunks: readonly TerrainDensityChunk[],
   vertexIndices: ReadonlyMap<string, number>,
   emittedEdges: Set<string>,
-  indices: number[]
+  indices: number[],
+  ownsEdge: (axis: DualContouringEdgeAxis, global: TerrainCellCoord) => boolean = () => true
 ): void {
   for (const chunk of chunks) {
     for (let z = 0; z <= TERRAIN_CHUNK_CELLS_PER_AXIS; z += 1) {
@@ -385,6 +454,9 @@ function emitMultiChunkXEdgeQuads(
             continue;
           }
           emittedEdges.add(edgeKey);
+          if (!ownsEdge("x", global)) {
+            continue;
+          }
 
           const startDensity = chunk.densityAtSample({ x, y, z });
           const endDensity = chunk.densityAtSample({ x: x + 1, y, z });
@@ -408,7 +480,8 @@ function emitMultiChunkYEdgeQuads(
   chunks: readonly TerrainDensityChunk[],
   vertexIndices: ReadonlyMap<string, number>,
   emittedEdges: Set<string>,
-  indices: number[]
+  indices: number[],
+  ownsEdge: (axis: DualContouringEdgeAxis, global: TerrainCellCoord) => boolean = () => true
 ): void {
   for (const chunk of chunks) {
     for (let z = 0; z <= TERRAIN_CHUNK_CELLS_PER_AXIS; z += 1) {
@@ -420,6 +493,9 @@ function emitMultiChunkYEdgeQuads(
             continue;
           }
           emittedEdges.add(edgeKey);
+          if (!ownsEdge("y", global)) {
+            continue;
+          }
 
           const startDensity = chunk.densityAtSample({ x, y, z });
           const endDensity = chunk.densityAtSample({ x, y: y + 1, z });
@@ -443,7 +519,8 @@ function emitMultiChunkZEdgeQuads(
   chunks: readonly TerrainDensityChunk[],
   vertexIndices: ReadonlyMap<string, number>,
   emittedEdges: Set<string>,
-  indices: number[]
+  indices: number[],
+  ownsEdge: (axis: DualContouringEdgeAxis, global: TerrainCellCoord) => boolean = () => true
 ): void {
   for (const chunk of chunks) {
     for (let z = 0; z < TERRAIN_CHUNK_CELLS_PER_AXIS; z += 1) {
@@ -455,6 +532,9 @@ function emitMultiChunkZEdgeQuads(
             continue;
           }
           emittedEdges.add(edgeKey);
+          if (!ownsEdge("z", global)) {
+            continue;
+          }
 
           const startDensity = chunk.densityAtSample({ x, y, z });
           const endDensity = chunk.densityAtSample({ x, y, z: z + 1 });
@@ -771,6 +851,56 @@ function globalCellKey(
 
 function cellKey(x: number, y: number, z: number): string {
   return `${x},${y},${z}`;
+}
+
+function edgeOwnerMatches(
+  axis: DualContouringEdgeAxis,
+  global: TerrainCellCoord,
+  owner: TerrainChunkCoord
+): boolean {
+  const ownerCell = edgeOwnerCell(axis, global);
+
+  return Math.floor(ownerCell.x / TERRAIN_CHUNK_CELLS_PER_AXIS) === owner.x &&
+    Math.floor(ownerCell.y / TERRAIN_CHUNK_CELLS_PER_AXIS) === owner.y &&
+    Math.floor(ownerCell.z / TERRAIN_CHUNK_CELLS_PER_AXIS) === owner.z;
+}
+
+function edgeOwnerCell(axis: DualContouringEdgeAxis, global: TerrainCellCoord): TerrainCellCoord {
+  if (axis === "x") {
+    return { x: global.x, y: global.y - 1, z: global.z - 1 };
+  }
+
+  if (axis === "y") {
+    return { x: global.x - 1, y: global.y, z: global.z - 1 };
+  }
+
+  return { x: global.x - 1, y: global.y - 1, z: global.z };
+}
+
+function compactMeshData(vertices: readonly number[], indices: readonly number[]): MeshData {
+  const floatsPerVertex = getFloatsPerVertex();
+  const remap = new Map<number, number>();
+  const compactVertices: number[] = [];
+  const compactIndices: number[] = [];
+
+  for (const index of indices) {
+    let compactIndex = remap.get(index);
+    if (compactIndex === undefined) {
+      compactIndex = remap.size;
+      remap.set(index, compactIndex);
+      const vertexOffset = index * floatsPerVertex;
+      for (let value = 0; value < floatsPerVertex; value += 1) {
+        compactVertices.push(vertices[vertexOffset + value]);
+      }
+    }
+
+    compactIndices.push(compactIndex);
+  }
+
+  return {
+    vertices: Float32Array.from(compactVertices),
+    indices: Uint32Array.from(compactIndices)
+  };
 }
 
 function globalSampleCoord(
