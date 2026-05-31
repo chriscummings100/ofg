@@ -26,8 +26,14 @@ export type TerrainChunkBounds = {
   readonly max: Vec3;
 };
 
+export type TerrainDensitySample = {
+  readonly density: number;
+  readonly gradient: Vec3;
+};
+
 export type TerrainDensitySource = {
   readonly densityAt: (position: Vec3) => number;
+  readonly sampleAt?: (position: Vec3) => TerrainDensitySample;
 };
 
 export type TerrainEdit = {
@@ -125,6 +131,39 @@ export class EditableTerrainDensitySource implements TerrainDensitySource {
   clearEdits(): void {
     this.edits.length = 0;
   }
+}
+
+export function sampleTerrainDensity(
+  source: TerrainDensitySource,
+  position: Vec3,
+  gradientStep = 0.01
+): TerrainDensitySample {
+  const sample = source.sampleAt?.(position);
+  if (sample !== undefined) {
+    return sample;
+  }
+
+  if (gradientStep <= 0) {
+    throw new Error("Terrain density gradient step must be positive.");
+  }
+
+  const density = source.densityAt(position);
+  const x0 = source.densityAt(vec3(position.x - gradientStep, position.y, position.z));
+  const x1 = source.densityAt(vec3(position.x + gradientStep, position.y, position.z));
+  const y0 = source.densityAt(vec3(position.x, position.y - gradientStep, position.z));
+  const y1 = source.densityAt(vec3(position.x, position.y + gradientStep, position.z));
+  const z0 = source.densityAt(vec3(position.x, position.y, position.z - gradientStep));
+  const z1 = source.densityAt(vec3(position.x, position.y, position.z + gradientStep));
+  const invSpan = 1 / (gradientStep * 2);
+
+  return {
+    density,
+    gradient: vec3(
+      (x1 - x0) * invSpan,
+      (y1 - y0) * invSpan,
+      (z1 - z0) * invSpan
+    )
+  };
 }
 
 export function terrainChunkCoord(x: number, y: number, z: number): TerrainChunkCoord {

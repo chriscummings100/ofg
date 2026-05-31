@@ -3,7 +3,13 @@ import type { Vec3 } from "../math/vec3.js";
 import { Component } from "../scene/Component.js";
 import { getScene } from "../scene/activeScene.js";
 import type { TerrainField } from "../world/scalarField.js";
-import { terrainChunkKey, type TerrainChunkCoord, type TerrainChunkKey } from "../world/terrainChunk.js";
+import {
+  sampleTerrainDensity,
+  terrainChunkKey,
+  type TerrainChunkCoord,
+  type TerrainChunkKey,
+  type TerrainDensitySample
+} from "../world/terrainChunk.js";
 import type { ResourceId } from "../scene/types.js";
 import type { Mesh } from "./Mesh.js";
 import type { RenderItem } from "./RenderWorld.js";
@@ -44,6 +50,10 @@ export class TerrainRenderer extends Component {
 
   densityAt(position: Vec3): number {
     return this.field.densityAt(position);
+  }
+
+  sampleAt(position: Vec3): TerrainDensitySample {
+    return sampleTerrainDensity(this.field, position);
   }
 
   addChunk(chunk: TerrainChunk): void {

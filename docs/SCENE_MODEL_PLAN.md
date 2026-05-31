@@ -45,6 +45,7 @@ src/engine/world/
   simplexNoise3D.ts
   terrainChunk.ts
   terrainChunkMesher.ts
+  dualContouring.ts
 ```
 
 ## Global Scene API
@@ -297,6 +298,7 @@ class TerrainRenderer extends Component {
 
   heightAt(x: number, z: number): number;
   densityAt(position: Vec3): number;
+  sampleAt(position: Vec3): TerrainDensitySample;
   addChunk(chunk: TerrainChunk): void;
   getChunk(chunk: ChunkKey | TerrainChunkCoord): TerrainChunk | undefined;
   removeChunk(chunk: ChunkKey | TerrainChunkCoord): boolean;
@@ -333,7 +335,16 @@ const TERRAIN_CHUNK_CELLS_PER_AXIS = 32;
 const TERRAIN_CHUNK_SAMPLES_PER_AXIS = 33;
 
 type TerrainChunkCoord = { x: number; y: number; z: number };
-type TerrainDensitySource = { densityAt(position: Vec3): number };
+type TerrainDensitySample = { density: number; gradient: Vec3 };
+type TerrainDensitySource = {
+  densityAt(position: Vec3): number;
+  sampleAt?(position: Vec3): TerrainDensitySample;
+};
+
+function sampleTerrainDensity(
+  source: TerrainDensitySource,
+  position: Vec3
+): TerrainDensitySample;
 
 class TerrainDensityChunk {
   readonly coord: TerrainChunkCoord;
@@ -382,6 +393,43 @@ Non-goals:
 
 - This is not the final voxel mesher.
 - It does not represent overhangs or caves; lower surfaces in a column are ignored.
+
+### Dual Contouring Foundations
+
+```ts
+function extractHermiteIntersections(
+  chunk: TerrainDensityChunk,
+  cell: TerrainCellCoord,
+  source: TerrainDensitySource
+): HermiteIntersection[];
+
+function placeDualContouringCellVertex(
+  intersections: readonly HermiteIntersection[],
+  bounds: TerrainChunkBounds,
+  options?: { placement?: "qef" | "centroid" }
+): Vec3 | undefined;
+
+function meshChunkDualContouring(
+  chunk: TerrainDensityChunk,
+  source: TerrainDensitySource
+): MeshData;
+```
+
+Current role:
+
+- Provide the tested primitives needed to replace highest-surface meshing.
+- Extract Hermite edge crossings and gradients from the 12 edges of a voxel cell.
+- Place one vertex per active cell with centroid or QEF placement.
+- Build an initial chunk-local Dual Contouring mesh by connecting active cell
+  vertices around sign-changing grid edges.
+
+Remaining work before runtime use:
+
+- Cross-chunk stitching or neighbor-aware boundary quad generation.
+- More robust sharp-feature QEF constraints.
+- Material assignment for generated surface vertices.
+- Streamer integration and browser screenshot coverage for the Dual Contouring
+  path.
 
 ### TerrainChunkStreamer
 
@@ -558,6 +606,25 @@ Implementation note:
 - `meshes a complete surface across a vertical stack of density chunks`
 - `writes sloped normals from neighboring surface heights`
 
+### `src/engine/world/dualContouring.test.ts`
+
+- `extracts Hermite intersections from a flat plane cell`
+- `extracts no Hermite intersections when the cell has no sign change`
+- `uses finite-difference gradients when a source has no sample API`
+- `extracts Hermite positions using chunk origin and cell size`
+- `extracts Hermite intersections from a diagonal plane cell`
+- `extracts Hermite intersections from a sphere cell`
+- `places a cell vertex at the centroid of Hermite crossings`
+- `uses QEF placement when Hermite planes have a unique solution`
+- `falls back to the centroid when QEF placement is underconstrained`
+- `clamps QEF placement to the owning cell bounds`
+- `clamps centroid placement to the owning cell bounds`
+- `meshes a flat plane into cell vertices and edge quads`
+- `meshes a diagonal plane without invalid indices`
+- `writes world-space vertex data for scaled offset chunks`
+- `reverses triangle winding when density signs are reversed`
+- `returns an empty mesh for a chunk without a surface`
+
 ### `src/game/components/TerrainChunkStreamer.test.ts`
 
 - `generates a render chunk around the target entity`
@@ -586,9 +653,9 @@ Implementation note:
 
 ## Implementation Phases
 
-Status: Phases 1 through 6 have an initial implementation. The next terrain-facing
-work is to move from highest-surface meshing toward a tested voxel mesher, with
-Dual Contouring as the intended destination.
+Status: Phases 1 through 7 have an initial implementation. The next terrain-facing
+work is to turn the tested Dual Contouring primitives into the runtime terrain
+mesher with cross-chunk stitching.
 
 ### Phase 1: Scene Core
 
@@ -685,6 +752,28 @@ Done when:
 - Chunk and mesher unit tests pass.
 - Streamer tests cover movement, rebuild, invalidation, and no-surface chunks.
 - Browser smoke verifies terrain still renders after a chunk-window move.
+
+### Phase 7: Dual Contouring Foundations
+
+Add the first Dual Contouring primitives without switching the runtime terrain path
+yet.
+
+Implemented notes:
+
+- `TerrainDensitySource` can expose `sampleAt(position)` for signed density plus
+  gradient samples. `sampleTerrainDensity()` falls back to finite differences for
+  older density-only sources.
+- `dualContouring.ts` extracts Hermite edge intersections from one cell, places
+  active-cell vertices with centroid or QEF placement, and emits an initial
+  chunk-local Dual Contouring mesh.
+- Tests cover flat planes, diagonal planes, sphere-like fields, QEF placement,
+  empty chunks, and invalid indices.
+
+Done when:
+
+- Dual Contouring unit tests pass.
+- Existing highest-surface streaming remains unchanged.
+- The architecture docs identify the remaining stitching/runtime integration work.
 
 ## Constraints
 

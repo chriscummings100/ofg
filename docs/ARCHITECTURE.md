@@ -83,10 +83,11 @@ density near that surface:
 density(p) = p.y - largeFeatureHeight(p.x, p.z) - detail3D(p) * amplitude
 ```
 
-The simplex module exposes analytic gradients, and the seed field uses the density
-gradient for terrain normals. `heightAt(x, z)` is now a compatibility query that
-scans a density column for the highest zero crossing so player grounding can keep
-working until movement is density/mesh aware.
+The simplex module exposes analytic gradients, and the seed field exposes
+`sampleAt(position)` so terrain systems can get signed density and gradient at any
+world-space position. `heightAt(x, z)` is now a compatibility query that scans a
+density column for the highest zero crossing so player grounding can keep working
+until movement is density/mesh aware.
 
 The current runtime mesher is deliberately simple: it scans each x/z column in a
 vertical stack of density chunks, finds the highest solid-to-air crossing, and emits
@@ -96,9 +97,18 @@ vertical chunk-offset stack on the target chunk y coordinate, and replaces the
 visible render chunks as the player crosses chunk boundaries. Render chunks are
 keyed by their x/z column at y=0, while loaded density chunk keys remain fully 3D.
 
+The first Dual Contouring foundation lives in `src/engine/world/dualContouring.ts`.
+It can extract Hermite edge intersections for one cell, place one vertex per active
+cell with centroid or QEF placement, and build an initial chunk mesh by connecting
+cell vertices around sign-changing grid edges. It is tested against flat planes,
+diagonal planes, and sphere-like fields, but the runtime streamer still uses the
+highest-surface mesher until cross-chunk stitching and edit-driven rebuild behavior
+are ready.
+
 The intended Dual Contouring boundary is:
 
-- Density field interface: sample signed density and material at world positions.
+- Density field interface: sample signed density and gradients at world positions,
+  with materials added once the surface representation is stable.
 - Chunk sampler: evaluate density at deterministic 33x33x33 chunk lattice points.
 - Mesher: produce compact vertex/index/material buffers with smooth normals.
 - Renderer: upload chunk meshes without knowing how they were generated.

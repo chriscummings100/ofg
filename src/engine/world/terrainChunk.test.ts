@@ -10,6 +10,7 @@ import {
   createSubtractSphereEdit,
   generateTerrainDensityChunk,
   parseTerrainChunkKey,
+  sampleTerrainDensity,
   terrainChunkBounds,
   terrainChunkCoordContainingPosition,
   terrainChunkCoord,
@@ -71,6 +72,45 @@ describe("terrainChunk", () => {
       () => generateTerrainDensityChunk({ densityAt: () => 0 }, coord, { cellSize: 0 }),
       /cellSize/
     );
+  });
+
+  it("uses explicit terrain density samples when available", () => {
+    let densityCalls = 0;
+    let sampleCalls = 0;
+    const source: TerrainDensitySource = {
+      densityAt() {
+        densityCalls += 1;
+        return 0;
+      },
+      sampleAt() {
+        sampleCalls += 1;
+        return {
+          density: 4,
+          gradient: vec3(1, 2, 3)
+        };
+      }
+    };
+
+    const sample = sampleTerrainDensity(source, vec3(5, 6, 7));
+
+    equal(sample.density, 4);
+    deepEqual(sample.gradient, vec3(1, 2, 3));
+    equal(sampleCalls, 1);
+    equal(densityCalls, 0);
+  });
+
+  it("estimates density gradients with finite differences when no sample API exists", () => {
+    const source: TerrainDensitySource = {
+      densityAt: (position) => position.x * 2 + position.y * 3 - position.z * 4 + 5
+    };
+
+    const sample = sampleTerrainDensity(source, vec3(7, 11, 13));
+
+    equal(sample.density, 7 * 2 + 11 * 3 - 13 * 4 + 5);
+    ok(Math.abs(sample.gradient.x - 2) < 1e-9);
+    ok(Math.abs(sample.gradient.y - 3) < 1e-9);
+    ok(Math.abs(sample.gradient.z + 4) < 1e-9);
+    throws(() => sampleTerrainDensity(source, vec3(0, 0, 0), 0), /gradient step/);
   });
 
   it("indexes samples with x as the fastest axis", () => {

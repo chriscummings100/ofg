@@ -1,4 +1,4 @@
-import { equal, throws } from "node:assert/strict";
+import { equal, ok, throws } from "node:assert/strict";
 import { identityMat4 } from "../math/mat4.js";
 import { vec3 } from "../math/vec3.js";
 import { vec4 } from "../math/vec4.js";
@@ -24,6 +24,18 @@ describe("TerrainRenderer", () => {
     const position = vec3(2, 4, 3);
 
     equal(terrain.densityAt(position), field.densityAt(position));
+  });
+
+  it("delegates density sample queries to the terrain field", () => {
+    const field = createSeedTerrainField();
+    const terrain = new TerrainRenderer(field);
+    const position = vec3(2, 4, 3);
+    const sample = terrain.sampleAt(position);
+
+    equal(sample.density, field.densityAt(position));
+    ok(Number.isFinite(sample.gradient.x));
+    ok(Number.isFinite(sample.gradient.y));
+    ok(Number.isFinite(sample.gradient.z));
   });
 
   it("registers itself as scene terrain when attached", () => {

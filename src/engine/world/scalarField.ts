@@ -1,6 +1,6 @@
-import { vec3, type Vec3 } from "../math/vec3.js";
+import { normalize, vec3, type Vec3 } from "../math/vec3.js";
 import { sampleFractalSimplex3D, SimplexNoise3D } from "./simplexNoise3D.js";
-import type { TerrainDensitySource } from "./terrainChunk.js";
+import type { TerrainDensitySample, TerrainDensitySource } from "./terrainChunk.js";
 
 export type TerrainField = TerrainDensitySource & {
   readonly heightAt: (x: number, z: number) => number;
@@ -34,16 +34,14 @@ export function createSeedTerrainField(): TerrainField {
     densityAt(position) {
       return terrainDensitySampleAt(position).density;
     },
+    sampleAt(position) {
+      return terrainDensitySampleAt(position);
+    },
     normalAt(x, z) {
       const y = heightAt(x, z);
       const gradient = terrainDensitySampleAt(vec3(x, y, z)).gradient;
-      const invLength = 1 / Math.hypot(gradient.x, gradient.y, gradient.z);
 
-      return vec3(
-        gradient.x * invLength,
-        gradient.y * invLength,
-        gradient.z * invLength
-      );
+      return normalize(gradient);
     }
   };
 }
@@ -93,10 +91,7 @@ function densityAtPosition(x: number, y: number, z: number): number {
   return terrainDensitySampleAt(vec3(x, y, z)).density;
 }
 
-function terrainDensitySampleAt(position: Vec3): {
-  readonly density: number;
-  readonly gradient: Vec3;
-} {
+function terrainDensitySampleAt(position: Vec3): TerrainDensitySample {
   const largeFeature = largeFeatureHeightAt(position.x, position.z);
   const detail = sampleFractalSimplex3D(
     TERRAIN_NOISE,

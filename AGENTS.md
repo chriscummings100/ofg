@@ -69,8 +69,9 @@ src/engine/input
 src/engine/world
   Seed terrain scalar field backed by low-frequency x/z noise plus octave 3D
   simplex density detail with gradients, 3D density chunk model, highest-surface
-  chunk meshing, legacy heightfield mesh generation, primitive box mesh. Runtime
-  meshes currently use position/color/normal/uv vertex data.
+  chunk meshing, initial Dual Contouring Hermite/QEF utilities, legacy heightfield
+  mesh generation, primitive box mesh. Runtime meshes currently use
+  position/color/normal/uv vertex data.
 
 src/engine/scene
   Global Scene, Entity tree, Component lifecycle, Transform hierarchy,
@@ -132,8 +133,8 @@ Current test areas include:
 - Shader boundary: generated shader source artifact metadata and vertex layout
   contract.
 - World terrain: simplex noise generation, 3D density chunks, baseline field
-  sampling, terrain edits, highest-surface chunk meshing, chunk streaming,
-  heightfield and primitive meshes.
+  sampling, terrain edits, Dual Contouring foundations, highest-surface chunk
+  meshing, chunk streaming, heightfield and primitive meshes.
 - Gameplay/input: player controller and input tracker.
 - Browser smoke: actual Chrome/Edge WebGPU render, screenshots, pixel checks, HUD
   camera toggle verification, and a basic player-position chunk streaming check.

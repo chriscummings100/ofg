@@ -20,6 +20,22 @@ describe("scalarField", () => {
     ok(Math.abs(Math.hypot(normal.x, normal.y, normal.z) - 1) < 1e-12);
   });
 
+  it("samples density and gradients at arbitrary 3D positions", () => {
+    const field = createSeedTerrainField();
+    const position = vec3(9, 4, -12);
+    const sample = field.sampleAt?.(position);
+
+    if (sample === undefined) {
+      throw new Error("Seed terrain field should expose density samples.");
+    }
+
+    equal(sample.density, field.densityAt(position));
+    ok(Number.isFinite(sample.gradient.x));
+    ok(Number.isFinite(sample.gradient.y));
+    ok(Number.isFinite(sample.gradient.z));
+    ok(Math.hypot(sample.gradient.x, sample.gradient.y, sample.gradient.z) > 0);
+  });
+
   it("uses deterministic noise terrain with useful height variation", () => {
     const first = createSeedTerrainField();
     const second = createSeedTerrainField();
