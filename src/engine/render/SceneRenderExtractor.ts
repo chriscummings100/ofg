@@ -4,8 +4,8 @@ import { rotateVec3ByQuat } from "../math/quat.js";
 import { inverseMat4, lookAtMat4, multiplyMat4, perspectiveMat4 } from "../math/mat4.js";
 import { MeshRenderer } from "./MeshRenderer.js";
 import { TerrainRenderer } from "./TerrainRenderer.js";
-import type { CameraFrame } from "../camera/cameraRig.js";
 import type { Entity } from "../scene/Entity.js";
+import type { CameraFrame } from "./CameraFrame.js";
 import type { RenderItem, RenderWorld } from "./RenderWorld.js";
 
 export class SceneRenderExtractor {

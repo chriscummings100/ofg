@@ -8,17 +8,21 @@ struct Camera {
 
 struct ObjectUniforms {
   world: mat4x4<f32>,
+  normalWorld: mat4x4<f32>,
   albedoFactor: vec4<f32>,
   specularAndFactor: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(1) @binding(0) var<uniform> object: ObjectUniforms;
+@group(1) @binding(1) var albedoTexture: texture_2d<f32>;
+@group(1) @binding(2) var albedoSampler: sampler;
 
 struct VertexInput {
   @location(0) position: vec3<f32>,
   @location(1) color: vec3<f32>,
   @location(2) normal: vec3<f32>,
+  @location(3) uv: vec2<f32>,
 };
 
 struct VertexOutput {
@@ -26,6 +30,7 @@ struct VertexOutput {
   @location(0) color: vec3<f32>,
   @location(1) worldPosition: vec3<f32>,
   @location(2) worldNormal: vec3<f32>,
+  @location(3) uv: vec2<f32>,
 };
 
 @vertex
@@ -35,7 +40,8 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
   output.clipPosition = camera.viewProjection * worldPosition;
   output.color = input.color;
   output.worldPosition = worldPosition.xyz;
-  output.worldNormal = normalize((object.world * vec4<f32>(input.normal, 0.0)).xyz);
+  output.worldNormal = normalize((object.normalWorld * vec4<f32>(input.normal, 0.0)).xyz);
+  output.uv = input.uv;
   return output;
 }
 
@@ -53,7 +59,8 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
   let specular = pow(max(dot(normal, halfDirection), 0.0), 32.0) *
     object.specularAndFactor.w *
     camera.sunDirectionAndIntensity.w;
-  let albedo = input.color * object.albedoFactor.rgb;
+  let sampledAlbedo = textureSample(albedoTexture, albedoSampler, input.uv).rgb;
+  let albedo = input.color * object.albedoFactor.rgb * sampledAlbedo;
   let litColor =
     albedo * (camera.sunColorAndAmbient.w + diffuse * camera.sunColorAndAmbient.rgb) +
     object.specularAndFactor.rgb * camera.sunColorAndAmbient.rgb * specular;

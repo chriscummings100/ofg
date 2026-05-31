@@ -1,4 +1,4 @@
-import { equal } from "node:assert/strict";
+import { equal, throws } from "node:assert/strict";
 import { identityMat4 } from "../math/mat4.js";
 import { vec3 } from "../math/vec3.js";
 import { vec4 } from "../math/vec4.js";
@@ -7,6 +7,7 @@ import { createSeedTerrainField } from "../world/scalarField.js";
 import { Material } from "./Material.js";
 import { Mesh } from "./Mesh.js";
 import { TerrainRenderer } from "./TerrainRenderer.js";
+import { Texture } from "./Texture.js";
 
 describe("TerrainRenderer", () => {
   it("delegates height queries to the terrain field", () => {
@@ -76,13 +77,14 @@ describe("TerrainRenderer", () => {
     const firstMesh = createMesh("mesh:first");
     const secondMesh = createMesh("mesh:second");
     const material = new Material("material:terrain", { albedoFactor: vec4(0, 1, 0, 1) });
+    scene.resources.addMaterial(material);
     const secondMatrix = identityMat4();
     secondMatrix[12] = 32;
     const terrain = scene.createEntity("Terrain").addComponent(new TerrainRenderer(
       createSeedTerrainField(),
       [
         { key: "0,0,0", mesh: firstMesh },
-        { key: "1,0,0", mesh: secondMesh, material, worldMatrix: secondMatrix }
+        { key: "1,0,0", mesh: secondMesh, material: material.id, worldMatrix: secondMatrix }
       ]
     ));
 
@@ -93,6 +95,49 @@ describe("TerrainRenderer", () => {
     equal(items[1].mesh, secondMesh);
     equal(items[1].material, material);
     equal(items[1].worldMatrix[12], 32);
+  });
+
+  it("resolves terrain albedo textures from scene resources", () => {
+    const scene = resetScene();
+    const texture = new Texture("texture:terrain", 1, 1, "rgba8unorm", {
+      data: new Uint8Array([0, 255, 0, 255])
+    });
+    const material = new Material("material:terrain", {
+      albedoTexture: texture.id
+    });
+    scene.resources.addTexture(texture);
+    scene.resources.addMaterial(material);
+    const terrain = scene.createEntity("Terrain").addComponent(new TerrainRenderer(
+      createSeedTerrainField(),
+      [{ key: "0,0,0", mesh: createMesh("mesh:terrain"), material: material.id }]
+    ));
+
+    const items = terrain.getRenderItems();
+
+    equal(items[0].material, material);
+    equal(items[0].albedoTexture, texture);
+  });
+
+  it("throws a useful error for missing terrain material resources", () => {
+    const scene = resetScene();
+    const terrain = scene.createEntity("Terrain").addComponent(new TerrainRenderer(
+      createSeedTerrainField(),
+      [{ key: "0,0,0", mesh: createMesh("mesh:terrain"), material: "material:missing" }]
+    ));
+
+    throws(() => terrain.getRenderItems(), /Material resource 'material:missing'/);
+  });
+
+  it("throws a useful error for missing terrain albedo texture resources", () => {
+    const scene = resetScene();
+    const material = new Material("material:terrain", { albedoTexture: "texture:missing" });
+    scene.resources.addMaterial(material);
+    const terrain = scene.createEntity("Terrain").addComponent(new TerrainRenderer(
+      createSeedTerrainField(),
+      [{ key: "0,0,0", mesh: createMesh("mesh:terrain"), material: material.id }]
+    ));
+
+    throws(() => terrain.getRenderItems(), /Texture resource 'texture:missing'/);
   });
 
   it("applies the terrain entity world transform to chunk matrices", () => {

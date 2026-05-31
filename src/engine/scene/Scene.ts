@@ -15,23 +15,25 @@ export class Scene {
   private nextEntityId = 1;
 
   constructor() {
-    this.root = new Entity(0, "Root", true);
+    this.root = new Entity(0, "Root", true, this);
   }
 
   createEntity(name = "Entity"): Entity {
-    const entity = new Entity(this.nextEntityId, name);
+    const entity = new Entity(this.nextEntityId, name, false, this);
     this.nextEntityId += 1;
     this.root.addChild(entity);
     return entity;
   }
 
   destroyEntity(entity: Entity): void {
+    entity.destroy();
+  }
+
+  notifyEntityDestroying(entity: Entity): void {
     const activeCamera = this.activeCamera;
     if (activeCamera !== undefined && containsEntity(entity, activeCamera)) {
       this.activeCamera = undefined;
     }
-
-    entity.destroy();
   }
 
   update(deltaSeconds: number): void {

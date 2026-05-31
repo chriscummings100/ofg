@@ -1,9 +1,10 @@
 import { UBER_SHADER_METADATA, UBER_SHADER_SOURCE } from "../../generated/render/uberShader.js";
 import { getFloatsPerVertex } from "../world/terrainMesh.js";
-import { FRAME_UNIFORM_BYTES, buildFrameUniformValues } from "./FrameUniforms.js";
+import { FRAME_UNIFORM_BYTES, FRAME_UNIFORM_FLOATS, buildFrameUniformValues } from "./FrameUniforms.js";
 import type { Mesh } from "./Mesh.js";
-import { OBJECT_UNIFORM_BYTES, buildObjectUniformValues } from "./ObjectUniforms.js";
+import { OBJECT_UNIFORM_BYTES, OBJECT_UNIFORM_FLOATS, buildObjectUniformValues } from "./ObjectUniforms.js";
 import type { RenderItem, RenderWorld } from "./RenderWorld.js";
+import { Texture } from "./Texture.js";
 
 type GpuMesh = {
   readonly vertexBuffer: GpuAny;
@@ -13,8 +14,23 @@ type GpuMesh = {
 
 type GpuObject = {
   readonly uniformBuffer: GpuAny;
+  readonly uniformValues: Float32Array;
   readonly bindGroup: GpuAny;
+  readonly albedoTexture: GpuTexture;
 };
+
+type GpuTexture = {
+  readonly texture: GpuAny;
+  readonly view: GpuAny;
+};
+
+const FALLBACK_ALBEDO_TEXTURE = new Texture(
+  "texture:fallback.white",
+  1,
+  1,
+  "rgba8unorm",
+  { data: new Uint8Array([255, 255, 255, 255]) }
+);
 
 export class WebGpuRenderer {
   private readonly canvas: HTMLCanvasElement;
@@ -26,9 +42,13 @@ export class WebGpuRenderer {
   private cameraUniformBuffer: GpuAny = undefined;
   private cameraBindGroup: GpuAny = undefined;
   private objectBindGroupLayout: GpuAny = undefined;
+  private albedoSampler: GpuAny = undefined;
+  private fallbackAlbedoTexture: GpuTexture | undefined;
   private depthTexture: GpuAny = undefined;
   private readonly meshCache = new WeakMap<Mesh, GpuMesh>();
+  private readonly textureCache = new WeakMap<Texture, GpuTexture>();
   private readonly objectUniforms = new Map<string, GpuObject>();
+  private readonly frameUniformValues = new Float32Array(FRAME_UNIFORM_FLOATS);
   private width = 0;
   private height = 0;
 
@@ -75,6 +95,13 @@ export class WebGpuRenderer {
         }
       ]
     });
+    this.albedoSampler = this.device.createSampler({
+      label: "albedo sampler",
+      addressModeU: "repeat",
+      addressModeV: "repeat",
+      magFilter: "linear",
+      minFilter: "linear"
+    });
     this.objectBindGroupLayout = this.device.createBindGroupLayout({
       label: "object bind group layout",
       entries: [
@@ -82,6 +109,16 @@ export class WebGpuRenderer {
           binding: 0,
           visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
           buffer: { type: "uniform" }
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: "float" }
+        },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.FRAGMENT,
+          sampler: { type: "filtering" }
         }
       ]
     });
@@ -119,6 +156,11 @@ export class WebGpuRenderer {
                 shaderLocation: 2,
                 offset: 6 * Float32Array.BYTES_PER_ELEMENT,
                 format: "float32x3"
+              },
+              {
+                shaderLocation: 3,
+                offset: 9 * Float32Array.BYTES_PER_ELEMENT,
+                format: "float32x2"
               }
             ]
           }
@@ -161,6 +203,7 @@ export class WebGpuRenderer {
         depthCompare: "always"
       }
     });
+    this.fallbackAlbedoTexture = this.createGpuTexture(FALLBACK_ALBEDO_TEXTURE);
 
     this.resize();
   }
@@ -200,7 +243,7 @@ export class WebGpuRenderer {
     this.device.queue.writeBuffer(
       this.cameraUniformBuffer,
       0,
-      buildFrameUniformValues(renderWorld.camera, renderWorld.mainLight)
+      buildFrameUniformValues(renderWorld.camera, renderWorld.mainLight, this.frameUniformValues)
     );
 
     const encoder = this.device.createCommandEncoder({ label: "frame encoder" });
@@ -226,9 +269,12 @@ export class WebGpuRenderer {
     pass.draw(3);
 
     pass.setPipeline(this.pipeline);
+    const seenItemIds = new Set<string>();
     for (const item of renderWorld.items) {
+      seenItemIds.add(item.id);
       this.drawItem(pass, item);
     }
+    this.pruneObjectUniforms(seenItemIds);
 
     pass.end();
     this.device.queue.submit([encoder.finish()]);
@@ -283,17 +329,62 @@ export class WebGpuRenderer {
     return buffer;
   }
 
-  private getGpuObject(item: RenderItem): GpuObject {
-    const cached = this.objectUniforms.get(item.id);
+  private getGpuTexture(texture?: Texture): GpuTexture {
+    if (texture === undefined) {
+      if (this.fallbackAlbedoTexture === undefined) {
+        throw new Error("Fallback albedo texture has not been initialized.");
+      }
+
+      return this.fallbackAlbedoTexture;
+    }
+
+    const cached = this.textureCache.get(texture);
     if (cached !== undefined) {
       return cached;
     }
 
-    const uniformBuffer = this.device.createBuffer({
+    const gpuTexture = this.createGpuTexture(texture);
+    this.textureCache.set(texture, gpuTexture);
+    return gpuTexture;
+  }
+
+  private createGpuTexture(texture: Texture): GpuTexture {
+    const gpuTexture = this.device.createTexture({
+      label: texture.id,
+      size: [texture.width, texture.height],
+      format: texture.format,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+    });
+    const data = texture.data ?? createOpaqueWhiteTextureData(texture.width, texture.height);
+    this.device.queue.writeTexture(
+      { texture: gpuTexture },
+      data,
+      {
+        bytesPerRow: texture.width * 4,
+        rowsPerImage: texture.height
+      },
+      [texture.width, texture.height]
+    );
+
+    return {
+      texture: gpuTexture,
+      view: gpuTexture.createView()
+    };
+  }
+
+  private getGpuObject(item: RenderItem): GpuObject {
+    const albedoTexture = this.getGpuTexture(item.albedoTexture);
+    const cached = this.objectUniforms.get(item.id);
+    if (cached !== undefined && cached.albedoTexture === albedoTexture) {
+      return cached;
+    }
+
+    const uniformBuffer = cached?.uniformBuffer ?? this.device.createBuffer({
       label: `${item.id} object uniforms`,
       size: OBJECT_UNIFORM_BYTES,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
+    const uniformValues = cached?.uniformValues ?? new Float32Array(OBJECT_UNIFORM_FLOATS);
     const bindGroup = this.device.createBindGroup({
       label: `${item.id} object bind group`,
       layout: this.objectBindGroupLayout,
@@ -301,12 +392,31 @@ export class WebGpuRenderer {
         {
           binding: 0,
           resource: { buffer: uniformBuffer }
+        },
+        {
+          binding: 1,
+          resource: albedoTexture.view
+        },
+        {
+          binding: 2,
+          resource: this.albedoSampler
         }
       ]
     });
-    const gpuObject = { uniformBuffer, bindGroup };
+    const gpuObject = { uniformBuffer, uniformValues, bindGroup, albedoTexture };
     this.objectUniforms.set(item.id, gpuObject);
     return gpuObject;
+  }
+
+  private pruneObjectUniforms(seenItemIds: Set<string>): void {
+    for (const [id, object] of this.objectUniforms) {
+      if (seenItemIds.has(id)) {
+        continue;
+      }
+
+      object.uniformBuffer.destroy?.();
+      this.objectUniforms.delete(id);
+    }
   }
 
   private drawItem(pass: GpuAny, item: RenderItem): void {
@@ -316,11 +426,23 @@ export class WebGpuRenderer {
     this.device.queue.writeBuffer(
       object.uniformBuffer,
       0,
-      buildObjectUniformValues(item.worldMatrix, item.material)
+      buildObjectUniformValues(item.worldMatrix, item.material, object.uniformValues)
     );
     pass.setBindGroup(1, object.bindGroup);
     pass.setVertexBuffer(0, mesh.vertexBuffer);
     pass.setIndexBuffer(mesh.indexBuffer, "uint32");
     pass.drawIndexed(mesh.indexCount);
   }
+}
+
+function createOpaqueWhiteTextureData(width: number, height: number): Uint8Array {
+  const data = new Uint8Array(width * height * 4);
+  for (let offset = 0; offset < data.length; offset += 4) {
+    data[offset] = 255;
+    data[offset + 1] = 255;
+    data[offset + 2] = 255;
+    data[offset + 3] = 255;
+  }
+
+  return data;
 }

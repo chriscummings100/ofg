@@ -3,7 +3,7 @@ import type { Vec3 } from "../math/vec3.js";
 import { Component } from "../scene/Component.js";
 import { getScene } from "../scene/activeScene.js";
 import type { TerrainField } from "../world/scalarField.js";
-import type { Material } from "./Material.js";
+import type { ResourceId } from "../scene/types.js";
 import type { Mesh } from "./Mesh.js";
 import type { RenderItem } from "./RenderWorld.js";
 
@@ -12,7 +12,7 @@ export type ChunkKey = string;
 export type TerrainChunk = {
   readonly key: ChunkKey;
   readonly mesh: Mesh;
-  readonly material?: Material;
+  readonly material?: ResourceId;
   readonly worldMatrix?: Mat4;
 };
 
@@ -56,13 +56,20 @@ export class TerrainRenderer extends Component {
     }
 
     const entityWorldMatrix = entity.transform.getWorldMatrix();
-    return this.chunks.map((chunk) => ({
-      id: `terrain:${entity.id}:${chunk.key}`,
-      mesh: chunk.mesh,
-      material: chunk.material,
-      worldMatrix: chunk.worldMatrix === undefined
-        ? entityWorldMatrix
-        : multiplyMat4(entityWorldMatrix, chunk.worldMatrix)
-    }));
+    const resources = getScene().resources;
+    return this.chunks.map((chunk) => {
+      const material = chunk.material === undefined ? undefined : resources.getMaterial(chunk.material);
+      return {
+        id: `terrain:${entity.id}:${chunk.key}`,
+        mesh: chunk.mesh,
+        material,
+        albedoTexture: material?.albedoTexture === undefined
+          ? undefined
+          : resources.getTexture(material.albedoTexture),
+        worldMatrix: chunk.worldMatrix === undefined
+          ? entityWorldMatrix
+          : multiplyMat4(entityWorldMatrix, chunk.worldMatrix)
+      };
+    });
   }
 }

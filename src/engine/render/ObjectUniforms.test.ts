@@ -12,17 +12,20 @@ describe("ObjectUniforms", () => {
 
     const values = buildObjectUniformValues(world);
 
-    equal(OBJECT_UNIFORM_FLOATS, 24);
-    equal(OBJECT_UNIFORM_BYTES, 96);
+    equal(OBJECT_UNIFORM_FLOATS, 40);
+    equal(OBJECT_UNIFORM_BYTES, 160);
     equal(values[12], 3);
     equal(values[16], 1);
-    equal(values[17], 1);
-    equal(values[18], 1);
-    equal(values[19], 1);
-    equal(values[20], 1);
     equal(values[21], 1);
-    equal(values[22], 1);
-    ok(Math.abs(values[23] - 0.18) < 1e-6);
+    equal(values[26], 1);
+    equal(values[32], 1);
+    equal(values[33], 1);
+    equal(values[34], 1);
+    equal(values[35], 1);
+    equal(values[36], 1);
+    equal(values[37], 1);
+    equal(values[38], 1);
+    ok(Math.abs(values[39] - 0.18) < 1e-6);
   });
 
   it("packs material albedo and specular values", () => {
@@ -34,13 +37,34 @@ describe("ObjectUniforms", () => {
 
     const values = buildObjectUniformValues(identityMat4(), material);
 
-    equal(values[16], 0.25);
-    equal(values[17], 0.5);
-    equal(values[18], 0.75);
-    equal(values[19], 1);
-    ok(Math.abs(values[20] - 0.9) < 1e-6);
-    ok(Math.abs(values[21] - 0.8) < 1e-6);
-    ok(Math.abs(values[22] - 0.7) < 1e-6);
-    ok(Math.abs(values[23] - 0.35) < 1e-6);
+    equal(values[32], 0.25);
+    equal(values[33], 0.5);
+    equal(values[34], 0.75);
+    equal(values[35], 1);
+    ok(Math.abs(values[36] - 0.9) < 1e-6);
+    ok(Math.abs(values[37] - 0.8) < 1e-6);
+    ok(Math.abs(values[38] - 0.7) < 1e-6);
+    ok(Math.abs(values[39] - 0.35) < 1e-6);
+  });
+
+  it("packs an inverse-transpose normal matrix", () => {
+    const world = identityMat4();
+    world[0] = 2;
+    world[5] = 4;
+    world[10] = 8;
+
+    const values = buildObjectUniformValues(world);
+
+    equal(values[16], 0.5);
+    equal(values[21], 0.25);
+    equal(values[26], 0.125);
+  });
+
+  it("can write into a reusable target buffer", () => {
+    const target = new Float32Array(OBJECT_UNIFORM_FLOATS);
+
+    const values = buildObjectUniformValues(identityMat4(), undefined, target);
+
+    equal(values, target);
   });
 });

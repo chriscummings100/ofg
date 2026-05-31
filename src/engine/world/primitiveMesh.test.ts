@@ -40,4 +40,13 @@ describe("primitiveMesh", () => {
     ok(Math.abs(mesh.vertices[7] + invSqrt3) < 1e-6);
     ok(Math.abs(mesh.vertices[8] + invSqrt3) < 1e-6);
   });
+
+  it("writes corner uv coordinates", () => {
+    const mesh = createBoxMesh(vec3(0, 0, 0), vec3(1, 1, 1), vec3(1, 0, 0));
+
+    equal(mesh.vertices[9], 0);
+    equal(mesh.vertices[10], 0);
+    equal(mesh.vertices[getFloatsPerVertex() + 9], 1);
+    equal(mesh.vertices[getFloatsPerVertex() + 10], 0);
+  });
 });

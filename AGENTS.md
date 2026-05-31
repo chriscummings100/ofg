@@ -37,6 +37,7 @@ If context is compacted or you are unsure about scene architecture, reread
 ## Commands
 
 ```powershell
+npm run clean
 npm run build
 npm run build:shaders
 npm run check:shaders
@@ -64,13 +65,9 @@ src/engine/math
 src/engine/input
   DOM input tracker for keys, edge-triggered presses, pointer-lock mouse deltas.
 
-src/engine/camera
-  Legacy tested camera rig helpers. The current playable camera is driven by
-  PlayerController plus SceneRenderExtractor.
-
 src/engine/world
   Seed terrain scalar field, heightfield mesh generation, primitive box mesh.
-  Runtime meshes currently use position/color/normal vertex data.
+  Runtime meshes currently use position/color/normal/uv vertex data.
 
 src/engine/scene
   Global Scene, Entity tree, Component lifecycle, Transform hierarchy,
@@ -79,8 +76,8 @@ src/engine/scene
 src/engine/render
   WebGPU renderer plus scene render data types. Runtime rendering flows through
   MeshRenderer, TerrainRenderer, RenderWorld, and SceneRenderExtractor.
-  Materials currently support albedo factor, CPU-side albedo texture id, specular,
-  and specular factor; the shader uses Lambert plus Blinn-Phong lighting.
+  Materials currently support albedo factor, albedo texture sampling, specular, and
+  specular factor; the shader uses Lambert plus Blinn-Phong lighting.
   `RenderWorld.mainLight` also drives the procedural sky sun disk.
 
 src/engine/render/shaders
@@ -116,7 +113,7 @@ There is one global active `Scene`.
 
 The playable app is scene-model backed: terrain, player, camera, and the debug
 player marker are scene entities/components. Keep new runtime behavior on that
-path unless a change explicitly targets legacy camera helpers.
+path.
 
 ## Testing Expectations
 
@@ -132,7 +129,7 @@ Current test areas include:
 - Shader boundary: generated shader source artifact metadata and vertex layout
   contract.
 - World mesh generation: heightfield and primitive meshes.
-- Gameplay/input: player controller, camera rig, input tracker.
+- Gameplay/input: player controller and input tracker.
 - Browser smoke: actual Chrome/Edge WebGPU render, screenshots, pixel checks, HUD
   and camera toggle verification.
 

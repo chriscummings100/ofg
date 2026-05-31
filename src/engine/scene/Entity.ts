@@ -1,6 +1,7 @@
 import { Transform } from "./Transform.js";
 import { Component } from "./Component.js";
 import type { ComponentType, EntityId } from "./types.js";
+import type { Scene } from "./Scene.js";
 
 export class Entity {
   readonly id: EntityId;
@@ -12,12 +13,14 @@ export class Entity {
   readonly components: Component[] = [];
 
   private readonly rootEntity: boolean;
+  private readonly scene?: Scene;
   private destroyed = false;
 
-  constructor(id: EntityId, name: string, rootEntity = false) {
+  constructor(id: EntityId, name: string, rootEntity = false, scene?: Scene) {
     this.id = id;
     this.name = name;
     this.rootEntity = rootEntity;
+    this.scene = scene;
   }
 
   addChild(child: Entity): void {
@@ -55,6 +58,7 @@ export class Entity {
       return;
     }
 
+    this.scene?.notifyEntityDestroying(this);
     this.destroyed = true;
     for (const child of [...this.children]) {
       child.destroy();

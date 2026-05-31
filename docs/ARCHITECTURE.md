@@ -17,10 +17,6 @@ src/app
 src/engine/input
   DOM input tracking with edge-triggered key events and mouse deltas.
 
-src/engine/camera
-  Legacy tested camera rig helpers. Runtime camera state now comes from scene
-  entities and PlayerController.
-
 src/engine/world
   Deterministic terrain field and mesh generation.
 
@@ -92,10 +88,10 @@ while leaving one clear build boundary for Slang-generated WGSL or SPIR-V output
 later.
 
 The first material model is intentionally pre-PBR: mesh vertex color multiplied by
-an albedo factor, optional CPU-side albedo texture id, specular color, and specular
-factor. The shader uses a simple Lambert diffuse plus Blinn-Phong specular model.
-Texture sampling is a later renderer slice because `Texture` currently stores
-metadata only.
+an albedo factor and optional albedo texture sample, plus specular color and
+specular factor. The shader uses a simple Lambert diffuse plus Blinn-Phong specular
+model. `Texture` stores CPU-side rgba8 data that the WebGPU renderer uploads into
+GPU-owned texture resources.
 
 The sky is also shader-driven. `WebGpuRenderer` draws a full-screen sky pass before
 scene geometry, reconstructs world rays from the inverse view-projection matrix, and
@@ -103,7 +99,8 @@ renders a blue gradient plus a sun disk in the direction of `scene.mainLight`.
 
 ## Testing Direction
 
-- Unit tests cover deterministic math, camera, world, and mesh generation code.
+- Unit tests cover deterministic math, player/camera behavior, world, and mesh
+  generation code.
 - Shader tests verify generated shader metadata and the renderer vertex layout
   contract.
 - Browser smoke tests cover canvas rendering, input toggles, and resize behavior.

@@ -36,4 +36,19 @@ describe("FrameUniforms", () => {
     ok(Math.abs(values[40] - 0.9) < 1e-6);
     equal(values[43], 0.25);
   });
+
+  it("can write into a reusable target buffer", () => {
+    const target = new Float32Array(FRAME_UNIFORM_FLOATS);
+    const light = createDirectionalLight();
+
+    const values = buildFrameUniformValues({
+      eye: vec3(1, 2, 3),
+      target: vec3(0, 0, 1),
+      viewProjection: identityMat4(),
+      inverseViewProjection: identityMat4()
+    }, light, target);
+
+    equal(values, target);
+    equal(target[32], 1);
+  });
 });

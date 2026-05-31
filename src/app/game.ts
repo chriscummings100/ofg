@@ -7,6 +7,7 @@ import { Mesh } from "../engine/render/Mesh.js";
 import { MeshRenderer } from "../engine/render/MeshRenderer.js";
 import { SceneRenderExtractor } from "../engine/render/SceneRenderExtractor.js";
 import { TerrainRenderer } from "../engine/render/TerrainRenderer.js";
+import { Texture } from "../engine/render/Texture.js";
 import { WebGpuRenderer } from "../engine/render/webgpuRenderer.js";
 import { createDirectionalLight } from "../engine/render/Lighting.js";
 import { createScene } from "../engine/scene/activeScene.js";
@@ -35,7 +36,8 @@ const POSITION_COLOR_LAYOUT = {
   attributes: [
     { name: "position", offset: 0, size: 3 },
     { name: "color", offset: 3, size: 3 },
-    { name: "normal", offset: 6, size: 3 }
+    { name: "normal", offset: 6, size: 3 },
+    { name: "uv", offset: 9, size: 2 }
   ]
 } as const;
 
@@ -59,7 +61,11 @@ export async function startGame(elements: GameElements): Promise<void> {
     "mesh:player.marker",
     createBoxMesh(vec3(0, 0.9, 0), vec3(0.28, 0.9, 0.22), vec3(0.96, 0.7, 0.24))
   );
+  const terrainAlbedo = new Texture("texture:terrain.albedo", 1, 1, "rgba8unorm", {
+    data: new Uint8Array([255, 255, 255, 255])
+  });
   const terrainMaterial = new Material("material:terrain.seed", {
+    albedoTexture: terrainAlbedo.id,
     albedoFactor: vec4(1, 1, 1, 1),
     specular: vec3(0.55, 0.58, 0.52),
     specularFactor: 0.04
@@ -76,11 +82,12 @@ export async function startGame(elements: GameElements): Promise<void> {
 
   scene.resources.addMesh(terrain);
   scene.resources.addMesh(playerMarker);
+  scene.resources.addTexture(terrainAlbedo);
   scene.resources.addMaterial(terrainMaterial);
   scene.resources.addMaterial(playerMarkerMaterial);
   terrainEntity.addComponent(new TerrainRenderer(
     field,
-    [{ key: "seed", mesh: terrain, material: terrainMaterial }]
+    [{ key: "seed", mesh: terrain, material: terrainMaterial.id }]
   ));
   playerEntity.transform.setPosition(vec3(0, field.heightAt(0, 0), 0));
   const playerController = playerEntity.addComponent(new PlayerController());

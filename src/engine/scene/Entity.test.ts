@@ -96,6 +96,28 @@ describe("Entity", () => {
     equal(component.detached, 1);
   });
 
+  it("destroy clears scene activeCamera references", () => {
+    const scene = resetScene();
+    const camera = scene.createEntity("Camera");
+    scene.activeCamera = camera;
+
+    camera.destroy();
+
+    equal(scene.activeCamera, undefined);
+  });
+
+  it("destroy clears scene activeCamera references for descendants", () => {
+    const scene = resetScene();
+    const parent = scene.createEntity("Parent");
+    const camera = scene.createEntity("Camera");
+    parent.addChild(camera);
+    scene.activeCamera = camera;
+
+    parent.destroy();
+
+    equal(scene.activeCamera, undefined);
+  });
+
   it("root cannot be parented under another entity", () => {
     const scene = resetScene();
     const entity = scene.createEntity("Entity");

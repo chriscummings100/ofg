@@ -28,6 +28,8 @@ export function createBoxMesh(center: Vec3, halfSize: Vec3, color: Vec3): MeshDa
     vertices[offset + 6] = normal.x;
     vertices[offset + 7] = normal.y;
     vertices[offset + 8] = normal.z;
+    vertices[offset + 9] = (x + 1) * 0.5;
+    vertices[offset + 10] = (z + 1) * 0.5;
   }
 
   const indices = new Uint32Array([

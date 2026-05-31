@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "clean": "node tools/clean-dist.mjs",
     "build:shaders": "node tools/build-shaders.mjs",
     "check:shaders": "node tools/build-shaders.mjs --check",
-    "build": "npm run build:shaders && tsc -p tsconfig.json",
+    "build": "npm run clean && npm run build:shaders && tsc -p tsconfig.json",
     "test": "npm run build && mocha \"dist/**/*.test.js\"",
     "dev": "npm run build && node tools/dev-server.mjs",
     "smoke:browser": "npm run build && node tools/browser-smoke.mjs",

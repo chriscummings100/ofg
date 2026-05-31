@@ -87,6 +87,19 @@ describe("terrainMesh", () => {
       equal(mesh.vertices[offset + 8], 0.75);
     }
   });
+
+  it("writes normalized uv coordinates over the terrain extent", () => {
+    const mesh = buildHeightfieldMesh(createFlatField(0), {
+      halfExtent: 1,
+      cellsPerAxis: 2
+    });
+    const finalVertexOffset = mesh.vertices.length - getFloatsPerVertex();
+
+    equal(mesh.vertices[9], 0);
+    equal(mesh.vertices[10], 0);
+    equal(mesh.vertices[finalVertexOffset + 9], 1);
+    equal(mesh.vertices[finalVertexOffset + 10], 1);
+  });
 });
 
 function createFlatField(height: number): TerrainField {

@@ -5,6 +5,7 @@ import { resetScene } from "../scene/activeScene.js";
 import { Material } from "./Material.js";
 import { Mesh } from "./Mesh.js";
 import { MeshRenderer } from "./MeshRenderer.js";
+import { Texture } from "./Texture.js";
 
 describe("MeshRenderer", () => {
   it("emits a render item with the entity world matrix", () => {
@@ -60,6 +61,29 @@ describe("MeshRenderer", () => {
     const item = renderer.getRenderItem();
     equal(item?.mesh, secondMesh);
     equal(item?.material, secondMaterial);
+  });
+
+  it("resolves material albedo textures from scene resources", () => {
+    const scene = resetScene();
+    const mesh = createMesh("mesh:test");
+    const texture = new Texture("texture:albedo", 1, 1, "rgba8unorm", {
+      data: new Uint8Array([255, 255, 255, 255])
+    });
+    const material = new Material("material:test", {
+      albedoFactor: vec4(1, 1, 1, 1),
+      albedoTexture: texture.id
+    });
+    scene.resources.addMesh(mesh);
+    scene.resources.addTexture(texture);
+    scene.resources.addMaterial(material);
+    const renderer = scene
+      .createEntity("Rendered")
+      .addComponent(new MeshRenderer(mesh.id, material.id));
+
+    const item = renderer.getRenderItem();
+
+    equal(item?.material, material);
+    equal(item?.albedoTexture, texture);
   });
 
   it("allows material to be cleared", () => {
@@ -146,6 +170,19 @@ describe("MeshRenderer", () => {
       .addComponent(new MeshRenderer(mesh.id, "material:missing"));
 
     throws(() => renderer.getRenderItem(), /Material resource 'material:missing'/);
+  });
+
+  it("throws a useful error for missing albedo texture resources", () => {
+    const scene = resetScene();
+    const mesh = createMesh("mesh:test");
+    const material = new Material("material:test", { albedoTexture: "texture:missing" });
+    scene.resources.addMesh(mesh);
+    scene.resources.addMaterial(material);
+    const renderer = scene
+      .createEntity("Rendered")
+      .addComponent(new MeshRenderer(mesh.id, material.id));
+
+    throws(() => renderer.getRenderItem(), /Texture resource 'texture:missing'/);
   });
 });
 

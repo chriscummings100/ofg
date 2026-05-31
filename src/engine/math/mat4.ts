@@ -57,6 +57,15 @@ export function multiplyMat4(a: Mat4, b: Mat4): Mat4 {
   return out;
 }
 
+export function transposeMat4(matrix: Mat4): Mat4 {
+  return new Float32Array([
+    matrix[0], matrix[4], matrix[8], matrix[12],
+    matrix[1], matrix[5], matrix[9], matrix[13],
+    matrix[2], matrix[6], matrix[10], matrix[14],
+    matrix[3], matrix[7], matrix[11], matrix[15]
+  ]);
+}
+
 export function inverseMat4(matrix: Mat4): Mat4 {
   const a00 = matrix[0];
   const a01 = matrix[1];

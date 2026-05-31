@@ -72,7 +72,7 @@ async function runBrowserSmoke(url) {
     assertHud(firstHud, "FIRST", consoleMessages);
     const firstScreenshot = await saveScreenshot(page, "first-person.png");
     screenshots.push(firstScreenshot.path);
-    assertPixelStats(firstScreenshot.stats, "first-person");
+    assertPixelStats(firstScreenshot.stats, "first-person", consoleMessages);
 
     await page.keyboard.press("KeyC");
     await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "FLY");
@@ -82,7 +82,7 @@ async function runBrowserSmoke(url) {
     assertHud(flyHud, "FLY", consoleMessages);
     const flyScreenshot = await saveScreenshot(page, "debug-fly.png");
     screenshots.push(flyScreenshot.path);
-    assertPixelStats(flyScreenshot.stats, "debug-fly");
+    assertPixelStats(flyScreenshot.stats, "debug-fly", consoleMessages);
 
     await page.keyboard.press("KeyC");
     await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "FIRST");
@@ -188,17 +188,26 @@ function analyzePng(buffer) {
   };
 }
 
-function assertPixelStats(stats, label) {
+function assertPixelStats(stats, label, consoleMessages = []) {
   if (stats.opaquePixels < stats.sampledPixels * 0.99) {
-    throw new Error(`${label} screenshot is not mostly opaque: ${JSON.stringify(stats)}`);
+    throw new Error(
+      `${label} screenshot is not mostly opaque: ${JSON.stringify(stats)} ` +
+      `console=${JSON.stringify(consoleMessages)}`
+    );
   }
 
   if (stats.uniqueColorBuckets < 8) {
-    throw new Error(`${label} screenshot has too little color variation: ${JSON.stringify(stats)}`);
+    throw new Error(
+      `${label} screenshot has too little color variation: ${JSON.stringify(stats)} ` +
+      `console=${JSON.stringify(consoleMessages)}`
+    );
   }
 
   if (stats.dominantColorRatio > 0.9) {
-    throw new Error(`${label} screenshot looks like a solid fill: ${JSON.stringify(stats)}`);
+    throw new Error(
+      `${label} screenshot looks like a solid fill: ${JSON.stringify(stats)} ` +
+      `console=${JSON.stringify(consoleMessages)}`
+    );
   }
 }
 

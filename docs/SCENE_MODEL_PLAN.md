@@ -184,10 +184,9 @@ Responsibilities:
 - Cache local/world matrices once that becomes useful.
 - Propagate dirty state through child entities.
 
-Initial implementation note:
+Implementation note:
 
-- If `Quat` is not yet available, add it before this work or temporarily support
-  yaw-only rotation with an explicit TODO in the tests.
+- `Quat` is available and is the supported rotation representation.
 
 ### ResourceStore
 
@@ -238,6 +237,7 @@ class Texture {
   readonly width: number;
   readonly height: number;
   readonly format: TextureFormat;
+  readonly data?: Uint8Array | Uint8ClampedArray;
 }
 ```
 
@@ -259,10 +259,10 @@ class Material {
 Initial renderer support:
 
 - Vertex color is treated as mesh albedo input.
-- `albedoFactor` multiplies vertex color.
+- `albedoFactor` and optional `albedoTexture` multiply vertex color.
 - `specular` and `specularFactor` feed a simple Blinn-Phong highlight.
-- `albedoTexture` is part of the CPU resource contract but GPU texture sampling is
-  deferred until texture upload exists.
+- Texture resources remain CPU-side descriptions; the WebGPU renderer owns upload
+  and sampler state.
 
 ### MeshRenderer
 
@@ -315,6 +315,7 @@ type RenderItem = {
   id: string;
   mesh: Mesh;
   material?: Material;
+  albedoTexture?: Texture;
   worldMatrix: Mat4;
 };
 ```
@@ -357,10 +358,10 @@ Responsibilities:
 - In debug-fly mode, move freely.
 - Provide the camera eye transform.
 
-Initial implementation note:
+Implementation note:
 
-- Input can stay outside the scene model at first. `PlayerController` may consume a
-  simple `MovementIntent` object until an input binding layer exists.
+- Input currently stays outside the scene model. `PlayerController` consumes a
+  `PlayerMovementIntent` object until an input binding layer exists.
 
 ## Test Plan
 

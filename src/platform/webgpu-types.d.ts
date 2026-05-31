@@ -13,6 +13,8 @@ declare const GPUBufferUsage: {
 
 declare const GPUTextureUsage: {
   RENDER_ATTACHMENT: number;
+  TEXTURE_BINDING: number;
+  COPY_DST: number;
 };
 
 declare const GPUShaderStage: {

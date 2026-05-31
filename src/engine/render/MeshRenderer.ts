@@ -20,10 +20,14 @@ export class MeshRenderer extends Component {
     }
 
     const resources = getScene().resources;
+    const material = this.material === undefined ? undefined : resources.getMaterial(this.material);
     return {
       id: `mesh-renderer:${this.entity.id}`,
       mesh: resources.getMesh(this.mesh),
-      material: this.material === undefined ? undefined : resources.getMaterial(this.material),
+      material,
+      albedoTexture: material?.albedoTexture === undefined
+        ? undefined
+        : resources.getTexture(material.albedoTexture),
       worldMatrix: this.entity.transform.getWorldMatrix()
     };
   }

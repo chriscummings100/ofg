@@ -1,4 +1,4 @@
-import type { Mat4 } from "../math/mat4.js";
+import { inverseMat4, transposeMat4, type Mat4 } from "../math/mat4.js";
 import {
   DEFAULT_ALBEDO_FACTOR,
   DEFAULT_SPECULAR,
@@ -6,24 +6,29 @@ import {
   type Material
 } from "./Material.js";
 
-export const OBJECT_UNIFORM_FLOATS = 24;
+export const OBJECT_UNIFORM_FLOATS = 40;
 export const OBJECT_UNIFORM_BYTES = OBJECT_UNIFORM_FLOATS * Float32Array.BYTES_PER_ELEMENT;
 
-export function buildObjectUniformValues(worldMatrix: Mat4, material?: Material): Float32Array {
-  const values = new Float32Array(OBJECT_UNIFORM_FLOATS);
+export function buildObjectUniformValues(
+  worldMatrix: Mat4,
+  material?: Material,
+  target: Float32Array<ArrayBufferLike> = new Float32Array(OBJECT_UNIFORM_FLOATS)
+): Float32Array<ArrayBufferLike> {
   const albedo = material?.albedoFactor ?? DEFAULT_ALBEDO_FACTOR;
   const specular = material?.specular ?? DEFAULT_SPECULAR;
   const specularFactor = material?.specularFactor ?? DEFAULT_SPECULAR_FACTOR;
+  const normalMatrix = transposeMat4(inverseMat4(worldMatrix));
 
-  values.set(worldMatrix, 0);
-  values[16] = albedo.x;
-  values[17] = albedo.y;
-  values[18] = albedo.z;
-  values[19] = albedo.w;
-  values[20] = specular.x;
-  values[21] = specular.y;
-  values[22] = specular.z;
-  values[23] = specularFactor;
+  target.set(worldMatrix, 0);
+  target.set(normalMatrix, 16);
+  target[32] = albedo.x;
+  target[33] = albedo.y;
+  target[34] = albedo.z;
+  target[35] = albedo.w;
+  target[36] = specular.x;
+  target[37] = specular.y;
+  target[38] = specular.z;
+  target[39] = specularFactor;
 
-  return values;
+  return target;
 }
