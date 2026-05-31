@@ -1,6 +1,7 @@
 # Build outputs
 dist/
 coverage/
+artifacts/
 *.tsbuildinfo
 
 # Dependencies

@@ -16,7 +16,7 @@ This repository should be easy for AI agents to change without guesswork.
 2. Make the smallest coherent change.
 3. Run `npm test`.
 4. Run `npm run build`.
-5. For visual changes, launch the dev server and verify the canvas in a browser.
+5. For visual changes, run `npm run smoke:browser`.
 6. Summarize what changed and any remaining risk.
 
 ## Test Naming
@@ -29,7 +29,6 @@ Use behavior names rather than implementation names:
 
 ## Future Automation Hooks
 
-- Add a browser smoke test once the app can render in CI with WebGPU fallback or a
-  deterministic mock renderer.
+- Extend browser smoke tests to cover pointer-lock look controls and movement.
 - Add mesh golden fixtures before replacing the heightfield with Dual Contouring.
 - Add benchmark scripts for chunk generation after chunk boundaries exist.

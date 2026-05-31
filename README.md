@@ -25,6 +25,7 @@ test workflow, and world data boundaries are stable.
 npm run build
 npm test
 npm run dev
+npm run smoke:browser
 ```
 
 The dev server serves the built app at `http://127.0.0.1:5173`. Run `npm run build`
@@ -39,4 +40,5 @@ after source changes, or keep `npm run watch` open in another terminal.
 - `tools`: small repository scripts with no framework dependency.
 
 See [docs/ROADMAP.md](docs/ROADMAP.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
-and [docs/AI_WORKFLOW.md](docs/AI_WORKFLOW.md) for the working direction.
+and [docs/AI_WORKFLOW.md](docs/AI_WORKFLOW.md) for the working direction. Browser
+verification is documented in [docs/BROWSER_VERIFICATION.md](docs/BROWSER_VERIFICATION.md).

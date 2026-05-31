@@ -30,6 +30,16 @@ src/engine/render
   WebGPU resource setup and draw submission.
 ```
 
+## Scene Model
+
+The engine will use one global active `Scene`. The scene owns a tree of `Entity`
+objects, each entity has a `Transform`, and behavior/renderability is attached with
+`Component` objects. This is intentionally a small scene graph and component model,
+not a general-purpose ECS.
+
+The detailed API and test rollout are tracked in
+[SCENE_MODEL_PLAN.md](SCENE_MODEL_PLAN.md).
+
 ## Terrain Direction
 
 The seed terrain is a heightfield, not voxel Dual Contouring. It exists to prove the

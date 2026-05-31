@@ -7,10 +7,13 @@
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && mocha \"dist/**/*.test.js\"",
     "dev": "npm run build && node tools/dev-server.mjs",
+    "smoke:browser": "npm run build && node tools/browser-smoke.mjs",
     "watch": "tsc -p tsconfig.json --watch"
   },
   "devDependencies": {
     "mocha": "^11.7.6",
+    "playwright-core": "^1.60.0",
+    "pngjs": "^7.0.0",
     "typescript": "^5.4.5"
   }
 }
