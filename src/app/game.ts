@@ -14,8 +14,14 @@ import { createScene } from "../engine/scene/activeScene.js";
 import type { Entity } from "../engine/scene/Entity.js";
 import { TerrainChunkStreamer } from "../game/components/TerrainChunkStreamer.js";
 import { createBoxMesh } from "../engine/world/primitiveMesh.js";
-import { createSeedTerrainField } from "../engine/world/scalarField.js";
 import { EditableTerrainDensitySource } from "../engine/world/terrainChunk.js";
+import {
+  createSeedWorldDescriptor,
+  createTerrainGenerator,
+  TERRAIN_PRESET_IDS,
+  type TerrainPresetId,
+  type WorldDescriptor
+} from "../engine/world/terrainGenerator.js";
 import {
   POSITION_COLOR_NORMAL_UV_LAYOUT,
   type MeshData
@@ -37,6 +43,7 @@ declare global {
     __ofgDebug?: {
       getLoadedTerrainChunkKeys: () => string[];
       getTerrainChunkKeys: () => string[];
+      getTerrainPreset: () => TerrainPresetId;
       setPlayerPosition: (x: number, z: number) => void;
     };
   }
@@ -46,7 +53,8 @@ export async function startGame(elements: GameElements): Promise<void> {
   const scene = createScene();
   const renderer = new WebGpuRenderer(elements.canvas);
   const input = new InputTracker();
-  const field = createSeedTerrainField();
+  const descriptor = readWorldDescriptor();
+  const field = createTerrainGenerator(descriptor);
   const terrainSource = new EditableTerrainDensitySource(field);
   scene.mainLight = createDirectionalLight({
     direction: vec3(0.89, 0.25, 0.38),
@@ -112,6 +120,7 @@ export async function startGame(elements: GameElements): Promise<void> {
   window.__ofgDebug = {
     getLoadedTerrainChunkKeys: () => terrainStreamer.getLoadedChunkKeys(),
     getTerrainChunkKeys: () => terrainRenderer.chunks.map((chunk) => chunk.key).sort(),
+    getTerrainPreset: () => descriptor.terrainPreset,
     setPlayerPosition(x, z) {
       playerEntity.transform.setPosition(vec3(x, field.heightAt(x, z), z));
       terrainStreamer.syncAround(playerEntity.transform.getWorldPosition());
@@ -151,6 +160,30 @@ export async function startGame(elements: GameElements): Promise<void> {
   }
 
   requestAnimationFrame(frame);
+}
+
+function readWorldDescriptor(): WorldDescriptor {
+  const params = new URLSearchParams(window.location.search);
+  const terrainPreset = readTerrainPreset(params.get("terrainPreset"));
+
+  if (terrainPreset === undefined) {
+    return createSeedWorldDescriptor();
+  }
+
+  return createSeedWorldDescriptor(undefined, { terrainPreset });
+}
+
+function readTerrainPreset(value: string | null): TerrainPresetId | undefined {
+  if (value === null || value.trim() === "") {
+    return undefined;
+  }
+
+  if (TERRAIN_PRESET_IDS.some((terrainPreset) => terrainPreset === value)) {
+    return value as TerrainPresetId;
+  }
+
+  console.warn(`Unknown terrain preset '${value}', using the default preset.`);
+  return undefined;
 }
 
 function meshFromData(id: string, data: MeshData): Mesh {
