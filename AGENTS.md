@@ -13,13 +13,14 @@ a Rust/TypeScript toolchain that stays friendly to automated AI development.
 The current playable seed is still simple:
 
 - Chunk-streamed generated terrain from 3D density chunks.
-- Basic highest-surface chunk meshing as a temporary step before Dual Contouring.
+- Runtime terrain meshed with an initial stitched-window Dual Contouring path.
 - First-person camera/player movement.
 - Debug fly camera toggled with `C` or `F1`.
 - A yellow player marker visible in debug fly mode.
 - WebGPU renderer using generated WGSL shader artifacts.
 
-The current terrain is deliberately not Dual Contouring yet.
+The current terrain uses Dual Contouring, but as a transitional whole-window mesh.
+Per-chunk neighbor-aware meshing is still the next terrain architecture step.
 
 ## Read These When Needed
 
@@ -68,9 +69,9 @@ src/engine/input
 
 src/engine/world
   Seed terrain scalar field backed by low-frequency x/z noise plus octave 3D
-  simplex density detail with gradients, 3D density chunk model, highest-surface
-  chunk meshing, initial Dual Contouring Hermite/QEF utilities, legacy heightfield
-  mesh generation, primitive box mesh. Runtime meshes currently use
+  simplex density detail with gradients, 3D density chunk model, runtime Dual
+  Contouring Hermite extraction and guarded QEF placement, legacy highest-surface
+  and heightfield mesh generation, primitive box mesh. Runtime meshes currently use
   position/color/normal/uv vertex data.
 
 src/engine/scene
@@ -133,8 +134,8 @@ Current test areas include:
 - Shader boundary: generated shader source artifact metadata and vertex layout
   contract.
 - World terrain: simplex noise generation, 3D density chunks, baseline field
-  sampling, terrain edits, Dual Contouring foundations, highest-surface chunk
-  meshing, chunk streaming, heightfield and primitive meshes.
+  sampling, terrain edits, Dual Contouring meshing, highest-surface legacy meshing,
+  chunk streaming, heightfield and primitive meshes.
 - Gameplay/input: player controller and input tracker.
 - Browser smoke: actual Chrome/Edge WebGPU render, screenshots, pixel checks, HUD
   camera toggle verification, and a basic player-position chunk streaming check.

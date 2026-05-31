@@ -65,9 +65,10 @@ The detailed API and next rollout steps are tracked in
 
 ## Terrain Direction
 
-The visible seed terrain is not Dual Contouring yet. It exists to prove rendering,
-controls, chunk boundaries, and the test workflow before adding the harder terrain
-system.
+The visible seed terrain now uses a first Dual Contouring path. It is still a
+transitional implementation: the runtime streamer builds one stitched mesh for the
+currently loaded density-chunk window, which avoids internal chunk-border gaps while
+the project moves toward true per-chunk neighbor-aware meshing.
 
 The terrain data model is 3D from the start. A terrain density chunk has 32 cells
 per axis and 33 samples per axis, so adjacent chunks share boundary samples cleanly.
@@ -89,28 +90,32 @@ world-space position. `heightAt(x, z)` is now a compatibility query that scans a
 density column for the highest zero crossing so player grounding can keep working
 until movement is density/mesh aware.
 
-The current runtime mesher is deliberately simple: it scans each x/z column in a
-vertical stack of density chunks, finds the highest solid-to-air crossing, and emits
-a shared-vertex surface mesh with smooth normals. `TerrainChunkStreamer` keeps a
-square x/z neighborhood of density chunks around a target entity, centers its
-vertical chunk-offset stack on the target chunk y coordinate, and replaces the
-visible render chunks as the player crosses chunk boundaries. Render chunks are
-keyed by their x/z column at y=0, while loaded density chunk keys remain fully 3D.
+`TerrainChunkStreamer` keeps a square x/z neighborhood of density chunks around a
+target entity, centers its vertical chunk-offset stack on the target chunk y
+coordinate, and rebuilds a stitched Dual Contouring render mesh as the player
+crosses chunk boundaries. Loaded density chunk keys remain fully 3D. The current
+render mesh is keyed by the center terrain chunk of the loaded window, so browser
+smoke expects one visible terrain render mesh rather than one render mesh per x/z
+column.
 
-The first Dual Contouring foundation lives in `src/engine/world/dualContouring.ts`.
-It can extract Hermite edge intersections for one cell, place one vertex per active
-cell with centroid or QEF placement, and build an initial chunk mesh by connecting
-cell vertices around sign-changing grid edges. It is tested against flat planes,
-diagonal planes, and sphere-like fields, but the runtime streamer still uses the
-highest-surface mesher until cross-chunk stitching and edit-driven rebuild behavior
-are ready.
+The Dual Contouring implementation lives in
+`src/engine/world/dualContouring.ts`. It extracts Hermite edge intersections for
+one cell, places one vertex per active cell with centroid or QEF placement, can
+mesh a chunk-local surface, and can mesh multiple chunks into one stitched render
+mesh. It is tested against flat planes, diagonal planes, sphere-like fields,
+scaled/offset chunks, winding reversal, underconstrained and out-of-cell QEFs,
+procedural-field Hermite plane sanity, and invalid index invariants. QEF placement
+rejects solves outside the owning cell and falls back to the Hermite centroid.
+Runtime terrain currently uses centroid placement while QEF conditioning is still
+being improved for noisy terrain.
 
 The intended Dual Contouring boundary is:
 
 - Density field interface: sample signed density and gradients at world positions,
   with materials added once the surface representation is stable.
 - Chunk sampler: evaluate density at deterministic 33x33x33 chunk lattice points.
-- Mesher: produce compact vertex/index/material buffers with smooth normals.
+- Mesher: produce compact per-chunk vertex/index/material buffers with smooth
+  normals and neighbor-aware boundary quads.
 - Renderer: upload chunk meshes without knowing how they were generated.
 
 The first implementation can be TypeScript for iteration speed. Rust/WASM becomes

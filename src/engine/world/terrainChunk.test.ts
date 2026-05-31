@@ -381,6 +381,40 @@ describe("terrainChunk", () => {
     equal(source.densityAt(vec3(10, 0, 0)), -5);
   });
 
+  it("uses baseline density samples for editable sources without edits", () => {
+    let sampleCount = 0;
+    const source = new EditableTerrainDensitySource({
+      densityAt: (position) => position.y,
+      sampleAt: (position) => {
+        sampleCount += 1;
+        return {
+          density: position.y,
+          gradient: vec3(0, 1, 0)
+        };
+      }
+    });
+
+    const sample = source.sampleAt(vec3(1, 2, 3));
+
+    equal(sample.density, 2);
+    deepEqual(sample.gradient, vec3(0, 1, 0));
+    equal(sampleCount, 1);
+  });
+
+  it("estimates editable source samples after edits are applied", () => {
+    const source = new EditableTerrainDensitySource(
+      { densityAt: (position) => position.x + position.y + position.z },
+      [createSubtractSphereEdit({ id: "cut:sphere", center: vec3(100, 0, 0), radius: 2 })]
+    );
+
+    const sample = source.sampleAt(vec3(1, 2, 3));
+
+    equal(sample.density, 6);
+    ok(Math.abs(sample.gradient.x - 1) < 1e-9);
+    ok(Math.abs(sample.gradient.y - 1) < 1e-9);
+    ok(Math.abs(sample.gradient.z - 1) < 1e-9);
+  });
+
   it("deduplicates editable source constructor edits by id", () => {
     const source = new EditableTerrainDensitySource({ densityAt: () => -5 }, [
       createSubtractSphereEdit({ id: "cut:sphere", center: vec3(0, 0, 0), radius: 2 }),

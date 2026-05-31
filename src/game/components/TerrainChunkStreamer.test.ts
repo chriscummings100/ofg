@@ -87,11 +87,15 @@ describe("TerrainChunkStreamer", () => {
     equal(sampleCount, 33 * 33 * 33);
   });
 
-  it("uses terrain field normals when building chunk meshes", () => {
+  it("uses terrain density sample gradients when building chunk meshes", () => {
     const source: TerrainField = {
       heightAt: () => 0,
       densityAt: (position) => position.y,
-      normalAt: () => vec3(0, 0, 2)
+      sampleAt: (position) => ({
+        density: position.y,
+        gradient: vec3(0, 0, 2)
+      }),
+      normalAt: () => vec3(0, 1, 0)
     };
     const terrain = new TerrainRenderer(source);
     const streamer = new TerrainChunkStreamer(terrain, source, {
@@ -105,6 +109,30 @@ describe("TerrainChunkStreamer", () => {
     equal(terrain.chunks[0].mesh.vertices[6], 0);
     equal(terrain.chunks[0].mesh.vertices[7], 0);
     equal(terrain.chunks[0].mesh.vertices[8], 1);
+  });
+
+  it("uses stable centroid placement for runtime Dual Contouring vertices", () => {
+    const source: TerrainField = {
+      heightAt: () => 0.5,
+      densityAt: (position) => position.y - 0.5,
+      sampleAt: (position) => ({
+        density: position.y - 0.5,
+        gradient: stressNormalForPlacement(position)
+      }),
+      normalAt: () => vec3(0, 1, 0)
+    };
+    const terrain = new TerrainRenderer(source);
+    const streamer = new TerrainChunkStreamer(terrain, source, {
+      horizontalRadius: 0,
+      verticalChunkOffsets: [0]
+    });
+
+    streamer.syncAround(vec3(0, 0, 0));
+
+    equal(terrain.chunks.length, 1);
+    equal(terrain.chunks[0].mesh.vertices[0], 0.5);
+    equal(terrain.chunks[0].mesh.vertices[1], 0.5);
+    equal(terrain.chunks[0].mesh.vertices[2], 0.5);
   });
 
   it("can rebuild an already loaded chunk", () => {
@@ -183,7 +211,7 @@ describe("TerrainChunkStreamer", () => {
     equal(streamer.getLoadedChunkKeys().length, 3);
     equal(streamer.getLoadedChunkKeys().includes("0,-3,0"), true);
     equal(terrain.chunks.length, 1);
-    equal(terrain.chunks[0].key, "0,0,0");
+    equal(terrain.chunks[0].key, "0,-3,0");
     ok(terrain.chunks[0].mesh.indices.length > 0);
   });
 });
@@ -194,4 +222,16 @@ function createFlatField(height: number): TerrainField {
     densityAt: (position) => position.y - height,
     normalAt: () => vec3(0, 1, 0)
   };
+}
+
+function stressNormalForPlacement(position: { readonly x: number; readonly z: number }) {
+  if (position.x < 0.5 && position.z < 0.5) {
+    return vec3(1, 0, 0);
+  }
+
+  if (position.z > 0.5) {
+    return vec3(0, 0, 1);
+  }
+
+  return vec3(0, 1, 0);
 }

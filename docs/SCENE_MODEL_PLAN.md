@@ -413,23 +413,31 @@ function meshChunkDualContouring(
   chunk: TerrainDensityChunk,
   source: TerrainDensitySource
 ): MeshData;
+
+function meshChunksDualContouring(
+  chunks: readonly TerrainDensityChunk[],
+  source: TerrainDensitySource
+): MeshData;
 ```
 
 Current role:
 
 - Provide the tested primitives needed to replace highest-surface meshing.
 - Extract Hermite edge crossings and gradients from the 12 edges of a voxel cell.
-- Place one vertex per active cell with centroid or QEF placement.
+- Place one vertex per active cell with centroid or guarded QEF placement. QEF
+  solves that are underconstrained or leave the owning cell fall back to the
+  Hermite centroid.
 - Build an initial chunk-local Dual Contouring mesh by connecting active cell
   vertices around sign-changing grid edges.
+- Build a stitched render mesh for multiple loaded chunks so internal chunk
+  boundaries do not leave missing boundary quads.
 
-Remaining work before runtime use:
+Remaining work after runtime hookup:
 
-- Cross-chunk stitching or neighbor-aware boundary quad generation.
+- Per-chunk neighbor-aware boundary quad generation.
 - More robust sharp-feature QEF constraints.
 - Material assignment for generated surface vertices.
-- Streamer integration and browser screenshot coverage for the Dual Contouring
-  path.
+- Edit-driven partial chunk rebuilds.
 
 ### TerrainChunkStreamer
 
@@ -453,9 +461,9 @@ class TerrainChunkStreamer extends Component {
 Responsibilities:
 
 - Keep a square x/z neighborhood of density chunks loaded around a target position.
-- Generate density chunks from the source and mesh each x/z column through the
-  configured vertical chunk-offset stack centered on the target chunk y coordinate.
-- Add and remove visible render chunks through `TerrainRenderer`.
+- Generate density chunks from the source and mesh the current loaded window through
+  Dual Contouring.
+- Add and remove the visible stitched render mesh through `TerrainRenderer`.
 - Remain deterministic and easy to test without WebGPU.
 
 ### RenderWorld
@@ -617,12 +625,15 @@ Implementation note:
 - `places a cell vertex at the centroid of Hermite crossings`
 - `uses QEF placement when Hermite planes have a unique solution`
 - `falls back to the centroid when QEF placement is underconstrained`
-- `clamps QEF placement to the owning cell bounds`
+- `falls back to the centroid when QEF placement leaves the owning cell`
 - `clamps centroid placement to the owning cell bounds`
+- `extracts sane Hermite planes from the procedural terrain field`
 - `meshes a flat plane into cell vertices and edge quads`
 - `meshes a diagonal plane without invalid indices`
 - `writes world-space vertex data for scaled offset chunks`
 - `reverses triangle winding when density signs are reversed`
+- `meshes multiple chunks into one stitched mesh`
+- `rejects empty and differently scaled multi-chunk meshes`
 - `returns an empty mesh for a chunk without a surface`
 
 ### `src/game/components/TerrainChunkStreamer.test.ts`
@@ -632,6 +643,7 @@ Implementation note:
 - `centers vertical chunk offsets on the target y coordinate`
 - `moves the loaded chunk window as the target crosses chunk boundaries`
 - `skips render chunks with no surface while remembering they were loaded`
+- `uses terrain density sample gradients when building chunk meshes`
 - `can rebuild an already loaded chunk`
 - `updates from scene traversal when attached as a component`
 
@@ -653,9 +665,9 @@ Implementation note:
 
 ## Implementation Phases
 
-Status: Phases 1 through 7 have an initial implementation. The next terrain-facing
-work is to turn the tested Dual Contouring primitives into the runtime terrain
-mesher with cross-chunk stitching.
+Status: Phases 1 through 8 have an initial implementation. The next terrain-facing
+work is to replace the transitional stitched-window Dual Contouring render mesh
+with per-chunk neighbor-aware meshing.
 
 ### Phase 1: Scene Core
 
@@ -755,8 +767,7 @@ Done when:
 
 ### Phase 7: Dual Contouring Foundations
 
-Add the first Dual Contouring primitives without switching the runtime terrain path
-yet.
+Add the first Dual Contouring primitives.
 
 Implemented notes:
 
@@ -764,16 +775,39 @@ Implemented notes:
   gradient samples. `sampleTerrainDensity()` falls back to finite differences for
   older density-only sources.
 - `dualContouring.ts` extracts Hermite edge intersections from one cell, places
-  active-cell vertices with centroid or QEF placement, and emits an initial
-  chunk-local Dual Contouring mesh.
-- Tests cover flat planes, diagonal planes, sphere-like fields, QEF placement,
-  empty chunks, and invalid indices.
+  active-cell vertices with centroid or guarded QEF placement, emits chunk-local
+  Dual Contouring meshes, and can emit stitched multi-chunk meshes.
+- Tests cover flat planes, diagonal planes, sphere-like fields, QEF placement and
+  fallbacks, procedural-field Hermite plane sanity, empty chunks, multi-chunk
+  stitching, and invalid indices.
 
 Done when:
 
 - Dual Contouring unit tests pass.
-- Existing highest-surface streaming remains unchanged.
-- The architecture docs identify the remaining stitching/runtime integration work.
+- The architecture docs identify the remaining per-chunk meshing work.
+
+### Phase 8: Runtime Dual Contouring Hookup
+
+Use Dual Contouring for visible generated terrain.
+
+Implemented notes:
+
+- `meshChunksDualContouring()` meshes the loaded density-chunk window as one
+  stitched render mesh, which keeps internal chunk boundaries connected while the
+  per-chunk stitching contract is still being designed.
+- `TerrainChunkStreamer` now builds that stitched DC mesh from the loaded density
+  chunks, uses centroid vertex placement for stability on noisy generated terrain,
+  and keys the render mesh by the current center chunk.
+- Browser smoke expects one rendered terrain mesh and still verifies that the
+  loaded density chunk keys stream after moving the player across chunk columns.
+
+Done when:
+
+- Terrain streamer unit tests pass against the DC mesh path.
+- Browser smoke renders first-person, debug-fly, and streamed first-person
+  screenshots with WebGPU.
+- The next step is clearly per-chunk neighbor meshing rather than retaining the
+  whole-window mesh long-term.
 
 ## Constraints
 

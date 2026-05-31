@@ -14,7 +14,7 @@ import {
   type TerrainChunkKey,
   type TerrainDensitySource
 } from "../../engine/world/terrainChunk.js";
-import { meshChunkHighestSurfaceStack } from "../../engine/world/terrainChunkMesher.js";
+import { meshChunksDualContouring } from "../../engine/world/dualContouring.js";
 import { POSITION_COLOR_NORMAL_UV_LAYOUT } from "../../engine/world/terrainMesh.js";
 
 export type TerrainChunkStreamerOptions = {
@@ -85,20 +85,19 @@ export class TerrainChunkStreamer extends Component {
       this.loadedChunkKeys.add(key);
     }
     this.lastCenterCoord = centerCoord;
-    this.loadRenderColumns(centerCoord);
+    this.loadRenderWindow(centerCoord);
   }
 
   rebuildChunk(chunk: TerrainChunkKey | TerrainChunkCoord): void {
     const coord = typeof chunk === "string" ? parseTerrainChunkKey(chunk) : chunk;
-    const centerY = this.lastCenterCoord?.y ?? coord.y;
-    const renderKey = this.renderKeyForColumn(coord.x, coord.z);
-    this.terrain.removeChunk(renderKey);
-    this.renderChunkKeys.delete(renderKey);
-    for (const densityCoord of this.buildDensityChunkCoordsForColumn(coord.x, centerY, coord.z)) {
-      this.loadedChunkKeys.delete(terrainChunkKey(densityCoord));
+    const centerCoord = this.lastCenterCoord ?? coord;
+    for (const key of this.renderChunkKeys) {
+      this.terrain.removeChunk(key);
     }
+    this.renderChunkKeys.clear();
+    this.loadedChunkKeys.delete(terrainChunkKey(coord));
 
-    this.loadRenderColumn(coord.x, centerY, coord.z);
+    this.loadRenderWindow(centerCoord);
   }
 
   invalidateAll(): void {
@@ -127,41 +126,42 @@ export class TerrainChunkStreamer extends Component {
     return desired;
   }
 
-  private loadRenderColumns(centerCoord: TerrainChunkCoord): void {
-    for (let z = centerCoord.z - this.horizontalRadius; z <= centerCoord.z + this.horizontalRadius; z += 1) {
-      for (let x = centerCoord.x - this.horizontalRadius; x <= centerCoord.x + this.horizontalRadius; x += 1) {
-        this.loadRenderColumn(x, centerCoord.y, z);
-      }
-    }
-  }
-
-  private loadRenderColumn(x: number, centerY: number, z: number): void {
-    const densityChunks = this.buildDensityChunkCoordsForColumn(x, centerY, z).map((coord) => {
+  private loadRenderWindow(centerCoord: TerrainChunkCoord): void {
+    const densityChunks = this.buildDensityChunkCoords(centerCoord).map((coord) => {
       this.loadedChunkKeys.add(terrainChunkKey(coord));
       return generateTerrainDensityChunk(this.source, coord, { cellSize: this.cellSize });
     });
-    const meshData = meshChunkHighestSurfaceStack(densityChunks, {
-      surfaceNormalAt: (position) => this.terrain.field.normalAt(position.x, position.z)
+    const meshData = meshChunksDualContouring(densityChunks, this.source, {
+      // Raw QEF placement is too unstable on noisy terrain until it is regularized.
+      placement: "centroid"
     });
-
-    if (meshData.indices.length > 0) {
-      const key = this.renderKeyForColumn(x, z);
-      this.terrain.addChunk({
-        key,
-        mesh: new Mesh(
-          `${this.meshIdPrefix}:${key}`,
-          meshData.vertices,
-          meshData.indices,
-          POSITION_COLOR_NORMAL_UV_LAYOUT
-        ),
-        material: this.material
-      });
-      this.renderChunkKeys.add(key);
+    if (meshData.indices.length === 0) {
+      return;
     }
+
+    const key = terrainChunkKey(centerCoord);
+    this.terrain.addChunk({
+      key,
+      mesh: new Mesh(
+        `${this.meshIdPrefix}:${key}`,
+        meshData.vertices,
+        meshData.indices,
+        POSITION_COLOR_NORMAL_UV_LAYOUT
+      ),
+      material: this.material
+    });
+    this.renderChunkKeys.add(key);
   }
 
-  private renderKeyForColumn(x: number, z: number): TerrainChunkKey {
-    return terrainChunkKey(terrainChunkCoord(x, 0, z));
+  private buildDensityChunkCoords(centerCoord: TerrainChunkCoord): TerrainChunkCoord[] {
+    const coords: TerrainChunkCoord[] = [];
+    for (let z = centerCoord.z - this.horizontalRadius; z <= centerCoord.z + this.horizontalRadius; z += 1) {
+      for (let x = centerCoord.x - this.horizontalRadius; x <= centerCoord.x + this.horizontalRadius; x += 1) {
+        coords.push(...this.buildDensityChunkCoordsForColumn(x, centerCoord.y, z));
+      }
+    }
+
+    return coords;
   }
 
   private buildDensityChunkCoordsForColumn(x: number, centerY: number, z: number): TerrainChunkCoord[] {

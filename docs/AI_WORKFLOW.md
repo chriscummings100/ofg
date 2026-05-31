@@ -30,5 +30,5 @@ Use behavior names rather than implementation names:
 ## Future Automation Hooks
 
 - Extend browser smoke tests to cover pointer-lock look controls and movement.
-- Add mesh golden fixtures before replacing the heightfield with Dual Contouring.
+- Add mesh golden fixtures before optimizing Dual Contouring or moving it to Rust/WASM.
 - Add benchmark scripts for chunk generation after chunk boundaries exist.

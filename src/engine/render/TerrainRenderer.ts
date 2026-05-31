@@ -87,7 +87,7 @@ export class TerrainRenderer extends Component {
   }
 
   rebuildChunk(chunk: ChunkKey | TerrainChunkCoord): TerrainChunk | undefined {
-    // The meshing implementation will replace this once Dual Contouring lands.
+    // TerrainChunkStreamer owns generated mesh rebuilds for now.
     return this.getChunk(chunk);
   }
 

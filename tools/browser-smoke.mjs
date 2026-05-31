@@ -12,7 +12,7 @@ const headed = process.env.OFG_SMOKE_HEADED === "1";
 const artifactRoot = resolve(root, "artifacts", "browser-smoke");
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
 const artifactDir = resolve(artifactRoot, runId);
-const expectedRenderChunkCount = 9;
+const expectedRenderChunkCount = 1;
 
 mkdirSync(artifactDir, { recursive: true });
 

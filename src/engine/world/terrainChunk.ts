@@ -113,6 +113,17 @@ export class EditableTerrainDensitySource implements TerrainDensitySource {
     return applyTerrainEdits(this.base.densityAt(position), position, this.edits);
   }
 
+  sampleAt(position: Vec3): TerrainDensitySample {
+    if (this.edits.length === 0) {
+      const baseSample = this.base.sampleAt?.(position);
+      if (baseSample !== undefined) {
+        return baseSample;
+      }
+    }
+
+    return estimateTerrainDensitySample((samplePosition) => this.densityAt(samplePosition), position, 0.01);
+  }
+
   addEdit(edit: TerrainEdit): void {
     this.removeEdit(edit.id);
     this.edits.push(edit);
@@ -147,13 +158,21 @@ export function sampleTerrainDensity(
     throw new Error("Terrain density gradient step must be positive.");
   }
 
-  const density = source.densityAt(position);
-  const x0 = source.densityAt(vec3(position.x - gradientStep, position.y, position.z));
-  const x1 = source.densityAt(vec3(position.x + gradientStep, position.y, position.z));
-  const y0 = source.densityAt(vec3(position.x, position.y - gradientStep, position.z));
-  const y1 = source.densityAt(vec3(position.x, position.y + gradientStep, position.z));
-  const z0 = source.densityAt(vec3(position.x, position.y, position.z - gradientStep));
-  const z1 = source.densityAt(vec3(position.x, position.y, position.z + gradientStep));
+  return estimateTerrainDensitySample(source.densityAt, position, gradientStep);
+}
+
+function estimateTerrainDensitySample(
+  densityAt: (position: Vec3) => number,
+  position: Vec3,
+  gradientStep: number
+): TerrainDensitySample {
+  const density = densityAt(position);
+  const x0 = densityAt(vec3(position.x - gradientStep, position.y, position.z));
+  const x1 = densityAt(vec3(position.x + gradientStep, position.y, position.z));
+  const y0 = densityAt(vec3(position.x, position.y - gradientStep, position.z));
+  const y1 = densityAt(vec3(position.x, position.y + gradientStep, position.z));
+  const z0 = densityAt(vec3(position.x, position.y, position.z - gradientStep));
+  const z1 = densityAt(vec3(position.x, position.y, position.z + gradientStep));
   const invSpan = 1 / (gradientStep * 2);
 
   return {
