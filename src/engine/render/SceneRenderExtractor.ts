@@ -6,14 +6,21 @@ import { MeshRenderer } from "./MeshRenderer.js";
 import { TerrainRenderer } from "./TerrainRenderer.js";
 import type { Entity } from "../scene/Entity.js";
 import type { CameraFrame } from "./CameraFrame.js";
+import type { DirectionalLight } from "./Lighting.js";
 import type { RenderItem, RenderWorld } from "./RenderWorld.js";
 
 export class SceneRenderExtractor {
-  static buildRenderWorld(aspect = 1): RenderWorld {
+  static buildRenderWorld(
+    aspect = 1,
+    options: {
+      readonly camera?: CameraFrame;
+      readonly mainLight?: DirectionalLight;
+    } = {}
+  ): RenderWorld {
     const scene = getScene();
     const activeCamera = scene.activeCamera;
 
-    if (activeCamera === undefined) {
+    if (activeCamera === undefined && options.camera === undefined) {
       throw new Error("SceneRenderExtractor requires scene.activeCamera to be set.");
     }
 
@@ -30,8 +37,8 @@ export class SceneRenderExtractor {
     }
 
     return {
-      camera: buildCameraFrame(activeCamera, aspect),
-      mainLight: scene.mainLight,
+      camera: options.camera ?? buildCameraFrame(activeCamera as Entity, aspect),
+      mainLight: options.mainLight ?? scene.mainLight,
       items
     };
   }

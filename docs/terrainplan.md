@@ -157,6 +157,10 @@ Partially supported or placeholder-only:
   scheduler. The scheduler state machine and main retained density payload store
   are Rust-backed, but worker partition ownership and render packet emission are
   not yet Rust-owned.
+- The Rust engine migration has started the render-packet bridge for camera,
+  main light, and debug player marker data. Terrain render chunks are not yet
+  emitted as Rust render packets, so `TerrainRenderer` and scene extraction still
+  own terrain draw-item assembly.
 
 Not yet supported:
 
@@ -862,6 +866,7 @@ Progress notes:
 | 2026-06-01 | Started | Added the first Rust-owned terrain stream scheduler core in `terrain_core`. It models desired density and LOD0 sets, treats 2x2x2 positive-apron density chunks as LOD0 dependencies, prioritizes nearby jobs, tracks bounded in-flight density/LOD work, rejects stale completions after reset generations, prunes moved-out windows, and has Rust tests for each behavior. Browser runtime still uses the TypeScript scheduler until the next adapter slice. |
 | 2026-06-01 | In progress | Wired the Rust stream scheduler into the browser runtime through a `terrain_core.wasm` facade and TypeScript adapter. The worker-backed `TerrainChunkStreamer` now asks Rust for desired density/LOD0 sets and ticked jobs, reports density and LOD completions back to Rust, and reads Rust status for debug/smoke. Browser smoke asserts `schedulerRuntime: rust` with active workers. Remaining Phase 3 ownership gap at this point: TypeScript still dispatched workers and owned transferred density payload maps/render uploads. |
 | 2026-06-01 | In progress | Moved the scheduler-backed retained density payload store into Rust/WASM. Completed density jobs are now copied into the main `terrain_core.wasm` density store, mesh dependency reads load the required apron chunks from that Rust store, and browser smoke asserts `densityStoreRuntime: rust`. Remaining Phase 3 ownership gap: TypeScript still dispatches workers, copies apron payloads into worker-local WASM stores, uploads meshes, and mutates `TerrainRenderer`. |
+| 2026-06-01 | In progress | Started the Rust render-packet bridge in `engine_core` for camera/light/player-marker snapshots and wired the browser render loop to consume the Rust camera/light packet. Terrain chunks still flow through `TerrainRenderer`; the next terrain-facing render step is chunk render packets so terrain draw-item assembly can leave the TypeScript scene. |
 
 ## Cross-Cutting Validation
 

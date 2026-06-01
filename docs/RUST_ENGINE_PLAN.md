@@ -276,6 +276,13 @@ Deletion path:
 
 Goal: make rendering consume Rust-produced data before moving WebGPU itself.
 
+Status: started on 2026-06-01. `engine_core` now has a tested Rust render packet
+model and raw WASM snapshot buffer for the player camera, main light, and debug
+player marker visibility/position. TypeScript decodes that packet and the
+browser runtime uses the Rust camera/light packet when the Rust engine is
+available, while the existing TypeScript renderer still gathers terrain and mesh
+items from the compatibility scene.
+
 Implementation:
 
 - Define render packet types in Rust:
@@ -298,7 +305,9 @@ Validation:
 
 Deletion path:
 
-- Delete TypeScript `SceneRenderExtractor` for Rust-owned objects.
+- Delete TypeScript `SceneRenderExtractor` for Rust-owned objects once terrain
+  chunks and marker/static meshes are emitted as Rust render packets instead of
+  TypeScript scene components.
 
 ### Phase 5: Move WebGPU Rendering To Rust/wgpu
 
@@ -497,3 +506,4 @@ streaming, then render packets, then Rust/wgpu.
 | 2026-06-01 | Phase 3 scheduler core started | Added the first Rust-owned terrain stream scheduler model in `terrain_core`. Tests cover desired density aprons, LOD0 targets, density-first priority, dependency gating, ready/empty LOD0 states, reset generation tokens, stale result rejection, pruning, retryable density failures, and configuration validation. Runtime wiring is still pending. |
 | 2026-06-01 | Phase 3 scheduler runtime bridge complete | Exposed the Rust terrain stream scheduler through `terrain_core.wasm`, added a TypeScript adapter, and wired the playable worker-backed terrain streamer to use Rust for desired sets, ticks, completions, reset generations, and status. Browser smoke now asserts the Rust terrain scheduler path and active workers. At this point TypeScript still owned worker dispatch, transferred density payloads, and render uploads. |
 | 2026-06-01 | Phase 3 retained density store moved to Rust | Added WASM exports and a TypeScript adapter for Rust-owned retained density payload storage. Scheduler-backed runtime streaming now stores completed density chunks in `terrain_core.wasm` and loads mesh apron dependencies from that store; browser smoke asserts the Rust density-store path. TypeScript still dispatches workers and copies apron payloads into worker-local WASM stores for meshing. |
+| 2026-06-01 | Phase 4 render packet bridge started | Added `engine_core` render packet types and a WASM memory snapshot for camera, main light, and debug player marker data. TypeScript now decodes that packet, converts it to the existing `CameraFrame`/light data, and the browser render loop uses the Rust camera/light packet when available. The next render ownership step is terrain chunk render packets so `TerrainRenderer` and `SceneRenderExtractor` can stop owning Rust-world objects. |

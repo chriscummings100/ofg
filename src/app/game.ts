@@ -12,6 +12,10 @@ import { Mesh } from "../engine/render/Mesh.js";
 import { MeshRenderer } from "../engine/render/MeshRenderer.js";
 import { SceneRenderExtractor } from "../engine/render/SceneRenderExtractor.js";
 import { TerrainRenderer } from "../engine/render/TerrainRenderer.js";
+import {
+  cameraFrameFromEnginePacket,
+  directionalLightFromEnginePacket
+} from "../engine/render/engineRenderPackets.js";
 import { loadTerrainMaterialTextures } from "../engine/render/terrainTextures.js";
 import { WebGpuRenderer } from "../engine/render/webgpuRenderer.js";
 import { createDirectionalLight } from "../engine/render/Lighting.js";
@@ -73,6 +77,7 @@ declare global {
       getTerrainStreamStatus: () => ReturnType<TerrainChunkStreamer["getStreamStatus"]>;
       getTerrainStreamSchedulerRuntime: () => "rust" | "typescript";
       getTerrainDensityStoreRuntime: () => "rust" | "typescript";
+      getRenderPacketRuntime: () => "rust" | "typescript";
       getTerrainWorkerCount: () => number;
       getTerrainDebugOverlayMode: () => TerrainDebugOverlayState;
       getPlayerControllerRuntime: () => "rust" | "typescript";
@@ -204,6 +209,7 @@ export async function startGame(elements: GameElements): Promise<void> {
   scene.activeCamera = cameraEntity;
   syncCameraEntity(cameraEntity, playerController.getEyeTransform());
   terrainStreamer.syncAround(playerEntity.transform.getWorldPosition());
+  let renderPacketRuntime: "rust" | "typescript" = "typescript";
   window.__ofgDebug = {
     getLoadedTerrainChunkKeys: () => terrainStreamer.getLoadedChunkKeys(),
     getTerrainChunkKeys: () => terrainRenderer.chunks.map((chunk) => chunk.key).sort(),
@@ -214,6 +220,7 @@ export async function startGame(elements: GameElements): Promise<void> {
       ? "typescript"
       : "rust",
     getTerrainDensityStoreRuntime: () => terrainDensityChunkStore?.runtime ?? "typescript",
+    getRenderPacketRuntime: () => renderPacketRuntime,
     getTerrainWorkerCount: () => terrainWorker?.workerCount ?? 0,
     getTerrainDebugOverlayMode: () => terrainDebugOverlay.getState(),
     getPlayerControllerRuntime: () => playerController instanceof RustPlayerController
@@ -273,11 +280,20 @@ export async function startGame(elements: GameElements): Promise<void> {
     playerController.setMovementIntent(intent);
     scene.update(deltaSeconds);
     terrainStreamer.syncAround(playerEntity.transform.getWorldPosition());
-    markerRenderer.visible = playerController.mode === "debugFly";
     syncCameraEntity(cameraEntity, playerController.getEyeTransform());
     terrainDebugOverlay.update(deltaSeconds, field, playerEntity.transform.getWorldPosition());
 
-    renderer.render(SceneRenderExtractor.buildRenderWorld(renderer.getAspectRatio()));
+    const aspect = renderer.getAspectRatio();
+    const renderSnapshot = engineCore?.renderSnapshot();
+    markerRenderer.visible = renderSnapshot?.playerMarker.visible ??
+      playerController.mode === "debugFly";
+    renderPacketRuntime = renderSnapshot === undefined ? "typescript" : "rust";
+    renderer.render(renderSnapshot === undefined
+      ? SceneRenderExtractor.buildRenderWorld(aspect)
+      : SceneRenderExtractor.buildRenderWorld(aspect, {
+          camera: cameraFrameFromEnginePacket(renderSnapshot.camera, aspect),
+          mainLight: directionalLightFromEnginePacket(renderSnapshot.mainLight)
+        }));
 
     elements.cameraMode.textContent = playerController.mode === "firstPerson" ? "FIRST" : "FLY";
     elements.cameraMode.dataset.mode = playerController.mode;

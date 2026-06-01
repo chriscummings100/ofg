@@ -48,6 +48,9 @@ export type EngineCoreWasmExports = {
   readonly ofg_engine_player_x: () => number;
   readonly ofg_engine_player_y: () => number;
   readonly ofg_engine_player_z: () => number;
+  readonly ofg_engine_render_snapshot_f32_count: () => number;
+  readonly ofg_engine_render_snapshot_f32_ptr: () => number;
+  readonly ofg_engine_write_render_snapshot: () => number;
 };
 
 export type EngineCoreWasmInstance = {
@@ -94,6 +97,36 @@ export type EngineCoreDebugSnapshot = {
   readonly elapsedSeconds: number;
   readonly entityCount: number;
 };
+
+export type EngineCoreRenderCameraPacket = {
+  readonly eye: EngineCoreVec3;
+  readonly target: EngineCoreVec3;
+  readonly yaw: number;
+  readonly pitch: number;
+  readonly fovYRadians: number;
+  readonly nearPlane: number;
+  readonly farPlane: number;
+};
+
+export type EngineCoreRenderLightPacket = {
+  readonly direction: EngineCoreVec3;
+  readonly color: EngineCoreVec3;
+  readonly intensity: number;
+  readonly ambient: number;
+};
+
+export type EngineCoreRenderDebugMarkerPacket = {
+  readonly visible: boolean;
+  readonly position: EngineCoreVec3;
+};
+
+export type EngineCoreRenderSnapshot = {
+  readonly camera: EngineCoreRenderCameraPacket;
+  readonly mainLight: EngineCoreRenderLightPacket;
+  readonly playerMarker: EngineCoreRenderDebugMarkerPacket;
+};
+
+export const ENGINE_CORE_RENDER_SNAPSHOT_FLOAT_COUNT = 24;
 
 export class EngineCoreWasmHandle {
   readonly #exports: EngineCoreWasmExports;
@@ -218,6 +251,45 @@ export class EngineCoreWasmHandle {
       entityCount: this.#exports.ofg_engine_entity_count()
     };
   }
+
+  renderSnapshot(): EngineCoreRenderSnapshot | undefined {
+    if (this.#exports.ofg_engine_write_render_snapshot() !== 1) {
+      return undefined;
+    }
+
+    const count = this.#exports.ofg_engine_render_snapshot_f32_count();
+    if (count !== ENGINE_CORE_RENDER_SNAPSHOT_FLOAT_COUNT) {
+      throw new Error(
+        `Engine render snapshot layout changed: expected ` +
+        `${ENGINE_CORE_RENDER_SNAPSHOT_FLOAT_COUNT} floats, saw ${count}.`
+      );
+    }
+
+    const ptr = this.#exports.ofg_engine_render_snapshot_f32_ptr();
+    const values = Array.from(new Float32Array(this.#exports.memory.buffer, ptr, count));
+
+    return Object.freeze({
+      camera: Object.freeze({
+        eye: freezeVec3(values[0], values[1], values[2]),
+        target: freezeVec3(values[3], values[4], values[5]),
+        yaw: values[6],
+        pitch: values[7],
+        fovYRadians: values[8],
+        nearPlane: values[9],
+        farPlane: values[10]
+      }),
+      mainLight: Object.freeze({
+        direction: freezeVec3(values[11], values[12], values[13]),
+        color: freezeVec3(values[14], values[15], values[16]),
+        intensity: values[17],
+        ambient: values[18]
+      }),
+      playerMarker: Object.freeze({
+        visible: values[19] >= 0.5,
+        position: freezeVec3(values[20], values[21], values[22])
+      })
+    });
+  }
 }
 
 export async function instantiateEngineCoreWasm(
@@ -284,7 +356,10 @@ function assertEngineCoreExports(exports: WebAssembly.Exports): asserts exports 
     "ofg_engine_player_eye_pitch",
     "ofg_engine_player_x",
     "ofg_engine_player_y",
-    "ofg_engine_player_z"
+    "ofg_engine_player_z",
+    "ofg_engine_render_snapshot_f32_count",
+    "ofg_engine_render_snapshot_f32_ptr",
+    "ofg_engine_write_render_snapshot"
   ] as const;
 
   for (const name of expectedFunctionNames) {
@@ -308,4 +383,8 @@ function playerModeFromCode(code: number): EngineCorePlayerMode | undefined {
   }
 
   return undefined;
+}
+
+function freezeVec3(x: number, y: number, z: number): EngineCoreVec3 {
+  return Object.freeze({ x, y, z });
 }

@@ -3,6 +3,7 @@ use crate::player::{
     speed_multiplier, yaw_pitch_forward, yaw_right, EyeTransform, PlayerConfig,
     PlayerControllerState, PlayerMode, PlayerMovementIntent, PlayerRig,
 };
+use crate::render_packet::RenderSnapshot;
 use crate::world::{LocalTransform, World, WorldError};
 use crate::ENGINE_CORE_VERSION;
 
@@ -203,6 +204,23 @@ impl Engine {
 
     pub fn player_eye_transform(&self) -> Result<EyeTransform, EngineError> {
         self.player_eye_transform_for(self.player_controller()?)
+    }
+
+    pub fn render_snapshot(&self) -> Result<RenderSnapshot, EngineError> {
+        let controller = self.player_controller()?;
+        let eye = self.player_eye_transform_for(controller)?;
+        let player_position = self
+            .world
+            .world_transform(controller.rig.player_entity)?
+            .translation;
+
+        Ok(RenderSnapshot::from_player_view(
+            eye.position,
+            eye.yaw,
+            eye.pitch,
+            player_position,
+            controller.mode,
+        ))
     }
 
     pub fn preview_player_position(&self, delta_seconds: f32) -> Result<Vec3, EngineError> {

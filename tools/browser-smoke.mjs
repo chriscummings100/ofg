@@ -73,6 +73,8 @@ async function runBrowserSmoke(url) {
     assertTerrainDebug(initialTerrain, "initial terrain");
     const playerControllerRuntime = await readPlayerControllerRuntime(page);
     assertPlayerControllerRuntime(playerControllerRuntime);
+    const renderPacketRuntime = await readRenderPacketRuntime(page);
+    assertRenderPacketRuntime(renderPacketRuntime);
     const terrainStreamRuntime = await readTerrainStreamRuntime(page);
     assertTerrainStreamRuntime(terrainStreamRuntime);
 
@@ -148,6 +150,7 @@ async function runBrowserSmoke(url) {
       refreshedHud,
       flyHud,
       playerControllerRuntime,
+      renderPacketRuntime,
       terrainStreamRuntime: refreshedTerrainStreamRuntime,
       initialTerrain,
       refreshedTerrain,
@@ -193,6 +196,10 @@ async function readPlayerControllerRuntime(page) {
   return page.evaluate(() => window.__ofgDebug?.getPlayerControllerRuntime?.() ?? "missing");
 }
 
+async function readRenderPacketRuntime(page) {
+  return page.evaluate(() => window.__ofgDebug?.getRenderPacketRuntime?.() ?? "missing");
+}
+
 async function readTerrainStreamRuntime(page) {
   return page.evaluate(() => ({
     schedulerRuntime: window.__ofgDebug?.getTerrainStreamSchedulerRuntime?.() ?? "missing",
@@ -219,6 +226,12 @@ async function readTerrainStreamStatus(page) {
 function assertPlayerControllerRuntime(runtime) {
   if (runtime !== "rust") {
     throw new Error(`Expected Rust player controller runtime, saw '${runtime}'.`);
+  }
+}
+
+function assertRenderPacketRuntime(runtime) {
+  if (runtime !== "rust") {
+    throw new Error(`Expected Rust render packet runtime, saw '${runtime}'.`);
   }
 }
 

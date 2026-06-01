@@ -1,7 +1,8 @@
-import { equal, ok } from "node:assert/strict";
+import { equal, ok, throws } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { ENGINE_CORE_WASM_METADATA } from "../../generated/engine/engineCoreWasm.js";
 import {
+  ENGINE_CORE_RENDER_SNAPSHOT_FLOAT_COUNT,
   EngineCoreWasmHandle,
   decodeEngineCoreEntityId,
   instantiateEngineCoreWasm,
@@ -26,6 +27,9 @@ describe("engine core WASM", () => {
     ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_preview_player_x"));
     ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_update_player"));
     ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_player_eye_y"));
+    ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_render_snapshot_f32_count"));
+    ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_render_snapshot_f32_ptr"));
+    ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_write_render_snapshot"));
     ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_update"));
     ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_tick"));
     ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_elapsed_seconds"));
@@ -161,6 +165,62 @@ describe("engine core WASM", () => {
     }), false);
     ok(Number.isNaN(handle.playerEyeTransform().position.x));
     equal(handle.playerMode(), undefined);
+    equal(handle.renderSnapshot(), undefined);
+  });
+
+  it("reads Rust render snapshots from WASM memory", async () => {
+    const handle = new EngineCoreWasmHandle(await loadEngineCore());
+
+    handle.reset();
+    handle.createPlayer({ x: 1, y: 2, z: 3 });
+    equal(handle.setPlayerView(0.5, -0.25), true);
+
+    const firstPerson = handle.renderSnapshot();
+    if (firstPerson === undefined) {
+      ok(false, "Expected a render snapshot after creating a player.");
+      return;
+    }
+    equal(firstPerson.camera.eye.x, 1);
+    assertClose(firstPerson.camera.eye.y, 3.65);
+    equal(firstPerson.camera.eye.z, 3);
+    assertClose(firstPerson.camera.yaw, 0.5);
+    assertClose(firstPerson.camera.pitch, -0.25);
+    assertClose(firstPerson.camera.fovYRadians, 70 * Math.PI / 180);
+    assertClose(firstPerson.camera.nearPlane, 0.05);
+    equal(firstPerson.camera.farPlane, 500);
+    assertClose(firstPerson.mainLight.direction.x, 0.890445351600647);
+    assertClose(firstPerson.mainLight.direction.y, 0.25012511014938354);
+    assertClose(firstPerson.mainLight.direction.z, 0.3801908493041992);
+    equal(firstPerson.mainLight.color.x, 1);
+    assertClose(firstPerson.mainLight.color.y, 0.96);
+    assertClose(firstPerson.mainLight.color.z, 0.88);
+    equal(firstPerson.mainLight.intensity, 1);
+    assertClose(firstPerson.mainLight.ambient, 0.34);
+    equal(firstPerson.playerMarker.visible, false);
+    equal(firstPerson.playerMarker.position.x, 1);
+    equal(firstPerson.playerMarker.position.y, 2);
+    equal(firstPerson.playerMarker.position.z, 3);
+
+    equal(handle.setPlayerMode("debugFly"), true);
+    equal(handle.renderSnapshot()?.playerMarker.visible, true);
+  });
+
+  it("rejects unexpected Rust render snapshot layouts", async () => {
+    const wasm = await loadEngineCore();
+    const handle = new EngineCoreWasmHandle({
+      exports: {
+        ...wasm.exports,
+        ofg_engine_render_snapshot_f32_count: () => ENGINE_CORE_RENDER_SNAPSHOT_FLOAT_COUNT + 1
+      }
+    });
+
+    handle.reset();
+    handle.createPlayer({ x: 0, y: 0, z: 0 });
+
+    throws(
+      () => handle.renderSnapshot(),
+      /Engine render snapshot layout changed/
+    );
   });
 
   it("decodes packed generational entity ids", () => {

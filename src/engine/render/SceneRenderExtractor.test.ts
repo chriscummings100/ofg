@@ -122,6 +122,29 @@ describe("SceneRenderExtractor", () => {
     equal(renderWorld.camera.eye.z, 5);
   });
 
+  it("can use a render-packet camera without a scene active camera", () => {
+    const scene = resetScene();
+
+    const renderWorld = SceneRenderExtractor.buildRenderWorld(1, {
+      camera: {
+        eye: vec3(8, 9, 10),
+        target: vec3(8, 9, 11),
+        viewProjection: new Float32Array(16),
+        inverseViewProjection: new Float32Array(16)
+      },
+      mainLight: {
+        direction: vec3(0, 1, 0),
+        color: vec3(1, 0.5, 0.25),
+        intensity: 2,
+        ambient: 0.1
+      }
+    });
+
+    equal(scene.activeCamera, undefined);
+    equal(renderWorld.camera.eye.x, 8);
+    equal(renderWorld.mainLight.intensity, 2);
+  });
+
   it("uses active camera rotation for target direction", () => {
     const scene = resetScene();
     const camera = scene.createEntity("Camera");

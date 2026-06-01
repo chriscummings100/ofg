@@ -30,7 +30,10 @@ export type EngineCoreWasmExportName =
   | "ofg_engine_player_eye_pitch"
   | "ofg_engine_player_x"
   | "ofg_engine_player_y"
-  | "ofg_engine_player_z";
+  | "ofg_engine_player_z"
+  | "ofg_engine_render_snapshot_f32_count"
+  | "ofg_engine_render_snapshot_f32_ptr"
+  | "ofg_engine_write_render_snapshot";
 
 export type EngineCoreWasmMetadata = {
   readonly id: string;
@@ -46,7 +49,7 @@ export const ENGINE_CORE_WASM_METADATA = Object.freeze({
   "sourceCrate": "crates/engine_core",
   "assetPath": "assets/wasm/engine_core.wasm",
   "target": "wasm32-unknown-unknown",
-  "artifactHash": "sha256-56bad36d0f4a1fbff89e31c1d247fa829013021daebd5be8ab7d926a2bb347db",
+  "artifactHash": "sha256-7c93a6358923ab9aa3b714865dd09b162d4d5b2fd3d7621e990467796c27210c",
   "exports": [
     "memory",
     "ofg_engine_core_version",
@@ -77,6 +80,9 @@ export const ENGINE_CORE_WASM_METADATA = Object.freeze({
     "ofg_engine_player_eye_pitch",
     "ofg_engine_player_x",
     "ofg_engine_player_y",
-    "ofg_engine_player_z"
+    "ofg_engine_player_z",
+    "ofg_engine_render_snapshot_f32_count",
+    "ofg_engine_render_snapshot_f32_ptr",
+    "ofg_engine_write_render_snapshot"
   ]
 }) as EngineCoreWasmMetadata;

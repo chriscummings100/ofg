@@ -336,6 +336,63 @@ fn player_camera_mode_toggles_between_first_person_and_debug_fly() {
 }
 
 #[test]
+fn render_snapshot_tracks_player_camera_light_and_debug_marker() {
+    let mut engine = Engine::new();
+    engine.create_player(Vec3::new(1.0, 2.0, 3.0));
+    engine.set_player_view(0.75, -0.25).unwrap();
+
+    let first_person = engine.render_snapshot().unwrap();
+
+    assert_vec3_near(first_person.camera.eye, Vec3::new(1.0, 3.65, 3.0));
+    assert_close(first_person.camera.yaw, 0.75);
+    assert_close(first_person.camera.pitch, -0.25);
+    assert_close(first_person.camera.fov_y_radians, 70.0_f32.to_radians());
+    assert_close(first_person.camera.near_plane, 0.05);
+    assert_close(first_person.camera.far_plane, 500.0);
+    assert_vec3_near(
+        first_person.main_light.direction,
+        Vec3::new(0.89, 0.25, 0.38).normalize(),
+    );
+    assert_vec3_near(first_person.main_light.color, Vec3::new(1.0, 0.96, 0.88));
+    assert_close(first_person.main_light.intensity, 1.0);
+    assert_close(first_person.main_light.ambient, 0.34);
+    assert!(!first_person.player_marker.visible);
+    assert_vec3_near(first_person.player_marker.position, Vec3::new(1.0, 2.0, 3.0));
+
+    engine.set_player_mode(PlayerMode::DebugFly).unwrap();
+    let debug_fly = engine.render_snapshot().unwrap();
+
+    assert!(debug_fly.player_marker.visible);
+    assert_vec3_near(debug_fly.player_marker.position, Vec3::new(1.0, 2.0, 3.0));
+}
+
+#[test]
+fn render_snapshot_writes_stable_f32_packet_layout() {
+    let mut engine = Engine::new();
+    engine.create_player(Vec3::new(1.0, 2.0, 3.0));
+    engine.set_player_view(0.5, -0.25).unwrap();
+    let mut values = [0.0; RENDER_SNAPSHOT_FLOAT_COUNT];
+
+    engine.render_snapshot().unwrap().write_f32s(&mut values);
+
+    assert_eq!(values.len(), 24);
+    assert_close(values[0], 1.0);
+    assert_close(values[1], 3.65);
+    assert_close(values[2], 3.0);
+    assert_close(values[6], 0.5);
+    assert_close(values[7], -0.25);
+    assert_close(values[8], 70.0_f32.to_radians());
+    assert_close(values[9], 0.05);
+    assert_close(values[10], 500.0);
+    assert_close(values[17], 1.0);
+    assert_close(values[18], 0.34);
+    assert_close(values[19], 0.0);
+    assert_close(values[20], 1.0);
+    assert_close(values[21], 2.0);
+    assert_close(values[22], 3.0);
+}
+
+#[test]
 fn wasm_facade_can_reset_engine_and_report_debug_state() {
     let _facade_guard = lock_wasm_facade_tests();
 
@@ -396,6 +453,33 @@ fn wasm_facade_exposes_player_state_and_controls() {
     assert_eq!(ofg_engine_update_player(1.0, 100.0, 1), 1);
     assert_close(ofg_engine_player_eye_y(), 19.0);
     assert_eq!(ofg_engine_set_player_mode(99), 0);
+}
+
+#[test]
+fn wasm_facade_writes_render_snapshot_to_memory() {
+    let _facade_guard = lock_wasm_facade_tests();
+
+    ofg_engine_create();
+    assert_eq!(ofg_engine_write_render_snapshot(), 0);
+
+    ofg_engine_create_player(1.0, 2.0, 3.0);
+    assert_eq!(ofg_engine_set_player_view(0.5, -0.25), 1);
+    assert_eq!(ofg_engine_render_snapshot_f32_count(), 24);
+    assert_ne!(ofg_engine_render_snapshot_f32_ptr(), 0);
+    assert_eq!(ofg_engine_write_render_snapshot(), 1);
+
+    let values = facade_render_snapshot_values();
+    assert_close(values[0], 1.0);
+    assert_close(values[1], 3.65);
+    assert_close(values[2], 3.0);
+    assert_close(values[6], 0.5);
+    assert_close(values[7], -0.25);
+    assert_close(values[19], 0.0);
+
+    assert_eq!(ofg_engine_set_player_mode(PlayerMode::DebugFly.code()), 1);
+    assert_eq!(ofg_engine_write_render_snapshot(), 1);
+    let values = facade_render_snapshot_values();
+    assert_close(values[19], 1.0);
 }
 
 fn assert_vec3_near(actual: Vec3, expected: Vec3) {

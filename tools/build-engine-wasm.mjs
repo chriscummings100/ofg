@@ -42,7 +42,10 @@ const expectedExports = [
   "ofg_engine_player_eye_pitch",
   "ofg_engine_player_x",
   "ofg_engine_player_y",
-  "ofg_engine_player_z"
+  "ofg_engine_player_z",
+  "ofg_engine_render_snapshot_f32_count",
+  "ofg_engine_render_snapshot_f32_ptr",
+  "ofg_engine_write_render_snapshot"
 ];
 
 const build = spawnSync(

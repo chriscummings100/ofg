@@ -3,7 +3,11 @@ use std::sync::{Mutex, OnceLock};
 use crate::engine::{Engine, EngineUpdateInput};
 use crate::math::Vec3;
 use crate::player::{PlayerMode, PlayerMovementIntent};
+use crate::render_packet::RENDER_SNAPSHOT_FLOAT_COUNT;
 use crate::ENGINE_CORE_VERSION;
+
+static mut RENDER_SNAPSHOT_F32S: [f32; RENDER_SNAPSHOT_FLOAT_COUNT] =
+    [0.0; RENDER_SNAPSHOT_FLOAT_COUNT];
 
 fn with_facade_engine<R>(callback: impl FnOnce(&mut Engine) -> R) -> R {
     static FACADE_ENGINE: OnceLock<Mutex<Engine>> = OnceLock::new();
@@ -284,4 +288,43 @@ pub extern "C" fn ofg_engine_player_z() -> f32 {
             .map(|position| position.z)
             .unwrap_or(f32::NAN)
     })
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_engine_render_snapshot_f32_count() -> u32 {
+    RENDER_SNAPSHOT_FLOAT_COUNT as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_engine_render_snapshot_f32_ptr() -> u32 {
+    // SAFETY: this exposes the stable address of the facade-owned packet buffer.
+    // Callers must request a fresh write before reading the buffer.
+    unsafe { std::ptr::addr_of!(RENDER_SNAPSHOT_F32S) as u32 }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_engine_write_render_snapshot() -> u32 {
+    with_facade_engine(|engine| {
+        let Ok(snapshot) = engine.render_snapshot() else {
+            return 0;
+        };
+
+        // SAFETY: taking the raw pointer is unsafe because the buffer is mutable
+        // static state. The actual write below is serialized by the facade caller.
+        let snapshot_ptr = unsafe { std::ptr::addr_of_mut!(RENDER_SNAPSHOT_F32S) };
+        // SAFETY: the facade runs on the browser main thread today and facade tests
+        // serialize access with a mutex. The buffer is overwritten atomically from
+        // the caller's point of view before TypeScript reads the exported memory.
+        unsafe {
+            snapshot.write_f32s(&mut *snapshot_ptr);
+        }
+
+        1
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn facade_render_snapshot_values() -> [f32; RENDER_SNAPSHOT_FLOAT_COUNT] {
+    // SAFETY: facade unit tests serialize access to the global facade state.
+    unsafe { RENDER_SNAPSHOT_F32S }
 }
