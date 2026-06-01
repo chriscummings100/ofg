@@ -83,9 +83,14 @@ Supported:
 - Runtime terrain streaming can load the generated WASM artifact in the browser
   and use it to build renderable terrain chunk meshes, with a TypeScript fallback
   if the artifact is unavailable.
+- Runtime streaming now treats density chunks as a retained lowest-detail
+  streaming layer. The TypeScript streamer computes the full density window,
+  including positive apron chunks, before render meshing; the Rust/WASM core can
+  prepare and retain that density window so mesh generation reuses stored chunks.
 - A release-WASM benchmark, `npm run bench:terrain:wasm`, reports density
-  fill-only, density fill-plus-copy, and chunk mesh-build-plus-copy milliseconds
-  per chunk and writes JSON under `artifacts/terrain-wasm-bench/`.
+  fill-only, density fill-plus-copy, retained density-window preparation, and
+  chunk mesh-build-plus-copy milliseconds and writes JSON under
+  `artifacts/terrain-wasm-bench/`.
 
 Partially supported or placeholder-only:
 
@@ -108,8 +113,9 @@ Partially supported or placeholder-only:
 - The Rust core now owns the browser runtime density-to-render-mesh path for
   generated terrain chunks, including material/biome classification, centroid
   Dual Contouring, same-LOD neighbor seam ownership, and triangle-local material
-  palette expansion. This is still a first pass and is not yet worker-backed or
-  batch/cache optimized.
+  palette expansion. It has a first retained density chunk store, but this is
+  still not worker-backed, multi-resolution, priority scheduled, or mesh-upload
+  optimized.
 
 Not yet supported:
 
@@ -124,8 +130,9 @@ Not yet supported:
 - Caves, arches, tunnels, overhang-focused volumetric features, or cave entrance
   placement.
 - Far-field terrain, LOD, LOD transition meshes, or chunk-priority scheduling.
-- Worker-backed Rust/WASM terrain generation, batch chunk generation, cancellation
-  queues, cache reuse across neighboring chunks, or mesh upload preparation.
+- Worker-backed Rust/WASM terrain generation, batch chunk generation,
+  cancellation queues, multi-resolution density/mesh streaming, or mesh upload
+  preparation.
 - Worker-backed terrain generation, cancellation, priority queues, or saveable
   human-facing terrain tuning knobs.
 - Terrain collision/grounding based on the generated mesh. Player grounding still
@@ -146,6 +153,8 @@ Current believability gap:
 - The next visible win should therefore be realtime terrain iteration: move the
   expensive chunk sampling/meshing path behind Rust/WASM, add generation timing
   counters, widen the visible terrain window, then expose saveable tuning knobs.
+  A first retained density window has separated density preparation from meshing,
+  but density preparation itself is still too slow and main-thread-bound.
   Hydrology and better biome composition remain the next believability layer once
   the terrain can regenerate fast enough to tune.
 
@@ -224,7 +233,7 @@ landmarks, not for every generated sample.
 | 6 | Material classification | Material weights from slope, altitude, biome, wetness, strata | Terrain blends 4-8 materials predictably |
 | 7 | Hydrology and rivers | Coarse river graph, carve field, wetness map | Rivers flow downhill or terminate validly |
 | 8 | Caves and local volumes | Tunnel graph plus 3D noise carving | Navigable caves and natural entrances |
-| 9 | Streaming and LOD | Chunk scheduler, caches, LOD/seam transition plan | Free-flight remains hole-free within budget |
+| 9 | Streaming and LOD | Chunk scheduler, retained stores, LOD/seam transition plan | Free-flight remains hole-free within budget |
 | 10 | Presentation layers | Vegetation masks, water rendering, atmosphere improvements | Terrain reads at multiple scales |
 | 11 | Realtime Rust/WASM terrain path | Rust/WASM hot paths, profiling, worker scheduling, tuning persistence | Terrain edits and tuning regenerate fast enough for human iteration |
 
@@ -261,10 +270,12 @@ Proposed order:
    - Start with Hermite extraction and QEF placement, then mesh buffer emission.
    - Validation: mesh summaries and seam ownership match TypeScript golden
      fixtures before runtime promotion.
-5. Add worker-backed scheduling and cache budgets.
+5. Add worker-backed scheduling and retained streaming-layer budgets.
    - Main thread should stop blocking on expensive terrain rebuilds.
-   - Add priority queues, cancellation for stale camera positions, and cache
-     eviction before increasing view distance aggressively.
+   - Treat density chunks as the lowest current LOD generated over the widest
+     active radius, so apron reuse falls out of the streaming model.
+   - Add priority queues, cancellation for stale camera positions, and retained
+     density/mesh eviction before increasing view distance aggressively.
    - Validation: free-flight remains hole-free while visible radius increases.
 6. Add a terrain tuning panel with save/load only after regeneration is responsive.
    - Knobs should cover seed, preset, macro scales, ridge strength, detail
@@ -285,7 +296,8 @@ Progress notes:
 | 2026-06-01 | Pivoted | Screenshots still read too similar, but further material tuning is blocked by slow iteration and short view distance. The recommended next slice is now Rust/WASM-backed realtime terrain generation, then tuning knobs and save/load, then renewed biome/hydrology/material polish. |
 | 2026-06-01 | In progress | Added a Rust/WASM density chunk fill API for the 33x33x33 `TerrainChunk` sample layout, copied it into `TerrainDensityChunk`, and wired `TerrainChunkStreamer` to use it at runtime when the browser loads `assets/wasm/terrain_core.wasm`. Browser smoke passes with no fallback warnings. Next target is profiling plus moving meshing/worker scheduling enough to widen view distance. |
 | 2026-06-01 | In progress | Added `npm run bench:terrain:wasm` to measure release WASM density chunk generation directly. Initial fill-only median was about 36.8 ms per 33x33x33 chunk, which confirmed the Rust path was still too slow. Caching macro terrain once per x/z column inside chunk fill reduced the quick benchmark to about 6.6 ms fill-only median and 6.5 ms fill-plus-copy median, with machine-readable JSON in `artifacts/terrain-wasm-bench/`. |
-| 2026-06-01 | In progress | Moved the browser runtime generated-terrain chunk mesh path into Rust/WASM. `ofg_build_chunk_mesh` now builds the density apron, extracts Hermite intersections, performs centroid Dual Contouring with same-LOD seam ownership, classifies biome/material weights, expands triangle-local material palettes, and returns renderable vertex/index buffers to TypeScript. Browser smoke passes. Quick benchmark now shows density fill around 6.5 ms median and full mesh build plus copy around 62.7 ms median per chunk. Added an apron-density phase estimate: filling the eight 33x33x33 density chunks needed for one mesh costs about 52.5 ms median, leaving about 10.2 ms median for contouring/material/palette/copy. The next target is batch generation and cache reuse across neighboring chunks, then worker-backed scheduling. |
+| 2026-06-01 | In progress | Moved the browser runtime generated-terrain chunk mesh path into Rust/WASM. `ofg_build_chunk_mesh` now builds the density apron, extracts Hermite intersections, performs centroid Dual Contouring with same-LOD seam ownership, classifies biome/material weights, expands triangle-local material palettes, and returns renderable vertex/index buffers to TypeScript. Browser smoke passes. Quick benchmark now shows density fill around 6.5 ms median and full mesh build plus copy around 62.7 ms median per chunk. Added an apron-density phase estimate: filling the eight 33x33x33 density chunks needed for one mesh costs about 52.5 ms median, leaving about 10.2 ms median for contouring/material/palette/copy. The next target is a retained density streaming layer, then worker-backed scheduling. |
+| 2026-06-01 | In progress | Reframed apron reuse as a streaming-layer problem rather than an ad hoc cache. The streamer now builds a retained density window that includes apron chunks, and Rust/WASM exposes `ofg_prepare_density_chunk_window` plus density-store counters. The benchmark now separates cold mesh generation from prepared mesh generation: on the development run, cold mesh plus copy was about 61.8 ms median per chunk, while prepared mesh plus copy was about 9.7 ms median. Density-window preparation is still main-thread-bound and can spike, so the next target is worker-backed preparation, priority/cancellation, and then widening view distance. |
 
 ## Milestone 1: Generator Core
 
@@ -661,7 +673,7 @@ Implementation:
   - visible silhouette chunks
   - collision-critical chunks
   - low-priority background chunks
-- Add cache eviction for density chunks and meshes.
+- Add eviction for retained density chunks and meshes.
 - Add far-field simplified terrain representation before full voxel LOD.
 - Define LOD transition strategy:
   - same-LOD seams first
@@ -672,7 +684,7 @@ Implementation:
 Tests:
 
 - Chunk scheduler requests deterministic chunk sets for fixed camera paths.
-- Cache eviction does not remove active collision/render chunks.
+- Retained-store eviction does not remove active collision/render chunks.
 - Free-flight smoke has no holes or missing terrain.
 - Memory and chunk count stay under configured budgets.
 - LOD transition fixtures do not show cracks once implemented.
@@ -747,6 +759,8 @@ Implementation:
   - material/biome sample channels needed by meshing and debug overlays
   - Dual Contouring Hermite extraction, QEF placement, and mesh buffer emission
   - worker-backed scheduling, cancellation, and result transfer
+- Treat retained density chunks as the current lowest LOD and prepare them over
+  the widest active streaming radius before meshing nearer render chunks.
 - Add profiling HUD or debug stats:
   - density sample time
   - chunk generation time
@@ -785,6 +799,7 @@ Progress notes:
 |---|---|---|
 | 2026-06-01 | Started | Realtime-first pivot accepted. Added `crates/terrain_core`, `tools/build-terrain-wasm.mjs`, generated `assets/wasm/terrain_core.wasm`, and TypeScript WASM metadata/loader tests. The first Rust slice mirrors macro base elevation, density, and compatibility height sampling and is golden-tested against the TypeScript terrain generator. |
 | 2026-06-01 | In progress | Added density chunk filling to the Rust/WASM core and wired the browser runtime through a narrow `TerrainChunkStreamer` density chunk generator hook. This moves the first real streaming hot path onto WASM while preserving the TypeScript fallback and golden chunk tests. |
+| 2026-06-01 | In progress | Added a retained Rust/WASM density chunk store and a density-window preparation API. `TerrainChunkStreamer` now treats `loadedChunkKeys` as the density window, not just render chunks, so positive apron chunks are generated once at the streaming layer and reused by mesh builds. `npm run bench:terrain:wasm` now reports retained density-window preparation and shows prepared mesh build plus copy at about 9.7 ms median versus about 61.8 ms cold. |
 
 ## Cross-Cutting Validation
 

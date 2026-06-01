@@ -23,7 +23,9 @@ describe("TerrainChunkStreamer", () => {
 
     streamer.syncAround(target.transform.getWorldPosition());
 
-    equal(streamer.getLoadedChunkKeys().join(","), "0,0,0");
+    equal(streamer.getLoadedChunkKeys().length, 8);
+    equal(streamer.getLoadedChunkKeys().includes("0,0,0"), true);
+    equal(streamer.getLoadedChunkKeys().includes("1,1,1"), true);
     equal(terrain.chunks.length, 1);
     equal(terrain.chunks[0].key, "0,0,0");
     equal(terrain.chunks[0].material, "material:terrain");
@@ -40,9 +42,10 @@ describe("TerrainChunkStreamer", () => {
 
     streamer.syncAround(vec3(0, 0, 0));
 
-    equal(streamer.getLoadedChunkKeys().length, 18);
+    equal(streamer.getLoadedChunkKeys().length, 48);
     equal(streamer.getLoadedChunkKeys().includes("-1,0,-1"), true);
     equal(streamer.getLoadedChunkKeys().includes("1,-1,1"), true);
+    equal(streamer.getLoadedChunkKeys().includes("2,1,2"), true);
     equal(terrain.chunks.length, 9);
     equal(terrain.chunks.every((chunk) => streamer.getLoadedChunkKeys().includes(chunk.key)), true);
     equal(terrain.chunks.some((chunk) => chunk.key === "0,0,0"), true);
@@ -63,7 +66,9 @@ describe("TerrainChunkStreamer", () => {
 
     streamer.syncAround(vec3(32, 0, 0));
 
-    equal(streamer.getLoadedChunkKeys().join(","), "1,0,0");
+    equal(streamer.getLoadedChunkKeys().length, 8);
+    equal(streamer.getLoadedChunkKeys().includes("1,0,0"), true);
+    equal(streamer.getLoadedChunkKeys().includes("2,1,1"), true);
     equal(terrain.chunks.length, 1);
     equal(terrain.chunks[0].key, "1,0,0");
     equal(terrain.getChunk("0,0,0"), undefined);
@@ -88,9 +93,10 @@ describe("TerrainChunkStreamer", () => {
     streamer.syncAround(vec3(0, 0, 0));
     streamer.syncAround(vec3(1, 0, 1));
 
-    equal(streamer.getLoadedChunkKeys().join(","), "0,0,0");
+    equal(streamer.getLoadedChunkKeys().length, 8);
+    equal(streamer.getLoadedChunkKeys().includes("0,0,0"), true);
     equal(terrain.chunks.length, 0);
-    equal(sampleCount, 33 * 33 * 33);
+    equal(sampleCount, 8 * 33 * 33 * 33);
   });
 
   it("uses a custom density chunk generator when provided", () => {
@@ -112,17 +118,23 @@ describe("TerrainChunkStreamer", () => {
 
     streamer.syncAround(vec3(0, 0, 0));
 
-    equal(generatedKeys.join(","), "0,0,0");
+    equal(generatedKeys.length, 8);
+    equal(generatedKeys.includes("0,0,0"), true);
+    equal(generatedKeys.includes("1,1,1"), true);
     equal(terrain.chunks.length, 0);
   });
 
   it("uses a custom chunk mesh generator when provided", () => {
     const generatedKeys: string[] = [];
+    const preparedKeys: string[] = [];
     const source = createFlatField(0);
     const terrain = new TerrainRenderer(source);
     const streamer = new TerrainChunkStreamer(terrain, source, {
       horizontalRadius: 0,
       verticalChunkOffsets: [0],
+      prepareDensityChunks(coords) {
+        preparedKeys.push(...coords.map(terrainChunkKey));
+      },
       chunkMeshGenerator(coord) {
         generatedKeys.push(terrainChunkKey(coord));
         return {
@@ -139,6 +151,9 @@ describe("TerrainChunkStreamer", () => {
     streamer.syncAround(vec3(0, 0, 0));
 
     equal(generatedKeys.join(","), "0,0,0");
+    equal(preparedKeys.length, 8);
+    equal(preparedKeys.includes("0,0,0"), true);
+    equal(preparedKeys.includes("1,1,1"), true);
     equal(terrain.chunks.length, 1);
     equal(terrain.chunks[0].mesh.indices.length, 3);
   });
@@ -202,7 +217,8 @@ describe("TerrainChunkStreamer", () => {
 
     streamer.rebuildChunk("0,0,0");
 
-    equal(streamer.getLoadedChunkKeys().join(","), "0,0,0");
+    equal(streamer.getLoadedChunkKeys().length, 8);
+    equal(streamer.getLoadedChunkKeys().includes("0,0,0"), true);
     equal(terrain.chunks.length, 1);
     equal(terrain.chunks[0].key, "0,0,0");
     ok(terrain.chunks[0].mesh !== firstMesh);
@@ -265,8 +281,9 @@ describe("TerrainChunkStreamer", () => {
 
     streamer.syncAround(vec3(0, -70, 0));
 
-    equal(streamer.getLoadedChunkKeys().length, 3);
+    equal(streamer.getLoadedChunkKeys().length, 16);
     equal(streamer.getLoadedChunkKeys().includes("0,-3,0"), true);
+    equal(streamer.getLoadedChunkKeys().includes("1,-1,1"), true);
     equal(terrain.chunks.length, 1);
     equal(terrain.chunks[0].key, "0,-3,0");
     ok(terrain.chunks[0].mesh.indices.length > 0);

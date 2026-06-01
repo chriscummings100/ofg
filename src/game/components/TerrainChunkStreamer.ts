@@ -27,6 +27,11 @@ export type TerrainChunkMeshGenerator = (
   cellSize: number
 ) => MeshData;
 
+export type TerrainDensityWindowGenerator = (
+  coords: readonly TerrainChunkCoord[],
+  cellSize: number
+) => void;
+
 export type TerrainChunkStreamerOptions = {
   readonly target?: Entity;
   readonly material?: ResourceId;
@@ -35,6 +40,7 @@ export type TerrainChunkStreamerOptions = {
   readonly cellSize?: number;
   readonly meshIdPrefix?: string;
   readonly densityChunkGenerator?: TerrainDensityChunkGenerator;
+  readonly prepareDensityChunks?: TerrainDensityWindowGenerator;
   readonly chunkMeshGenerator?: TerrainChunkMeshGenerator;
 };
 
@@ -48,6 +54,7 @@ export class TerrainChunkStreamer extends Component {
   cellSize: number;
   meshIdPrefix: string;
   densityChunkGenerator?: TerrainDensityChunkGenerator;
+  prepareDensityChunks?: TerrainDensityWindowGenerator;
   chunkMeshGenerator?: TerrainChunkMeshGenerator;
 
   private readonly loadedChunkKeys = new Set<TerrainChunkKey>();
@@ -69,6 +76,7 @@ export class TerrainChunkStreamer extends Component {
     this.cellSize = options.cellSize ?? 1;
     this.meshIdPrefix = options.meshIdPrefix ?? "mesh:terrain.chunk";
     this.densityChunkGenerator = options.densityChunkGenerator;
+    this.prepareDensityChunks = options.prepareDensityChunks;
     this.chunkMeshGenerator = options.chunkMeshGenerator;
     validateOptions(this.horizontalRadius, this.verticalChunkOffsets, this.cellSize);
   }
@@ -135,7 +143,9 @@ export class TerrainChunkStreamer extends Component {
   private buildDesiredDensityChunkKeys(centerCoord: TerrainChunkCoord): Set<TerrainChunkKey> {
     const desired = new Set<TerrainChunkKey>();
     for (const coord of this.buildRenderChunkCoords(centerCoord)) {
-      desired.add(terrainChunkKey(coord));
+      for (const densityCoord of this.buildNeighborChunkCoords(coord)) {
+        desired.add(terrainChunkKey(densityCoord));
+      }
     }
 
     return desired;
@@ -143,11 +153,15 @@ export class TerrainChunkStreamer extends Component {
 
   private loadRenderWindow(centerCoord: TerrainChunkCoord): void {
     if (this.chunkMeshGenerator !== undefined) {
+      this.prepareDensityChunks?.(this.loadedDensityChunkCoords(), this.cellSize);
       this.loadRenderWindowFromMeshGenerator(centerCoord, this.chunkMeshGenerator);
       return;
     }
 
     const densityChunks = new Map<TerrainChunkKey, ReturnType<typeof generateTerrainDensityChunk>>();
+    for (const coord of this.loadedDensityChunkCoords()) {
+      this.getOrGenerateDensityChunk(densityChunks, coord);
+    }
 
     for (const coord of this.buildRenderChunkCoords(centerCoord)) {
       const centerChunk = this.getOrGenerateDensityChunk(densityChunks, coord);
@@ -222,6 +236,10 @@ export class TerrainChunkStreamer extends Component {
     }
 
     return chunk;
+  }
+
+  private loadedDensityChunkCoords(): TerrainChunkCoord[] {
+    return [...this.loadedChunkKeys].sort().map(parseTerrainChunkKey);
   }
 
   private buildRenderChunkCoords(centerCoord: TerrainChunkCoord): TerrainChunkCoord[] {

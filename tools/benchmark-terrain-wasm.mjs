@@ -24,6 +24,14 @@ const chunkCoords = Object.freeze([
   Object.freeze({ x: -1, y: 0, z: 2 }),
   Object.freeze({ x: 3, y: -1, z: -2 })
 ]);
+const streamingCenters = Object.freeze([
+  Object.freeze({ x: 0, y: 0, z: 0 }),
+  Object.freeze({ x: 1, y: 0, z: 0 }),
+  Object.freeze({ x: 2, y: 0, z: 0 }),
+  Object.freeze({ x: 3, y: 0, z: 0 })
+]);
+const streamingHorizontalRadius = 1;
+const streamingVerticalChunkOffsets = Object.freeze([-2, -1, 0, 1]);
 
 const wasmBytes = readFileSync(resolve(root, assetPath));
 const wasm = await WebAssembly.instantiate(wasmBytes, {});
@@ -35,10 +43,12 @@ const densityBuffer = new Float32Array(
   sampleCount
 );
 const scenarios = buildScenarios();
+const streamingWindows = buildStreamingWindows();
 
 console.log(`Benchmarking ${scenarios.length} terrain WASM density chunk scenarios.`);
 console.log(`Warmup: ${warmupIterations} pass(es). Density iterations: ${iterations}. Mesh iterations: ${meshIterations}.`);
 warmUp(terrain, scenarios, warmupIterations);
+resetDensityStore(terrain);
 console.log("Warmup complete.");
 
 console.log("Running fill-only benchmark...");
@@ -69,8 +79,21 @@ const apronFillOnly = benchmark("apronFillOnly", scenarios, (scenario) => {
 
   return checksum;
 });
-console.log("Running mesh-build-plus-copy benchmark...");
-const meshBuildAndCopy = benchmark("meshBuildAndCopy", scenarios, (scenario) => {
+console.log("Running retained density-window prepare benchmark...");
+resetDensityStore(terrain);
+const densityWindowPrepareRetained = benchmark(
+  "densityWindowPrepareRetained",
+  streamingWindows,
+  (scenario) => {
+    const prepared = prepareDensityWindow(terrain, scenario);
+    const stats = densityStoreStats(terrain);
+    return prepared + stats.entries + stats.reuses + stats.generations - stats.evictions;
+  }
+);
+const densityWindowStoreStats = densityStoreStats(terrain);
+console.log("Running cold mesh-build-plus-copy benchmark...");
+const meshBuildAndCopyCold = benchmark("meshBuildAndCopyCold", scenarios, (scenario) => {
+  resetDensityStore(terrain);
   terrain.ofg_build_chunk_mesh(
     scenario.seed,
     scenario.presetCode,
@@ -94,13 +117,48 @@ const meshBuildAndCopy = benchmark("meshBuildAndCopy", scenarios, (scenario) => 
 
   return vertexCopy.length + indexCopy.length + (vertexCopy[0] ?? 0) + (indexCopy[0] ?? 0);
 }, meshIterations);
+console.log("Running prepared mesh-build-plus-copy benchmark...");
+const meshBuildAndCopyPrepared = benchmark("meshBuildAndCopyPrepared", scenarios, (scenario) => {
+  terrain.ofg_build_chunk_mesh(
+    scenario.seed,
+    scenario.presetCode,
+    scenario.chunk.x,
+    scenario.chunk.y,
+    scenario.chunk.z,
+    scenario.cellSize
+  );
+  const vertices = new Float32Array(
+    terrain.memory.buffer,
+    terrain.ofg_mesh_vertex_buffer_ptr(),
+    terrain.ofg_mesh_vertex_buffer_len()
+  );
+  const indices = new Uint32Array(
+    terrain.memory.buffer,
+    terrain.ofg_mesh_index_buffer_ptr(),
+    terrain.ofg_mesh_index_buffer_len()
+  );
+  const vertexCopy = new Float32Array(vertices);
+  const indexCopy = new Uint32Array(indices);
+
+  return vertexCopy.length + indexCopy.length + (vertexCopy[0] ?? 0) + (indexCopy[0] ?? 0);
+}, meshIterations, {
+  beforeScenario: (scenario) => {
+    resetDensityStore(terrain);
+    prepareMeshDensityWindow(terrain, scenario);
+  }
+});
+const preparedMeshStoreStats = densityStoreStats(terrain);
 const phaseEstimate = {
   medianApronDensityShareOfMesh:
-    meshBuildAndCopy.medianMs <= 0 ? 0 : apronFillOnly.medianMs / meshBuildAndCopy.medianMs,
-  medianMeshResidualMs: Math.max(0, meshBuildAndCopy.medianMs - apronFillOnly.medianMs),
+    meshBuildAndCopyCold.medianMs <= 0 ? 0 : apronFillOnly.medianMs / meshBuildAndCopyCold.medianMs,
+  medianPreparedMeshShareOfColdMesh:
+    meshBuildAndCopyCold.medianMs <= 0 ? 0 : meshBuildAndCopyPrepared.medianMs / meshBuildAndCopyCold.medianMs,
+  medianMeshResidualMs: meshBuildAndCopyPrepared.medianMs,
   meanApronDensityShareOfMesh:
-    meshBuildAndCopy.meanMs <= 0 ? 0 : apronFillOnly.meanMs / meshBuildAndCopy.meanMs,
-  meanMeshResidualMs: Math.max(0, meshBuildAndCopy.meanMs - apronFillOnly.meanMs)
+    meshBuildAndCopyCold.meanMs <= 0 ? 0 : apronFillOnly.meanMs / meshBuildAndCopyCold.meanMs,
+  meanPreparedMeshShareOfColdMesh:
+    meshBuildAndCopyCold.meanMs <= 0 ? 0 : meshBuildAndCopyPrepared.meanMs / meshBuildAndCopyCold.meanMs,
+  meanMeshResidualMs: meshBuildAndCopyPrepared.meanMs
 };
 const report = {
   benchmark: "terrain-wasm-chunk-pipeline",
@@ -115,14 +173,24 @@ const report = {
   warmupIterations,
   chunksPerBenchmark: scenarios.length * iterations,
   chunksPerMeshBenchmark: scenarios.length * meshIterations,
+  streamingWindowCount: streamingWindows.length,
+  streamingHorizontalRadius,
+  streamingVerticalChunkOffsets,
   results: {
     fillOnly,
     fillAndCopy,
     apronFillOnly,
-    meshBuildAndCopy
+    densityWindowPrepareRetained,
+    meshBuildAndCopyCold,
+    meshBuildAndCopyPrepared
+  },
+  densityStore: {
+    afterRetainedWindowPrepare: densityWindowStoreStats,
+    afterPreparedMesh: preparedMeshStoreStats
   },
   phaseEstimate,
-  scenarios
+  scenarios,
+  streamingWindows
 };
 const absoluteOutputPath = resolve(root, outputPath);
 
@@ -133,8 +201,11 @@ console.log(`Terrain WASM chunk benchmark (${scenarios.length * iterations} dens
 console.log(`  fill only:    median ${formatMs(fillOnly.medianMs)} ms/chunk, p95 ${formatMs(fillOnly.p95Ms)}, mean ${formatMs(fillOnly.meanMs)}`);
 console.log(`  fill + copy:  median ${formatMs(fillAndCopy.medianMs)} ms/chunk, p95 ${formatMs(fillAndCopy.p95Ms)}, mean ${formatMs(fillAndCopy.meanMs)}`);
 console.log(`  apron fill:   median ${formatMs(apronFillOnly.medianMs)} ms/mesh, p95 ${formatMs(apronFillOnly.p95Ms)}, mean ${formatMs(apronFillOnly.meanMs)}`);
-console.log(`  mesh + copy:  median ${formatMs(meshBuildAndCopy.medianMs)} ms/chunk, p95 ${formatMs(meshBuildAndCopy.p95Ms)}, mean ${formatMs(meshBuildAndCopy.meanMs)}`);
-console.log(`  estimated residual after apron density: median ${formatMs(phaseEstimate.medianMeshResidualMs)} ms/chunk (${formatPercent(1 - phaseEstimate.medianApronDensityShareOfMesh)} of median mesh time)`);
+console.log(`  density window prepare: median ${formatMs(densityWindowPrepareRetained.medianMs)} ms/window, p95 ${formatMs(densityWindowPrepareRetained.p95Ms)}, mean ${formatMs(densityWindowPrepareRetained.meanMs)}`);
+console.log(`  mesh + copy cold:       median ${formatMs(meshBuildAndCopyCold.medianMs)} ms/chunk, p95 ${formatMs(meshBuildAndCopyCold.p95Ms)}, mean ${formatMs(meshBuildAndCopyCold.meanMs)}`);
+console.log(`  mesh + copy prepared:   median ${formatMs(meshBuildAndCopyPrepared.medianMs)} ms/chunk, p95 ${formatMs(meshBuildAndCopyPrepared.p95Ms)}, mean ${formatMs(meshBuildAndCopyPrepared.meanMs)}`);
+console.log(`  prepared mesh residual: median ${formatMs(phaseEstimate.medianMeshResidualMs)} ms/chunk (${formatPercent(phaseEstimate.medianPreparedMeshShareOfColdMesh)} of cold median mesh time)`);
+console.log(`  retained density store: ${densityWindowStoreStats.entries} entries, ${densityWindowStoreStats.reuses} reuses, ${densityWindowStoreStats.generations} generations, ${densityWindowStoreStats.evictions} evictions`);
 console.log(`Report: ${absoluteOutputPath}`);
 
 function buildScenarios() {
@@ -154,6 +225,24 @@ function buildScenarios() {
   return scenarios;
 }
 
+function buildStreamingWindows() {
+  const scenarios = [];
+  for (const [preset, presetCode] of Object.entries(presetCodes)) {
+    for (const center of streamingCenters) {
+      scenarios.push(Object.freeze({
+        seed,
+        preset,
+        presetCode,
+        center,
+        bounds: densityWindowBounds(center),
+        cellSize
+      }));
+    }
+  }
+
+  return scenarios;
+}
+
 function warmUp(terrain, scenarios, passes) {
   for (let pass = 0; pass < passes; pass += 1) {
     for (const scenario of scenarios) {
@@ -162,13 +251,14 @@ function warmUp(terrain, scenarios, passes) {
   }
 }
 
-function benchmark(name, scenarios, runScenario, timedIterations = iterations) {
+function benchmark(name, scenarios, runScenario, timedIterations = iterations, options = {}) {
   const durations = [];
   let checksum = 0;
   const startedAt = performance.now();
 
   for (let iteration = 0; iteration < timedIterations; iteration += 1) {
     for (const scenario of scenarios) {
+      options.beforeScenario?.(scenario, iteration);
       const start = performance.now();
       checksum += runScenario(scenario);
       durations.push(performance.now() - start);
@@ -189,6 +279,71 @@ function benchmark(name, scenarios, runScenario, timedIterations = iterations) {
     minMs: sorted[0],
     maxMs: sorted[sorted.length - 1],
     checksum
+  };
+}
+
+function prepareMeshDensityWindow(terrain, scenario) {
+  const bounds = {
+    minX: scenario.chunk.x,
+    minY: scenario.chunk.y,
+    minZ: scenario.chunk.z,
+    maxX: scenario.chunk.x + 1,
+    maxY: scenario.chunk.y + 1,
+    maxZ: scenario.chunk.z + 1
+  };
+
+  return terrain.ofg_prepare_density_chunk_window(
+    scenario.seed,
+    scenario.presetCode,
+    bounds.minX,
+    bounds.minY,
+    bounds.minZ,
+    bounds.maxX,
+    bounds.maxY,
+    bounds.maxZ,
+    scenario.cellSize
+  );
+}
+
+function prepareDensityWindow(terrain, scenario) {
+  return terrain.ofg_prepare_density_chunk_window(
+    scenario.seed,
+    scenario.presetCode,
+    scenario.bounds.minX,
+    scenario.bounds.minY,
+    scenario.bounds.minZ,
+    scenario.bounds.maxX,
+    scenario.bounds.maxY,
+    scenario.bounds.maxZ,
+    scenario.cellSize
+  );
+}
+
+function densityWindowBounds(center) {
+  const minVerticalOffset = Math.min(...streamingVerticalChunkOffsets);
+  const maxVerticalOffset = Math.max(...streamingVerticalChunkOffsets);
+
+  return Object.freeze({
+    minX: center.x - streamingHorizontalRadius,
+    minY: center.y + minVerticalOffset,
+    minZ: center.z - streamingHorizontalRadius,
+    maxX: center.x + streamingHorizontalRadius + 1,
+    maxY: center.y + maxVerticalOffset + 1,
+    maxZ: center.z + streamingHorizontalRadius + 1
+  });
+}
+
+function resetDensityStore(terrain) {
+  terrain.ofg_reset_density_chunk_store();
+}
+
+function densityStoreStats(terrain) {
+  return {
+    entries: terrain.ofg_density_chunk_store_entry_count(),
+    maxEntries: terrain.ofg_density_chunk_store_max_entries(),
+    reuses: terrain.ofg_density_chunk_store_reuse_count(),
+    generations: terrain.ofg_density_chunk_store_generation_count(),
+    evictions: terrain.ofg_density_chunk_store_eviction_count()
   };
 }
 
@@ -224,6 +379,13 @@ function validateTerrainExports(exports) {
   const expectedFunctions = [
     "ofg_density_chunk_sample_count",
     "ofg_density_chunk_buffer_ptr",
+    "ofg_density_chunk_store_max_entries",
+    "ofg_density_chunk_store_entry_count",
+    "ofg_density_chunk_store_reuse_count",
+    "ofg_density_chunk_store_generation_count",
+    "ofg_density_chunk_store_eviction_count",
+    "ofg_reset_density_chunk_store",
+    "ofg_prepare_density_chunk_window",
     "ofg_fill_density_chunk",
     "ofg_build_chunk_mesh",
     "ofg_mesh_vertex_buffer_ptr",

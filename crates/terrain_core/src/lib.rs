@@ -1,3 +1,5 @@
+use std::sync::{Mutex, OnceLock};
+
 const TERRAIN_CORE_VERSION: u32 = 1;
 const DEFAULT_TERRAIN_PRESET: u32 = 1;
 const SURFACE_SEARCH_MIN_Y: f64 = -96.0;
@@ -13,6 +15,7 @@ const TERRAIN_CHUNK_APRON_CELLS_PER_AXIS: usize = TERRAIN_CHUNK_CELLS_PER_AXIS +
 const TERRAIN_CHUNK_APRON_CELL_COUNT: usize = TERRAIN_CHUNK_APRON_CELLS_PER_AXIS
     * TERRAIN_CHUNK_APRON_CELLS_PER_AXIS
     * TERRAIN_CHUNK_APRON_CELLS_PER_AXIS;
+const DENSITY_CHUNK_STORE_MAX_ENTRIES: usize = 1024;
 const FLOATS_PER_VERTEX: usize = 19;
 const MATERIAL_INDICES_VERTEX_OFFSET: usize = 11;
 const MATERIAL_WEIGHTS_VERTEX_OFFSET: usize = 15;
@@ -132,6 +135,31 @@ struct TerrainDensityChunk {
     coord: TerrainChunkCoord,
     cell_size: f64,
     densities: Vec<f32>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DensityChunkStoreKey {
+    seed: u32,
+    preset: u32,
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+    cell_size_bits: u64,
+}
+
+struct StoredDensityChunk {
+    key: DensityChunkStoreKey,
+    densities: Vec<f32>,
+    last_used: u64,
+}
+
+struct DensityChunkStore {
+    entries: Vec<StoredDensityChunk>,
+    tick: u64,
+    reuses: u64,
+    generations: u64,
+    evictions: u64,
+    max_entries: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -435,6 +463,103 @@ pub extern "C" fn ofg_terrain_core_preset_count() -> u32 {
 }
 
 #[no_mangle]
+pub extern "C" fn ofg_density_chunk_store_max_entries() -> u32 {
+    DENSITY_CHUNK_STORE_MAX_ENTRIES as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_density_chunk_store_entry_count() -> u32 {
+    density_chunk_store()
+        .lock()
+        .expect("density chunk store lock poisoned")
+        .entries
+        .len() as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_density_chunk_store_reuse_count() -> f64 {
+    density_chunk_store()
+        .lock()
+        .expect("density chunk store lock poisoned")
+        .reuses as f64
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_density_chunk_store_generation_count() -> f64 {
+    density_chunk_store()
+        .lock()
+        .expect("density chunk store lock poisoned")
+        .generations as f64
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_density_chunk_store_eviction_count() -> f64 {
+    density_chunk_store()
+        .lock()
+        .expect("density chunk store lock poisoned")
+        .evictions as f64
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_reset_density_chunk_store() {
+    density_chunk_store()
+        .lock()
+        .expect("density chunk store lock poisoned")
+        .reset();
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_prepare_density_chunk_window(
+    seed: u32,
+    preset: u32,
+    min_chunk_x: i32,
+    min_chunk_y: i32,
+    min_chunk_z: i32,
+    max_chunk_x: i32,
+    max_chunk_y: i32,
+    max_chunk_z: i32,
+    cell_size: f64,
+) -> u32 {
+    if cell_size <= 0.0 {
+        return 0;
+    }
+
+    let min_x = min_chunk_x.min(max_chunk_x);
+    let max_x = min_chunk_x.max(max_chunk_x);
+    let min_y = min_chunk_y.min(max_chunk_y);
+    let max_y = min_chunk_y.max(max_chunk_y);
+    let min_z = min_chunk_z.min(max_chunk_z);
+    let max_z = min_chunk_z.max(max_chunk_z);
+    let noise = SimplexNoise3D::new(seed);
+    let preset_id = terrain_preset_index(preset);
+    let preset = terrain_preset(preset_id);
+
+    density_chunk_store()
+        .lock()
+        .expect("density chunk store lock poisoned")
+        .retain_window(seed, preset_id, cell_size, min_x, min_y, min_z, max_x, max_y, max_z);
+
+    let mut prepared = 0;
+    for z in min_z..=max_z {
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                ensure_density_chunk_stored(
+                    &noise,
+                    preset,
+                    preset_id,
+                    seed,
+                    TerrainChunkCoord { x, y, z },
+                    cell_size,
+                );
+                prepared += 1;
+            }
+        }
+    }
+
+    prepared
+}
+
+#[no_mangle]
 pub extern "C" fn ofg_density_chunk_sample_count() -> u32 {
     TERRAIN_CHUNK_SAMPLE_COUNT as u32
 }
@@ -519,13 +644,15 @@ pub extern "C" fn ofg_build_chunk_mesh(
     }
 
     let noise = SimplexNoise3D::new(seed);
-    let preset = terrain_preset(preset);
+    let preset_id = terrain_preset_index(preset);
+    let preset = terrain_preset(preset_id);
     let center_coord = TerrainChunkCoord {
         x: chunk_x,
         y: chunk_y,
         z: chunk_z,
     };
-    let chunks = generate_neighbor_apron_chunks(&noise, preset, seed, center_coord, cell_size);
+    let chunks =
+        generate_neighbor_apron_chunks(&noise, preset, preset_id, seed, center_coord, cell_size);
     let mesh = build_neighbor_aware_chunk_mesh(&noise, preset, seed, &chunks, center_coord);
 
     unsafe {
@@ -661,6 +788,7 @@ fn density_at_position_with_macro(
 fn generate_neighbor_apron_chunks(
     noise: &SimplexNoise3D,
     preset: TerrainPresetDefinition,
+    preset_id: u32,
     seed: u32,
     center_coord: TerrainChunkCoord,
     cell_size: f64,
@@ -670,9 +798,10 @@ fn generate_neighbor_apron_chunks(
     for dz in 0..=1 {
         for dy in 0..=1 {
             for dx in 0..=1 {
-                chunks.push(generate_density_chunk(
+                chunks.push(ensure_density_chunk_stored(
                     noise,
                     preset,
+                    preset_id,
                     seed,
                     TerrainChunkCoord {
                         x: center_coord.x + dx,
@@ -731,6 +860,36 @@ fn generate_density_chunk(
         cell_size,
         densities,
     }
+}
+
+fn ensure_density_chunk_stored(
+    noise: &SimplexNoise3D,
+    preset: TerrainPresetDefinition,
+    preset_id: u32,
+    seed: u32,
+    coord: TerrainChunkCoord,
+    cell_size: f64,
+) -> TerrainDensityChunk {
+    let key = density_chunk_store_key(seed, preset_id, coord, cell_size);
+    if let Some(densities) = density_chunk_store()
+        .lock()
+        .expect("density chunk store lock poisoned")
+        .get(key)
+    {
+        return TerrainDensityChunk {
+            coord,
+            cell_size,
+            densities,
+        };
+    }
+
+    let chunk = generate_density_chunk(noise, preset, seed, coord, cell_size);
+    density_chunk_store()
+        .lock()
+        .expect("density chunk store lock poisoned")
+        .insert(key, chunk.densities.clone());
+
+    chunk
 }
 
 fn build_neighbor_aware_chunk_mesh(
@@ -2072,11 +2231,134 @@ impl Mulberry32 {
     }
 }
 
+static DENSITY_CHUNK_STORE: OnceLock<Mutex<DensityChunkStore>> = OnceLock::new();
+
+fn density_chunk_store() -> &'static Mutex<DensityChunkStore> {
+    DENSITY_CHUNK_STORE.get_or_init(|| Mutex::new(DensityChunkStore::new()))
+}
+
+fn density_chunk_store_key(
+    seed: u32,
+    preset: u32,
+    coord: TerrainChunkCoord,
+    cell_size: f64,
+) -> DensityChunkStoreKey {
+    DensityChunkStoreKey {
+        seed,
+        preset,
+        chunk_x: coord.x,
+        chunk_y: coord.y,
+        chunk_z: coord.z,
+        cell_size_bits: cell_size.to_bits(),
+    }
+}
+
+impl DensityChunkStore {
+    fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+            tick: 0,
+            reuses: 0,
+            generations: 0,
+            evictions: 0,
+            max_entries: DENSITY_CHUNK_STORE_MAX_ENTRIES,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.entries.clear();
+        self.tick = 0;
+        self.reuses = 0;
+        self.generations = 0;
+        self.evictions = 0;
+    }
+
+    fn get(&mut self, key: DensityChunkStoreKey) -> Option<Vec<f32>> {
+        self.tick = self.tick.wrapping_add(1);
+        for entry in &mut self.entries {
+            if entry.key == key {
+                entry.last_used = self.tick;
+                self.reuses = self.reuses.wrapping_add(1);
+                return Some(entry.densities.clone());
+            }
+        }
+
+        None
+    }
+
+    fn insert(&mut self, key: DensityChunkStoreKey, densities: Vec<f32>) {
+        self.tick = self.tick.wrapping_add(1);
+        for entry in &mut self.entries {
+            if entry.key == key {
+                entry.densities = densities;
+                entry.last_used = self.tick;
+                return;
+            }
+        }
+
+        self.entries.push(StoredDensityChunk {
+            key,
+            densities,
+            last_used: self.tick,
+        });
+        self.generations = self.generations.wrapping_add(1);
+        self.evict_until_within_budget();
+    }
+
+    fn retain_window(
+        &mut self,
+        seed: u32,
+        preset: u32,
+        cell_size: f64,
+        min_x: i32,
+        min_y: i32,
+        min_z: i32,
+        max_x: i32,
+        max_y: i32,
+        max_z: i32,
+    ) {
+        let cell_size_bits = cell_size.to_bits();
+        let before = self.entries.len();
+        self.entries.retain(|entry| {
+            entry.key.seed == seed
+                && entry.key.preset == preset
+                && entry.key.cell_size_bits == cell_size_bits
+                && entry.key.chunk_x >= min_x
+                && entry.key.chunk_x <= max_x
+                && entry.key.chunk_y >= min_y
+                && entry.key.chunk_y <= max_y
+                && entry.key.chunk_z >= min_z
+                && entry.key.chunk_z <= max_z
+        });
+        self.evictions = self.evictions.wrapping_add((before - self.entries.len()) as u64);
+    }
+
+    fn evict_until_within_budget(&mut self) {
+        while self.entries.len() > self.max_entries {
+            let mut oldest_index = 0;
+            let mut oldest_tick = self.entries[0].last_used;
+            for (index, entry) in self.entries.iter().enumerate().skip(1) {
+                if entry.last_used < oldest_tick {
+                    oldest_tick = entry.last_used;
+                    oldest_index = index;
+                }
+            }
+            self.entries.swap_remove(oldest_index);
+            self.evictions = self.evictions.wrapping_add(1);
+        }
+    }
+}
+
+fn terrain_preset_index(preset: u32) -> u32 {
+    if (preset as usize) < TERRAIN_PRESETS.len() {
+        preset
+    } else {
+        DEFAULT_TERRAIN_PRESET
+    }
+}
+
 fn terrain_preset(preset: u32) -> TerrainPresetDefinition {
-    TERRAIN_PRESETS
-        .get(preset as usize)
-        .copied()
-        .unwrap_or(TERRAIN_PRESETS[DEFAULT_TERRAIN_PRESET as usize])
+    TERRAIN_PRESETS[terrain_preset_index(preset) as usize]
 }
 
 fn hash01(x: i32, z: i32, seed: u32, salt: u32) -> f64 {
@@ -2177,6 +2459,7 @@ mod tests {
 
     #[test]
     fn builds_renderable_chunk_mesh_buffers() {
+        ofg_reset_density_chunk_store();
         let index_count = ofg_build_chunk_mesh(0x0F6, 1, 0, 0, 0, 1.0);
         let vertex_len = ofg_mesh_vertex_buffer_len() as usize;
         let index_len = ofg_mesh_index_buffer_len() as usize;
@@ -2195,5 +2478,30 @@ mod tests {
         for index in indices {
             assert!((*index as usize) < vertex_count);
         }
+    }
+
+    #[test]
+    fn prepares_density_window_for_mesh_reuse() {
+        ofg_reset_density_chunk_store();
+
+        let prepared = ofg_prepare_density_chunk_window(0x0F6, 1, 0, 0, 0, 1, 1, 1, 1.0);
+
+        assert_eq!(prepared, 8);
+        assert_eq!(ofg_density_chunk_store_entry_count(), 8);
+        assert_eq!(ofg_density_chunk_store_generation_count(), 8.0);
+
+        let generated_before_mesh = ofg_density_chunk_store_generation_count();
+        let reuses_before_mesh = ofg_density_chunk_store_reuse_count();
+        let index_count = ofg_build_chunk_mesh(0x0F6, 1, 0, 0, 0, 1.0);
+
+        assert!(index_count > 0);
+        assert_eq!(
+            ofg_density_chunk_store_generation_count(),
+            generated_before_mesh
+        );
+        assert_eq!(
+            ofg_density_chunk_store_reuse_count(),
+            reuses_before_mesh + 8.0
+        );
     }
 }

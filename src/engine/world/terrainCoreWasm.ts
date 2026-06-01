@@ -5,6 +5,23 @@ export type TerrainCoreWasmExports = {
   readonly memory: WebAssembly.Memory;
   readonly ofg_terrain_core_version: () => number;
   readonly ofg_terrain_core_preset_count: () => number;
+  readonly ofg_density_chunk_store_max_entries: () => number;
+  readonly ofg_density_chunk_store_entry_count: () => number;
+  readonly ofg_density_chunk_store_reuse_count: () => number;
+  readonly ofg_density_chunk_store_generation_count: () => number;
+  readonly ofg_density_chunk_store_eviction_count: () => number;
+  readonly ofg_reset_density_chunk_store: () => void;
+  readonly ofg_prepare_density_chunk_window: (
+    seed: number,
+    preset: number,
+    minChunkX: number,
+    minChunkY: number,
+    minChunkZ: number,
+    maxChunkX: number,
+    maxChunkY: number,
+    maxChunkZ: number,
+    cellSize: number
+  ) => number;
   readonly ofg_density_chunk_sample_count: () => number;
   readonly ofg_density_chunk_buffer_ptr: () => number;
   readonly ofg_fill_density_chunk: (
@@ -52,6 +69,14 @@ export type TerrainCoreWasmInstance = {
   readonly exports: TerrainCoreWasmExports;
 };
 
+export type TerrainCoreDensityChunkStoreStats = {
+  readonly entries: number;
+  readonly maxEntries: number;
+  readonly reuses: number;
+  readonly generations: number;
+  readonly evictions: number;
+};
+
 const TERRAIN_PRESET_CODES: Readonly<Record<TerrainPresetId, number>> = Object.freeze({
   seed: 0,
   rollingHills: 1,
@@ -94,6 +119,18 @@ export function readTerrainCoreDensityChunkBuffer(
   return new Float32Array(exports.memory.buffer, ptr, sampleCount);
 }
 
+export function readTerrainCoreDensityChunkStoreStats(
+  exports: TerrainCoreWasmExports
+): TerrainCoreDensityChunkStoreStats {
+  return {
+    entries: exports.ofg_density_chunk_store_entry_count(),
+    maxEntries: exports.ofg_density_chunk_store_max_entries(),
+    reuses: exports.ofg_density_chunk_store_reuse_count(),
+    generations: exports.ofg_density_chunk_store_generation_count(),
+    evictions: exports.ofg_density_chunk_store_eviction_count()
+  };
+}
+
 export function readTerrainCoreMeshVertexBuffer(
   exports: TerrainCoreWasmExports
 ): Float32Array {
@@ -122,6 +159,13 @@ function assertTerrainCoreExports(exports: WebAssembly.Exports): asserts exports
   const expectedFunctionNames = [
     "ofg_terrain_core_version",
     "ofg_terrain_core_preset_count",
+    "ofg_density_chunk_store_max_entries",
+    "ofg_density_chunk_store_entry_count",
+    "ofg_density_chunk_store_reuse_count",
+    "ofg_density_chunk_store_generation_count",
+    "ofg_density_chunk_store_eviction_count",
+    "ofg_reset_density_chunk_store",
+    "ofg_prepare_density_chunk_window",
     "ofg_density_chunk_sample_count",
     "ofg_density_chunk_buffer_ptr",
     "ofg_fill_density_chunk",

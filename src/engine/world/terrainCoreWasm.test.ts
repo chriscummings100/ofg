@@ -11,6 +11,7 @@ import {
 } from "./terrainGenerator.js";
 import {
   instantiateTerrainCoreWasm,
+  readTerrainCoreDensityChunkStoreStats,
   readTerrainCoreMeshIndexBuffer,
   readTerrainCoreMeshVertexBuffer,
   readTerrainCoreDensityChunkBuffer,
@@ -35,6 +36,8 @@ describe("terrain core WASM", () => {
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_height_at"));
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_density_at"));
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_fill_density_chunk"));
+    ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_prepare_density_chunk_window"));
+    ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_density_chunk_store_entry_count"));
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_build_chunk_mesh"));
   });
 
@@ -44,6 +47,7 @@ describe("terrain core WASM", () => {
     equal(wasm.exports.ofg_terrain_core_version(), 1);
     equal(wasm.exports.ofg_terrain_core_preset_count(), PRESETS.length);
     equal(wasm.exports.ofg_density_chunk_sample_count(), 33 * 33 * 33);
+    ok(wasm.exports.ofg_density_chunk_store_max_entries() >= 8);
   });
 
   it("matches TypeScript terrain height and density golden samples", async () => {
@@ -134,6 +138,36 @@ describe("terrain core WASM", () => {
       ok(Number.isFinite(mesh.vertices[offset + 2]));
       assertClose(materialWeightSum, 1, 0.00001);
     }
+  });
+
+  it("prepares a retained density window for WASM mesh reuse", async () => {
+    const wasm = await loadTerrainCore();
+    const descriptor = createSeedWorldDescriptor(0x0F6, { terrainPreset: "rollingHills" });
+    const preset = terrainPresetToWasmCode(descriptor.terrainPreset);
+
+    wasm.exports.ofg_reset_density_chunk_store();
+    const prepared = wasm.exports.ofg_prepare_density_chunk_window(
+      descriptor.seed,
+      preset,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1
+    );
+    const afterPrepare = readTerrainCoreDensityChunkStoreStats(wasm.exports);
+
+    equal(prepared, 8);
+    equal(afterPrepare.entries, 8);
+    equal(afterPrepare.generations, 8);
+
+    generateTerrainChunkMeshWithWasm(wasm, descriptor, { x: 0, y: 0, z: 0 }, 1);
+    const afterMesh = readTerrainCoreDensityChunkStoreStats(wasm.exports);
+
+    equal(afterMesh.generations, afterPrepare.generations);
+    equal(afterMesh.reuses, afterPrepare.reuses + 8);
   });
 });
 
