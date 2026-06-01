@@ -63,7 +63,7 @@ export class WebGpuRenderer {
   private fallbackNormalTexture: GpuTexture | undefined;
   private fallbackMaterialTexture: GpuTexture | undefined;
   private depthTexture: GpuAny = undefined;
-  private readonly meshCache = new WeakMap<Mesh, GpuMesh>();
+  private readonly meshCache = new Map<Mesh, GpuMesh>();
   private readonly textureCache = new WeakMap<Texture, GpuTexture>();
   private readonly objectUniforms = new Map<string, GpuObject>();
   private readonly frameUniformValues = new Float32Array(FRAME_UNIFORM_FLOATS);
@@ -321,11 +321,14 @@ export class WebGpuRenderer {
 
     pass.setPipeline(this.pipeline);
     const seenItemIds = new Set<string>();
+    const seenMeshes = new Set<Mesh>();
     for (const item of renderWorld.items) {
       seenItemIds.add(item.id);
+      seenMeshes.add(item.mesh);
       this.drawItem(pass, item);
     }
     this.pruneObjectUniforms(seenItemIds);
+    this.pruneGpuMeshes(seenMeshes);
 
     pass.end();
     this.device.queue.submit([encoder.finish()]);
@@ -514,6 +517,17 @@ export class WebGpuRenderer {
     }
   }
 
+  private pruneGpuMeshes(seenMeshes: Set<Mesh>): void {
+    for (const [mesh, gpuMesh] of this.meshCache) {
+      if (seenMeshes.has(mesh)) {
+        continue;
+      }
+
+      destroyGpuMesh(gpuMesh);
+      this.meshCache.delete(mesh);
+    }
+  }
+
   private drawItem(pass: GpuAny, item: RenderItem): void {
     const mesh = this.getGpuMesh(item.mesh);
     const object = this.getGpuObject(item);
@@ -528,6 +542,11 @@ export class WebGpuRenderer {
     pass.setIndexBuffer(mesh.indexBuffer, "uint32");
     pass.drawIndexed(mesh.indexCount);
   }
+}
+
+function destroyGpuMesh(mesh: GpuMesh): void {
+  mesh.vertexBuffer.destroy?.();
+  mesh.indexBuffer.destroy?.();
 }
 
 function createOpaqueWhiteTextureData(width: number, height: number, layers: number): Uint8Array {
