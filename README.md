@@ -27,6 +27,7 @@ npm run build:shaders
 npm run check:shaders
 npm run build:wasm
 npm run check:wasm
+npm run bench:terrain:wasm
 npm test
 npm run dev
 npm run smoke:browser
@@ -35,6 +36,8 @@ npm run smoke:browser
 The dev server serves the built app at `http://127.0.0.1:5173`. `npm run build`
 generates shader and Rust/WASM terrain artifacts before running TypeScript. Run it
 after source changes, or keep `npm run watch` open in another terminal.
+`npm run bench:terrain:wasm` measures release WASM density chunk generation and
+writes a JSON report under `artifacts/terrain-wasm-bench/`.
 
 ## Project Shape
 

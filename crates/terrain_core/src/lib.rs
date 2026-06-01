@@ -372,14 +372,28 @@ pub extern "C" fn ofg_fill_density_chunk(
     let buffer = unsafe { core::ptr::addr_of_mut!(DENSITY_CHUNK_BUFFER).cast::<f32>() };
 
     for z in 0..TERRAIN_CHUNK_SAMPLES_PER_AXIS {
-        for y in 0..TERRAIN_CHUNK_SAMPLES_PER_AXIS {
-            for x in 0..TERRAIN_CHUNK_SAMPLES_PER_AXIS {
+        for x in 0..TERRAIN_CHUNK_SAMPLES_PER_AXIS {
+            let column_x = origin.x + x as f64 * cell_size;
+            let column_z = origin.z + z as f64 * cell_size;
+            let macro_sample = sample_macro_terrain(
+                &noise,
+                preset,
+                seed,
+                Vec3 {
+                    x: column_x,
+                    y: 0.0,
+                    z: column_z,
+                },
+            );
+
+            for y in 0..TERRAIN_CHUNK_SAMPLES_PER_AXIS {
                 let position = Vec3 {
-                    x: origin.x + x as f64 * cell_size,
+                    x: column_x,
                     y: origin.y + y as f64 * cell_size,
-                    z: origin.z + z as f64 * cell_size,
+                    z: column_z,
                 };
-                let density = density_at_position(&noise, preset, seed, position).density as f32;
+                let density = density_at_position_with_macro(&noise, preset, position, macro_sample)
+                    .density as f32;
                 let index = terrain_chunk_sample_index(x, y, z);
 
                 unsafe {
@@ -463,6 +477,16 @@ fn density_at_position(
     position: Vec3,
 ) -> DensitySample {
     let macro_sample = sample_macro_terrain(noise, preset, seed, position);
+
+    density_at_position_with_macro(noise, preset, position, macro_sample)
+}
+
+fn density_at_position_with_macro(
+    noise: &SimplexNoise3D,
+    preset: TerrainPresetDefinition,
+    position: Vec3,
+    macro_sample: MacroTerrainSample,
+) -> DensitySample {
     let detail = sample_fractal_simplex_3d(
         noise,
         Vec3 {

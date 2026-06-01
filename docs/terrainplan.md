@@ -82,6 +82,9 @@ Supported:
 - Runtime terrain streaming can load the generated WASM artifact in the browser
   and use it to fill terrain density chunks, with a TypeScript fallback if the
   artifact is unavailable.
+- A release-WASM density chunk benchmark, `npm run bench:terrain:wasm`, reports
+  fill-only and fill-plus-copy milliseconds per 33x33x33 chunk and writes JSON
+  under `artifacts/terrain-wasm-bench/`.
 
 Partially supported or placeholder-only:
 
@@ -231,6 +234,7 @@ polish, because slow feedback makes every knob hard to judge.
 Proposed order:
 
 1. Add a focused benchmark/profiling harness for the current terrain hot path.
+   (First Rust density chunk benchmark complete.)
    - Measure density chunk fill, Hermite extraction, QEF placement, mesh buffer
      emission, GPU upload preparation, active chunk count, and triangles.
    - Write machine-readable JSON for fixed seeds, presets, and camera paths.
@@ -277,6 +281,7 @@ Progress notes:
 | 2026-06-01 | In progress | Added the first weighted biome solver and made the variation smoke require at least three distinct dominant biome regions. Current captures include grassland, wetland, dry badland, and high mountain rock evidence. Next work should add biome heatmap overlays and hydrology/water shaping. |
 | 2026-06-01 | Pivoted | Screenshots still read too similar, but further material tuning is blocked by slow iteration and short view distance. The recommended next slice is now Rust/WASM-backed realtime terrain generation, then tuning knobs and save/load, then renewed biome/hydrology/material polish. |
 | 2026-06-01 | In progress | Added a Rust/WASM density chunk fill API for the 33x33x33 `TerrainChunk` sample layout, copied it into `TerrainDensityChunk`, and wired `TerrainChunkStreamer` to use it at runtime when the browser loads `assets/wasm/terrain_core.wasm`. Browser smoke passes with no fallback warnings. Next target is profiling plus moving meshing/worker scheduling enough to widen view distance. |
+| 2026-06-01 | In progress | Added `npm run bench:terrain:wasm` to measure release WASM density chunk generation directly. Initial fill-only median was about 36.8 ms per 33x33x33 chunk, which confirmed the Rust path was still too slow. Caching macro terrain once per x/z column inside chunk fill reduced the quick benchmark to about 6.6 ms fill-only median and 6.5 ms fill-plus-copy median, with machine-readable JSON in `artifacts/terrain-wasm-bench/`. |
 
 ## Milestone 1: Generator Core
 
@@ -764,6 +769,7 @@ Tests:
 - Rust/WASM output must match TypeScript golden fixtures until the Rust path is
   intentionally promoted as the source of truth.
 - `npm run check:wasm` verifies generated WASM metadata and asset freshness.
+- `npm run bench:terrain:wasm` records release WASM density chunk timing.
 - `cargo test -p terrain_core` validates Rust-side deterministic terrain logic.
 - Cross-language tests instantiate the generated WASM artifact and compare golden
   density, height, and later chunk/mesh fixtures.

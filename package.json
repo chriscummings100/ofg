@@ -9,6 +9,7 @@
     "check:shaders": "node tools/build-shaders.mjs --check",
     "build:wasm": "node tools/build-terrain-wasm.mjs",
     "check:wasm": "node tools/build-terrain-wasm.mjs --check",
+    "bench:terrain:wasm": "npm run build:wasm && node tools/benchmark-terrain-wasm.mjs",
     "build": "npm run clean && npm run build:shaders && npm run build:wasm && tsc -p tsconfig.json",
     "test": "npm run build && mocha \"dist/**/*.test.js\"",
     "dev": "npm run build && node tools/dev-server.mjs",

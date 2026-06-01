@@ -48,6 +48,7 @@ npm run build:shaders
 npm run check:shaders
 npm run build:wasm
 npm run check:wasm
+npm run bench:terrain:wasm
 npm test
 npm run smoke:browser
 npm run dev
