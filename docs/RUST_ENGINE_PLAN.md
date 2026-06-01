@@ -155,6 +155,12 @@ Validation:
 
 Goal: introduce a Rust-owned engine core alongside `terrain_core`.
 
+Status: initial foundation complete on 2026-06-01. `crates/engine_core` is now a
+workspace crate with Rust-owned `Engine`, `World`, generational `EntityId`,
+local/world transform storage, deterministic update summaries, lifecycle and
+transform tests, and a minimal raw WASM-facing facade. The playable runtime is
+unchanged.
+
 Implementation:
 
 - Add `crates/engine_core`.
@@ -453,3 +459,10 @@ streaming, then render packets, then Rust/wgpu.
 |---|---|---|
 | 2026-06-01 | Adopt Rust-first engine direction | The TypeScript scene/component model would require increasingly clever caches and registries as world complexity grows. Rust should own the world, simulation, streaming, render extraction, and eventually WebGPU rendering. |
 | 2026-06-01 | Use `wgpu` for Rust-owned WebGPU | `wgpu` is the Rust WebGPU path that can target browsers through WASM while preserving native-renderer optionality later. |
+| 2026-06-01 | Keep `engine_core` browser-free in the first slice | The core crate should stay easy to test natively. Browser bindings, `wasm-bindgen`, and `wgpu` belong in a later `engine_web` layer once render packets and ownership contracts exist. |
+
+## Progress Log
+
+| Date | Progress | Notes |
+|---|---|---|
+| 2026-06-01 | Phase 1 foundation complete | Added `crates/engine_core` with Rust-owned engine/world state, generational entity IDs, optional parented transforms, deterministic update ticks, raw WASM facade exports, and Rust tests. Current TypeScript runtime remains unchanged. |
