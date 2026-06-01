@@ -191,6 +191,13 @@ Deletion path:
 
 Goal: replace the TypeScript `Scene` as the authoritative world state.
 
+Status: started on 2026-06-01. `engine_core` now builds as a browser WASM
+artifact, TypeScript has a tested `EngineCoreWasmHandle`, and Rust owns a first
+player/camera rig model with movement, look, mode switching, camera eye
+snapshots, and facade exports. The playable runtime still uses the TypeScript
+`PlayerController`; the next Phase 2 slice should wire the browser shell to the
+Rust player/camera state and demote the TypeScript controller to compatibility.
+
 Implementation:
 
 - Expose a small WASM facade for:
@@ -460,9 +467,11 @@ streaming, then render packets, then Rust/wgpu.
 | 2026-06-01 | Adopt Rust-first engine direction | The TypeScript scene/component model would require increasingly clever caches and registries as world complexity grows. Rust should own the world, simulation, streaming, render extraction, and eventually WebGPU rendering. |
 | 2026-06-01 | Use `wgpu` for Rust-owned WebGPU | `wgpu` is the Rust WebGPU path that can target browsers through WASM while preserving native-renderer optionality later. |
 | 2026-06-01 | Keep `engine_core` browser-free in the first slice | The core crate should stay easy to test natively. Browser bindings, `wasm-bindgen`, and `wgpu` belong in a later `engine_web` layer once render packets and ownership contracts exist. |
+| 2026-06-01 | Keep Rust core modules focused | `engine_core` is split into `math`, `world`, `player`, `engine`, and `facade` modules so Rust ownership can grow without recreating a monolithic engine file. |
 
 ## Progress Log
 
 | Date | Progress | Notes |
 |---|---|---|
 | 2026-06-01 | Phase 1 foundation complete | Added `crates/engine_core` with Rust-owned engine/world state, generational entity IDs, optional parented transforms, deterministic update ticks, raw WASM facade exports, and Rust tests. Current TypeScript runtime remains unchanged. |
+| 2026-06-01 | Phase 2 bridge started | Added generated `engine_core.wasm`, TypeScript metadata/handle tests, and Rust-owned player/camera movement state with Rust and WASM tests. Split `engine_core` into focused modules as part of the same slice. Runtime player/camera authority is still TypeScript until the next wiring slice. |

@@ -1,0 +1,263 @@
+import { ENGINE_CORE_WASM_METADATA } from "../../generated/engine/engineCoreWasm.js";
+
+export type EngineCoreWasmExports = {
+  readonly memory: WebAssembly.Memory;
+  readonly ofg_engine_core_version: () => number;
+  readonly ofg_engine_create: () => void;
+  readonly ofg_engine_create_entity: () => bigint;
+  readonly ofg_engine_create_player: (x: number, y: number, z: number) => bigint;
+  readonly ofg_engine_has_player: () => number;
+  readonly ofg_engine_player_camera_entity: () => bigint;
+  readonly ofg_engine_player_mode: () => number;
+  readonly ofg_engine_set_player_mode: (mode: number) => number;
+  readonly ofg_engine_toggle_player_mode: () => number;
+  readonly ofg_engine_set_player_intent: (
+    forward: number,
+    right: number,
+    up: number,
+    fast: number,
+    lookDeltaX: number,
+    lookDeltaY: number
+  ) => number;
+  readonly ofg_engine_update_player: (
+    deltaSeconds: number,
+    terrainHeight: number,
+    hasTerrain: number
+  ) => number;
+  readonly ofg_engine_update: (deltaSeconds: number) => number;
+  readonly ofg_engine_tick: () => bigint;
+  readonly ofg_engine_elapsed_seconds: () => number;
+  readonly ofg_engine_entity_count: () => number;
+  readonly ofg_engine_player_eye_x: () => number;
+  readonly ofg_engine_player_eye_y: () => number;
+  readonly ofg_engine_player_eye_z: () => number;
+  readonly ofg_engine_player_eye_yaw: () => number;
+  readonly ofg_engine_player_eye_pitch: () => number;
+  readonly ofg_engine_player_x: () => number;
+  readonly ofg_engine_player_y: () => number;
+  readonly ofg_engine_player_z: () => number;
+};
+
+export type EngineCoreWasmInstance = {
+  readonly exports: EngineCoreWasmExports;
+};
+
+export type EngineCoreEntityId = {
+  readonly raw: bigint;
+  readonly index: number;
+  readonly generation: number;
+};
+
+export type EngineCorePlayerMode = "firstPerson" | "debugFly";
+
+export type EngineCoreVec3 = {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+};
+
+export type EngineCorePlayerRig = {
+  readonly playerEntity: EngineCoreEntityId;
+  readonly cameraEntity: EngineCoreEntityId;
+};
+
+export type EngineCorePlayerIntent = {
+  readonly forward: number;
+  readonly right: number;
+  readonly up: number;
+  readonly fast: boolean;
+  readonly lookDeltaX: number;
+  readonly lookDeltaY: number;
+};
+
+export type EngineCoreEyeTransform = {
+  readonly position: EngineCoreVec3;
+  readonly yaw: number;
+  readonly pitch: number;
+};
+
+export type EngineCoreDebugSnapshot = {
+  readonly version: number;
+  readonly tick: bigint;
+  readonly elapsedSeconds: number;
+  readonly entityCount: number;
+};
+
+export class EngineCoreWasmHandle {
+  readonly #exports: EngineCoreWasmExports;
+
+  constructor(instance: EngineCoreWasmInstance) {
+    this.#exports = instance.exports;
+  }
+
+  reset(): void {
+    this.#exports.ofg_engine_create();
+  }
+
+  createEntity(): EngineCoreEntityId {
+    return decodeEngineCoreEntityId(this.#exports.ofg_engine_create_entity());
+  }
+
+  createPlayer(position: EngineCoreVec3): EngineCorePlayerRig {
+    const playerEntity = decodeEngineCoreEntityId(
+      this.#exports.ofg_engine_create_player(position.x, position.y, position.z)
+    );
+    const cameraEntity = decodeEngineCoreEntityId(
+      this.#exports.ofg_engine_player_camera_entity()
+    );
+
+    return Object.freeze({ playerEntity, cameraEntity });
+  }
+
+  hasPlayer(): boolean {
+    return this.#exports.ofg_engine_has_player() === 1;
+  }
+
+  playerMode(): EngineCorePlayerMode | undefined {
+    return playerModeFromCode(this.#exports.ofg_engine_player_mode());
+  }
+
+  setPlayerMode(mode: EngineCorePlayerMode): boolean {
+    return this.#exports.ofg_engine_set_player_mode(playerModeToCode(mode)) === 1;
+  }
+
+  togglePlayerMode(): EngineCorePlayerMode | undefined {
+    return playerModeFromCode(this.#exports.ofg_engine_toggle_player_mode());
+  }
+
+  setPlayerIntent(intent: EngineCorePlayerIntent): boolean {
+    return this.#exports.ofg_engine_set_player_intent(
+      intent.forward,
+      intent.right,
+      intent.up,
+      intent.fast ? 1 : 0,
+      intent.lookDeltaX,
+      intent.lookDeltaY
+    ) === 1;
+  }
+
+  updatePlayer(deltaSeconds: number, terrainHeight?: number): boolean {
+    return this.#exports.ofg_engine_update_player(
+      deltaSeconds,
+      terrainHeight ?? 0,
+      terrainHeight === undefined ? 0 : 1
+    ) === 1;
+  }
+
+  playerPosition(): EngineCoreVec3 {
+    return Object.freeze({
+      x: this.#exports.ofg_engine_player_x(),
+      y: this.#exports.ofg_engine_player_y(),
+      z: this.#exports.ofg_engine_player_z()
+    });
+  }
+
+  playerEyeTransform(): EngineCoreEyeTransform {
+    return Object.freeze({
+      position: Object.freeze({
+        x: this.#exports.ofg_engine_player_eye_x(),
+        y: this.#exports.ofg_engine_player_eye_y(),
+        z: this.#exports.ofg_engine_player_eye_z()
+      }),
+      yaw: this.#exports.ofg_engine_player_eye_yaw(),
+      pitch: this.#exports.ofg_engine_player_eye_pitch()
+    });
+  }
+
+  update(deltaSeconds: number): boolean {
+    return this.#exports.ofg_engine_update(deltaSeconds) === 1;
+  }
+
+  debugSnapshot(): EngineCoreDebugSnapshot {
+    return {
+      version: this.#exports.ofg_engine_core_version(),
+      tick: this.#exports.ofg_engine_tick(),
+      elapsedSeconds: this.#exports.ofg_engine_elapsed_seconds(),
+      entityCount: this.#exports.ofg_engine_entity_count()
+    };
+  }
+}
+
+export async function instantiateEngineCoreWasm(
+  bytes: ArrayBuffer
+): Promise<EngineCoreWasmInstance> {
+  const wasm = await WebAssembly.instantiate(bytes, {});
+  const exports = wasm.instance.exports as EngineCoreWasmExports;
+  assertEngineCoreExports(exports);
+
+  return Object.freeze({ exports });
+}
+
+export async function loadEngineCoreWasm(
+  assetPath = ENGINE_CORE_WASM_METADATA.assetPath,
+  fetchWasm: typeof fetch = fetch
+): Promise<EngineCoreWasmInstance> {
+  const response = await fetchWasm(assetPath);
+  if (!response.ok) {
+    throw new Error(`Failed to load engine WASM artifact '${assetPath}': ${response.status}`);
+  }
+
+  return instantiateEngineCoreWasm(await response.arrayBuffer());
+}
+
+export function decodeEngineCoreEntityId(raw: bigint): EngineCoreEntityId {
+  return Object.freeze({
+    raw,
+    index: Number(raw & 0xffff_ffffn),
+    generation: Number(raw >> 32n)
+  });
+}
+
+function assertEngineCoreExports(exports: WebAssembly.Exports): asserts exports is EngineCoreWasmExports {
+  if (!(exports.memory instanceof WebAssembly.Memory)) {
+    throw new Error("Engine WASM export is missing: memory");
+  }
+
+  const expectedFunctionNames = [
+    "ofg_engine_core_version",
+    "ofg_engine_create",
+    "ofg_engine_create_entity",
+    "ofg_engine_create_player",
+    "ofg_engine_has_player",
+    "ofg_engine_player_camera_entity",
+    "ofg_engine_player_mode",
+    "ofg_engine_set_player_mode",
+    "ofg_engine_toggle_player_mode",
+    "ofg_engine_set_player_intent",
+    "ofg_engine_update_player",
+    "ofg_engine_update",
+    "ofg_engine_tick",
+    "ofg_engine_elapsed_seconds",
+    "ofg_engine_entity_count",
+    "ofg_engine_player_eye_x",
+    "ofg_engine_player_eye_y",
+    "ofg_engine_player_eye_z",
+    "ofg_engine_player_eye_yaw",
+    "ofg_engine_player_eye_pitch",
+    "ofg_engine_player_x",
+    "ofg_engine_player_y",
+    "ofg_engine_player_z"
+  ] as const;
+
+  for (const name of expectedFunctionNames) {
+    if (typeof exports[name] !== "function") {
+      throw new Error(`Engine WASM export is missing: ${name}`);
+    }
+  }
+}
+
+function playerModeToCode(mode: EngineCorePlayerMode): number {
+  return mode === "firstPerson" ? 0 : 1;
+}
+
+function playerModeFromCode(code: number): EngineCorePlayerMode | undefined {
+  if (code === 0) {
+    return "firstPerson";
+  }
+
+  if (code === 1) {
+    return "debugFly";
+  }
+
+  return undefined;
+}
