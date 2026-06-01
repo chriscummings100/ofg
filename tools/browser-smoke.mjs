@@ -83,6 +83,8 @@ async function runBrowserSmoke(url) {
     assertTerrainDebug(initialTerrain, "initial terrain");
     const playerControllerRuntime = await readPlayerControllerRuntime(page);
     assertPlayerControllerRuntime(playerControllerRuntime);
+    const terrainStreamRuntime = await readTerrainStreamRuntime(page);
+    assertTerrainStreamRuntime(terrainStreamRuntime);
     const beforeResetStreamStatus = await readTerrainStreamStatus(page);
     await page.evaluate(() => window.__ofgDebug?.resetTerrainStreaming());
     await page.waitForFunction((previousGeneration) => {
@@ -137,6 +139,7 @@ async function runBrowserSmoke(url) {
       firstHud,
       flyHud,
       playerControllerRuntime,
+      terrainStreamRuntime,
       initialTerrain,
       resetTerrain,
       streamedTerrain,
@@ -164,6 +167,13 @@ async function readPlayerControllerRuntime(page) {
   return page.evaluate(() => window.__ofgDebug?.getPlayerControllerRuntime?.() ?? "missing");
 }
 
+async function readTerrainStreamRuntime(page) {
+  return page.evaluate(() => ({
+    schedulerRuntime: window.__ofgDebug?.getTerrainStreamSchedulerRuntime?.() ?? "missing",
+    workerCount: window.__ofgDebug?.getTerrainWorkerCount?.() ?? 0
+  }));
+}
+
 async function readTerrainDebug(page) {
   return page.evaluate(() => ({
     hasDebug: window.__ofgDebug !== undefined,
@@ -182,6 +192,16 @@ async function readTerrainStreamStatus(page) {
 function assertPlayerControllerRuntime(runtime) {
   if (runtime !== "rust") {
     throw new Error(`Expected Rust player controller runtime, saw '${runtime}'.`);
+  }
+}
+
+function assertTerrainStreamRuntime(runtime) {
+  if (runtime.schedulerRuntime !== "rust") {
+    throw new Error(`Expected Rust terrain stream scheduler, saw '${runtime.schedulerRuntime}'.`);
+  }
+
+  if (runtime.workerCount <= 0) {
+    throw new Error(`Expected terrain workers to be active: ${JSON.stringify(runtime)}`);
   }
 }
 

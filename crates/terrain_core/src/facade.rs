@@ -4,6 +4,29 @@ pub(crate) static mut DENSITY_CHUNK_BUFFER: [f32; TERRAIN_CHUNK_SAMPLE_COUNT] =
     [0.0; TERRAIN_CHUNK_SAMPLE_COUNT];
 pub(crate) static mut MESH_VERTEX_BUFFER: Vec<f32> = Vec::new();
 pub(crate) static mut MESH_INDEX_BUFFER: Vec<u32> = Vec::new();
+pub(crate) const STREAM_VERTICAL_OFFSET_BUFFER_CAPACITY: usize = 64;
+pub(crate) const STREAM_JOB_BUFFER_CAPACITY: usize = 1024;
+pub(crate) const STREAM_COORD_BUFFER_CAPACITY: usize = 16384;
+pub(crate) static mut STREAM_VERTICAL_OFFSET_BUFFER: [i32; STREAM_VERTICAL_OFFSET_BUFFER_CAPACITY] =
+    [0; STREAM_VERTICAL_OFFSET_BUFFER_CAPACITY];
+pub(crate) static mut STREAM_JOB_KIND_BUFFER: [u32; STREAM_JOB_BUFFER_CAPACITY] =
+    [0; STREAM_JOB_BUFFER_CAPACITY];
+pub(crate) static mut STREAM_JOB_LOD_BUFFER: [u32; STREAM_JOB_BUFFER_CAPACITY] =
+    [0; STREAM_JOB_BUFFER_CAPACITY];
+pub(crate) static mut STREAM_JOB_GENERATION_BUFFER: [f64; STREAM_JOB_BUFFER_CAPACITY] =
+    [0.0; STREAM_JOB_BUFFER_CAPACITY];
+pub(crate) static mut STREAM_JOB_X_BUFFER: [i32; STREAM_JOB_BUFFER_CAPACITY] =
+    [0; STREAM_JOB_BUFFER_CAPACITY];
+pub(crate) static mut STREAM_JOB_Y_BUFFER: [i32; STREAM_JOB_BUFFER_CAPACITY] =
+    [0; STREAM_JOB_BUFFER_CAPACITY];
+pub(crate) static mut STREAM_JOB_Z_BUFFER: [i32; STREAM_JOB_BUFFER_CAPACITY] =
+    [0; STREAM_JOB_BUFFER_CAPACITY];
+pub(crate) static mut STREAM_COORD_X_BUFFER: [i32; STREAM_COORD_BUFFER_CAPACITY] =
+    [0; STREAM_COORD_BUFFER_CAPACITY];
+pub(crate) static mut STREAM_COORD_Y_BUFFER: [i32; STREAM_COORD_BUFFER_CAPACITY] =
+    [0; STREAM_COORD_BUFFER_CAPACITY];
+pub(crate) static mut STREAM_COORD_Z_BUFFER: [i32; STREAM_COORD_BUFFER_CAPACITY] =
+    [0; STREAM_COORD_BUFFER_CAPACITY];
 
 #[no_mangle]
 pub extern "C" fn ofg_terrain_core_version() -> u32 {
@@ -18,6 +41,325 @@ pub extern "C" fn ofg_terrain_core_preset_count() -> u32 {
 #[no_mangle]
 pub extern "C" fn ofg_density_chunk_store_max_entries() -> u32 {
     DENSITY_CHUNK_STORE_MAX_ENTRIES as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_vertical_offset_buffer_capacity() -> u32 {
+    STREAM_VERTICAL_OFFSET_BUFFER_CAPACITY as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_vertical_offset_buffer_ptr() -> *mut i32 {
+    unsafe { core::ptr::addr_of_mut!(STREAM_VERTICAL_OFFSET_BUFFER).cast::<i32>() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_job_buffer_capacity() -> u32 {
+    STREAM_JOB_BUFFER_CAPACITY as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_coord_buffer_capacity() -> u32 {
+    STREAM_COORD_BUFFER_CAPACITY as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_job_kind_buffer_ptr() -> *const u32 {
+    unsafe { core::ptr::addr_of!(STREAM_JOB_KIND_BUFFER).cast::<u32>() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_job_lod_buffer_ptr() -> *const u32 {
+    unsafe { core::ptr::addr_of!(STREAM_JOB_LOD_BUFFER).cast::<u32>() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_job_generation_buffer_ptr() -> *const f64 {
+    unsafe { core::ptr::addr_of!(STREAM_JOB_GENERATION_BUFFER).cast::<f64>() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_job_x_buffer_ptr() -> *const i32 {
+    unsafe { core::ptr::addr_of!(STREAM_JOB_X_BUFFER).cast::<i32>() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_job_y_buffer_ptr() -> *const i32 {
+    unsafe { core::ptr::addr_of!(STREAM_JOB_Y_BUFFER).cast::<i32>() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_job_z_buffer_ptr() -> *const i32 {
+    unsafe { core::ptr::addr_of!(STREAM_JOB_Z_BUFFER).cast::<i32>() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_coord_x_buffer_ptr() -> *const i32 {
+    unsafe { core::ptr::addr_of!(STREAM_COORD_X_BUFFER).cast::<i32>() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_coord_y_buffer_ptr() -> *const i32 {
+    unsafe { core::ptr::addr_of!(STREAM_COORD_Y_BUFFER).cast::<i32>() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_coord_z_buffer_ptr() -> *const i32 {
+    unsafe { core::ptr::addr_of!(STREAM_COORD_Z_BUFFER).cast::<i32>() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_configure(
+    horizontal_radius: i32,
+    vertical_offset_count: u32,
+    max_in_flight_jobs: u32,
+) -> u32 {
+    let vertical_offset_count = vertical_offset_count as usize;
+    let max_in_flight_jobs = max_in_flight_jobs as usize;
+    if vertical_offset_count > STREAM_VERTICAL_OFFSET_BUFFER_CAPACITY
+        || max_in_flight_jobs == 0
+        || max_in_flight_jobs > STREAM_JOB_BUFFER_CAPACITY
+    {
+        return 0;
+    }
+
+    let vertical_chunk_offsets = unsafe {
+        core::slice::from_raw_parts(
+            core::ptr::addr_of!(STREAM_VERTICAL_OFFSET_BUFFER).cast::<i32>(),
+            vertical_offset_count,
+        )
+    }
+    .to_vec();
+    let config = TerrainStreamConfig {
+        horizontal_radius,
+        vertical_chunk_offsets,
+        max_in_flight_jobs,
+    };
+    let Ok(scheduler) = TerrainStreamScheduler::new(config) else {
+        return 0;
+    };
+
+    *terrain_stream_scheduler()
+        .lock()
+        .expect("terrain stream scheduler lock poisoned") = scheduler;
+    1
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_generation() -> f64 {
+    terrain_stream_scheduler()
+        .lock()
+        .expect("terrain stream scheduler lock poisoned")
+        .generation() as f64
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_sync_center(chunk_x: i32, chunk_y: i32, chunk_z: i32) {
+    terrain_stream_scheduler()
+        .lock()
+        .expect("terrain stream scheduler lock poisoned")
+        .sync_center(TerrainChunkCoord {
+            x: chunk_x,
+            y: chunk_y,
+            z: chunk_z,
+        });
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_reset(chunk_x: i32, chunk_y: i32, chunk_z: i32) {
+    terrain_stream_scheduler()
+        .lock()
+        .expect("terrain stream scheduler lock poisoned")
+        .reset(TerrainChunkCoord {
+            x: chunk_x,
+            y: chunk_y,
+            z: chunk_z,
+        });
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_invalidate_all() {
+    terrain_stream_scheduler()
+        .lock()
+        .expect("terrain stream scheduler lock poisoned")
+        .invalidate_all();
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_tick() -> u32 {
+    let jobs = terrain_stream_scheduler()
+        .lock()
+        .expect("terrain stream scheduler lock poisoned")
+        .tick();
+    write_stream_jobs(&jobs)
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_complete_density(
+    generation: f64,
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+) -> u32 {
+    let Some(generation) = generation_from_f64(generation) else {
+        return 0;
+    };
+
+    terrain_stream_scheduler()
+        .lock()
+        .expect("terrain stream scheduler lock poisoned")
+        .complete_density(
+            generation,
+            TerrainChunkCoord {
+                x: chunk_x,
+                y: chunk_y,
+                z: chunk_z,
+            },
+        ) as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_fail_density(
+    generation: f64,
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+) -> u32 {
+    let Some(generation) = generation_from_f64(generation) else {
+        return 0;
+    };
+
+    terrain_stream_scheduler()
+        .lock()
+        .expect("terrain stream scheduler lock poisoned")
+        .fail_density(
+            generation,
+            TerrainChunkCoord {
+                x: chunk_x,
+                y: chunk_y,
+                z: chunk_z,
+            },
+        ) as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_complete_lod0(
+    generation: f64,
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+    empty: u32,
+) -> u32 {
+    let Some(generation) = generation_from_f64(generation) else {
+        return 0;
+    };
+
+    terrain_stream_scheduler()
+        .lock()
+        .expect("terrain stream scheduler lock poisoned")
+        .complete_lod0(
+            generation,
+            TerrainChunkCoord {
+                x: chunk_x,
+                y: chunk_y,
+                z: chunk_z,
+            },
+            empty != 0,
+        ) as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_fail_lod0(
+    generation: f64,
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+) -> u32 {
+    let Some(generation) = generation_from_f64(generation) else {
+        return 0;
+    };
+
+    terrain_stream_scheduler()
+        .lock()
+        .expect("terrain stream scheduler lock poisoned")
+        .fail_lod0(
+            generation,
+            TerrainChunkCoord {
+                x: chunk_x,
+                y: chunk_y,
+                z: chunk_z,
+            },
+        ) as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_write_desired_density_coords() -> u32 {
+    let coords = terrain_stream_scheduler()
+        .lock()
+        .expect("terrain stream scheduler lock poisoned")
+        .desired_density_coords();
+
+    write_stream_coords(&coords)
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_write_desired_lod0_coords() -> u32 {
+    let coords = terrain_stream_scheduler()
+        .lock()
+        .expect("terrain stream scheduler lock poisoned")
+        .desired_lod0_coords();
+
+    write_stream_coords(&coords)
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_status_desired_density_count() -> u32 {
+    terrain_stream_status().desired_density_count as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_status_desired_lod0_count() -> u32 {
+    terrain_stream_status().desired_lod0_count as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_status_density_ready_count() -> u32 {
+    terrain_stream_status().density_ready_count as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_status_lod0_ready_count() -> u32 {
+    terrain_stream_status().lod0_ready_count as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_status_lod0_empty_count() -> u32 {
+    terrain_stream_status().lod0_empty_count as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_status_in_flight_density_count() -> u32 {
+    terrain_stream_status().in_flight_density_count as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_status_in_flight_lod_count() -> u32 {
+    terrain_stream_status().in_flight_lod_count as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_status_missing_density_count() -> u32 {
+    terrain_stream_status().missing_density_count as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_status_missing_lod0_count() -> u32 {
+    terrain_stream_status().missing_lod0_count as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_stream_status_max_in_flight_jobs() -> u32 {
+    terrain_stream_status().max_in_flight_jobs as u32
 }
 
 #[no_mangle]
@@ -290,4 +632,81 @@ pub extern "C" fn ofg_density_at(seed: u32, preset: u32, x: f64, y: f64, z: f64)
 #[no_mangle]
 pub extern "C" fn ofg_height_at(seed: u32, preset: u32, x: f64, z: f64) -> f64 {
     height_at(seed, preset, x, z)
+}
+
+fn terrain_stream_status() -> TerrainStreamStatus {
+    terrain_stream_scheduler()
+        .lock()
+        .expect("terrain stream scheduler lock poisoned")
+        .status()
+}
+
+fn generation_from_f64(generation: f64) -> Option<u64> {
+    if !generation.is_finite()
+        || generation < 0.0
+        || generation > u64::MAX as f64
+        || generation.fract() != 0.0
+    {
+        return None;
+    }
+
+    Some(generation as u64)
+}
+
+fn write_stream_jobs(jobs: &[TerrainStreamJob]) -> u32 {
+    let count = jobs.len().min(STREAM_JOB_BUFFER_CAPACITY);
+
+    for (index, job) in jobs.iter().take(count).enumerate() {
+        let (kind, lod, generation, coord) = match *job {
+            TerrainStreamJob::Density { generation, coord } => (0, 0, generation, coord),
+            TerrainStreamJob::Lod {
+                generation,
+                lod,
+                coord,
+            } => (1, u32::from(lod), generation, coord),
+        };
+
+        unsafe {
+            *core::ptr::addr_of_mut!(STREAM_JOB_KIND_BUFFER)
+                .cast::<u32>()
+                .add(index) = kind;
+            *core::ptr::addr_of_mut!(STREAM_JOB_LOD_BUFFER)
+                .cast::<u32>()
+                .add(index) = lod;
+            *core::ptr::addr_of_mut!(STREAM_JOB_GENERATION_BUFFER)
+                .cast::<f64>()
+                .add(index) = generation as f64;
+            *core::ptr::addr_of_mut!(STREAM_JOB_X_BUFFER)
+                .cast::<i32>()
+                .add(index) = coord.x;
+            *core::ptr::addr_of_mut!(STREAM_JOB_Y_BUFFER)
+                .cast::<i32>()
+                .add(index) = coord.y;
+            *core::ptr::addr_of_mut!(STREAM_JOB_Z_BUFFER)
+                .cast::<i32>()
+                .add(index) = coord.z;
+        }
+    }
+
+    count as u32
+}
+
+fn write_stream_coords(coords: &[TerrainChunkCoord]) -> u32 {
+    let count = coords.len().min(STREAM_COORD_BUFFER_CAPACITY);
+
+    for (index, coord) in coords.iter().take(count).enumerate() {
+        unsafe {
+            *core::ptr::addr_of_mut!(STREAM_COORD_X_BUFFER)
+                .cast::<i32>()
+                .add(index) = coord.x;
+            *core::ptr::addr_of_mut!(STREAM_COORD_Y_BUFFER)
+                .cast::<i32>()
+                .add(index) = coord.y;
+            *core::ptr::addr_of_mut!(STREAM_COORD_Z_BUFFER)
+                .cast::<i32>()
+                .add(index) = coord.z;
+        }
+    }
+
+    count as u32
 }

@@ -1,12 +1,16 @@
 import { equal, ok, throws } from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { vec3 } from "../../engine/math/vec3.js";
 import { TerrainRenderer } from "../../engine/render/TerrainRenderer.js";
 import { resetScene } from "../../engine/scene/activeScene.js";
+import { TERRAIN_CORE_WASM_METADATA } from "../../generated/terrain/terrainCoreWasm.js";
 import type { TerrainField } from "../../engine/world/scalarField.js";
 import {
   generateTerrainDensityChunk,
   terrainChunkKey
 } from "../../engine/world/terrainChunk.js";
+import { createTerrainCoreStreamScheduler } from "../../engine/world/terrainCoreStreamScheduler.js";
+import { instantiateTerrainCoreWasm } from "../../engine/world/terrainCoreWasm.js";
 import { TerrainChunkStreamer } from "./TerrainChunkStreamer.js";
 
 describe("TerrainChunkStreamer", () => {
@@ -204,6 +208,65 @@ describe("TerrainChunkStreamer", () => {
     equal(streamer.getStreamStatus().sharedDensityChunkCount, 8);
     equal(streamer.getStreamStatus().lastDensityJobStats?.totalMs, 1);
     equal(streamer.getStreamStatus().lastChunkJobStats?.indexCount, 3);
+  });
+
+  it("can delegate async job selection to the Rust stream scheduler", async () => {
+    const terrainCore = await loadTerrainCore();
+    const source = createFlatField(0);
+    const terrain = new TerrainRenderer(source);
+    const streamScheduler = createTerrainCoreStreamScheduler(terrainCore, {
+      horizontalRadius: 0,
+      verticalChunkOffsets: [0],
+      maxInFlightJobs: 8
+    });
+    const generatedDensityKeys: string[] = [];
+    const generatedChunkKeys: string[] = [];
+    const streamer = new TerrainChunkStreamer(terrain, source, {
+      horizontalRadius: 0,
+      verticalChunkOffsets: [0],
+      maxConcurrentChunkJobs: 8,
+      streamScheduler,
+      chunkJobGenerator: {
+        async prepareDensityChunk(request) {
+          generatedDensityKeys.push(terrainChunkKey(request.coord));
+          return {
+            generation: request.generation,
+            key: terrainChunkKey(request.coord),
+            coord: request.coord,
+            densities: createDensitySamples(),
+            stats: { totalMs: 1 }
+          };
+        },
+        async generateChunk(request) {
+          generatedChunkKeys.push(terrainChunkKey(request.coord));
+          equal(request.densityChunks.length, 8);
+          return {
+            generation: request.generation,
+            key: terrainChunkKey(request.coord),
+            ...createTriangleMeshData(),
+            stats: {
+              totalMs: 3,
+              vertexCount: 3,
+              indexCount: 3
+            }
+          };
+        }
+      }
+    });
+
+    streamer.syncAround(vec3(0, 0, 0));
+
+    equal(streamer.getLoadedChunkKeys().length, 8);
+    equal(generatedDensityKeys.length, 8);
+    equal(streamer.getStreamStatus().inFlightDensityCount, 8);
+    await flushMicrotasks(4);
+
+    equal(generatedChunkKeys.join(","), "0,0,0");
+    equal(terrain.chunks.length, 1);
+    equal(streamer.getStreamStatus().generation, 0);
+    equal(streamer.getStreamStatus().densityReadyChunkCount, 8);
+    equal(streamer.getStreamStatus().renderedChunkCount, 1);
+    equal(streamer.getStreamStatus().pending, false);
   });
 
   it("ignores stale async chunk results after a streaming reset", async () => {
@@ -575,4 +638,14 @@ async function flushMicrotasks(count: number): Promise<void> {
   for (let index = 0; index < count; index += 1) {
     await Promise.resolve();
   }
+}
+
+async function loadTerrainCore() {
+  const bytes = readFileSync(TERRAIN_CORE_WASM_METADATA.assetPath);
+  const wasmBytes = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength
+  ) as ArrayBuffer;
+
+  return instantiateTerrainCoreWasm(wasmBytes);
 }

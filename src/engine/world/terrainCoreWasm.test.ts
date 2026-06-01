@@ -17,6 +17,7 @@ import {
   readTerrainCoreDensityChunkBuffer,
   terrainPresetToWasmCode
 } from "./terrainCoreWasm.js";
+import { createTerrainCoreStreamScheduler } from "./terrainCoreStreamScheduler.js";
 import { getFloatsPerVertex } from "./terrainMesh.js";
 
 const PRESETS: readonly TerrainPresetId[] = [
@@ -40,6 +41,8 @@ describe("terrain core WASM", () => {
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_prepare_density_chunk_window"));
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_density_chunk_store_entry_count"));
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_build_chunk_mesh"));
+    ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_stream_tick"));
+    ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_stream_complete_lod0"));
   });
 
   it("instantiates the generated WASM artifact", async () => {
@@ -170,6 +173,41 @@ describe("terrain core WASM", () => {
     equal(afterMesh.generations, afterPrepare.generations);
     equal(afterMesh.reuses, afterPrepare.reuses + 8);
   });
+
+  it("drives terrain stream scheduling through WASM buffers", async () => {
+    const wasm = await loadTerrainCore();
+    const scheduler = createTerrainCoreStreamScheduler(wasm, {
+      horizontalRadius: 0,
+      verticalChunkOffsets: [0],
+      maxInFlightJobs: 8
+    });
+
+    scheduler.syncCenter({ x: 0, y: 0, z: 0 });
+
+    equal(scheduler.desiredLod0Coords().map(chunkKey).join(";"), "0,0,0");
+    equal(scheduler.desiredDensityCoords().length, 8);
+    equal(scheduler.status().missingDensityCount, 8);
+
+    const densityJobs = scheduler.tick();
+    equal(densityJobs.length, 8);
+    equal(densityJobs.every((job) => job.kind === "density"), true);
+    equal(scheduler.status().inFlightDensityCount, 8);
+
+    for (const job of densityJobs) {
+      if (job.kind === "density") {
+        equal(scheduler.completeDensity(job.generation, job.coord), true);
+      }
+    }
+
+    const lodJobs = scheduler.tick();
+    equal(lodJobs.length, 1);
+    equal(lodJobs[0].kind, "lod");
+    if (lodJobs[0].kind === "lod") {
+      equal(lodJobs[0].lod, 0);
+      equal(scheduler.completeLod0(lodJobs[0].generation, lodJobs[0].coord, false), true);
+    }
+    equal(scheduler.status().lod0ReadyCount, 1);
+  });
 });
 
 async function loadTerrainCore() {
@@ -187,4 +225,8 @@ function assertClose(actual: number, expected: number, epsilon: number): void {
     Math.abs(actual - expected) <= epsilon,
     `Expected ${actual} to be within ${epsilon} of ${expected}`
   );
+}
+
+function chunkKey(coord: { readonly x: number; readonly y: number; readonly z: number }): string {
+  return `${coord.x},${coord.y},${coord.z}`;
 }

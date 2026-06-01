@@ -5,6 +5,41 @@ export type TerrainCoreWasmExportName =
   | "ofg_terrain_core_version"
   | "ofg_terrain_core_preset_count"
   | "ofg_density_chunk_store_max_entries"
+  | "ofg_stream_vertical_offset_buffer_capacity"
+  | "ofg_stream_vertical_offset_buffer_ptr"
+  | "ofg_stream_job_buffer_capacity"
+  | "ofg_stream_coord_buffer_capacity"
+  | "ofg_stream_job_kind_buffer_ptr"
+  | "ofg_stream_job_lod_buffer_ptr"
+  | "ofg_stream_job_generation_buffer_ptr"
+  | "ofg_stream_job_x_buffer_ptr"
+  | "ofg_stream_job_y_buffer_ptr"
+  | "ofg_stream_job_z_buffer_ptr"
+  | "ofg_stream_coord_x_buffer_ptr"
+  | "ofg_stream_coord_y_buffer_ptr"
+  | "ofg_stream_coord_z_buffer_ptr"
+  | "ofg_stream_configure"
+  | "ofg_stream_generation"
+  | "ofg_stream_sync_center"
+  | "ofg_stream_reset"
+  | "ofg_stream_invalidate_all"
+  | "ofg_stream_tick"
+  | "ofg_stream_complete_density"
+  | "ofg_stream_fail_density"
+  | "ofg_stream_complete_lod0"
+  | "ofg_stream_fail_lod0"
+  | "ofg_stream_write_desired_density_coords"
+  | "ofg_stream_write_desired_lod0_coords"
+  | "ofg_stream_status_desired_density_count"
+  | "ofg_stream_status_desired_lod0_count"
+  | "ofg_stream_status_density_ready_count"
+  | "ofg_stream_status_lod0_ready_count"
+  | "ofg_stream_status_lod0_empty_count"
+  | "ofg_stream_status_in_flight_density_count"
+  | "ofg_stream_status_in_flight_lod_count"
+  | "ofg_stream_status_missing_density_count"
+  | "ofg_stream_status_missing_lod0_count"
+  | "ofg_stream_status_max_in_flight_jobs"
   | "ofg_density_chunk_store_entry_count"
   | "ofg_density_chunk_store_reuse_count"
   | "ofg_density_chunk_store_generation_count"
@@ -38,12 +73,47 @@ export const TERRAIN_CORE_WASM_METADATA = Object.freeze({
   "sourceCrate": "crates/terrain_core",
   "assetPath": "assets/wasm/terrain_core.wasm",
   "target": "wasm32-unknown-unknown",
-  "artifactHash": "sha256-379b0f2de48d31de44a5bdb7d0bac49e306e037c118727560114042c436dc775",
+  "artifactHash": "sha256-7190cfeabfe3e171656f9e7bd3bbf2890bced146b39606ede72726a36990e52b",
   "exports": [
     "memory",
     "ofg_terrain_core_version",
     "ofg_terrain_core_preset_count",
     "ofg_density_chunk_store_max_entries",
+    "ofg_stream_vertical_offset_buffer_capacity",
+    "ofg_stream_vertical_offset_buffer_ptr",
+    "ofg_stream_job_buffer_capacity",
+    "ofg_stream_coord_buffer_capacity",
+    "ofg_stream_job_kind_buffer_ptr",
+    "ofg_stream_job_lod_buffer_ptr",
+    "ofg_stream_job_generation_buffer_ptr",
+    "ofg_stream_job_x_buffer_ptr",
+    "ofg_stream_job_y_buffer_ptr",
+    "ofg_stream_job_z_buffer_ptr",
+    "ofg_stream_coord_x_buffer_ptr",
+    "ofg_stream_coord_y_buffer_ptr",
+    "ofg_stream_coord_z_buffer_ptr",
+    "ofg_stream_configure",
+    "ofg_stream_generation",
+    "ofg_stream_sync_center",
+    "ofg_stream_reset",
+    "ofg_stream_invalidate_all",
+    "ofg_stream_tick",
+    "ofg_stream_complete_density",
+    "ofg_stream_fail_density",
+    "ofg_stream_complete_lod0",
+    "ofg_stream_fail_lod0",
+    "ofg_stream_write_desired_density_coords",
+    "ofg_stream_write_desired_lod0_coords",
+    "ofg_stream_status_desired_density_count",
+    "ofg_stream_status_desired_lod0_count",
+    "ofg_stream_status_density_ready_count",
+    "ofg_stream_status_lod0_ready_count",
+    "ofg_stream_status_lod0_empty_count",
+    "ofg_stream_status_in_flight_density_count",
+    "ofg_stream_status_in_flight_lod_count",
+    "ofg_stream_status_missing_density_count",
+    "ofg_stream_status_missing_lod0_count",
+    "ofg_stream_status_max_in_flight_jobs",
     "ofg_density_chunk_store_entry_count",
     "ofg_density_chunk_store_reuse_count",
     "ofg_density_chunk_store_generation_count",

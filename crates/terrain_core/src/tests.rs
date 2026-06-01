@@ -364,6 +364,92 @@ fn stream_scheduler_validates_configuration() {
     );
 }
 
+#[test]
+fn stream_scheduler_facade_ticks_and_completes_jobs_through_buffers() {
+    let _lock = test_lock();
+    let offsets =
+        unsafe { std::slice::from_raw_parts_mut(ofg_stream_vertical_offset_buffer_ptr(), 1) };
+    offsets[0] = 0;
+
+    assert_eq!(ofg_stream_configure(0, 1, 8), 1);
+    ofg_stream_sync_center(0, 0, 0);
+
+    assert_eq!(ofg_stream_write_desired_density_coords(), 8);
+    let desired_xs = unsafe { std::slice::from_raw_parts(ofg_stream_coord_x_buffer_ptr(), 8) };
+    let desired_ys = unsafe { std::slice::from_raw_parts(ofg_stream_coord_y_buffer_ptr(), 8) };
+    let desired_zs = unsafe { std::slice::from_raw_parts(ofg_stream_coord_z_buffer_ptr(), 8) };
+    assert_eq!((desired_xs[0], desired_ys[0], desired_zs[0]), (0, 0, 0));
+    assert_eq!((desired_xs[7], desired_ys[7], desired_zs[7]), (1, 1, 1));
+
+    let density_job_count = ofg_stream_tick();
+    assert_eq!(density_job_count, 8);
+    assert_eq!(ofg_stream_status_in_flight_density_count(), 8);
+
+    let job_kinds = unsafe {
+        std::slice::from_raw_parts(ofg_stream_job_kind_buffer_ptr(), density_job_count as usize)
+    };
+    let job_generations = unsafe {
+        std::slice::from_raw_parts(
+            ofg_stream_job_generation_buffer_ptr(),
+            density_job_count as usize,
+        )
+    };
+    let job_xs = unsafe {
+        std::slice::from_raw_parts(ofg_stream_job_x_buffer_ptr(), density_job_count as usize)
+    };
+    let job_ys = unsafe {
+        std::slice::from_raw_parts(ofg_stream_job_y_buffer_ptr(), density_job_count as usize)
+    };
+    let job_zs = unsafe {
+        std::slice::from_raw_parts(ofg_stream_job_z_buffer_ptr(), density_job_count as usize)
+    };
+
+    for index in 0..density_job_count as usize {
+        assert_eq!(job_kinds[index], 0);
+        assert_eq!(
+            ofg_stream_complete_density(
+                job_generations[index],
+                job_xs[index],
+                job_ys[index],
+                job_zs[index]
+            ),
+            1
+        );
+    }
+
+    let lod_job_count = ofg_stream_tick();
+    assert_eq!(lod_job_count, 1);
+    let job_kinds = unsafe {
+        std::slice::from_raw_parts(ofg_stream_job_kind_buffer_ptr(), lod_job_count as usize)
+    };
+    let job_lods = unsafe {
+        std::slice::from_raw_parts(ofg_stream_job_lod_buffer_ptr(), lod_job_count as usize)
+    };
+    let job_generations = unsafe {
+        std::slice::from_raw_parts(
+            ofg_stream_job_generation_buffer_ptr(),
+            lod_job_count as usize,
+        )
+    };
+    let job_xs = unsafe {
+        std::slice::from_raw_parts(ofg_stream_job_x_buffer_ptr(), lod_job_count as usize)
+    };
+    let job_ys = unsafe {
+        std::slice::from_raw_parts(ofg_stream_job_y_buffer_ptr(), lod_job_count as usize)
+    };
+    let job_zs = unsafe {
+        std::slice::from_raw_parts(ofg_stream_job_z_buffer_ptr(), lod_job_count as usize)
+    };
+
+    assert_eq!(job_kinds[0], 1);
+    assert_eq!(job_lods[0], 0);
+    assert_eq!(
+        ofg_stream_complete_lod0(job_generations[0], job_xs[0], job_ys[0], job_zs[0], 0),
+        1
+    );
+    assert_eq!(ofg_stream_status_lod0_ready_count(), 1);
+}
+
 fn test_stream_scheduler(
     horizontal_radius: i32,
     vertical_chunk_offsets: Vec<i32>,

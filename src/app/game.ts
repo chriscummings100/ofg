@@ -39,6 +39,7 @@ import {
   loadTerrainCoreWasm,
   type TerrainCoreWasmInstance
 } from "../engine/world/terrainCoreWasm.js";
+import { createTerrainCoreStreamScheduler } from "../engine/world/terrainCoreStreamScheduler.js";
 import { createTerrainChunkWorkerClient } from "../engine/world/terrainChunkWorkerClient.js";
 import {
   POSITION_COLOR_NORMAL_UV_LAYOUT,
@@ -68,6 +69,8 @@ declare global {
       getTerrainPreset: () => TerrainPresetId;
       getTerrainSeed: () => number;
       getTerrainStreamStatus: () => ReturnType<TerrainChunkStreamer["getStreamStatus"]>;
+      getTerrainStreamSchedulerRuntime: () => "rust" | "typescript";
+      getTerrainWorkerCount: () => number;
       getTerrainDebugOverlayMode: () => TerrainDebugOverlayState;
       getPlayerControllerRuntime: () => "rust" | "typescript";
       setTerrainDebugOverlayMode: (mode: TerrainDebugOverlayState) => void;
@@ -92,6 +95,18 @@ export async function startGame(elements: GameElements): Promise<void> {
   const terrainWorker = terrainCore === undefined
     ? undefined
     : createTerrainChunkWorkerClient(descriptor);
+  const terrainStreamConfig = {
+    horizontalRadius: 1,
+    verticalChunkOffsets: [-2, -1, 0, 1],
+    cellSize: 1
+  } as const;
+  const terrainStreamScheduler = terrainCore === undefined || terrainWorker === undefined
+    ? undefined
+    : createTerrainCoreStreamScheduler(terrainCore, {
+        horizontalRadius: terrainStreamConfig.horizontalRadius,
+        verticalChunkOffsets: terrainStreamConfig.verticalChunkOffsets,
+        maxInFlightJobs: terrainWorker.workerCount
+      });
   const terrainDebugOverlay = new TerrainDebugOverlayView(
     elements.terrainDebugOverlay,
     readTerrainDebugOverlayState()
@@ -143,10 +158,11 @@ export async function startGame(elements: GameElements): Promise<void> {
     {
       target: playerEntity,
       material: terrainMaterial.id,
-      horizontalRadius: 1,
-      verticalChunkOffsets: [-2, -1, 0, 1],
-      cellSize: 1,
+      horizontalRadius: terrainStreamConfig.horizontalRadius,
+      verticalChunkOffsets: terrainStreamConfig.verticalChunkOffsets,
+      cellSize: terrainStreamConfig.cellSize,
       chunkJobGenerator: terrainWorker,
+      streamScheduler: terrainStreamScheduler,
       chunkMeshGenerator: terrainCore === undefined || terrainWorker !== undefined
         ? undefined
         : createTerrainCoreChunkMeshGenerator(terrainCore, descriptor),
@@ -181,6 +197,10 @@ export async function startGame(elements: GameElements): Promise<void> {
     getTerrainPreset: () => descriptor.terrainPreset,
     getTerrainSeed: () => descriptor.seed,
     getTerrainStreamStatus: () => terrainStreamer.getStreamStatus(),
+    getTerrainStreamSchedulerRuntime: () => terrainStreamScheduler === undefined
+      ? "typescript"
+      : "rust",
+    getTerrainWorkerCount: () => terrainWorker?.workerCount ?? 0,
     getTerrainDebugOverlayMode: () => terrainDebugOverlay.getState(),
     getPlayerControllerRuntime: () => playerController instanceof RustPlayerController
       ? "rust"

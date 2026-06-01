@@ -1,6 +1,5 @@
-#![allow(dead_code)]
-
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Mutex, OnceLock};
 
 use crate::*;
 
@@ -34,6 +33,7 @@ pub(crate) enum TerrainStreamJob {
     },
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum TerrainChunkStage {
     NotPresent,
@@ -75,6 +75,13 @@ pub(crate) struct TerrainStreamScheduler {
     desired_density: BTreeSet<TerrainChunkCoord>,
     desired_lod0: BTreeSet<TerrainChunkCoord>,
     chunks: BTreeMap<TerrainChunkCoord, TerrainChunkRecord>,
+}
+
+pub(crate) static TERRAIN_STREAM_SCHEDULER: OnceLock<Mutex<TerrainStreamScheduler>> =
+    OnceLock::new();
+
+pub(crate) fn terrain_stream_scheduler() -> &'static Mutex<TerrainStreamScheduler> {
+    TERRAIN_STREAM_SCHEDULER.get_or_init(|| Mutex::new(TerrainStreamScheduler::default()))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -254,6 +261,7 @@ impl TerrainStreamScheduler {
         true
     }
 
+    #[allow(dead_code)]
     pub(crate) fn chunk_stage(&self, coord: TerrainChunkCoord) -> TerrainChunkStage {
         let Some(record) = self.chunks.get(&coord) else {
             return TerrainChunkStage::NotPresent;
