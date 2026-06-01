@@ -29,11 +29,13 @@ const targetSpecs = [
     id: "meadow-lowland",
     label: "Meadow lowland",
     expectedMaterials: ["meadowGrass", "dryGround"],
+    expectedBiomes: ["grassland"],
     minScore: 0.55,
     cameraAngle: Math.PI * 0.22,
     score: (candidate) =>
       materialWeight(candidate, "meadowGrass") * 1.1 +
       materialWeight(candidate, "dryGround") * 0.25 +
+      biomeWeight(candidate, "grassland") * 0.25 +
       flatness(candidate) * 0.2 +
       (1 - candidate.macro.mountainness) * 0.12
   },
@@ -41,12 +43,15 @@ const targetSpecs = [
     id: "wet-lowland",
     label: "Wet lowland",
     expectedMaterials: ["wetMud", "sand", "bareSoil"],
+    expectedBiomes: ["wetland", "coastBeach"],
     minScore: 0.45,
     cameraAngle: Math.PI * 0.36,
     score: (candidate) =>
       materialWeight(candidate, "wetMud") * 1.2 +
       materialWeight(candidate, "sand") * 0.65 +
       materialWeight(candidate, "bareSoil") * 0.25 +
+      biomeWeight(candidate, "wetland") * 0.95 +
+      biomeWeight(candidate, "coastBeach") * 0.65 +
       nearSea(candidate) * 0.22 +
       flatness(candidate) * 0.1
   },
@@ -54,11 +59,13 @@ const targetSpecs = [
     id: "dry-soil",
     label: "Dry soil",
     expectedMaterials: ["dryGround", "redSoil"],
+    expectedBiomes: ["dryBadland"],
     minScore: 0.45,
     cameraAngle: Math.PI * 0.53,
     score: (candidate) =>
       materialWeight(candidate, "dryGround") * 0.8 +
       materialWeight(candidate, "redSoil") * 1.25 +
+      biomeWeight(candidate, "dryBadland") * 0.9 +
       candidate.macro.continentality * 0.25 +
       flatness(candidate) * 0.08
   },
@@ -66,11 +73,15 @@ const targetSpecs = [
     id: "mossy-ridge",
     label: "Mossy ridge",
     expectedMaterials: ["mossRock", "forestGround"],
+    expectedBiomes: ["temperateForest", "highMountainRock", "alpineMeadow"],
     minScore: 0.5,
     cameraAngle: Math.PI * 0.7,
     score: (candidate) =>
       materialWeight(candidate, "mossRock") * 1.35 +
       materialWeight(candidate, "forestGround") * 0.35 +
+      biomeWeight(candidate, "temperateForest") * 0.45 +
+      biomeWeight(candidate, "highMountainRock") * 0.35 +
+      biomeWeight(candidate, "alpineMeadow") * 0.25 +
       candidate.macro.ridge * 0.22 +
       candidate.macro.mountainness * 0.12
   },
@@ -78,12 +89,15 @@ const targetSpecs = [
     id: "rocky-slope",
     label: "Rocky slope",
     expectedMaterials: ["rockyGround", "cliffRock", "scree"],
+    expectedBiomes: ["highMountainRock", "dryBadland"],
     minScore: 0.45,
     cameraAngle: Math.PI * 0.9,
     score: (candidate) =>
       materialWeight(candidate, "rockyGround") * 1.05 +
       materialWeight(candidate, "cliffRock") * 1.15 +
       materialWeight(candidate, "scree") * 0.8 +
+      biomeWeight(candidate, "highMountainRock") * 0.75 +
+      biomeWeight(candidate, "dryBadland") * 0.35 +
       candidate.slope * 0.32 +
       candidate.macro.mountainness * 0.12
   },
@@ -91,11 +105,14 @@ const targetSpecs = [
     id: "red-cliff",
     label: "Red cliff",
     expectedMaterials: ["redSoil", "cliffRock"],
+    expectedBiomes: ["dryBadland", "highMountainRock"],
     minScore: 0.45,
     cameraAngle: Math.PI * 1.1,
     score: (candidate) =>
       materialWeight(candidate, "redSoil") * 1.2 +
       materialWeight(candidate, "cliffRock") * 0.85 +
+      biomeWeight(candidate, "dryBadland") * 0.75 +
+      biomeWeight(candidate, "highMountainRock") * 0.35 +
       candidate.debug.cellular * 0.18 +
       candidate.slope * 0.12
   }
@@ -144,6 +161,7 @@ function buildTerrainVariationSurvey() {
         targetId: spec.id,
         targetLabel: spec.label,
         expectedMaterials: spec.expectedMaterials,
+        expectedBiomes: spec.expectedBiomes,
         score: spec.score(candidate)
       }))
       .sort((a, b) => b.score - a.score);
@@ -165,6 +183,7 @@ function buildTerrainVariationSurvey() {
       targetId: spec.id,
       targetLabel: spec.label,
       expectedMaterials: spec.expectedMaterials,
+      expectedBiomes: spec.expectedBiomes,
       score: selected.score,
       cameraAngle: spec.cameraAngle
     });
@@ -471,11 +490,19 @@ function assertNoConsoleErrors(consoleMessages) {
 
 function assertSurveyDiversity(targets) {
   const topMaterials = new Set(targets.map((target) => target.materialWeights[0]?.material ?? ""));
+  const topBiomes = new Set(targets.map((target) => dominantBiome(target)?.biome ?? ""));
   const seedPresetPairs = new Set(targets.map((target) => `${target.terrainPreset}:${target.seed}`));
   if (topMaterials.size < 4) {
     throw new Error(
       `Terrain variation survey selected too few dominant materials: ` +
       `${JSON.stringify(targets.map((target) => [target.targetId, target.materialWeights[0]]))}`
+    );
+  }
+
+  if (topBiomes.size < 3) {
+    throw new Error(
+      `Terrain variation survey selected too few dominant biomes: ` +
+      `${JSON.stringify(targets.map((target) => [target.targetId, dominantBiome(target)]))}`
     );
   }
 
@@ -520,6 +547,17 @@ function omitCameraAngle(target) {
 
 function materialWeight(candidate, material) {
   return candidate.materialWeights.find((weight) => weight.material === material)?.weight ?? 0;
+}
+
+function biomeWeight(candidate, biome) {
+  return candidate.biome.weights.find((weight) => weight.biome === biome)?.weight ?? 0;
+}
+
+function dominantBiome(candidate) {
+  return candidate.biome.weights.reduce(
+    (best, weight) => weight.weight > best.weight ? weight : best,
+    candidate.biome.weights[0]
+  );
 }
 
 function flatness(candidate) {

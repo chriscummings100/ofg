@@ -45,6 +45,8 @@ Supported:
   `?terrainSeed=...`, primarily for repeatable verification captures.
 - Macro channels for base elevation, large feature value, mountainness,
   continentality, erosion susceptibility, ridge, and warp.
+- First weighted biome solver for grassland, temperate forest, wetland,
+  coast/beach, dry badland, alpine meadow, high mountain rock, and snow/tundra.
 - Terrain density formed from macro base elevation plus 3D detail noise. This is
   still fundamentally a height-biased field, but Dual Contouring can represent
   local non-heightfield detail where the density field creates it.
@@ -56,7 +58,7 @@ Supported:
 - A 16-material Poly Haven CC0 terrain library imported under
   `assets/textures/polyhaven`.
 - Global WebGPU texture arrays for terrain albedo, normal, and roughness maps.
-- Terrain samples that emit slope/altitude/macro-driven material weights.
+- Terrain samples that emit biome/slope/altitude/macro-driven material weights.
 - Terrain mesh vertices that pack the strongest four material layers and weights.
 - A terrain mesh post-pass that expands triangles to coherent local material
   palettes, preventing interpolated weights from referring to different texture
@@ -72,22 +74,25 @@ Partially supported or placeholder-only:
 
 - `climatePreset` and `materialPalette` exist on `WorldDescriptor`, but do not
   yet drive distinct generation behavior.
-- `biomeAt()` exposes temperature and moisture scalars, but all biome weights are
-  still `temperateGrassland: 1`. There are no real biome regions yet.
-- Material classification uses slope, altitude, sea-level proximity, and macro
-  values. It does not yet use biome weights, hydrology/wetness fields, curvature,
-  strata, cave humidity, or authored geological regions.
+- `biomeAt()` now emits weighted biome archetypes plus temperature, moisture, and
+  a cellular province ID, but it is still a first pass. There are no authored
+  biome rules, biome-specific debug heatmaps, hard ecological constraints, or
+  hydrology inputs yet.
+- Material classification uses biome weights, slope, altitude, sea-level
+  proximity, and macro values. It does not yet use hydrology/wetness fields,
+  curvature, strata, cave humidity, or authored geological regions.
 - Snow, cliff, mud, sand, grass, moss, rock, and red-soil materials can appear,
-  but their placement is heuristic rather than biome/geology driven.
+  but their placement is still heuristic and only lightly biome-driven.
 - Normal and roughness texture arrays are loaded; roughness is sampled for
   lighting, but normal maps are not yet applied to perturb terrain normals.
-- Terrain preset screenshots prove presets render and differ, but they do not yet
-  prove biome diversity because biome diversity is not implemented.
+- Terrain variation screenshots now prove several material and biome-weight
+  regions exist, but the result is still early and needs better regional
+  composition.
 
 Not yet supported:
 
-- Real biome solver, biome provinces, biome heatmap screenshots, or soft biome
-  transition bands.
+- Mature biome solver, authored biome provinces, biome heatmap screenshots, or
+  polished biome transition bands.
 - Hydrology: no river graph, flow accumulation, drainage, lakes, river carving,
   floodplains, beaches driven by water bodies, or wetness propagation.
 - Erosion simulation or erosion-inspired post-processing beyond simple macro
@@ -104,15 +109,14 @@ Not yet supported:
 
 Current believability gap:
 
-- The terrain can look textured and varied at the material level, but it does not
-  yet read as a believable world with distinct ecological or geological regions.
-- The main missing layer is regional structure: biome/climate provinces,
-  hydrology-informed wetness and river corridors, and material logic tied to those
-  fields.
-- The next visible win should be a verification-first biome/material variation
-  pass: add real biome weights and a screenshot/report tool that finds and captures
-  representative grassland, forest, wetland/coast, badland/dry, alpine, cliff, and
-  snow/rock areas across seeds and presets.
+- The terrain can now produce distinct biome/material regions in sampled
+  screenshots, but it does not yet read as a fully believable world.
+- The main missing layer is regional structure with stronger composition:
+  hydrology-informed wetness and river corridors, better biome province shaping,
+  and geology/strata that explains cliffs, badlands, talus, and rock color.
+- The next visible win should be stronger biome/debug tooling plus water and
+  hydrology masks, so wetland/coast/beach areas and dry uplands are shaped by
+  more than local noise.
 
 ## Target Data Flow
 
@@ -235,7 +239,8 @@ Progress notes:
 
 | Date | Status | Notes |
 |---|---|---|
-| 2026-06-01 | In progress | Added `?terrainSeed=` support and `npm run smoke:terrain-variation`. The smoke samples all current terrain presets across seeds `246`, `7001`, `112358`, and `424242`, scores representative meadow, wet lowland, dry soil, mossy ridge, rocky slope, and red cliff targets, captures browser screenshots, and writes a report with macro/biome/material evidence. This proves current material variation is real, while also making the missing biome layer explicit: all captured targets still report the placeholder `temperateGrassland: 1` biome. |
+| 2026-06-01 | In progress | Added `?terrainSeed=` support and `npm run smoke:terrain-variation`. The smoke samples all current terrain presets across seeds `246`, `7001`, `112358`, and `424242`, scores representative meadow, wet lowland, dry soil, mossy ridge, rocky slope, and red cliff targets, captures browser screenshots, and writes a report with macro/biome/material evidence. |
+| 2026-06-01 | In progress | Added the first weighted biome solver and made the variation smoke require at least three distinct dominant biome regions. Current captures include grassland, wetland, dry badland, and high mountain rock evidence. Next work should add biome heatmap overlays and hydrology/water shaping. |
 
 ## Milestone 1: Generator Core
 
@@ -453,7 +458,7 @@ Progress notes:
 
 | Date | Status | Notes |
 |---|---|---|
-| 2026-06-01 | Not started | Current `biomeAt()` is a placeholder that always returns `temperateGrassland: 1`, with temperature and moisture scalars exposed for future use. `npm run smoke:terrain-variation` now captures material-region screenshots and records the placeholder biome evidence in its report. Next recommended work is a first real weighted biome solver plus biome/debug screenshots. |
+| 2026-06-01 | In progress | Replaced the placeholder single-biome output with weighted grassland, temperate forest, wetland, coast/beach, dry badland, alpine meadow, high mountain rock, and snow/tundra archetypes. The solver uses altitude, temperature, moisture, continentality, mountainness, erosion susceptibility, and cellular province IDs. Tests cover normalized weights and cold/wet/dry fixtures. Missing: biome heatmap overlays, authored province shaping, hydrology/wetness inputs, and polished transition tuning. |
 
 ## Milestone 6: Material Classification
 
@@ -506,6 +511,7 @@ Progress notes:
 | 2026-06-01 | In progress | Added a 16-material Poly Haven CC0 terrain library imported by `tools/import-polyhaven-terrain.mjs`, tracked through Git LFS, and loaded as global albedo/normal/roughness texture arrays. Terrain samples now emit slope/altitude/macro-driven material weights, Dual Contouring vertices pack the strongest four material layers, runtime meshes expand triangles to coherent local material palettes, and WGSL triplanar-blends albedo plus roughness from the arrays. Normal maps are loaded but not yet sampled for lighting. `npm test`, `npm run check:shaders`, `npm run smoke:browser`, and `npm run smoke:terrain-seams` pass. |
 | 2026-06-01 | In progress | Remaining material work for believable variation: feed biome/wetness/strata fields into classification, add a survey smoke that captures representative material/biome regions, and apply terrain normal maps in lighting after regional material choice is readable. |
 | 2026-06-01 | In progress | Added the first material-variation survey smoke. It currently finds visually distinct material conditions, but the evidence also shows several categories are still heuristic mixtures rather than true ecological/geological regions. The next classifier improvement should consume real biome weights once Milestone 5 starts. |
+| 2026-06-01 | In progress | Material classification now consumes the first biome weights: wetland/coast increase mud and sand, dry badland increases dry/red soil, mountain rock increases rocky materials, alpine adds moss/grass influence, and snow/tundra reinforces snow. This is still heuristic and needs hydrology, curvature, and strata inputs. |
 
 ## Milestone 7: Hydrology And Rivers
 

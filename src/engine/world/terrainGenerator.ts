@@ -29,7 +29,15 @@ export type TerrainPresetId = typeof TERRAIN_PRESET_IDS[number];
 export type { TerrainMaterialId, TerrainMaterialWeight } from "./terrainMaterials.js";
 export type ClimatePresetId = "temperate";
 export type TerrainMaterialPaletteId = "seed";
-export type TerrainBiomeId = "temperateGrassland";
+export type TerrainBiomeId =
+  | "grassland"
+  | "temperateForest"
+  | "wetland"
+  | "coastBeach"
+  | "dryBadland"
+  | "alpineMeadow"
+  | "highMountainRock"
+  | "snowTundra";
 
 export type WorldDescriptor = {
   readonly seed: number;
@@ -365,15 +373,78 @@ export function createTerrainGenerator(
   }
 
   function biomeAt(position: Vec3): BiomeSample {
-    const macro = macroAt(position);
-    const altitudeInfluence = clamp((macro.baseElevation - descriptor.seaLevel) / 48, -1, 1);
+    const macro = sampleMacroTerrain(noise, descriptor, terrainPreset, position);
+    const climateNoise = sampleFractalSimplex3D(
+      noise,
+      vec3(position.x + 971.2, 43.5, position.z - 211.7),
+      {
+        octaves: 3,
+        frequency: 0.0025,
+        lacunarity: 2,
+        persistence: 0.52
+      }
+    );
+    const moistureNoise = sampleFractalSimplex3D(
+      noise,
+      vec3(position.x - 317.6, -29.25, position.z + 513.4),
+      {
+        octaves: 3,
+        frequency: 0.0032,
+        lacunarity: 2,
+        persistence: 0.5
+      }
+    );
+    const province = sampleCellular2D(position, {
+      frequency: 0.0035,
+      seed: descriptor.seed ^ 0x8A31D5E3
+    });
+    const altitude = position.y - descriptor.seaLevel;
+    const high = smoothstep(14, 34, altitude);
+    const veryHigh = smoothstep(30, 52, altitude);
+    const nearSeaLevel = clamp(1 - Math.abs(altitude) / 8, 0, 1);
+    const temperature = clamp(
+      0.72 - high * 0.34 - veryHigh * 0.22 - macro.continentality * 0.05 +
+      climateNoise.value * 0.12,
+      0,
+      1
+    );
+    const moisture = clamp(
+      0.42 + (1 - macro.continentality) * 0.22 + macro.erosionSusceptibility * 0.12 -
+      high * 0.09 + moistureNoise.value * 0.18,
+      0,
+      1
+    );
+    const wetness = smoothstep(0.5, 0.78, moisture) * (1 - high * 0.75);
+    const dryness = smoothstep(0.48, 0.76, macro.continentality) *
+      (1 - smoothstep(0.42, 0.68, moisture)) *
+      (1 - high * 0.35);
+    const coast = nearSeaLevel * smoothstep(0.4, 0.82, moisture) * (1 - high);
+    const mountainRock = smoothstep(0.46, 0.76, macro.mountainness) * smoothstep(10, 26, altitude);
+    const snow = smoothstep(34, 54, altitude) * (1 - smoothstep(0.28, 0.58, temperature));
+    const alpine = smoothstep(16, 34, altitude) * (1 - snow) * (1 - mountainRock * 0.5);
+    const forest = smoothstep(0.52, 0.78, moisture) *
+      smoothstep(0.34, 0.72, temperature) *
+      (1 - high * 0.7) *
+      (1 - coast * 0.5) *
+      (1 - dryness * 0.55);
+    const grassland = (1 - high * 0.55) *
+      (1 - wetness * 0.6) *
+      (1 - dryness * 0.45) *
+      (1 - forest * 0.45);
 
     return {
-      temperature: clamp(0.68 - altitudeInfluence * 0.22, 0, 1),
-      moisture: clamp(0.52 + macro.continentality * 0.12, 0, 1),
-      province: 0,
-      weights: Object.freeze([
-        Object.freeze({ biome: "temperateGrassland", weight: 1 })
+      temperature,
+      moisture,
+      province: province.cellId,
+      weights: normalizeBiomeWeights([
+        { biome: "grassland", weight: grassland },
+        { biome: "temperateForest", weight: forest },
+        { biome: "wetland", weight: wetness * (1 - coast * 0.35) },
+        { biome: "coastBeach", weight: coast },
+        { biome: "dryBadland", weight: dryness },
+        { biome: "alpineMeadow", weight: alpine },
+        { biome: "highMountainRock", weight: mountainRock * (1 - snow * 0.5) },
+        { biome: "snowTundra", weight: snow }
       ])
     };
   }
@@ -385,7 +456,13 @@ export function createTerrainGenerator(
 
     return {
       ...densitySample,
-      materialWeights: materialWeightsAt(position, densitySample.gradient, descriptor.seaLevel, macro),
+      materialWeights: materialWeightsAt(
+        position,
+        densitySample.gradient,
+        descriptor.seaLevel,
+        macro,
+        biome
+      ),
       biomeWeights: biome.weights,
       debug: {
         largeFeature: macro.largeFeature,
@@ -476,7 +553,8 @@ function materialWeightsAt(
   position: Vec3,
   gradient: Vec3,
   seaLevel: number,
-  macro: MacroTerrainSample
+  macro: MacroTerrainSample,
+  biome: BiomeSample
 ): readonly TerrainMaterialWeight[] {
   const normal = normalize(gradient);
   const slope = clamp(1 - normal.y, 0, 1);
@@ -495,22 +573,51 @@ function materialWeightsAt(
   const meadow = (1 - dry * 0.55) * smoothstep(0.2, 0.85, normal.y) * (1 - wet) * (1 - snow);
   const dryGround = dry * smoothstep(0.28, 0.88, normal.y) * (1 - wet) * (1 - snow);
   const scree = rocky * highland * 0.65;
+  const grasslandBiome = biomeWeight(biome, "grassland");
+  const forestBiome = biomeWeight(biome, "temperateForest");
+  const wetlandBiome = biomeWeight(biome, "wetland");
+  const coastBiome = biomeWeight(biome, "coastBeach");
+  const badlandBiome = biomeWeight(biome, "dryBadland");
+  const alpineBiome = biomeWeight(biome, "alpineMeadow");
+  const mountainRockBiome = biomeWeight(biome, "highMountainRock");
+  const snowBiome = biomeWeight(biome, "snowTundra");
 
   return normalizeTerrainMaterialWeights([
-    { material: "meadowGrass", weight: meadow },
-    { material: "dryGround", weight: dryGround },
-    { material: "forestGround", weight: (1 - dry) * 0.28 * (1 - rocky) * (1 - wet) },
-    { material: "bareSoil", weight: lowland * 0.4 * (1 - wet) * (1 - sand) },
-    { material: "wetMud", weight: wet },
-    { material: "sand", weight: sand },
-    { material: "gravelSand", weight: sand * rocky * 0.8 },
-    { material: "scree", weight: scree },
-    { material: "rockyGround", weight: rocky * (1 - highland * 0.35) },
-    { material: "cliffRock", weight: cliff },
-    { material: "mossRock", weight: moss },
-    { material: "redSoil", weight: redSoil },
-    { material: "snow", weight: snow }
+    { material: "meadowGrass", weight: meadow * (0.72 + grasslandBiome * 0.42 + alpineBiome * 0.18) },
+    { material: "dryGround", weight: dryGround * (0.72 + badlandBiome * 0.65) },
+    { material: "forestGround", weight: (1 - dry) * 0.2 * (1 - rocky) * (1 - wet) + forestBiome * 0.45 },
+    { material: "bareSoil", weight: lowland * 0.28 * (1 - wet) * (1 - sand) + wetlandBiome * 0.1 },
+    { material: "wetMud", weight: wet + wetlandBiome * 0.65 },
+    { material: "sand", weight: sand + coastBiome * 0.55 },
+    { material: "gravelSand", weight: sand * rocky * 0.8 + coastBiome * rocky * 0.22 },
+    { material: "scree", weight: scree + mountainRockBiome * rocky * 0.28 },
+    { material: "rockyGround", weight: rocky * (1 - highland * 0.35) + mountainRockBiome * 0.3 },
+    { material: "cliffRock", weight: cliff + mountainRockBiome * cliff * 0.35 },
+    { material: "mossRock", weight: moss + forestBiome * 0.16 + alpineBiome * 0.14 },
+    { material: "redSoil", weight: redSoil + badlandBiome * 0.4 },
+    { material: "snow", weight: snow + snowBiome * 0.85 }
   ]);
+}
+
+function normalizeBiomeWeights(weights: readonly BiomeWeight[]): readonly BiomeWeight[] {
+  const positiveWeights = weights.filter((weight) => weight.weight > 0);
+  const total = positiveWeights.reduce((sum, weight) => sum + weight.weight, 0);
+  if (total <= Number.EPSILON) {
+    return Object.freeze([
+      Object.freeze({ biome: "grassland", weight: 1 })
+    ]);
+  }
+
+  return Object.freeze(positiveWeights.map((weight) =>
+    Object.freeze({
+      biome: weight.biome,
+      weight: weight.weight / total
+    })
+  ));
+}
+
+function biomeWeight(biome: BiomeSample, id: TerrainBiomeId): number {
+  return biome.weights.find((weight) => weight.biome === id)?.weight ?? 0;
 }
 
 function smoothstep(edge0: number, edge1: number, value: number): number {

@@ -5,6 +5,7 @@ import {
   createTerrainGenerator,
   TERRAIN_PRESET_IDS,
   type BiomeWeight,
+  type TerrainBiomeId,
   type TerrainMaterialId,
   type TerrainPresetId,
   type TerrainMaterialWeight
@@ -60,10 +61,24 @@ describe("terrainGenerator", () => {
     const generator = createTerrainGenerator();
     const sample = generator.surfaceAt(vec3(7, 3, -11));
 
-    equal(sumBiomeWeights(sample.biomeWeights), 1);
+    ok(Math.abs(sumBiomeWeights(sample.biomeWeights) - 1) < 1e-12);
     ok(Math.abs(sumMaterialWeights(sample.materialWeights) - 1) < 1e-12);
     ok(sample.materialWeights.length >= 1);
     ok(sample.biomeWeights.length >= 1);
+  });
+
+  it("classifies weighted biome regions from terrain conditions", () => {
+    const lowland = createTerrainGenerator().surfaceAt(vec3(0, 0, 0));
+    const high = createTerrainGenerator().surfaceAt(vec3(0, 60, 0));
+    const dry = createTerrainGenerator(
+      createSeedWorldDescriptor(424242, { terrainPreset: "rollingHills" })
+    ).surfaceAt(vec3(1088, 14.28, 768));
+
+    ok(biomeWeight(lowland.biomeWeights, "coastBeach") > 0.2);
+    ok(biomeWeight(lowland.biomeWeights, "wetland") > 0.1);
+    equal(dominantBiome(high.biomeWeights), "snowTundra");
+    ok(biomeWeight(high.biomeWeights, "snowTundra") > 0.45);
+    ok(biomeWeight(dry.biomeWeights, "dryBadland") > 0.3);
   });
 
   it("prefers snow at high cold altitude", () => {
@@ -82,7 +97,7 @@ describe("terrainGenerator", () => {
     const sample = generator.surfaceAt(vec3(-152, y, -192));
 
     equal(dominantMaterial(sample.materialWeights), "cliffRock");
-    ok(materialWeight(sample.materialWeights, "cliffRock") > 0.75);
+    ok(materialWeight(sample.materialWeights, "cliffRock") > 0.55);
   });
 
   it("adds wet and sandy materials around lowland sea-level terrain", () => {
@@ -159,11 +174,22 @@ function dominantMaterial(weights: readonly TerrainMaterialWeight[]): TerrainMat
   return weights.reduce((best, weight) => weight.weight > best.weight ? weight : best).material;
 }
 
+function dominantBiome(weights: readonly BiomeWeight[]): TerrainBiomeId {
+  return weights.reduce((best, weight) => weight.weight > best.weight ? weight : best).biome;
+}
+
 function materialWeight(
   weights: readonly TerrainMaterialWeight[],
   material: TerrainMaterialId
 ): number {
   return weights.find((weight) => weight.material === material)?.weight ?? 0;
+}
+
+function biomeWeight(
+  weights: readonly BiomeWeight[],
+  biome: TerrainBiomeId
+): number {
+  return weights.find((weight) => weight.biome === biome)?.weight ?? 0;
 }
 
 function sampleMacroGrid(
