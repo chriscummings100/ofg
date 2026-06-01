@@ -1,8 +1,9 @@
 import { equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { TERRAIN_CORE_WASM_METADATA } from "../../generated/terrain/terrainCoreWasm.js";
-import { generateTerrainDensityChunk } from "./terrainChunk.js";
+import { generateTerrainDensityChunk, terrainChunkKey } from "./terrainChunk.js";
 import { generateTerrainChunkMeshWithWasm } from "./terrainCoreChunkMesh.js";
+import { createTerrainCoreDensityChunkStore } from "./terrainCoreDensityChunkStore.js";
 import { generateTerrainDensityChunkWithWasm } from "./terrainCoreDensityChunk.js";
 import {
   createSeedWorldDescriptor,
@@ -38,6 +39,9 @@ describe("terrain core WASM", () => {
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_density_at"));
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_fill_density_chunk"));
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_store_density_chunk_buffer"));
+    ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_density_chunk_store_contains"));
+    ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_load_density_chunk_buffer"));
+    ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_retain_density_chunk_store_window"));
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_prepare_density_chunk_window"));
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_density_chunk_store_entry_count"));
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_build_chunk_mesh"));
@@ -172,6 +176,44 @@ describe("terrain core WASM", () => {
 
     equal(afterMesh.generations, afterPrepare.generations);
     equal(afterMesh.reuses, afterPrepare.reuses + 8);
+  });
+
+  it("stores and reloads density payloads through the Rust density store", async () => {
+    const wasm = await loadTerrainCore();
+    const descriptor = createSeedWorldDescriptor(0x0F6, { terrainPreset: "rollingHills" });
+    const store = createTerrainCoreDensityChunkStore(wasm, descriptor);
+    const coord = { x: -1, y: 0, z: 2 };
+    const generated = generateTerrainDensityChunkWithWasm(wasm, descriptor, coord, {
+      cellSize: 1
+    });
+
+    store.clear();
+    store.store({
+      key: terrainChunkKey(coord),
+      coord,
+      densities: generated.densities
+    }, 1);
+
+    equal(store.size(), 1);
+    equal(store.has(coord, 1), true);
+    equal(store.has({ x: 9, y: 0, z: 9 }, 1), false);
+
+    const loaded = store.get(coord, 1);
+    if (loaded === undefined) {
+      throw new Error("Expected Rust density store to reload the stored chunk.");
+    }
+    equal(loaded.key, terrainChunkKey(coord));
+    equal(loaded.densities.length, generated.densities.length);
+    equal(loaded.densities[0], generated.densities[0]);
+    equal(
+      loaded.densities[loaded.densities.length - 1],
+      generated.densities[generated.densities.length - 1]
+    );
+
+    store.retainOnly([{ x: -1, y: 0, z: 2 }], 1);
+    equal(store.size(), 1);
+    store.retainOnly([], 1);
+    equal(store.size(), 0);
   });
 
   it("drives terrain stream scheduling through WASM buffers", async () => {

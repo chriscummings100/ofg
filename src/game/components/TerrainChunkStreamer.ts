@@ -14,6 +14,7 @@ import type {
   TerrainStreamJob,
   TerrainStreamScheduler
 } from "../../engine/world/terrainCoreStreamScheduler.js";
+import type { TerrainDensityChunkStore } from "../../engine/world/terrainCoreDensityChunkStore.js";
 import {
   generateTerrainDensityChunk,
   parseTerrainChunkKey,
@@ -54,6 +55,7 @@ export type TerrainChunkStreamerOptions = {
   readonly chunkMeshGenerator?: TerrainChunkMeshGenerator;
   readonly chunkJobGenerator?: TerrainChunkJobGenerator;
   readonly streamScheduler?: TerrainStreamScheduler;
+  readonly densityChunkStore?: TerrainDensityChunkStore;
   readonly maxConcurrentChunkJobs?: number;
 };
 
@@ -71,6 +73,7 @@ export class TerrainChunkStreamer extends Component {
   chunkMeshGenerator?: TerrainChunkMeshGenerator;
   chunkJobGenerator?: TerrainChunkJobGenerator;
   streamScheduler?: TerrainStreamScheduler;
+  densityChunkStore?: TerrainDensityChunkStore;
   maxConcurrentChunkJobs: number;
 
   private readonly loadedChunkKeys = new Set<TerrainChunkKey>();
@@ -105,6 +108,7 @@ export class TerrainChunkStreamer extends Component {
     this.chunkMeshGenerator = options.chunkMeshGenerator;
     this.chunkJobGenerator = options.chunkJobGenerator;
     this.streamScheduler = options.streamScheduler;
+    this.densityChunkStore = options.densityChunkStore;
     this.maxConcurrentChunkJobs = options.maxConcurrentChunkJobs ??
       options.chunkJobGenerator?.workerCount ??
       1;
@@ -187,7 +191,7 @@ export class TerrainChunkStreamer extends Component {
       this.clearRenderedChunks();
       this.loadedChunkKeys.clear();
       this.densityReadyChunkKeys.clear();
-      this.densityChunks.clear();
+      this.clearDensityChunks();
       this.desiredRenderChunkKeys.clear();
       this.emptyRenderChunkKeys.clear();
       this.inFlightDensityGenerations.clear();
@@ -202,7 +206,7 @@ export class TerrainChunkStreamer extends Component {
     this.clearRenderedChunks();
     this.loadedChunkKeys.clear();
     this.densityReadyChunkKeys.clear();
-    this.densityChunks.clear();
+    this.clearDensityChunks();
     this.desiredRenderChunkKeys.clear();
     this.emptyRenderChunkKeys.clear();
     this.inFlightDensityGenerations.clear();
@@ -225,7 +229,7 @@ export class TerrainChunkStreamer extends Component {
       this.clearRenderedChunks();
       this.loadedChunkKeys.clear();
       this.densityReadyChunkKeys.clear();
-      this.densityChunks.clear();
+      this.clearDensityChunks();
       this.desiredRenderChunkKeys.clear();
       this.emptyRenderChunkKeys.clear();
       this.inFlightDensityGenerations.clear();
@@ -249,7 +253,7 @@ export class TerrainChunkStreamer extends Component {
     this.clearRenderedChunks();
     this.loadedChunkKeys.clear();
     this.densityReadyChunkKeys.clear();
-    this.densityChunks.clear();
+    this.clearDensityChunks();
     this.desiredRenderChunkKeys.clear();
     this.emptyRenderChunkKeys.clear();
     this.inFlightDensityGenerations.clear();
@@ -272,7 +276,7 @@ export class TerrainChunkStreamer extends Component {
       this.clearRenderedChunks();
       this.loadedChunkKeys.clear();
       this.densityReadyChunkKeys.clear();
-      this.densityChunks.clear();
+      this.clearDensityChunks();
       this.desiredRenderChunkKeys.clear();
       this.emptyRenderChunkKeys.clear();
       this.inFlightDensityGenerations.clear();
@@ -284,7 +288,7 @@ export class TerrainChunkStreamer extends Component {
     this.clearRenderedChunks();
     this.loadedChunkKeys.clear();
     this.densityReadyChunkKeys.clear();
-    this.densityChunks.clear();
+    this.clearDensityChunks();
     this.desiredRenderChunkKeys.clear();
     this.emptyRenderChunkKeys.clear();
     this.inFlightDensityGenerations.clear();
@@ -326,7 +330,7 @@ export class TerrainChunkStreamer extends Component {
         ),
         loadedChunkCount: status.desiredDensityCount,
         densityReadyChunkCount: status.densityReadyCount,
-        sharedDensityChunkCount: this.densityChunks.size,
+        sharedDensityChunkCount: this.sharedDensityChunkCount(),
         inFlightDensityCount: status.inFlightDensityCount,
         missingDensityCount: status.missingDensityCount,
         desiredRenderChunkCount: status.desiredLod0Count,
@@ -353,7 +357,7 @@ export class TerrainChunkStreamer extends Component {
       ),
       loadedChunkCount: this.loadedChunkKeys.size,
       densityReadyChunkCount: this.densityReadyChunkKeys.size,
-      sharedDensityChunkCount: this.densityChunks.size,
+      sharedDensityChunkCount: this.sharedDensityChunkCount(),
       inFlightDensityCount: this.inFlightDensityGenerations.size,
       missingDensityCount,
       desiredRenderChunkCount: this.desiredRenderChunkKeys.size,
@@ -533,7 +537,7 @@ export class TerrainChunkStreamer extends Component {
         }
 
         this.densityReadyChunkKeys.add(key);
-        this.densityChunks.set(key, {
+        this.storeDensityChunk({
           key,
           coord: result.coord,
           densities: result.densities
@@ -554,7 +558,7 @@ export class TerrainChunkStreamer extends Component {
       }
 
       this.densityReadyChunkKeys.add(key);
-      this.densityChunks.set(key, {
+      this.storeDensityChunk({
         key,
         coord: result.coord,
         densities: result.densities
@@ -707,13 +711,13 @@ export class TerrainChunkStreamer extends Component {
 
   private meshDensityDependenciesReady(coord: TerrainChunkCoord): boolean {
     return this.buildNeighborChunkCoords(coord)
-      .every((densityCoord) => this.densityChunks.has(terrainChunkKey(densityCoord)));
+      .every((densityCoord) => this.hasDensityChunk(densityCoord));
   }
 
   private densityDependenciesForMesh(coord: TerrainChunkCoord): TerrainDensityChunkPayload[] {
     return this.buildNeighborChunkCoords(coord).map((densityCoord) => {
       const key = terrainChunkKey(densityCoord);
-      const chunk = this.densityChunks.get(key);
+      const chunk = this.getDensityChunk(densityCoord);
       if (chunk === undefined) {
         throw new Error(`Terrain mesh job missing density dependency '${key}'.`);
       }
@@ -857,13 +861,16 @@ export class TerrainChunkStreamer extends Component {
     for (const key of [...this.densityReadyChunkKeys]) {
       if (!this.loadedChunkKeys.has(key)) {
         this.densityReadyChunkKeys.delete(key);
-        this.densityChunks.delete(key);
       }
     }
 
-    for (const key of [...this.densityChunks.keys()]) {
-      if (!this.loadedChunkKeys.has(key)) {
-        this.densityChunks.delete(key);
+    if (this.densityChunkStore !== undefined) {
+      this.densityChunkStore.retainOnly(this.loadedDensityChunkCoords(), this.cellSize);
+    } else {
+      for (const key of [...this.densityChunks.keys()]) {
+        if (!this.loadedChunkKeys.has(key)) {
+          this.densityChunks.delete(key);
+        }
       }
     }
 
@@ -893,6 +900,40 @@ export class TerrainChunkStreamer extends Component {
 
   private usesStreamScheduler(): boolean {
     return this.streamScheduler !== undefined && this.chunkJobGenerator !== undefined;
+  }
+
+  private clearDensityChunks(): void {
+    this.densityChunks.clear();
+    this.densityChunkStore?.clear();
+  }
+
+  private storeDensityChunk(chunk: TerrainDensityChunkPayload): void {
+    if (this.densityChunkStore !== undefined) {
+      this.densityChunkStore.store(chunk, this.cellSize);
+      return;
+    }
+
+    this.densityChunks.set(chunk.key, chunk);
+  }
+
+  private getDensityChunk(coord: TerrainChunkCoord): TerrainDensityChunkPayload | undefined {
+    if (this.densityChunkStore !== undefined) {
+      return this.densityChunkStore.get(coord, this.cellSize);
+    }
+
+    return this.densityChunks.get(terrainChunkKey(coord));
+  }
+
+  private hasDensityChunk(coord: TerrainChunkCoord): boolean {
+    if (this.densityChunkStore !== undefined) {
+      return this.densityChunkStore.has(coord, this.cellSize);
+    }
+
+    return this.densityChunks.has(terrainChunkKey(coord));
+  }
+
+  private sharedDensityChunkCount(): number {
+    return this.densityChunkStore?.size() ?? this.densityChunks.size;
   }
 
   private syncDesiredSetsFromStreamScheduler(): void {

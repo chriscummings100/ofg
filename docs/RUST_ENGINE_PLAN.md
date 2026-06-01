@@ -234,10 +234,13 @@ scheduler core and the browser runtime now delegates worker job selection and
 state transitions to it through a narrow WASM facade. Rust owns desired density
 and LOD0 sets, density-apron dependency checks, nearest-first priority, bounded
 in-flight jobs, reset generation tokens, stale completion rejection, retryable
-density failures, empty LOD0 tracking, and window pruning. TypeScript still owns
-the Web Worker pool, density payload transfer maps, mesh upload, and
-`TerrainRenderer` updates; the next Phase 3 slice should move the retained
-density payload store or worker partition ownership out of TypeScript.
+density failures, empty LOD0 tracking, and window pruning. The browser runtime
+now also retains completed density payloads in the main `terrain_core.wasm`
+density store instead of a TypeScript-owned payload map. TypeScript still owns
+the Web Worker pool, density payload copies into mesh workers, mesh upload, and
+`TerrainRenderer` updates; the next Phase 3 slice should move worker partition
+ownership, batch/shared-memory density transfer, or render-packet emission out of
+TypeScript.
 
 Implementation:
 
@@ -492,4 +495,5 @@ streaming, then render packets, then Rust/wgpu.
 | 2026-06-01 | Phase 2 runtime wiring slice complete | Added a tested `RustPlayerController` adapter and wired the playable browser runtime to Rust-owned player/camera state when `engine_core.wasm` is available. TypeScript now forwards input and mirrors transforms for existing renderer/streamer compatibility. Browser smoke records and asserts the Rust player controller path. |
 | 2026-06-01 | Terrain core module split complete | Split the monolithic Rust terrain crate into focused modules before starting Phase 3 terrain streaming ownership work. No behavior change intended; validation covered Rust terrain tests, workspace Rust tests, WASM freshness, and TypeScript tests. |
 | 2026-06-01 | Phase 3 scheduler core started | Added the first Rust-owned terrain stream scheduler model in `terrain_core`. Tests cover desired density aprons, LOD0 targets, density-first priority, dependency gating, ready/empty LOD0 states, reset generation tokens, stale result rejection, pruning, retryable density failures, and configuration validation. Runtime wiring is still pending. |
-| 2026-06-01 | Phase 3 scheduler runtime bridge complete | Exposed the Rust terrain stream scheduler through `terrain_core.wasm`, added a TypeScript adapter, and wired the playable worker-backed terrain streamer to use Rust for desired sets, ticks, completions, reset generations, and status. Browser smoke now asserts the Rust terrain scheduler path and active workers. TypeScript still owns worker dispatch, transferred density payloads, and render uploads. |
+| 2026-06-01 | Phase 3 scheduler runtime bridge complete | Exposed the Rust terrain stream scheduler through `terrain_core.wasm`, added a TypeScript adapter, and wired the playable worker-backed terrain streamer to use Rust for desired sets, ticks, completions, reset generations, and status. Browser smoke now asserts the Rust terrain scheduler path and active workers. At this point TypeScript still owned worker dispatch, transferred density payloads, and render uploads. |
+| 2026-06-01 | Phase 3 retained density store moved to Rust | Added WASM exports and a TypeScript adapter for Rust-owned retained density payload storage. Scheduler-backed runtime streaming now stores completed density chunks in `terrain_core.wasm` and loads mesh apron dependencies from that store; browser smoke asserts the Rust density-store path. TypeScript still dispatches workers and copies apron payloads into worker-local WASM stores for meshing. |

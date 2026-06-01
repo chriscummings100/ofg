@@ -1,4 +1,5 @@
 import { InputTracker } from "../engine/input/inputTracker.js";
+import { computeFrameDeltaSeconds } from "./frameTiming.js";
 import {
   EngineCoreWasmHandle,
   loadEngineCoreWasm
@@ -35,6 +36,7 @@ import {
   createTerrainCoreChunkMeshGenerator,
   createTerrainCoreDensityChunkWindowGenerator
 } from "../engine/world/terrainCoreChunkMesh.js";
+import { createTerrainCoreDensityChunkStore } from "../engine/world/terrainCoreDensityChunkStore.js";
 import {
   loadTerrainCoreWasm,
   type TerrainCoreWasmInstance
@@ -70,6 +72,7 @@ declare global {
       getTerrainSeed: () => number;
       getTerrainStreamStatus: () => ReturnType<TerrainChunkStreamer["getStreamStatus"]>;
       getTerrainStreamSchedulerRuntime: () => "rust" | "typescript";
+      getTerrainDensityStoreRuntime: () => "rust" | "typescript";
       getTerrainWorkerCount: () => number;
       getTerrainDebugOverlayMode: () => TerrainDebugOverlayState;
       getPlayerControllerRuntime: () => "rust" | "typescript";
@@ -113,6 +116,9 @@ export async function startGame(elements: GameElements): Promise<void> {
         verticalChunkOffsets: terrainStreamConfig.verticalChunkOffsets,
         maxInFlightJobs: terrainWorker.workerCount
       });
+  const terrainDensityChunkStore = terrainCore === undefined || terrainWorker === undefined
+    ? undefined
+    : createTerrainCoreDensityChunkStore(terrainCore, descriptor);
   const terrainDebugOverlay = new TerrainDebugOverlayView(
     elements.terrainDebugOverlay,
     readTerrainDebugOverlayState()
@@ -169,6 +175,7 @@ export async function startGame(elements: GameElements): Promise<void> {
       cellSize: terrainStreamConfig.cellSize,
       chunkJobGenerator: terrainWorker,
       streamScheduler: terrainStreamScheduler,
+      densityChunkStore: terrainDensityChunkStore,
       chunkMeshGenerator: terrainCore === undefined || terrainWorker !== undefined
         ? undefined
         : createTerrainCoreChunkMeshGenerator(terrainCore, descriptor),
@@ -206,6 +213,7 @@ export async function startGame(elements: GameElements): Promise<void> {
     getTerrainStreamSchedulerRuntime: () => terrainStreamScheduler === undefined
       ? "typescript"
       : "rust",
+    getTerrainDensityStoreRuntime: () => terrainDensityChunkStore?.runtime ?? "typescript",
     getTerrainWorkerCount: () => terrainWorker?.workerCount ?? 0,
     getTerrainDebugOverlayMode: () => terrainDebugOverlay.getState(),
     getPlayerControllerRuntime: () => playerController instanceof RustPlayerController
@@ -248,7 +256,7 @@ export async function startGame(elements: GameElements): Promise<void> {
   let lastTimestamp = performance.now();
 
   function frame(timestamp: number): void {
-    const deltaSeconds = Math.min(0.05, (timestamp - lastTimestamp) / 1000);
+    const deltaSeconds = computeFrameDeltaSeconds(timestamp, lastTimestamp);
     lastTimestamp = timestamp;
 
     if (input.consumePress("KeyC") || input.consumePress("F1")) {

@@ -440,6 +440,110 @@ pub extern "C" fn ofg_store_density_chunk_buffer(
 }
 
 #[no_mangle]
+pub extern "C" fn ofg_density_chunk_store_contains(
+    seed: u32,
+    preset: u32,
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+    cell_size: f64,
+) -> u32 {
+    if cell_size <= 0.0 {
+        return 0;
+    }
+
+    let coord = TerrainChunkCoord {
+        x: chunk_x,
+        y: chunk_y,
+        z: chunk_z,
+    };
+    let preset_id = terrain_preset_index(preset);
+    let key = density_chunk_store_key(seed, preset_id, coord, cell_size);
+
+    density_chunk_store()
+        .lock()
+        .expect("density chunk store lock poisoned")
+        .contains(key) as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_load_density_chunk_buffer(
+    seed: u32,
+    preset: u32,
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+    cell_size: f64,
+) -> u32 {
+    if cell_size <= 0.0 {
+        return 0;
+    }
+
+    let coord = TerrainChunkCoord {
+        x: chunk_x,
+        y: chunk_y,
+        z: chunk_z,
+    };
+    let preset_id = terrain_preset_index(preset);
+    let key = density_chunk_store_key(seed, preset_id, coord, cell_size);
+    let Some(densities) = density_chunk_store()
+        .lock()
+        .expect("density chunk store lock poisoned")
+        .get(key)
+    else {
+        return 0;
+    };
+
+    if densities.len() != TERRAIN_CHUNK_SAMPLE_COUNT {
+        return 0;
+    }
+
+    let buffer = unsafe {
+        core::slice::from_raw_parts_mut(
+            core::ptr::addr_of_mut!(DENSITY_CHUNK_BUFFER).cast::<f32>(),
+            TERRAIN_CHUNK_SAMPLE_COUNT,
+        )
+    };
+    buffer.copy_from_slice(&densities);
+
+    1
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_retain_density_chunk_store_window(
+    seed: u32,
+    preset: u32,
+    min_chunk_x: i32,
+    min_chunk_y: i32,
+    min_chunk_z: i32,
+    max_chunk_x: i32,
+    max_chunk_y: i32,
+    max_chunk_z: i32,
+    cell_size: f64,
+) -> u32 {
+    if cell_size <= 0.0 {
+        return 0;
+    }
+
+    let min_x = min_chunk_x.min(max_chunk_x);
+    let max_x = min_chunk_x.max(max_chunk_x);
+    let min_y = min_chunk_y.min(max_chunk_y);
+    let max_y = min_chunk_y.max(max_chunk_y);
+    let min_z = min_chunk_z.min(max_chunk_z);
+    let max_z = min_chunk_z.max(max_chunk_z);
+    let preset_id = terrain_preset_index(preset);
+    let mut store = density_chunk_store()
+        .lock()
+        .expect("density chunk store lock poisoned");
+
+    store.retain_window(
+        seed, preset_id, cell_size, min_x, min_y, min_z, max_x, max_y, max_z,
+    );
+
+    store.entries.len() as u32
+}
+
+#[no_mangle]
 pub extern "C" fn ofg_prepare_density_chunk_window(
     seed: u32,
     preset: u32,

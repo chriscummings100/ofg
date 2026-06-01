@@ -196,6 +196,7 @@ async function readPlayerControllerRuntime(page) {
 async function readTerrainStreamRuntime(page) {
   return page.evaluate(() => ({
     schedulerRuntime: window.__ofgDebug?.getTerrainStreamSchedulerRuntime?.() ?? "missing",
+    densityStoreRuntime: window.__ofgDebug?.getTerrainDensityStoreRuntime?.() ?? "missing",
     workerCount: window.__ofgDebug?.getTerrainWorkerCount?.() ?? 0
   }));
 }
@@ -224,6 +225,10 @@ function assertPlayerControllerRuntime(runtime) {
 function assertTerrainStreamRuntime(runtime) {
   if (runtime.schedulerRuntime !== "rust") {
     throw new Error(`Expected Rust terrain stream scheduler, saw '${runtime.schedulerRuntime}'.`);
+  }
+
+  if (runtime.densityStoreRuntime !== "rust") {
+    throw new Error(`Expected Rust terrain density store, saw '${runtime.densityStoreRuntime}'.`);
   }
 
   if (runtime.workerCount <= 0) {

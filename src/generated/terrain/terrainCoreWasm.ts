@@ -46,6 +46,9 @@ export type TerrainCoreWasmExportName =
   | "ofg_density_chunk_store_eviction_count"
   | "ofg_reset_density_chunk_store"
   | "ofg_store_density_chunk_buffer"
+  | "ofg_density_chunk_store_contains"
+  | "ofg_load_density_chunk_buffer"
+  | "ofg_retain_density_chunk_store_window"
   | "ofg_prepare_density_chunk_window"
   | "ofg_density_chunk_sample_count"
   | "ofg_density_chunk_buffer_ptr"
@@ -73,7 +76,7 @@ export const TERRAIN_CORE_WASM_METADATA = Object.freeze({
   "sourceCrate": "crates/terrain_core",
   "assetPath": "assets/wasm/terrain_core.wasm",
   "target": "wasm32-unknown-unknown",
-  "artifactHash": "sha256-7190cfeabfe3e171656f9e7bd3bbf2890bced146b39606ede72726a36990e52b",
+  "artifactHash": "sha256-f430cf7a3fbcf3501d7b66d79c2302627324dba14a851832f364b1480b480f4f",
   "exports": [
     "memory",
     "ofg_terrain_core_version",
@@ -120,6 +123,9 @@ export const TERRAIN_CORE_WASM_METADATA = Object.freeze({
     "ofg_density_chunk_store_eviction_count",
     "ofg_reset_density_chunk_store",
     "ofg_store_density_chunk_buffer",
+    "ofg_density_chunk_store_contains",
+    "ofg_load_density_chunk_buffer",
+    "ofg_retain_density_chunk_store_window",
     "ofg_prepare_density_chunk_window",
     "ofg_density_chunk_sample_count",
     "ofg_density_chunk_buffer_ptr",

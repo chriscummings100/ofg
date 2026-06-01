@@ -7,9 +7,11 @@ import { TERRAIN_CORE_WASM_METADATA } from "../../generated/terrain/terrainCoreW
 import type { TerrainField } from "../../engine/world/scalarField.js";
 import {
   generateTerrainDensityChunk,
-  terrainChunkKey
+  terrainChunkKey,
+  type TerrainChunkCoord
 } from "../../engine/world/terrainChunk.js";
 import { createTerrainCoreStreamScheduler } from "../../engine/world/terrainCoreStreamScheduler.js";
+import type { TerrainDensityChunkStore } from "../../engine/world/terrainCoreDensityChunkStore.js";
 import { instantiateTerrainCoreWasm } from "../../engine/world/terrainCoreWasm.js";
 import { TerrainChunkStreamer } from "./TerrainChunkStreamer.js";
 
@@ -267,6 +269,67 @@ describe("TerrainChunkStreamer", () => {
     equal(streamer.getStreamStatus().densityReadyChunkCount, 8);
     equal(streamer.getStreamStatus().renderedChunkCount, 1);
     equal(streamer.getStreamStatus().pending, false);
+  });
+
+  it("uses an injected density store for scheduler-backed mesh dependencies", async () => {
+    const terrainCore = await loadTerrainCore();
+    const source = createFlatField(0);
+    const terrain = new TerrainRenderer(source);
+    const densityStore = new RecordingDensityChunkStore();
+    const streamScheduler = createTerrainCoreStreamScheduler(terrainCore, {
+      horizontalRadius: 0,
+      verticalChunkOffsets: [0],
+      maxInFlightJobs: 8
+    });
+    const generatedChunkKeys: string[] = [];
+    const streamer = new TerrainChunkStreamer(terrain, source, {
+      horizontalRadius: 0,
+      verticalChunkOffsets: [0],
+      maxConcurrentChunkJobs: 8,
+      streamScheduler,
+      densityChunkStore: densityStore,
+      chunkJobGenerator: {
+        async prepareDensityChunk(request) {
+          return {
+            generation: request.generation,
+            key: terrainChunkKey(request.coord),
+            coord: request.coord,
+            densities: createDensitySamples(densitySampleMarker(request.coord)),
+            stats: { totalMs: 1 }
+          };
+        },
+        async generateChunk(request) {
+          generatedChunkKeys.push(terrainChunkKey(request.coord));
+          equal(request.densityChunks.length, 8);
+          equal(densityStore.storedKeys.length, 8);
+          equal(densityStore.loadedKeys.length, 8);
+          equal(request.densityChunks[0].densities[0], densitySampleMarker(request.densityChunks[0].coord));
+
+          return {
+            generation: request.generation,
+            key: terrainChunkKey(request.coord),
+            ...createTriangleMeshData(),
+            stats: {
+              totalMs: 3,
+              vertexCount: 3,
+              indexCount: 3
+            }
+          };
+        }
+      }
+    });
+
+    streamer.syncAround(vec3(0, 0, 0));
+    await flushMicrotasks(4);
+
+    equal(generatedChunkKeys.join(","), "0,0,0");
+    equal(streamer.getStreamStatus().sharedDensityChunkCount, 8);
+    equal(terrain.chunks.length, 1);
+
+    streamer.invalidateAll();
+
+    equal(densityStore.size(), 0);
+    equal(streamer.getStreamStatus().sharedDensityChunkCount, 0);
   });
 
   it("ignores stale async chunk results after a streaming reset", async () => {
@@ -630,8 +693,66 @@ function createTriangleMeshData() {
   };
 }
 
-function createDensitySamples(): Float32Array {
-  return new Float32Array(33 * 33 * 33);
+function createDensitySamples(firstSample = 0): Float32Array {
+  const samples = new Float32Array(33 * 33 * 33);
+  samples[0] = firstSample;
+
+  return samples;
+}
+
+function densitySampleMarker(coord: TerrainChunkCoord): number {
+  return coord.x + coord.y * 10 + coord.z * 100;
+}
+
+class RecordingDensityChunkStore implements TerrainDensityChunkStore {
+  readonly runtime = "rust" as const;
+  readonly storedKeys: string[] = [];
+  readonly loadedKeys: string[] = [];
+  private readonly chunks = new Map<string, Float32Array>();
+
+  clear(): void {
+    this.chunks.clear();
+  }
+
+  size(): number {
+    return this.chunks.size;
+  }
+
+  retainOnly(coords: readonly TerrainChunkCoord[], _cellSize: number): void {
+    const keep = new Set(coords.map(terrainChunkKey));
+    for (const key of [...this.chunks.keys()]) {
+      if (!keep.has(key)) {
+        this.chunks.delete(key);
+      }
+    }
+  }
+
+  has(coord: TerrainChunkCoord, _cellSize: number): boolean {
+    return this.chunks.has(terrainChunkKey(coord));
+  }
+
+  store(chunk: { readonly key: string; readonly densities: Float32Array }, _cellSize: number): void {
+    this.storedKeys.push(chunk.key);
+    this.chunks.set(chunk.key, new Float32Array(chunk.densities));
+  }
+
+  get(
+    coord: TerrainChunkCoord,
+    _cellSize: number
+  ): { readonly key: string; readonly coord: TerrainChunkCoord; readonly densities: Float32Array } | undefined {
+    const key = terrainChunkKey(coord);
+    const densities = this.chunks.get(key);
+    if (densities === undefined) {
+      return undefined;
+    }
+
+    this.loadedKeys.push(key);
+    return {
+      key,
+      coord,
+      densities: new Float32Array(densities)
+    };
+  }
 }
 
 async function flushMicrotasks(count: number): Promise<void> {

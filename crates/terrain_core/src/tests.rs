@@ -143,6 +143,49 @@ fn stores_density_chunk_buffer_for_mesh_reuse() {
 }
 
 #[test]
+fn loads_stored_density_chunk_buffer_by_key() {
+    let _lock = test_lock();
+    ofg_reset_density_chunk_store();
+    ofg_fill_density_chunk(0x0F6, 1, -1, 0, 2, 1.0);
+    let expected_first = unsafe { *ofg_density_chunk_buffer_ptr() };
+
+    assert_eq!(ofg_store_density_chunk_buffer(0x0F6, 1, -1, 0, 2, 1.0), 1);
+    assert_eq!(ofg_density_chunk_store_contains(0x0F6, 1, -1, 0, 2, 1.0), 1);
+    assert_eq!(ofg_density_chunk_store_contains(0x0F6, 1, 0, 0, 2, 1.0), 0);
+
+    ofg_fill_density_chunk(0x0F6, 1, 4, 0, 4, 1.0);
+    assert_ne!(
+        unsafe { *ofg_density_chunk_buffer_ptr() }.to_bits(),
+        expected_first.to_bits()
+    );
+
+    assert_eq!(ofg_load_density_chunk_buffer(0x0F6, 1, -1, 0, 2, 1.0), 1);
+    assert_eq!(
+        unsafe { *ofg_density_chunk_buffer_ptr() }.to_bits(),
+        expected_first.to_bits()
+    );
+    assert_eq!(ofg_load_density_chunk_buffer(0x0F6, 1, 9, 0, 9, 1.0), 0);
+}
+
+#[test]
+fn prunes_stored_density_chunks_to_window() {
+    let _lock = test_lock();
+    ofg_reset_density_chunk_store();
+    ofg_fill_density_chunk(0x0F6, 1, 0, 0, 0, 1.0);
+    assert_eq!(ofg_store_density_chunk_buffer(0x0F6, 1, 0, 0, 0, 1.0), 1);
+    ofg_fill_density_chunk(0x0F6, 1, 4, 0, 0, 1.0);
+    assert_eq!(ofg_store_density_chunk_buffer(0x0F6, 1, 4, 0, 0, 1.0), 1);
+
+    assert_eq!(ofg_density_chunk_store_entry_count(), 2);
+    assert_eq!(
+        ofg_retain_density_chunk_store_window(0x0F6, 1, 0, 0, 0, 1, 1, 1, 1.0),
+        1
+    );
+    assert_eq!(ofg_density_chunk_store_contains(0x0F6, 1, 0, 0, 0, 1.0), 1);
+    assert_eq!(ofg_density_chunk_store_contains(0x0F6, 1, 4, 0, 0, 1.0), 0);
+}
+
+#[test]
 fn stream_scheduler_builds_lod0_targets_and_density_aprons() {
     let mut scheduler = test_stream_scheduler(0, vec![0], 8);
 
