@@ -15,6 +15,13 @@ completed, deferred, or blocked, including the reason for meaningful pivots. If 
 AI agent resumes after context compaction, or is unsure what terrain work was last
 planned, it must reread this plan before continuing implementation.
 
+The engine ownership direction is now Rust-first and is tracked in
+[RUST_ENGINE_PLAN.md](RUST_ENGINE_PLAN.md). Terrain work should align with that
+plan: TypeScript may remain browser/UI glue during migration, but terrain
+streaming, scheduling, world state, render extraction, and eventually WebGPU
+rendering should move into Rust rather than growing new TypeScript-side
+workarounds.
+
 The core lesson from the research is that high quality terrain is a layered world
 generation architecture, not a single better noise function. The target is a
 deterministic field stack with three scales:
@@ -253,12 +260,18 @@ landmarks, not for every generated sample.
 | 9 | Streaming and LOD | Chunk scheduler, retained stores, LOD/seam transition plan | Free-flight remains hole-free within budget |
 | 10 | Presentation layers | Vegetation masks, water rendering, atmosphere improvements | Terrain reads at multiple scales |
 | 11 | Realtime Rust/WASM terrain path | Rust/WASM hot paths, profiling, worker scheduling, tuning persistence | Terrain edits and tuning regenerate fast enough for human iteration |
+| 12 | Rust engine migration | Rust-owned world, terrain streaming, render extraction, and Rust/wgpu renderer | TypeScript is reduced to browser shell and UI glue |
 
 ## Recommended Next Slice: Realtime Terrain Iteration
 
 Goal: make terrain regeneration fast enough that a human can tune believable,
 varying terrain by feel. This should happen before more biome/material/hydrology
 polish, because slow feedback makes every knob hard to judge.
+
+Architectural note: this slice should now be executed as part of the Rust engine
+migration, not as further TypeScript scene optimization. The intended end state is
+Rust-owned terrain streaming and render packets feeding a Rust/wgpu renderer, with
+TypeScript limited to browser shell and UI.
 
 Proposed order:
 
@@ -442,7 +455,7 @@ Progress notes:
 
 ## Milestone 4: Dual Contouring Hardening
 
-Goal: turn the current stitched-window prototype into a reliable chunk meshing
+Goal: turn the original stitched-window prototype into a reliable chunk meshing
 system.
 
 Research basis:
@@ -456,7 +469,8 @@ Implementation:
 - Add 1-cell apron sampling for each meshed chunk.
 - Define deterministic ownership for border quads.
 - Make `meshChunkDualContouring` neighbor-aware.
-- Keep stitched-window meshing as a fallback/debug path during migration.
+- Keep stitched-window meshing as a fallback/debug path only while it remains
+  useful for comparison tests.
 - Improve QEF:
   - mass-point fallback
   - rank deficiency handling
@@ -483,7 +497,7 @@ Progress notes:
 |---|---|---|
 | | In progress | Current QEF has an out-of-cell guard; runtime still uses centroid placement. |
 | 2026-05-31 | In progress | Added `analyzeDualContouringCellVertex()` diagnostics with QEF/centroid error, fallback reasons, and arbitrary-bounds Hermite extraction for debug overlays. `qefError` overlay is now captured by terrain debug smoke. Runtime meshing still uses centroid placement via `TerrainChunkStreamer`; per-chunk neighbor-aware meshing remains next. |
-| 2026-05-31 | In progress | Added `meshChunkDualContouringWithNeighbors()` with deterministic edge ownership and vertex compaction. Tests prove a two-chunk flat-plane seam is emitted by exactly one per-chunk mesh and sums to the stitched mesh topology. Runtime still needs migration from stitched-window rendering to per-chunk neighbor-aware rendering. |
+| 2026-05-31 | In progress | Added `meshChunkDualContouringWithNeighbors()` with deterministic edge ownership and vertex compaction. Tests prove a two-chunk flat-plane seam is emitted by exactly one per-chunk mesh and sums to the stitched mesh topology. Runtime migration to per-chunk neighbor-aware rendering was still pending at this point. |
 | 2026-05-31 | In progress | Migrated `TerrainChunkStreamer` to render per-chunk neighbor-aware meshes using a positive 1-cell apron instead of one stitched render window. The streamer keeps render chunks inside the loaded density window, skips all-air/all-solid chunks before apron sampling, and browser smoke now validates per-chunk render ownership. |
 | 2026-05-31 | In progress | Added `npm run smoke:terrain-seams`, which uses deterministic debug camera placement to capture x-seam, z-seam, and chunk-corner grazing views. The smoke verifies render coverage on both sides of the target seams and checks screenshots for valid rendered output. |
 

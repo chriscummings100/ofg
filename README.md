@@ -17,7 +17,9 @@ The first playable milestone is intentionally small:
 
 The current seed implements chunk-streamed generated terrain with a Rust/WASM
 runtime chunk mesh path, Poly Haven terrain texture arrays, and the camera/player
-loop in TypeScript.
+loop in TypeScript. The forward architecture is Rust-first: Rust should become
+the owner of world state, simulation, terrain streaming, render extraction, and
+WebGPU rendering, while TypeScript becomes browser shell and UI glue.
 
 ## Commands
 
@@ -54,5 +56,6 @@ chunk mesh generation, then writes a JSON report under
 - `tools`: small repository scripts with no framework dependency.
 
 See [docs/ROADMAP.md](docs/ROADMAP.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
-and [docs/AI_WORKFLOW.md](docs/AI_WORKFLOW.md) for the working direction. Browser
+[docs/RUST_ENGINE_PLAN.md](docs/RUST_ENGINE_PLAN.md), and
+[docs/AI_WORKFLOW.md](docs/AI_WORKFLOW.md) for the working direction. Browser
 verification is documented in [docs/BROWSER_VERIFICATION.md](docs/BROWSER_VERIFICATION.md).

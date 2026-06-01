@@ -30,14 +30,17 @@ far-field terrain are still future terrain architecture work.
 - [README.md](README.md): setup, commands, and high-level project shape.
 - [docs/ROADMAP.md](docs/ROADMAP.md): milestone direction.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): current architecture overview.
+- [docs/RUST_ENGINE_PLAN.md](docs/RUST_ENGINE_PLAN.md): Rust-first engine
+  migration, including Rust-owned WebGPU through `wgpu`.
 - [docs/SCENE_MODEL_PLAN.md](docs/SCENE_MODEL_PLAN.md): scene/entity/component model
-  and its intended test coverage.
+  and its intended test coverage. This is now historical/transitional guidance,
+  not the target architecture for high-volume world systems.
 - [docs/BROWSER_VERIFICATION.md](docs/BROWSER_VERIFICATION.md): screenshot and
   browser interaction verification.
 - [docs/AI_WORKFLOW.md](docs/AI_WORKFLOW.md): expected agent loop and testing habits.
 
-If context is compacted or you are unsure about scene architecture, reread
-`docs/SCENE_MODEL_PLAN.md` before continuing.
+If context is compacted or you are unsure about engine ownership, reread
+`docs/RUST_ENGINE_PLAN.md` and `docs/terrainplan.md` before continuing.
 
 ## Commands
 
@@ -65,7 +68,8 @@ saves screenshots in `artifacts/browser-smoke/`, samples pixels, and verifies th
 
 ```text
 src/app
-  Browser setup, game loop, HUD, and scene bootstrapping.
+  Browser setup, game loop, HUD, and current scene bootstrapping. Long term this
+  becomes the TypeScript shell around the Rust engine.
 
 src/engine/math
   Vec3, Vec4, Quat, Mat4 primitives.
@@ -83,7 +87,8 @@ src/engine/world
 
 src/engine/scene
   Global Scene, Entity tree, Component lifecycle, Transform hierarchy,
-  ResourceStore, and related tests.
+  ResourceStore, and related tests. This is current prototype infrastructure and
+  should not become the high-volume world authority.
 
 src/engine/render
   WebGPU renderer plus scene render data types. Runtime rendering flows through
@@ -92,7 +97,8 @@ src/engine/render
   resources, specular, and specular factor; the shader uses Lambert plus
   Blinn-Phong lighting. Terrain rendering uses global 16-layer albedo, normal, and
   roughness texture arrays; normal maps are loaded but not yet applied in shading.
-  `RenderWorld.mainLight` also drives the procedural sky sun disk.
+  `RenderWorld.mainLight` also drives the procedural sky sun disk. Rust/wgpu is
+  the target renderer once Rust render packets exist.
 
 src/engine/render/shaders
   Shader source inputs. `uber.wgsl` is compiled into a TypeScript artifact before
@@ -108,6 +114,11 @@ crates/terrain_core
   and the browser runtime chunk mesh path. Keep migrated terrain slices
   golden-tested against TypeScript until a Rust path is intentionally promoted as
   source of truth.
+
+Future crates
+  `docs/RUST_ENGINE_PLAN.md` proposes `engine_core` and browser-facing Rust/WASM
+  renderer crates. New world/simulation/render ownership should generally move in
+  that direction.
 
 src/game/components
   Game-level components such as PlayerController and TerrainChunkStreamer.
@@ -133,9 +144,10 @@ There is one global active `Scene`.
   not know about entities.
 - `scene.mainLight` is the sun: use it for world lighting and sky placement.
 
-The playable app is scene-model backed: terrain, player, camera, and the debug
-player marker are scene entities/components. Keep new runtime behavior on that
-path.
+The playable app is currently scene-model backed: terrain, player, camera, and the
+debug player marker are scene entities/components. Treat this as a transitional
+runtime path. New high-volume world, terrain streaming, simulation, render
+extraction, and WebGPU ownership should follow `docs/RUST_ENGINE_PLAN.md`.
 
 ## Testing Expectations
 
@@ -184,7 +196,9 @@ important.
   duplication.
 - Keep WebGPU details behind render-facing boundaries.
 - Do not introduce a full ECS.
-- Do not migrate to Rust/WASM until TypeScript contracts are stable and tested.
+- Use Rust as the target home for world, simulation, terrain streaming, render
+  extraction, and eventually WebGPU rendering. Migrate by tested vertical slices
+  that remove TypeScript ownership rather than by adding parallel systems.
 - Keep shader work in plain WGSL behind `tools/build-shaders.mjs`. Do not introduce
   alternate shader languages unless the project direction changes again.
 

@@ -3,6 +3,11 @@
 ## Goal
 
 Add a tiny scene graph and component model that the game can stick to while it grows.
+
+Current status note: this document now describes the implemented TypeScript
+prototype scene model and its test coverage. It is not the long-term ownership
+plan for high-volume world state. The current architecture direction is
+Rust-first and is tracked in [RUST_ENGINE_PLAN.md](RUST_ENGINE_PLAN.md).
 This is not a full ECS and should not become one by accident. The model is:
 
 - One global active `Scene`.
@@ -666,9 +671,11 @@ Implementation note:
 
 ## Implementation Phases
 
-Status: Phases 1 through 8 have an initial implementation. The next terrain-facing
-work is to replace the transitional stitched-window Dual Contouring render mesh
-with per-chunk neighbor-aware meshing.
+Status: Phases 1 through 8 have an initial implementation. The TypeScript scene
+model backed the first playable and remains useful as compatibility
+infrastructure, but high-volume world state, terrain streaming, render extraction,
+and WebGPU rendering should migrate toward the Rust-first plan in
+[RUST_ENGINE_PLAN.md](RUST_ENGINE_PLAN.md).
 
 ### Phase 1: Scene Core
 
@@ -793,14 +800,14 @@ Use Dual Contouring for visible generated terrain.
 
 Implemented notes:
 
-- `meshChunksDualContouring()` meshes the loaded density-chunk window as one
-  stitched render mesh, which keeps internal chunk boundaries connected while the
-  per-chunk stitching contract is still being designed.
-- `TerrainChunkStreamer` now builds that stitched DC mesh from the loaded density
-  chunks, uses centroid vertex placement for stability on noisy generated terrain,
-  and keys the render mesh by the current center chunk.
-- Browser smoke expects one rendered terrain mesh and still verifies that the
-  loaded density chunk keys stream after moving the player across chunk columns.
+- The project has moved beyond the original stitched-window hook-up. Runtime
+  terrain now uses per-chunk neighbor-aware Dual Contouring, and the hot terrain
+  path is partially Rust/WASM-backed.
+- `TerrainChunkStreamer` remains the TypeScript compatibility owner for streaming
+  state today, but the intended next owner is Rust engine state rather than a
+  larger TypeScript scene/component system.
+- Browser smoke verifies rendered chunks and loaded density chunk keys after
+  moving the player across chunk columns.
 
 Done when:
 

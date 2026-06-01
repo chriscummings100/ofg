@@ -4,15 +4,22 @@
 
 - Keep the browser client native and lightweight.
 - Put deterministic logic in small modules with direct unit tests.
-- Let browser glue stay thin: DOM, input, WebGPU setup, and the game loop.
+- Let browser glue stay thin: DOM, input forwarding, WebAssembly startup, and UI.
 - Prefer explicit data contracts over hidden engine state.
-- Add Rust/WASM when it removes real cost from terrain meshing or simulation.
+- Move long-lived world, simulation, terrain, render extraction, and WebGPU
+  ownership into Rust.
+
+The detailed migration path is tracked in
+[RUST_ENGINE_PLAN.md](RUST_ENGINE_PLAN.md). The TypeScript scene/render systems
+are now transitional prototype infrastructure, not the long-term engine center.
 
 ## Current Layers
 
 ```text
 src/app
-  Browser lifecycle, canvas setup, frame loop, HUD state, and scene bootstrapping.
+  Browser lifecycle, canvas setup, frame loop, HUD state, and current scene
+  bootstrapping. Long term, this becomes the TypeScript shell around the Rust
+  engine.
 
 src/engine/input
   DOM input tracking with edge-triggered key events and mouse deltas.
@@ -26,7 +33,8 @@ src/engine/math
 
 src/engine/render
   CPU-side render resources, scene render components, RenderWorld extraction, and
-  WebGPU resource setup/draw submission.
+  WebGPU resource setup/draw submission. This renderer is current runtime
+  infrastructure, but Rust/wgpu is the target renderer.
 
 src/engine/render/shaders
   Shader source inputs. The current `uber.wgsl` is the single shader contract for
@@ -37,7 +45,8 @@ src/generated
 
 src/engine/scene
   Global active Scene, Entity tree, Component lifecycle, Transform hierarchy, and
-  CPU-side ResourceStore.
+  CPU-side ResourceStore. This model is useful for the current playable seed, but
+  should not receive new high-volume world ownership.
 
 src/game/components
   Game-specific behavior components, currently PlayerController and
@@ -46,7 +55,7 @@ src/game/components
 
 ## Scene Model
 
-The engine uses one global active `Scene`. The scene owns a tree of `Entity`
+The current TypeScript prototype uses one global active `Scene`. The scene owns a tree of `Entity`
 objects, each entity has a `Transform`, and behavior/renderability is attached with
 `Component` objects. This is intentionally a small scene graph and component model,
 not a general-purpose ECS.
@@ -62,6 +71,11 @@ The current playable is backed by this model:
 
 The detailed API and next rollout steps are tracked in
 [SCENE_MODEL_PLAN.md](SCENE_MODEL_PLAN.md).
+
+Future large-scale world state should move into Rust rather than expanding this
+TypeScript scene graph. The Rust engine plan replaces the scene graph as the
+authoritative home for entities, transforms, streaming, factory simulation,
+render extraction, and eventually WebGPU resource ownership.
 
 ## Terrain Direction
 
@@ -119,8 +133,9 @@ The intended Dual Contouring boundary is:
   normals and neighbor-aware boundary quads.
 - Renderer: upload chunk meshes without knowing how they were generated.
 
-The first implementation can be TypeScript for iteration speed. Rust/WASM becomes
-worthwhile once the mesher contract and test fixtures are stable.
+The first implementation used TypeScript for iteration speed. That phase is now
+over for scaling-sensitive systems: terrain, world state, render extraction, and
+WebGPU ownership should migrate toward the Rust-first plan.
 
 ## Shader Direction
 
