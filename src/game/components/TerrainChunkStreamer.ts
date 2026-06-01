@@ -12,6 +12,7 @@ import {
   terrainChunkKey,
   type TerrainChunkCoord,
   type TerrainChunkKey,
+  type TerrainDensityChunkGenerator,
   type TerrainDensitySource
 } from "../../engine/world/terrainChunk.js";
 import { meshChunkDualContouringWithNeighbors } from "../../engine/world/dualContouring.js";
@@ -27,6 +28,7 @@ export type TerrainChunkStreamerOptions = {
   readonly verticalChunkOffsets?: readonly number[];
   readonly cellSize?: number;
   readonly meshIdPrefix?: string;
+  readonly densityChunkGenerator?: TerrainDensityChunkGenerator;
 };
 
 export class TerrainChunkStreamer extends Component {
@@ -38,6 +40,7 @@ export class TerrainChunkStreamer extends Component {
   verticalChunkOffsets: readonly number[];
   cellSize: number;
   meshIdPrefix: string;
+  densityChunkGenerator?: TerrainDensityChunkGenerator;
 
   private readonly loadedChunkKeys = new Set<TerrainChunkKey>();
   private readonly renderChunkKeys = new Set<TerrainChunkKey>();
@@ -57,6 +60,7 @@ export class TerrainChunkStreamer extends Component {
     this.verticalChunkOffsets = options.verticalChunkOffsets ?? [-1, 0, 1];
     this.cellSize = options.cellSize ?? 1;
     this.meshIdPrefix = options.meshIdPrefix ?? "mesh:terrain.chunk";
+    this.densityChunkGenerator = options.densityChunkGenerator;
     validateOptions(this.horizontalRadius, this.verticalChunkOffsets, this.cellSize);
   }
 
@@ -170,7 +174,11 @@ export class TerrainChunkStreamer extends Component {
     const key = terrainChunkKey(coord);
     let chunk = chunks.get(key);
     if (chunk === undefined) {
-      chunk = generateTerrainDensityChunk(this.source, coord, { cellSize: this.cellSize });
+      chunk = (this.densityChunkGenerator ?? generateTerrainDensityChunk)(
+        this.source,
+        coord,
+        { cellSize: this.cellSize }
+      );
       chunks.set(key, chunk);
     }
 

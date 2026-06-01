@@ -26,6 +26,11 @@ import {
   type TerrainPresetId,
   type WorldDescriptor
 } from "../engine/world/terrainGenerator.js";
+import { createTerrainCoreDensityChunkGenerator } from "../engine/world/terrainCoreDensityChunk.js";
+import {
+  loadTerrainCoreWasm,
+  type TerrainCoreWasmInstance
+} from "../engine/world/terrainCoreWasm.js";
 import {
   POSITION_COLOR_NORMAL_UV_LAYOUT,
   type MeshData
@@ -69,6 +74,7 @@ export async function startGame(elements: GameElements): Promise<void> {
   const input = new InputTracker();
   const descriptor = readWorldDescriptor();
   const field = createTerrainGenerator(descriptor);
+  const terrainCore = await tryLoadTerrainCore();
   const terrainDebugOverlay = new TerrainDebugOverlayView(
     elements.terrainDebugOverlay,
     readTerrainDebugOverlayState()
@@ -120,7 +126,10 @@ export async function startGame(elements: GameElements): Promise<void> {
       material: terrainMaterial.id,
       horizontalRadius: 1,
       verticalChunkOffsets: [-2, -1, 0, 1],
-      cellSize: 1
+      cellSize: 1,
+      densityChunkGenerator: terrainCore === undefined
+        ? undefined
+        : createTerrainCoreDensityChunkGenerator(terrainCore, descriptor)
     }
   ));
   playerEntity.transform.setPosition(vec3(0, field.heightAt(0, 0), 0));
@@ -224,6 +233,15 @@ function readWorldDescriptor(): WorldDescriptor {
     terrainSeed,
     terrainPreset === undefined ? {} : { terrainPreset }
   );
+}
+
+async function tryLoadTerrainCore(): Promise<TerrainCoreWasmInstance | undefined> {
+  try {
+    return await loadTerrainCoreWasm();
+  } catch (error) {
+    console.warn("Rust/WASM terrain core unavailable; falling back to TypeScript terrain chunks.", error);
+    return undefined;
+  }
 }
 
 function readTerrainPreset(value: string | null): TerrainPresetId | undefined {

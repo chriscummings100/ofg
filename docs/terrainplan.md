@@ -74,9 +74,14 @@ Supported:
   `wasm32-unknown-unknown` and emitted as `assets/wasm/terrain_core.wasm`.
 - Deterministic generated TypeScript metadata for the terrain WASM artifact.
 - Rust/WASM exports for terrain core versioning, preset count, macro base
-  elevation, density, and compatibility height sampling.
+  elevation, density, compatibility height sampling, and 33x33x33 density chunk
+  filling.
 - Cross-language golden tests that instantiate the WASM artifact in Node and
-  compare Rust density/height samples with the current TypeScript generator.
+  compare Rust density/height/chunk samples with the current TypeScript
+  generator.
+- Runtime terrain streaming can load the generated WASM artifact in the browser
+  and use it to fill terrain density chunks, with a TypeScript fallback if the
+  artifact is unavailable.
 
 Partially supported or placeholder-only:
 
@@ -96,9 +101,9 @@ Partially supported or placeholder-only:
 - Terrain variation screenshots now prove several material and biome-weight
   regions exist, but the result is still early and needs better regional
   composition.
-- The Rust core currently mirrors scalar-field sampling only. Runtime chunk
-  streaming, material classification, biome sampling, density chunk filling, Dual
-  Contouring meshing, and mesh upload still run through the TypeScript path.
+- The Rust core currently mirrors scalar-field sampling and density chunk filling
+  only. Material classification, biome sampling, Dual Contouring meshing, worker
+  scheduling, and mesh upload still run through the TypeScript path.
 
 Not yet supported:
 
@@ -113,7 +118,8 @@ Not yet supported:
 - Caves, arches, tunnels, overhang-focused volumetric features, or cave entrance
   placement.
 - Far-field terrain, LOD, LOD transition meshes, or chunk-priority scheduling.
-- Runtime use of the Rust/WASM terrain core for chunk generation or meshing.
+- Runtime use of the Rust/WASM terrain core for material/biome sampling, Dual
+  Contouring meshing, worker scheduling, or mesh upload preparation.
 - Worker-backed terrain generation, cancellation, priority queues, or saveable
   human-facing terrain tuning knobs.
 - Terrain collision/grounding based on the generated mesh. Player grounding still
@@ -230,7 +236,7 @@ Proposed order:
    - Write machine-readable JSON for fixed seeds, presets, and camera paths.
    - Validation: budgets are explicit enough that future Rust/WASM migrations can
      prove they helped.
-2. Move density chunk sampling into Rust/WASM.
+2. Move density chunk sampling into Rust/WASM. (First runtime slice complete.)
    - Export a flat chunk-fill API that writes the 33x33x33 density/gradient sample
      layout needed by `TerrainChunk`.
    - Keep TypeScript as the reference implementation and compare full chunk
@@ -238,6 +244,7 @@ Proposed order:
    - Validation: Rust/WASM density chunks match TypeScript fixtures and reduce
      chunk generation time.
 3. Wire Rust/WASM density chunks into runtime streaming behind a narrow adapter.
+   (First runtime slice complete.)
    - Keep the existing scene/component/render boundaries.
    - Add a fallback path to the TypeScript generator while the migration is young.
    - Validation: browser smoke remains visually stable and chunk seam tests still
@@ -269,6 +276,7 @@ Progress notes:
 | 2026-06-01 | In progress | Added `?terrainSeed=` support and `npm run smoke:terrain-variation`. The smoke samples all current terrain presets across seeds `246`, `7001`, `112358`, and `424242`, scores representative meadow, wet lowland, dry soil, mossy ridge, rocky slope, and red cliff targets, captures browser screenshots, and writes a report with macro/biome/material evidence. |
 | 2026-06-01 | In progress | Added the first weighted biome solver and made the variation smoke require at least three distinct dominant biome regions. Current captures include grassland, wetland, dry badland, and high mountain rock evidence. Next work should add biome heatmap overlays and hydrology/water shaping. |
 | 2026-06-01 | Pivoted | Screenshots still read too similar, but further material tuning is blocked by slow iteration and short view distance. The recommended next slice is now Rust/WASM-backed realtime terrain generation, then tuning knobs and save/load, then renewed biome/hydrology/material polish. |
+| 2026-06-01 | In progress | Added a Rust/WASM density chunk fill API for the 33x33x33 `TerrainChunk` sample layout, copied it into `TerrainDensityChunk`, and wired `TerrainChunkStreamer` to use it at runtime when the browser loads `assets/wasm/terrain_core.wasm`. Browser smoke passes with no fallback warnings. Next target is profiling plus moving meshing/worker scheduling enough to widen view distance. |
 
 ## Milestone 1: Generator Core
 
@@ -766,6 +774,7 @@ Progress notes:
 | Date | Status | Notes |
 |---|---|---|
 | 2026-06-01 | Started | Realtime-first pivot accepted. Added `crates/terrain_core`, `tools/build-terrain-wasm.mjs`, generated `assets/wasm/terrain_core.wasm`, and TypeScript WASM metadata/loader tests. The first Rust slice mirrors macro base elevation, density, and compatibility height sampling and is golden-tested against the TypeScript terrain generator. |
+| 2026-06-01 | In progress | Added density chunk filling to the Rust/WASM core and wired the browser runtime through a narrow `TerrainChunkStreamer` density chunk generator hook. This moves the first real streaming hot path onto WASM while preserving the TypeScript fallback and golden chunk tests. |
 
 ## Cross-Cutting Validation
 

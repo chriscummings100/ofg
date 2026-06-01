@@ -52,6 +52,12 @@ export type GenerateTerrainDensityChunkOptions = {
   readonly edits?: readonly TerrainEdit[];
 };
 
+export type TerrainDensityChunkGenerator = (
+  source: TerrainDensitySource,
+  coord: TerrainChunkCoord,
+  options?: GenerateTerrainDensityChunkOptions
+) => TerrainDensityChunk;
+
 export type SphereTerrainEditOptions = {
   readonly id: string;
   readonly center: Vec3;

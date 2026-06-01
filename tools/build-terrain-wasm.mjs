@@ -13,8 +13,12 @@ const cargoArtifactPath = `target/${target}/release/${crateName}.wasm`;
 const assetPath = "assets/wasm/terrain_core.wasm";
 const generatedPath = "src/generated/terrain/terrainCoreWasm.ts";
 const expectedExports = [
+  "memory",
   "ofg_terrain_core_version",
   "ofg_terrain_core_preset_count",
+  "ofg_density_chunk_sample_count",
+  "ofg_density_chunk_buffer_ptr",
+  "ofg_fill_density_chunk",
   "ofg_macro_base_elevation_at",
   "ofg_density_at",
   "ofg_height_at"

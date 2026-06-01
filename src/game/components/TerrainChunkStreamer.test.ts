@@ -3,6 +3,10 @@ import { vec3 } from "../../engine/math/vec3.js";
 import { TerrainRenderer } from "../../engine/render/TerrainRenderer.js";
 import { resetScene } from "../../engine/scene/activeScene.js";
 import type { TerrainField } from "../../engine/world/scalarField.js";
+import {
+  generateTerrainDensityChunk,
+  terrainChunkKey
+} from "../../engine/world/terrainChunk.js";
 import { TerrainChunkStreamer } from "./TerrainChunkStreamer.js";
 
 describe("TerrainChunkStreamer", () => {
@@ -87,6 +91,29 @@ describe("TerrainChunkStreamer", () => {
     equal(streamer.getLoadedChunkKeys().join(","), "0,0,0");
     equal(terrain.chunks.length, 0);
     equal(sampleCount, 33 * 33 * 33);
+  });
+
+  it("uses a custom density chunk generator when provided", () => {
+    const generatedKeys: string[] = [];
+    const source: TerrainField = {
+      heightAt: () => 0,
+      densityAt: () => 1,
+      normalAt: () => vec3(0, 1, 0)
+    };
+    const terrain = new TerrainRenderer(source);
+    const streamer = new TerrainChunkStreamer(terrain, source, {
+      horizontalRadius: 0,
+      verticalChunkOffsets: [0],
+      densityChunkGenerator(generatorSource, coord, options) {
+        generatedKeys.push(terrainChunkKey(coord));
+        return generateTerrainDensityChunk(generatorSource, coord, options);
+      }
+    });
+
+    streamer.syncAround(vec3(0, 0, 0));
+
+    equal(generatedKeys.join(","), "0,0,0");
+    equal(terrain.chunks.length, 0);
   });
 
   it("uses terrain density sample gradients when building chunk meshes", () => {

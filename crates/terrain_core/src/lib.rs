@@ -4,6 +4,11 @@ const SURFACE_SEARCH_MIN_Y: f64 = -96.0;
 const SURFACE_SEARCH_MAX_Y: f64 = 96.0;
 const SURFACE_SEARCH_STEP: f64 = 1.0;
 const SURFACE_REFINE_STEPS: usize = 12;
+const TERRAIN_CHUNK_CELLS_PER_AXIS: usize = 32;
+const TERRAIN_CHUNK_SAMPLES_PER_AXIS: usize = TERRAIN_CHUNK_CELLS_PER_AXIS + 1;
+const TERRAIN_CHUNK_SAMPLE_COUNT: usize = TERRAIN_CHUNK_SAMPLES_PER_AXIS
+    * TERRAIN_CHUNK_SAMPLES_PER_AXIS
+    * TERRAIN_CHUNK_SAMPLES_PER_AXIS;
 const F3: f64 = 1.0 / 3.0;
 const G3: f64 = 1.0 / 6.0;
 const NOISE_SCALE: f64 = 32.0;
@@ -175,6 +180,8 @@ const GRADIENTS: [Vec3; 12] = [
         z: -1.0,
     },
 ];
+static mut DENSITY_CHUNK_BUFFER: [f32; TERRAIN_CHUNK_SAMPLE_COUNT] =
+    [0.0; TERRAIN_CHUNK_SAMPLE_COUNT];
 
 const SEED_LARGE_FEATURE_NOISE: FractalNoiseOptions = FractalNoiseOptions {
     octaves: 3,
@@ -329,6 +336,58 @@ pub extern "C" fn ofg_terrain_core_version() -> u32 {
 #[no_mangle]
 pub extern "C" fn ofg_terrain_core_preset_count() -> u32 {
     TERRAIN_PRESETS.len() as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_density_chunk_sample_count() -> u32 {
+    TERRAIN_CHUNK_SAMPLE_COUNT as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_density_chunk_buffer_ptr() -> *const f32 {
+    unsafe { core::ptr::addr_of!(DENSITY_CHUNK_BUFFER).cast::<f32>() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_fill_density_chunk(
+    seed: u32,
+    preset: u32,
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+    cell_size: f64,
+) {
+    if cell_size <= 0.0 {
+        return;
+    }
+
+    let noise = SimplexNoise3D::new(seed);
+    let preset = terrain_preset(preset);
+    let chunk_size = TERRAIN_CHUNK_CELLS_PER_AXIS as f64 * cell_size;
+    let origin = Vec3 {
+        x: chunk_x as f64 * chunk_size,
+        y: chunk_y as f64 * chunk_size,
+        z: chunk_z as f64 * chunk_size,
+    };
+    let buffer = unsafe { core::ptr::addr_of_mut!(DENSITY_CHUNK_BUFFER).cast::<f32>() };
+
+    for z in 0..TERRAIN_CHUNK_SAMPLES_PER_AXIS {
+        for y in 0..TERRAIN_CHUNK_SAMPLES_PER_AXIS {
+            for x in 0..TERRAIN_CHUNK_SAMPLES_PER_AXIS {
+                let position = Vec3 {
+                    x: origin.x + x as f64 * cell_size,
+                    y: origin.y + y as f64 * cell_size,
+                    z: origin.z + z as f64 * cell_size,
+                };
+                let density = density_at_position(&noise, preset, seed, position).density as f32;
+                let index = terrain_chunk_sample_index(x, y, z);
+
+                unsafe {
+                    *buffer.add(index) = density;
+                }
+            }
+        }
+    }
 }
 
 #[no_mangle]
@@ -860,6 +919,11 @@ fn hash_uint32(x: i32, z: i32, seed: u32, salt: u32) -> u32 {
     value ^ (value >> 15)
 }
 
+fn terrain_chunk_sample_index(x: usize, y: usize, z: usize) -> usize {
+    x + y * TERRAIN_CHUNK_SAMPLES_PER_AXIS
+        + z * TERRAIN_CHUNK_SAMPLES_PER_AXIS * TERRAIN_CHUNK_SAMPLES_PER_AXIS
+}
+
 fn clamp(value: f64, minimum: f64, maximum: f64) -> f64 {
     value.max(minimum).min(maximum)
 }
@@ -904,5 +968,37 @@ mod tests {
 
         assert!(below <= 0.0);
         assert!(above > 0.0);
+    }
+
+    #[test]
+    fn fills_density_chunk_buffer_in_terrain_chunk_order() {
+        ofg_fill_density_chunk(0x0F6, 1, -1, 0, 2, 1.0);
+        let buffer = unsafe {
+            std::slice::from_raw_parts(
+                ofg_density_chunk_buffer_ptr(),
+                ofg_density_chunk_sample_count() as usize,
+            )
+        };
+        let origin_x = -32.0;
+        let origin_y = 0.0;
+        let origin_z = 64.0;
+
+        assert_eq!(buffer.len(), TERRAIN_CHUNK_SAMPLE_COUNT);
+        assert_eq!(
+            buffer[terrain_chunk_sample_index(0, 0, 0)].to_bits(),
+            (ofg_density_at(0x0F6, 1, origin_x, origin_y, origin_z) as f32).to_bits()
+        );
+        assert_eq!(
+            buffer[terrain_chunk_sample_index(1, 0, 0)].to_bits(),
+            (ofg_density_at(0x0F6, 1, origin_x + 1.0, origin_y, origin_z) as f32).to_bits()
+        );
+        assert_eq!(
+            buffer[terrain_chunk_sample_index(0, 1, 0)].to_bits(),
+            (ofg_density_at(0x0F6, 1, origin_x, origin_y + 1.0, origin_z) as f32).to_bits()
+        );
+        assert_eq!(
+            buffer[terrain_chunk_sample_index(0, 0, 1)].to_bits(),
+            (ofg_density_at(0x0F6, 1, origin_x, origin_y, origin_z + 1.0) as f32).to_bits()
+        );
     }
 }

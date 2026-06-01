@@ -1,8 +1,20 @@
 import type { TerrainPresetId } from "./terrainGenerator.js";
+import { TERRAIN_CORE_WASM_METADATA } from "../../generated/terrain/terrainCoreWasm.js";
 
 export type TerrainCoreWasmExports = {
+  readonly memory: WebAssembly.Memory;
   readonly ofg_terrain_core_version: () => number;
   readonly ofg_terrain_core_preset_count: () => number;
+  readonly ofg_density_chunk_sample_count: () => number;
+  readonly ofg_density_chunk_buffer_ptr: () => number;
+  readonly ofg_fill_density_chunk: (
+    seed: number,
+    preset: number,
+    chunkX: number,
+    chunkY: number,
+    chunkZ: number,
+    cellSize: number
+  ) => void;
   readonly ofg_macro_base_elevation_at: (
     seed: number,
     preset: number,
@@ -45,14 +57,42 @@ export async function instantiateTerrainCoreWasm(
   return Object.freeze({ exports });
 }
 
+export async function loadTerrainCoreWasm(
+  assetPath = TERRAIN_CORE_WASM_METADATA.assetPath,
+  fetchWasm: typeof fetch = fetch
+): Promise<TerrainCoreWasmInstance> {
+  const response = await fetchWasm(assetPath);
+  if (!response.ok) {
+    throw new Error(`Failed to load terrain WASM artifact '${assetPath}': ${response.status}`);
+  }
+
+  return instantiateTerrainCoreWasm(await response.arrayBuffer());
+}
+
 export function terrainPresetToWasmCode(preset: TerrainPresetId): number {
   return TERRAIN_PRESET_CODES[preset];
 }
 
+export function readTerrainCoreDensityChunkBuffer(
+  exports: TerrainCoreWasmExports
+): Float32Array {
+  const sampleCount = exports.ofg_density_chunk_sample_count();
+  const ptr = exports.ofg_density_chunk_buffer_ptr();
+
+  return new Float32Array(exports.memory.buffer, ptr, sampleCount);
+}
+
 function assertTerrainCoreExports(exports: WebAssembly.Exports): asserts exports is TerrainCoreWasmExports {
+  if (!(exports.memory instanceof WebAssembly.Memory)) {
+    throw new Error("Terrain WASM export is missing: memory");
+  }
+
   const expectedFunctionNames = [
     "ofg_terrain_core_version",
     "ofg_terrain_core_preset_count",
+    "ofg_density_chunk_sample_count",
+    "ofg_density_chunk_buffer_ptr",
+    "ofg_fill_density_chunk",
     "ofg_macro_base_elevation_at",
     "ofg_density_at",
     "ofg_height_at"
