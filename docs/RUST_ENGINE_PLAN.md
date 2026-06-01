@@ -191,12 +191,15 @@ Deletion path:
 
 Goal: replace the TypeScript `Scene` as the authoritative world state.
 
-Status: started on 2026-06-01. `engine_core` now builds as a browser WASM
-artifact, TypeScript has a tested `EngineCoreWasmHandle`, and Rust owns a first
-player/camera rig model with movement, look, mode switching, camera eye
-snapshots, and facade exports. The playable runtime still uses the TypeScript
-`PlayerController`; the next Phase 2 slice should wire the browser shell to the
-Rust player/camera state and demote the TypeScript controller to compatibility.
+Status: runtime player/camera wiring slice complete on 2026-06-01.
+`engine_core` builds as a browser WASM artifact, TypeScript has a tested
+`EngineCoreWasmHandle`, and Rust owns the active player/camera rig model with
+movement, look, mode switching, camera eye snapshots, and facade exports. The
+browser runtime now uses `RustPlayerController` when `engine_core.wasm` loads,
+with the TypeScript `PlayerController` kept as compatibility fallback only.
+Browser smoke asserts the Rust runtime path so accidental fallback is visible.
+The TypeScript `Scene` still exists as a compatibility mirror for camera/player
+transform extraction and the current renderer.
 
 Implementation:
 
@@ -475,3 +478,4 @@ streaming, then render packets, then Rust/wgpu.
 |---|---|---|
 | 2026-06-01 | Phase 1 foundation complete | Added `crates/engine_core` with Rust-owned engine/world state, generational entity IDs, optional parented transforms, deterministic update ticks, raw WASM facade exports, and Rust tests. Current TypeScript runtime remains unchanged. |
 | 2026-06-01 | Phase 2 bridge started | Added generated `engine_core.wasm`, TypeScript metadata/handle tests, and Rust-owned player/camera movement state with Rust and WASM tests. Split `engine_core` into focused modules as part of the same slice. Runtime player/camera authority is still TypeScript until the next wiring slice. |
+| 2026-06-01 | Phase 2 runtime wiring slice complete | Added a tested `RustPlayerController` adapter and wired the playable browser runtime to Rust-owned player/camera state when `engine_core.wasm` is available. TypeScript now forwards input and mirrors transforms for existing renderer/streamer compatibility. Browser smoke records and asserts the Rust player controller path. |

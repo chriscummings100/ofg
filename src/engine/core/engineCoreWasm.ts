@@ -19,11 +19,23 @@ export type EngineCoreWasmExports = {
     lookDeltaX: number,
     lookDeltaY: number
   ) => number;
+  readonly ofg_engine_set_player_position: (x: number, y: number, z: number) => number;
+  readonly ofg_engine_set_player_view: (yaw: number, pitch: number) => number;
+  readonly ofg_engine_set_debug_camera: (
+    x: number,
+    y: number,
+    z: number,
+    yaw: number,
+    pitch: number
+  ) => number;
   readonly ofg_engine_update_player: (
     deltaSeconds: number,
     terrainHeight: number,
     hasTerrain: number
   ) => number;
+  readonly ofg_engine_preview_player_x: (deltaSeconds: number) => number;
+  readonly ofg_engine_preview_player_y: (deltaSeconds: number) => number;
+  readonly ofg_engine_preview_player_z: (deltaSeconds: number) => number;
   readonly ofg_engine_update: (deltaSeconds: number) => number;
   readonly ofg_engine_tick: () => bigint;
   readonly ofg_engine_elapsed_seconds: () => number;
@@ -136,6 +148,36 @@ export class EngineCoreWasmHandle {
     ) === 1;
   }
 
+  setPlayerPosition(position: EngineCoreVec3): boolean {
+    return this.#exports.ofg_engine_set_player_position(
+      position.x,
+      position.y,
+      position.z
+    ) === 1;
+  }
+
+  setPlayerView(yaw: number, pitch: number): boolean {
+    return this.#exports.ofg_engine_set_player_view(yaw, pitch) === 1;
+  }
+
+  setDebugCamera(position: EngineCoreVec3, yaw: number, pitch: number): boolean {
+    return this.#exports.ofg_engine_set_debug_camera(
+      position.x,
+      position.y,
+      position.z,
+      yaw,
+      pitch
+    ) === 1;
+  }
+
+  previewPlayerPosition(deltaSeconds: number): EngineCoreVec3 {
+    return Object.freeze({
+      x: this.#exports.ofg_engine_preview_player_x(deltaSeconds),
+      y: this.#exports.ofg_engine_preview_player_y(deltaSeconds),
+      z: this.#exports.ofg_engine_preview_player_z(deltaSeconds)
+    });
+  }
+
   updatePlayer(deltaSeconds: number, terrainHeight?: number): boolean {
     return this.#exports.ofg_engine_update_player(
       deltaSeconds,
@@ -224,7 +266,13 @@ function assertEngineCoreExports(exports: WebAssembly.Exports): asserts exports 
     "ofg_engine_set_player_mode",
     "ofg_engine_toggle_player_mode",
     "ofg_engine_set_player_intent",
+    "ofg_engine_set_player_position",
+    "ofg_engine_set_player_view",
+    "ofg_engine_set_debug_camera",
     "ofg_engine_update_player",
+    "ofg_engine_preview_player_x",
+    "ofg_engine_preview_player_y",
+    "ofg_engine_preview_player_z",
     "ofg_engine_update",
     "ofg_engine_tick",
     "ofg_engine_elapsed_seconds",

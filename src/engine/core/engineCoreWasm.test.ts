@@ -20,6 +20,10 @@ describe("engine core WASM", () => {
     ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_create_entity"));
     ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_create_player"));
     ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_set_player_intent"));
+    ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_set_player_position"));
+    ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_set_player_view"));
+    ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_set_debug_camera"));
+    ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_preview_player_x"));
     ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_update_player"));
     ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_player_eye_y"));
     ok(ENGINE_CORE_WASM_METADATA.exports.includes("ofg_engine_update"));
@@ -98,6 +102,10 @@ describe("engine core WASM", () => {
       lookDeltaX: 0,
       lookDeltaY: 0
     }), true);
+    const preview = handle.previewPlayerPosition(1);
+    equal(preview.x, 0);
+    equal(preview.y, 3);
+    equal(preview.z, 5.5);
     equal(handle.updatePlayer(1, 4), true);
 
     const player = handle.playerPosition();
@@ -105,6 +113,14 @@ describe("engine core WASM", () => {
     equal(player.y, 4);
     equal(player.z, 5.5);
     assertClose(handle.playerEyeTransform().position.y, 5.65);
+
+    equal(handle.setPlayerPosition({ x: 7, y: 8, z: 9 }), true);
+    equal(handle.setPlayerView(0.75, -0.25), true);
+    const teleportedEye = handle.playerEyeTransform();
+    equal(handle.playerPosition().x, 7);
+    assertClose(teleportedEye.position.y, 9.65);
+    equal(teleportedEye.yaw, 0.75);
+    equal(teleportedEye.pitch, -0.25);
   });
 
   it("updates debug-fly player movement without terrain grounding in WASM", async () => {
@@ -112,7 +128,8 @@ describe("engine core WASM", () => {
 
     handle.reset();
     handle.createPlayer({ x: 0, y: 2, z: 0 });
-    equal(handle.togglePlayerMode(), "debugFly");
+    equal(handle.setDebugCamera({ x: 4, y: 5, z: 6 }, 0.5, -0.25), true);
+    equal(handle.playerMode(), "debugFly");
     equal(handle.setPlayerIntent({
       forward: 0,
       right: 0,
@@ -124,7 +141,7 @@ describe("engine core WASM", () => {
     equal(handle.updatePlayer(1, 100), true);
 
     equal(handle.playerPosition().y, 2);
-    equal(handle.playerEyeTransform().position.y, 25);
+    equal(handle.playerEyeTransform().position.y, 16);
     equal(handle.setPlayerMode("firstPerson"), true);
     equal(handle.playerMode(), "firstPerson");
   });

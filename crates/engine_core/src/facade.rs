@@ -106,6 +106,31 @@ pub extern "C" fn ofg_engine_set_player_intent(
 }
 
 #[no_mangle]
+pub extern "C" fn ofg_engine_set_player_position(x: f32, y: f32, z: f32) -> u32 {
+    with_facade_engine(|engine| {
+        engine
+            .set_player_position(Vec3::new(x, y, z))
+            .map(|_| 1)
+            .unwrap_or(0)
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_engine_set_player_view(yaw: f32, pitch: f32) -> u32 {
+    with_facade_engine(|engine| engine.set_player_view(yaw, pitch).map(|_| 1).unwrap_or(0))
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_engine_set_debug_camera(x: f32, y: f32, z: f32, yaw: f32, pitch: f32) -> u32 {
+    with_facade_engine(|engine| {
+        engine
+            .set_debug_camera(Vec3::new(x, y, z), yaw, pitch)
+            .map(|_| 1)
+            .unwrap_or(0)
+    })
+}
+
+#[no_mangle]
 pub extern "C" fn ofg_engine_update_player(
     delta_seconds: f32,
     terrain_height: f32,
@@ -123,6 +148,36 @@ pub extern "C" fn ofg_engine_update_player(
             )
             .map(|_| 1)
             .unwrap_or(0)
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_engine_preview_player_x(delta_seconds: f32) -> f32 {
+    with_facade_engine(|engine| {
+        engine
+            .preview_player_position(delta_seconds)
+            .map(|position| position.x)
+            .unwrap_or(f32::NAN)
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_engine_preview_player_y(delta_seconds: f32) -> f32 {
+    with_facade_engine(|engine| {
+        engine
+            .preview_player_position(delta_seconds)
+            .map(|position| position.y)
+            .unwrap_or(f32::NAN)
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_engine_preview_player_z(delta_seconds: f32) -> f32 {
+    with_facade_engine(|engine| {
+        engine
+            .preview_player_position(delta_seconds)
+            .map(|position| position.z)
+            .unwrap_or(f32::NAN)
     })
 }
 

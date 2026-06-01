@@ -1,6 +1,10 @@
 import { InputTracker } from "../engine/input/inputTracker.js";
+import {
+  EngineCoreWasmHandle,
+  loadEngineCoreWasm
+} from "../engine/core/engineCoreWasm.js";
 import { quatFromYawPitch } from "../engine/math/quat.js";
-import { vec3 } from "../engine/math/vec3.js";
+import { vec3, type Vec3 } from "../engine/math/vec3.js";
 import { vec4 } from "../engine/math/vec4.js";
 import { MATERIAL_FLAG_TRIPLANAR_ALBEDO, Material } from "../engine/render/Material.js";
 import { Mesh } from "../engine/render/Mesh.js";
@@ -46,6 +50,7 @@ import {
   type PlayerMovementIntent,
   type TransformSnapshot
 } from "../game/components/PlayerController.js";
+import { RustPlayerController } from "../game/components/RustPlayerController.js";
 import { TerrainDebugOverlayView } from "./terrainDebugOverlayView.js";
 
 type GameElements = {
@@ -64,6 +69,7 @@ declare global {
       getTerrainSeed: () => number;
       getTerrainStreamStatus: () => ReturnType<TerrainChunkStreamer["getStreamStatus"]>;
       getTerrainDebugOverlayMode: () => TerrainDebugOverlayState;
+      getPlayerControllerRuntime: () => "rust" | "typescript";
       setTerrainDebugOverlayMode: (mode: TerrainDebugOverlayState) => void;
       cycleTerrainDebugOverlayMode: () => TerrainDebugOverlayState;
       resetTerrainStreaming: () => void;
@@ -82,6 +88,7 @@ export async function startGame(elements: GameElements): Promise<void> {
   const descriptor = readWorldDescriptor();
   const field = createTerrainGenerator(descriptor);
   const terrainCore = await tryLoadTerrainCore();
+  const engineCore = await tryLoadEngineCore();
   const terrainWorker = terrainCore === undefined
     ? undefined
     : createTerrainChunkWorkerClient(descriptor);
@@ -120,6 +127,8 @@ export async function startGame(elements: GameElements): Promise<void> {
   const terrainEntity = scene.createEntity("Terrain");
   const playerMarkerEntity = scene.createEntity("Player marker");
   const cameraEntity = scene.createEntity("Camera");
+  const initialPlayerPosition = vec3(0, field.heightAt(0, 0), 0);
+  const initialDebugPosition = vec3(14, field.heightAt(0, 0) + 12, 18);
 
   scene.resources.addMesh(playerMarker);
   scene.resources.addTexture(terrainTextures.albedo);
@@ -149,13 +158,14 @@ export async function startGame(elements: GameElements): Promise<void> {
         : createTerrainCoreDensityChunkGenerator(terrainCore, descriptor)
     }
   ));
-  playerEntity.transform.setPosition(vec3(0, field.heightAt(0, 0), 0));
-  const playerController = playerEntity.addComponent(new PlayerController());
-  playerController.yaw = Math.PI * 0.18;
-  playerController.pitch = -0.08;
-  playerController.debugPosition = vec3(14, field.heightAt(0, 0) + 12, 18);
-  playerController.debugYaw = Math.PI * 1.24;
-  playerController.debugPitch = -0.48;
+  playerEntity.transform.setPosition(initialPlayerPosition);
+  const playerController = createPlayerController(
+    playerEntity,
+    engineCore,
+    initialPlayerPosition,
+    initialDebugPosition,
+    (x, z) => field.heightAt(x, z)
+  );
 
   const markerRenderer = playerMarkerEntity.addComponent(
     new MeshRenderer(playerMarker.id, playerMarkerMaterial.id)
@@ -172,6 +182,9 @@ export async function startGame(elements: GameElements): Promise<void> {
     getTerrainSeed: () => descriptor.seed,
     getTerrainStreamStatus: () => terrainStreamer.getStreamStatus(),
     getTerrainDebugOverlayMode: () => terrainDebugOverlay.getState(),
+    getPlayerControllerRuntime: () => playerController instanceof RustPlayerController
+      ? "rust"
+      : "typescript",
     setTerrainDebugOverlayMode(mode) {
       terrainDebugOverlay.setState(validateTerrainDebugOverlayState(mode));
       terrainDebugOverlay.render(field, playerEntity.transform.getWorldPosition());
@@ -192,14 +205,11 @@ export async function startGame(elements: GameElements): Promise<void> {
       syncCameraEntity(cameraEntity, playerController.getEyeTransform());
     },
     setDebugCamera(x, y, z, yaw, pitch) {
-      playerController.mode = "debugFly";
-      playerController.debugPosition = vec3(x, y, z);
-      playerController.debugYaw = yaw;
-      playerController.debugPitch = pitch;
+      setRuntimeDebugCamera(playerController, vec3(x, y, z), yaw, pitch);
       syncCameraEntity(cameraEntity, playerController.getEyeTransform());
     },
     setPlayerPosition(x, z) {
-      playerEntity.transform.setPosition(vec3(x, field.heightAt(x, z), z));
+      setRuntimePlayerPosition(playerController, playerEntity, vec3(x, field.heightAt(x, z), z));
       terrainStreamer.syncAround(playerEntity.transform.getWorldPosition());
       syncCameraEntity(cameraEntity, playerController.getEyeTransform());
       terrainDebugOverlay.render(field, playerEntity.transform.getWorldPosition());
@@ -265,6 +275,17 @@ async function tryLoadTerrainCore(): Promise<TerrainCoreWasmInstance | undefined
   }
 }
 
+async function tryLoadEngineCore(): Promise<EngineCoreWasmHandle | undefined> {
+  try {
+    const handle = new EngineCoreWasmHandle(await loadEngineCoreWasm());
+    handle.reset();
+    return handle;
+  } catch (error) {
+    console.warn("Rust/WASM engine core unavailable; falling back to TypeScript player controller.", error);
+    return undefined;
+  }
+}
+
 function readTerrainPreset(value: string | null): TerrainPresetId | undefined {
   if (value === null || value.trim() === "") {
     return undefined;
@@ -322,6 +343,65 @@ function validatePlayerMode(mode: string): PlayerMode {
   }
 
   throw new Error(`Unknown player camera mode '${mode}'.`);
+}
+
+function createPlayerController(
+  playerEntity: Entity,
+  engineCore: EngineCoreWasmHandle | undefined,
+  initialPlayerPosition: Vec3,
+  initialDebugPosition: Vec3,
+  terrainHeightAt: (x: number, z: number) => number | undefined
+): PlayerController | RustPlayerController {
+  if (engineCore !== undefined) {
+    return playerEntity.addComponent(new RustPlayerController(engineCore, {
+      initialPosition: initialPlayerPosition,
+      initialYaw: Math.PI * 0.18,
+      initialPitch: -0.08,
+      initialDebugPosition,
+      initialDebugYaw: Math.PI * 1.24,
+      initialDebugPitch: -0.48,
+      terrainHeightAt
+    }));
+  }
+
+  const playerController = playerEntity.addComponent(new PlayerController());
+  playerController.yaw = Math.PI * 0.18;
+  playerController.pitch = -0.08;
+  playerController.debugPosition = initialDebugPosition;
+  playerController.debugYaw = Math.PI * 1.24;
+  playerController.debugPitch = -0.48;
+
+  return playerController;
+}
+
+function setRuntimeDebugCamera(
+  playerController: PlayerController | RustPlayerController,
+  position: Vec3,
+  yaw: number,
+  pitch: number
+): void {
+  if (playerController instanceof RustPlayerController) {
+    playerController.setDebugCamera(position, yaw, pitch);
+    return;
+  }
+
+  playerController.mode = "debugFly";
+  playerController.debugPosition = position;
+  playerController.debugYaw = yaw;
+  playerController.debugPitch = pitch;
+}
+
+function setRuntimePlayerPosition(
+  playerController: PlayerController | RustPlayerController,
+  playerEntity: Entity,
+  position: Vec3
+): void {
+  if (playerController instanceof RustPlayerController) {
+    playerController.setPlayerPosition(position);
+    return;
+  }
+
+  playerEntity.transform.setPosition(position);
 }
 
 function meshFromData(id: string, data: MeshData): Mesh {

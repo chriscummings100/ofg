@@ -1,4 +1,5 @@
 use crate::*;
+use std::sync::{Mutex, OnceLock};
 
 #[test]
 fn entity_ids_reject_stale_generations_after_reuse() {
@@ -221,6 +222,10 @@ fn first_person_player_moves_and_grounds_against_terrain_height() {
         })
         .unwrap();
 
+    assert_vec3_near(
+        engine.preview_player_position(1.0).unwrap(),
+        Vec3::new(0.0, 0.0, 5.5),
+    );
     let eye = engine.update_player(1.0, Some(4.0)).unwrap();
 
     assert_vec3_near(engine.player_position().unwrap(), Vec3::new(0.0, 4.0, 5.5));
@@ -279,6 +284,23 @@ fn player_look_deltas_update_yaw_and_clamp_pitch() {
 }
 
 #[test]
+fn player_view_and_position_can_be_set_without_movement() {
+    let mut engine = Engine::new();
+    engine.create_player(Vec3::ZERO);
+
+    engine
+        .set_player_position(Vec3::new(5.0, 6.0, 7.0))
+        .unwrap();
+    engine.set_player_view(0.75, -0.5).unwrap();
+
+    assert_vec3_near(engine.player_position().unwrap(), Vec3::new(5.0, 6.0, 7.0));
+    let eye = engine.player_eye_transform().unwrap();
+    assert_vec3_near(eye.position, Vec3::new(5.0, 7.65, 7.0));
+    assert_close(eye.yaw, 0.75);
+    assert_close(eye.pitch, -0.5);
+}
+
+#[test]
 fn debug_fly_player_moves_without_grounding() {
     let mut engine = Engine::new();
     engine.create_player(Vec3::ZERO);
@@ -315,6 +337,8 @@ fn player_camera_mode_toggles_between_first_person_and_debug_fly() {
 
 #[test]
 fn wasm_facade_can_reset_engine_and_report_debug_state() {
+    let _facade_guard = lock_wasm_facade_tests();
+
     ofg_engine_create();
 
     assert_eq!(ofg_engine_core_version(), ENGINE_CORE_VERSION);
@@ -338,6 +362,8 @@ fn wasm_facade_can_reset_engine_and_report_debug_state() {
 
 #[test]
 fn wasm_facade_exposes_player_state_and_controls() {
+    let _facade_guard = lock_wasm_facade_tests();
+
     ofg_engine_create();
     let player = EntityId::from_raw(ofg_engine_create_player(0.0, 2.0, 0.0));
     let camera = EntityId::from_raw(ofg_engine_player_camera_entity());
@@ -349,15 +375,26 @@ fn wasm_facade_exposes_player_state_and_controls() {
     assert_eq!(ofg_engine_player_mode(), PlayerMode::FirstPerson.code());
 
     assert_eq!(ofg_engine_set_player_intent(1.0, 0.0, 0.0, 0, 0.0, 0.0), 1);
+    assert_close(ofg_engine_preview_player_z(1.0), 5.5);
     assert_eq!(ofg_engine_update_player(1.0, 4.0, 1), 1);
     assert_close(ofg_engine_player_z(), 5.5);
     assert_close(ofg_engine_player_y(), 4.0);
     assert_close(ofg_engine_player_eye_y(), 5.65);
 
-    assert_eq!(ofg_engine_toggle_player_mode(), PlayerMode::DebugFly.code());
+    assert_eq!(ofg_engine_set_player_position(2.0, 3.0, 4.0), 1);
+    assert_eq!(ofg_engine_set_player_view(0.75, -0.25), 1);
+    assert_close(ofg_engine_player_x(), 2.0);
+    assert_close(ofg_engine_player_eye_yaw(), 0.75);
+    assert_close(ofg_engine_player_eye_pitch(), -0.25);
+
+    assert_eq!(ofg_engine_set_debug_camera(7.0, 8.0, 9.0, 0.5, -0.4), 1);
+    assert_close(ofg_engine_player_eye_x(), 7.0);
+    assert_close(ofg_engine_player_eye_y(), 8.0);
+    assert_close(ofg_engine_player_eye_z(), 9.0);
+
     assert_eq!(ofg_engine_set_player_intent(0.0, 0.0, 1.0, 0, 0.0, 0.0), 1);
     assert_eq!(ofg_engine_update_player(1.0, 100.0, 1), 1);
-    assert_close(ofg_engine_player_eye_y(), 25.0);
+    assert_close(ofg_engine_player_eye_y(), 19.0);
     assert_eq!(ofg_engine_set_player_mode(99), 0);
 }
 
@@ -377,4 +414,13 @@ fn assert_close(actual: f32, expected: f32) {
         (actual - expected).abs() <= epsilon,
         "expected {actual} to be within {epsilon} of {expected}"
     );
+}
+
+fn lock_wasm_facade_tests() -> std::sync::MutexGuard<'static, ()> {
+    static FACADE_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    FACADE_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }

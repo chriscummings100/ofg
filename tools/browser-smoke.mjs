@@ -81,6 +81,8 @@ async function runBrowserSmoke(url) {
     assertPixelStats(firstScreenshot.stats, "first-person", consoleMessages);
     const initialTerrain = await readTerrainDebug(page);
     assertTerrainDebug(initialTerrain, "initial terrain");
+    const playerControllerRuntime = await readPlayerControllerRuntime(page);
+    assertPlayerControllerRuntime(playerControllerRuntime);
     const beforeResetStreamStatus = await readTerrainStreamStatus(page);
     await page.evaluate(() => window.__ofgDebug?.resetTerrainStreaming());
     await page.waitForFunction((previousGeneration) => {
@@ -134,6 +136,7 @@ async function runBrowserSmoke(url) {
       screenshots,
       firstHud,
       flyHud,
+      playerControllerRuntime,
       initialTerrain,
       resetTerrain,
       streamedTerrain,
@@ -157,6 +160,10 @@ async function readHud(page) {
   }));
 }
 
+async function readPlayerControllerRuntime(page) {
+  return page.evaluate(() => window.__ofgDebug?.getPlayerControllerRuntime?.() ?? "missing");
+}
+
 async function readTerrainDebug(page) {
   return page.evaluate(() => ({
     hasDebug: window.__ofgDebug !== undefined,
@@ -170,6 +177,12 @@ async function readTerrainStreamStatus(page) {
     generation: -1,
     pending: true
   });
+}
+
+function assertPlayerControllerRuntime(runtime) {
+  if (runtime !== "rust") {
+    throw new Error(`Expected Rust player controller runtime, saw '${runtime}'.`);
+  }
 }
 
 function assertHud(hud, expectedMode, consoleMessages) {

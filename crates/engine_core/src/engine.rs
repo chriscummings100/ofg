@@ -168,6 +168,14 @@ impl Engine {
         self.sync_player_camera()
     }
 
+    pub fn set_player_view(&mut self, yaw: f32, pitch: f32) -> Result<(), EngineError> {
+        let mut controller = self.player_controller()?;
+        controller.yaw = yaw;
+        controller.pitch = pitch.clamp(-controller.config.max_pitch, controller.config.max_pitch);
+        self.player_controller = Some(controller);
+        self.sync_player_camera()
+    }
+
     pub fn set_debug_camera(
         &mut self,
         position: Vec3,
@@ -197,6 +205,29 @@ impl Engine {
         self.player_eye_transform_for(self.player_controller()?)
     }
 
+    pub fn preview_player_position(&self, delta_seconds: f32) -> Result<Vec3, EngineError> {
+        validate_delta_seconds(delta_seconds)?;
+        let controller = self.player_controller()?;
+
+        match controller.mode {
+            PlayerMode::FirstPerson => self.preview_first_person_position_at_yaw(
+                controller,
+                controller.yaw
+                    - controller.intent.look_delta_x * controller.config.look_sensitivity,
+                delta_seconds,
+            ),
+            PlayerMode::DebugFly => Ok(controller.debug_position.add(debug_fly_movement(
+                controller,
+                controller.debug_yaw
+                    - controller.intent.look_delta_x * controller.config.look_sensitivity,
+                (controller.debug_pitch
+                    - controller.intent.look_delta_y * controller.config.look_sensitivity)
+                    .clamp(-controller.config.max_pitch, controller.config.max_pitch),
+                delta_seconds,
+            ))),
+        }
+    }
+
     pub fn update_player(
         &mut self,
         delta_seconds: f32,
@@ -212,20 +243,11 @@ impl Engine {
                 controller.pitch = (controller.pitch
                     - controller.intent.look_delta_y * controller.config.look_sensitivity)
                     .clamp(-controller.config.max_pitch, controller.config.max_pitch);
-                let current_position = self
-                    .world
-                    .local_transform(controller.rig.player_entity)?
-                    .translation;
-                let planar_move = yaw_pitch_forward(controller.yaw, 0.0)
-                    .scale(controller.intent.forward)
-                    .add(yaw_right(controller.yaw).scale(controller.intent.right))
-                    .normalize();
-                let movement = planar_move.scale(
-                    controller.config.move_speed
-                        * speed_multiplier(controller.intent)
-                        * delta_seconds,
-                );
-                let next_position = current_position.add(movement);
+                let next_position = self.preview_first_person_position_at_yaw(
+                    controller,
+                    controller.yaw,
+                    delta_seconds,
+                )?;
                 let grounded_position = Vec3::new(
                     next_position.x,
                     terrain_height.unwrap_or(next_position.y),
@@ -246,17 +268,12 @@ impl Engine {
                 controller.debug_pitch = (controller.debug_pitch
                     - controller.intent.look_delta_y * controller.config.look_sensitivity)
                     .clamp(-controller.config.max_pitch, controller.config.max_pitch);
-                let movement = yaw_pitch_forward(controller.debug_yaw, controller.debug_pitch)
-                    .scale(controller.intent.forward)
-                    .add(yaw_right(controller.debug_yaw).scale(controller.intent.right))
-                    .add(Vec3::UP.scale(controller.intent.up))
-                    .normalize()
-                    .scale(
-                        controller.config.debug_fly_speed
-                            * speed_multiplier(controller.intent)
-                            * delta_seconds,
-                    );
-                controller.debug_position = controller.debug_position.add(movement);
+                controller.debug_position = controller.debug_position.add(debug_fly_movement(
+                    controller,
+                    controller.debug_yaw,
+                    controller.debug_pitch,
+                    delta_seconds,
+                ));
             }
         }
 
@@ -282,6 +299,21 @@ impl Engine {
 
     fn player_controller(&self) -> Result<PlayerControllerState, EngineError> {
         self.player_controller.ok_or(EngineError::MissingPlayer)
+    }
+
+    fn preview_first_person_position_at_yaw(
+        &self,
+        controller: PlayerControllerState,
+        yaw: f32,
+        delta_seconds: f32,
+    ) -> Result<Vec3, EngineError> {
+        let current_position = self
+            .world
+            .local_transform(controller.rig.player_entity)?
+            .translation;
+        let movement = planar_movement(controller, yaw, delta_seconds);
+
+        Ok(current_position.add(movement))
     }
 
     fn sync_player_camera(&mut self) -> Result<(), EngineError> {
@@ -324,6 +356,30 @@ impl Engine {
             pitch: controller.pitch,
         })
     }
+}
+
+fn planar_movement(controller: PlayerControllerState, yaw: f32, delta_seconds: f32) -> Vec3 {
+    yaw_pitch_forward(yaw, 0.0)
+        .scale(controller.intent.forward)
+        .add(yaw_right(yaw).scale(controller.intent.right))
+        .normalize()
+        .scale(controller.config.move_speed * speed_multiplier(controller.intent) * delta_seconds)
+}
+
+fn debug_fly_movement(
+    controller: PlayerControllerState,
+    yaw: f32,
+    pitch: f32,
+    delta_seconds: f32,
+) -> Vec3 {
+    yaw_pitch_forward(yaw, pitch)
+        .scale(controller.intent.forward)
+        .add(yaw_right(yaw).scale(controller.intent.right))
+        .add(Vec3::UP.scale(controller.intent.up))
+        .normalize()
+        .scale(
+            controller.config.debug_fly_speed * speed_multiplier(controller.intent) * delta_seconds,
+        )
 }
 
 fn validate_delta_seconds(delta_seconds: f32) -> Result<(), EngineError> {

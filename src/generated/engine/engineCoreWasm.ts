@@ -12,7 +12,13 @@ export type EngineCoreWasmExportName =
   | "ofg_engine_set_player_mode"
   | "ofg_engine_toggle_player_mode"
   | "ofg_engine_set_player_intent"
+  | "ofg_engine_set_player_position"
+  | "ofg_engine_set_player_view"
+  | "ofg_engine_set_debug_camera"
   | "ofg_engine_update_player"
+  | "ofg_engine_preview_player_x"
+  | "ofg_engine_preview_player_y"
+  | "ofg_engine_preview_player_z"
   | "ofg_engine_update"
   | "ofg_engine_tick"
   | "ofg_engine_elapsed_seconds"
@@ -40,7 +46,7 @@ export const ENGINE_CORE_WASM_METADATA = Object.freeze({
   "sourceCrate": "crates/engine_core",
   "assetPath": "assets/wasm/engine_core.wasm",
   "target": "wasm32-unknown-unknown",
-  "artifactHash": "sha256-929c54beb8e8f0bdf48e5104f8009837b149bd2df44910bde934330d65fc72ce",
+  "artifactHash": "sha256-56bad36d0f4a1fbff89e31c1d247fa829013021daebd5be8ab7d926a2bb347db",
   "exports": [
     "memory",
     "ofg_engine_core_version",
@@ -53,7 +59,13 @@ export const ENGINE_CORE_WASM_METADATA = Object.freeze({
     "ofg_engine_set_player_mode",
     "ofg_engine_toggle_player_mode",
     "ofg_engine_set_player_intent",
+    "ofg_engine_set_player_position",
+    "ofg_engine_set_player_view",
+    "ofg_engine_set_debug_camera",
     "ofg_engine_update_player",
+    "ofg_engine_preview_player_x",
+    "ofg_engine_preview_player_y",
+    "ofg_engine_preview_player_z",
     "ofg_engine_update",
     "ofg_engine_tick",
     "ofg_engine_elapsed_seconds",
