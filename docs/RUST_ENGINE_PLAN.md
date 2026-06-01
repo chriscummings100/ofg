@@ -4,6 +4,12 @@ This is the plan for moving OFG from a TypeScript-owned browser prototype to a
 Rust-owned engine that runs in the browser through WebAssembly and uses Rust for
 WebGPU rendering.
 
+This document is a living migration record. Treat it as shared memory for the
+Rust-first engine direction: update it when phases start, finish, change shape,
+or get blocked, and record why meaningful pivots happen. If an AI agent resumes
+after context compaction, or is unsure about engine ownership or the next Rust
+migration step, it must reread this document before continuing implementation.
+
 The direction is intentionally Rust-first. TypeScript should become browser shell
 and UI glue, not the long-term home for scene state, world simulation, streaming,
 or rendering architecture.
