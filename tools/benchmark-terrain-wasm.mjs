@@ -52,6 +52,23 @@ const fillAndCopy = benchmark("fillAndCopy", scenarios, (scenario) => {
   const copy = new Float32Array(densityBuffer);
   return copy[0] + copy[32768] + copy[copy.length - 1];
 });
+console.log("Running neighbor-apron fill benchmark...");
+const apronFillOnly = benchmark("apronFillOnly", scenarios, (scenario) => {
+  let checksum = 0;
+  for (const chunk of neighborApronChunks(scenario.chunk)) {
+    terrain.ofg_fill_density_chunk(
+      scenario.seed,
+      scenario.presetCode,
+      chunk.x,
+      chunk.y,
+      chunk.z,
+      scenario.cellSize
+    );
+    checksum += densityBuffer[0] + densityBuffer[32768] + densityBuffer[sampleCount - 1];
+  }
+
+  return checksum;
+});
 console.log("Running mesh-build-plus-copy benchmark...");
 const meshBuildAndCopy = benchmark("meshBuildAndCopy", scenarios, (scenario) => {
   terrain.ofg_build_chunk_mesh(
@@ -77,6 +94,14 @@ const meshBuildAndCopy = benchmark("meshBuildAndCopy", scenarios, (scenario) => 
 
   return vertexCopy.length + indexCopy.length + (vertexCopy[0] ?? 0) + (indexCopy[0] ?? 0);
 }, meshIterations);
+const phaseEstimate = {
+  medianApronDensityShareOfMesh:
+    meshBuildAndCopy.medianMs <= 0 ? 0 : apronFillOnly.medianMs / meshBuildAndCopy.medianMs,
+  medianMeshResidualMs: Math.max(0, meshBuildAndCopy.medianMs - apronFillOnly.medianMs),
+  meanApronDensityShareOfMesh:
+    meshBuildAndCopy.meanMs <= 0 ? 0 : apronFillOnly.meanMs / meshBuildAndCopy.meanMs,
+  meanMeshResidualMs: Math.max(0, meshBuildAndCopy.meanMs - apronFillOnly.meanMs)
+};
 const report = {
   benchmark: "terrain-wasm-chunk-pipeline",
   assetPath,
@@ -93,8 +118,10 @@ const report = {
   results: {
     fillOnly,
     fillAndCopy,
+    apronFillOnly,
     meshBuildAndCopy
   },
+  phaseEstimate,
   scenarios
 };
 const absoluteOutputPath = resolve(root, outputPath);
@@ -105,7 +132,9 @@ writeFileSync(absoluteOutputPath, `${JSON.stringify(report, null, 2)}\n`);
 console.log(`Terrain WASM chunk benchmark (${scenarios.length * iterations} density chunks)`);
 console.log(`  fill only:    median ${formatMs(fillOnly.medianMs)} ms/chunk, p95 ${formatMs(fillOnly.p95Ms)}, mean ${formatMs(fillOnly.meanMs)}`);
 console.log(`  fill + copy:  median ${formatMs(fillAndCopy.medianMs)} ms/chunk, p95 ${formatMs(fillAndCopy.p95Ms)}, mean ${formatMs(fillAndCopy.meanMs)}`);
+console.log(`  apron fill:   median ${formatMs(apronFillOnly.medianMs)} ms/mesh, p95 ${formatMs(apronFillOnly.p95Ms)}, mean ${formatMs(apronFillOnly.meanMs)}`);
 console.log(`  mesh + copy:  median ${formatMs(meshBuildAndCopy.medianMs)} ms/chunk, p95 ${formatMs(meshBuildAndCopy.p95Ms)}, mean ${formatMs(meshBuildAndCopy.meanMs)}`);
+console.log(`  estimated residual after apron density: median ${formatMs(phaseEstimate.medianMeshResidualMs)} ms/chunk (${formatPercent(1 - phaseEstimate.medianApronDensityShareOfMesh)} of median mesh time)`);
 console.log(`Report: ${absoluteOutputPath}`);
 
 function buildScenarios() {
@@ -172,6 +201,23 @@ function fillChunk(terrain, scenario) {
     scenario.chunk.z,
     scenario.cellSize
   );
+}
+
+function neighborApronChunks(chunk) {
+  const chunks = [];
+  for (let dz = 0; dz <= 1; dz += 1) {
+    for (let dy = 0; dy <= 1; dy += 1) {
+      for (let dx = 0; dx <= 1; dx += 1) {
+        chunks.push({
+          x: chunk.x + dx,
+          y: chunk.y + dy,
+          z: chunk.z + dz
+        });
+      }
+    }
+  }
+
+  return chunks;
 }
 
 function validateTerrainExports(exports) {
@@ -262,4 +308,8 @@ function readPositiveNumberArg(name) {
 
 function formatMs(value) {
   return value.toFixed(3);
+}
+
+function formatPercent(value) {
+  return `${(value * 100).toFixed(1)}%`;
 }
