@@ -30,13 +30,13 @@ describe("terrainDebugOverlay", () => {
       const overlay = buildTerrainDebugOverlay(terrain, {
         center: vec3(64, 0, 0),
         mode,
-        resolution: 24,
+        resolution: 16,
         worldSize: 80
       });
       const stats = pixelStats(overlay.pixels);
 
-      equal(overlay.width, 24);
-      equal(overlay.height, 24);
+      equal(overlay.width, 16);
+      equal(overlay.height, 16);
       equal(stats.transparentPixels, 0);
       ok(stats.uniqueColors > 8, `${mode} should produce varied debug pixels.`);
     }

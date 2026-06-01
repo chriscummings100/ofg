@@ -7,7 +7,9 @@
     "clean": "node tools/clean-dist.mjs",
     "build:shaders": "node tools/build-shaders.mjs",
     "check:shaders": "node tools/build-shaders.mjs --check",
-    "build": "npm run clean && npm run build:shaders && tsc -p tsconfig.json",
+    "build:wasm": "node tools/build-terrain-wasm.mjs",
+    "check:wasm": "node tools/build-terrain-wasm.mjs --check",
+    "build": "npm run clean && npm run build:shaders && npm run build:wasm && tsc -p tsconfig.json",
     "test": "npm run build && mocha \"dist/**/*.test.js\"",
     "dev": "npm run build && node tools/dev-server.mjs",
     "smoke:browser": "npm run build && node tools/browser-smoke.mjs",
@@ -15,7 +17,7 @@
     "smoke:terrain-seams": "npm run build && node tools/terrain-seam-smoke.mjs",
     "smoke:terrain-variation": "npm run build && node tools/terrain-variation-smoke.mjs",
     "smoke:terrain-presets": "npm run build && node tools/terrain-preset-smoke.mjs",
-    "watch": "npm run build:shaders && tsc -p tsconfig.json --watch"
+    "watch": "npm run build:shaders && npm run build:wasm && tsc -p tsconfig.json --watch"
   },
   "devDependencies": {
     "mocha": "^11.7.6",

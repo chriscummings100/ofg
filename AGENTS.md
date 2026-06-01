@@ -15,6 +15,8 @@ The current playable seed is still simple:
 - Chunk-streamed generated terrain from 3D density chunks.
 - Runtime terrain meshed as per-chunk neighbor-aware Dual Contouring chunks.
 - Poly Haven terrain materials rendered from global WebGPU texture arrays.
+- First Rust/WASM terrain core artifact with golden tests against the TypeScript
+  terrain generator.
 - First-person camera/player movement.
 - Debug fly camera toggled with `C` or `F1`.
 - A yellow player marker visible in debug fly mode.
@@ -44,6 +46,8 @@ npm run clean
 npm run build
 npm run build:shaders
 npm run check:shaders
+npm run build:wasm
+npm run check:wasm
 npm test
 npm run smoke:browser
 npm run dev
@@ -94,7 +98,14 @@ src/engine/render/shaders
   `tsc` runs.
 
 src/generated
-  Deterministic generated TypeScript artifacts, currently shader source modules.
+  Deterministic generated TypeScript artifacts, currently shader source modules
+  and Rust/WASM terrain artifact metadata.
+
+crates/terrain_core
+  Rust terrain core built to wasm32-unknown-unknown. The first slice mirrors
+  TypeScript macro base elevation, density, and compatibility height sampling.
+  Keep migrated terrain slices golden-tested against TypeScript until a Rust path
+  is intentionally promoted as source of truth.
 
 src/game/components
   Game-level components such as PlayerController and TerrainChunkStreamer.
@@ -139,7 +150,8 @@ Current test areas include:
   contract.
 - World terrain: simplex noise generation, 3D density chunks, baseline field
   sampling, terrain edits, Dual Contouring meshing, highest-surface legacy meshing,
-  chunk streaming, heightfield and primitive meshes.
+  chunk streaming, heightfield and primitive meshes, Rust/WASM terrain core
+  golden fixtures.
 - Gameplay/input: player controller and input tracker.
 - Browser smoke: actual Chrome/Edge WebGPU render, screenshots, pixel checks, HUD
   camera toggle verification, and a basic player-position chunk streaming check.

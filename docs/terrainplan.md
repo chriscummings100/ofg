@@ -9,8 +9,9 @@ terrain to a high-grade procedural terrain system. It is based on
 - [Erosion, rivers, caves, materials, texturing, and art layers](terraingenresearch.md#erosion-rivers-caves-materials-texturing-and-art-layers)
 - [Implementation plan and validation](terraingenresearch.md#implementation-plan-and-validation)
 
-This document is the continuity source for terrain work. Progress notes must be
-updated as milestones are started, changed, completed, deferred, or blocked. If an
+This document is the continuity source for terrain work. Treat it as a cared-for
+shared memory: progress notes must be updated as milestones are started, changed,
+completed, deferred, or blocked, including the reason for meaningful pivots. If an
 AI agent resumes after context compaction, or is unsure what terrain work was last
 planned, it must reread this plan before continuing implementation.
 
@@ -69,6 +70,13 @@ Supported:
   screenshots.
 - Debug overlays for macro elevation, mountainness, slope, normal, density slice,
   material weights, QEF error, and chunk borders.
+- A first Rust terrain core crate at `crates/terrain_core`, built to
+  `wasm32-unknown-unknown` and emitted as `assets/wasm/terrain_core.wasm`.
+- Deterministic generated TypeScript metadata for the terrain WASM artifact.
+- Rust/WASM exports for terrain core versioning, preset count, macro base
+  elevation, density, and compatibility height sampling.
+- Cross-language golden tests that instantiate the WASM artifact in Node and
+  compare Rust density/height samples with the current TypeScript generator.
 
 Partially supported or placeholder-only:
 
@@ -88,6 +96,9 @@ Partially supported or placeholder-only:
 - Terrain variation screenshots now prove several material and biome-weight
   regions exist, but the result is still early and needs better regional
   composition.
+- The Rust core currently mirrors scalar-field sampling only. Runtime chunk
+  streaming, material classification, biome sampling, density chunk filling, Dual
+  Contouring meshing, and mesh upload still run through the TypeScript path.
 
 Not yet supported:
 
@@ -102,6 +113,9 @@ Not yet supported:
 - Caves, arches, tunnels, overhang-focused volumetric features, or cave entrance
   placement.
 - Far-field terrain, LOD, LOD transition meshes, or chunk-priority scheduling.
+- Runtime use of the Rust/WASM terrain core for chunk generation or meshing.
+- Worker-backed terrain generation, cancellation, priority queues, or saveable
+  human-facing terrain tuning knobs.
 - Terrain collision/grounding based on the generated mesh. Player grounding still
   uses a compatibility `heightAt(x, z)` query.
 - High-quality sharp-feature Dual Contouring. QEF placement is guarded and
@@ -114,9 +128,14 @@ Current believability gap:
 - The main missing layer is regional structure with stronger composition:
   hydrology-informed wetness and river corridors, better biome province shaping,
   and geology/strata that explains cliffs, badlands, talus, and rock color.
-- The next visible win should be stronger biome/debug tooling plus water and
-  hydrology masks, so wetland/coast/beach areas and dry uplands are shaped by
-  more than local noise.
+- The immediate blocker is iteration speed and view distance. Human material and
+  biome tuning will not be productive while changing one number takes seconds and
+  the camera can only inspect a few chunks.
+- The next visible win should therefore be realtime terrain iteration: move the
+  expensive chunk sampling/meshing path behind Rust/WASM, add generation timing
+  counters, widen the visible terrain window, then expose saveable tuning knobs.
+  Hydrology and better biome composition remain the next believability layer once
+  the terrain can regenerate fast enough to tune.
 
 ## Target Data Flow
 
@@ -195,45 +214,53 @@ landmarks, not for every generated sample.
 | 8 | Caves and local volumes | Tunnel graph plus 3D noise carving | Navigable caves and natural entrances |
 | 9 | Streaming and LOD | Chunk scheduler, caches, LOD/seam transition plan | Free-flight remains hole-free within budget |
 | 10 | Presentation layers | Vegetation masks, water rendering, atmosphere improvements | Terrain reads at multiple scales |
-| 11 | Optimisation path | Profiling, budgets, Rust/WASM decision gates | Generation and rendering meet target budgets |
+| 11 | Realtime Rust/WASM terrain path | Rust/WASM hot paths, profiling, worker scheduling, tuning persistence | Terrain edits and tuning regenerate fast enough for human iteration |
 
-## Recommended Next Slice: Believable Variation
+## Recommended Next Slice: Realtime Terrain Iteration
 
-Goal: make the world visibly read as varied terrain rather than one noisy material
-field. This should be implemented before caves, LOD, or full erosion.
+Goal: make terrain regeneration fast enough that a human can tune believable,
+varying terrain by feel. This should happen before more biome/material/hydrology
+polish, because slow feedback makes every knob hard to judge.
 
 Proposed order:
 
-1. Add a terrain variation survey tool.
-   - Sample a broad grid across each terrain preset and several seeds.
-   - Score points by macro values, surface height, slope, current material weights,
-     temperature, moisture, and future biome weights.
-   - Pick representative camera targets for grassland, forest-capable slopes,
-     dry/badland areas, wet/coastal lowlands, alpine/snow, steep cliffs, and rocky
-     highlands.
-   - Capture screenshots and write a JSON report with the sampled channel values.
-   - Validation: the report should prove that the screenshots are taken from
-     materially different sampled conditions, not arbitrary coordinates.
-2. Implement the first real biome solver.
-   - Replace the current single `temperateGrassland` output with weighted biome
-     archetypes driven by temperature, moisture, altitude, continentality,
-     mountainness, slope, and province noise.
-   - Start without rivers, but leave drainage/wetness as an input slot.
-   - Validation: biome weights sum to 1, transition smoothly, and have screenshot
-     heatmaps.
-3. Rework material classification to consume biome weights.
-   - Grassland, forest, wetland/coast, badland/dry, alpine, cliff, and snow/rock
-     areas should choose visibly different material mixes.
-   - Validation: material-weight overlay and browser screenshots should show
-     region-level differences, not only local slope differences.
-4. Apply terrain normal maps in shading.
-   - This is a strong surface-quality boost after the regional choices are clear.
-   - Validation: browser screenshots should show more tactile detail without
-     breaking lighting or introducing shimmering.
+1. Add a focused benchmark/profiling harness for the current terrain hot path.
+   - Measure density chunk fill, Hermite extraction, QEF placement, mesh buffer
+     emission, GPU upload preparation, active chunk count, and triangles.
+   - Write machine-readable JSON for fixed seeds, presets, and camera paths.
+   - Validation: budgets are explicit enough that future Rust/WASM migrations can
+     prove they helped.
+2. Move density chunk sampling into Rust/WASM.
+   - Export a flat chunk-fill API that writes the 33x33x33 density/gradient sample
+     layout needed by `TerrainChunk`.
+   - Keep TypeScript as the reference implementation and compare full chunk
+     fixtures at boundaries, negative coordinates, and multiple presets.
+   - Validation: Rust/WASM density chunks match TypeScript fixtures and reduce
+     chunk generation time.
+3. Wire Rust/WASM density chunks into runtime streaming behind a narrow adapter.
+   - Keep the existing scene/component/render boundaries.
+   - Add a fallback path to the TypeScript generator while the migration is young.
+   - Validation: browser smoke remains visually stable and chunk seam tests still
+     pass.
+4. Move Dual Contouring meshing hot paths next if profiling still shows chunk
+   rebuilds are too slow.
+   - Start with Hermite extraction and QEF placement, then mesh buffer emission.
+   - Validation: mesh summaries and seam ownership match TypeScript golden
+     fixtures before runtime promotion.
+5. Add worker-backed scheduling and cache budgets.
+   - Main thread should stop blocking on expensive terrain rebuilds.
+   - Add priority queues, cancellation for stale camera positions, and cache
+     eviction before increasing view distance aggressively.
+   - Validation: free-flight remains hole-free while visible radius increases.
+6. Add a terrain tuning panel with save/load only after regeneration is responsive.
+   - Knobs should cover seed, preset, macro scales, ridge strength, detail
+     amplitude, biome/material weights, and later hydrology.
+   - Validation: saved descriptors reproduce the same terrain and screenshots.
 
-Do not start with full hydraulic erosion. Add hydrology next only after biome and
-material screenshots prove that the existing field stack can produce readable
-regional variation.
+After that, return to believable variation work: biome heatmap overlays,
+hydrology/wet corridors, geological strata, normal-map shading, and broader
+material art direction. The artistic work will go much better once the engine can
+answer back quickly.
 
 Progress notes:
 
@@ -241,6 +268,7 @@ Progress notes:
 |---|---|---|
 | 2026-06-01 | In progress | Added `?terrainSeed=` support and `npm run smoke:terrain-variation`. The smoke samples all current terrain presets across seeds `246`, `7001`, `112358`, and `424242`, scores representative meadow, wet lowland, dry soil, mossy ridge, rocky slope, and red cliff targets, captures browser screenshots, and writes a report with macro/biome/material evidence. |
 | 2026-06-01 | In progress | Added the first weighted biome solver and made the variation smoke require at least three distinct dominant biome regions. Current captures include grassland, wetland, dry badland, and high mountain rock evidence. Next work should add biome heatmap overlays and hydrology/water shaping. |
+| 2026-06-01 | Pivoted | Screenshots still read too similar, but further material tuning is blocked by slow iteration and short view distance. The recommended next slice is now Rust/WASM-backed realtime terrain generation, then tuning knobs and save/load, then renewed biome/hydrology/material polish. |
 
 ## Milestone 1: Generator Core
 
@@ -607,6 +635,9 @@ Research basis:
 
 Implementation:
 
+- Treat realtime chunk generation as a prerequisite for widening the view window.
+  Farther terrain is only useful if chunks can be generated, meshed, uploaded,
+  and evicted without blocking the camera loop.
 - Keep 32-cell chunks as the default active brick size.
 - Add chunk priority scheduling:
   - near chunks
@@ -675,11 +706,30 @@ Progress notes:
 
 ## Milestone 11: Optimisation And Rust/WASM Gates
 
-Goal: keep the TypeScript implementation correct and inspectable, then migrate hot
-paths only when there is evidence.
+Goal: make terrain generation fast enough that artists, designers, and developers
+can tune believable terrain in realtime.
+
+Pivot:
+
+- As of 2026-06-01, Rust/WASM is no longer a distant migration gate. It is the
+  next enabling layer because terrain tuning is blocked by slow chunk generation
+  and a too-small loaded view distance.
+- TypeScript remains the reference implementation until each Rust/WASM slice has
+  golden tests. The migration should proceed one hot path at a time, with clear
+  contracts and measured budgets.
 
 Implementation:
 
+- Keep the Rust terrain core small and dependency-light while contracts are still
+  moving.
+- Maintain deterministic generated WASM artifacts under `assets/wasm` with
+  generated TypeScript metadata under `src/generated`.
+- Move the terrain hot path in slices:
+  - scalar field sampling and compatibility height queries
+  - density chunk sampling into flat typed arrays
+  - material/biome sample channels needed by meshing and debug overlays
+  - Dual Contouring Hermite extraction, QEF placement, and mesh buffer emission
+  - worker-backed scheduling, cancellation, and result transfer
 - Add profiling HUD or debug stats:
   - density sample time
   - chunk generation time
@@ -689,32 +739,42 @@ Implementation:
   - active chunk count
   - memory estimate
 - Add benchmark scripts for fixed seeds and camera paths.
-- Decide Rust/WASM migration only after APIs are stable.
-- Candidate migration paths:
-  - noise/macro sampling
-  - density chunk sampling
-  - Dual Contouring meshing
-  - hydrology preprocessing
+- Add explicit budgets for a tuning-friendly loop:
+  - changing a terrain number should show a nearby terrain update in well under a
+    second on the development machine
+  - visible view distance should expand beyond the current few chunks without
+    hitching
+  - expensive chunk work should happen off the main thread before serious tuning
+    UI work begins
+- Add save/load for tuning descriptors only after regeneration is responsive
+  enough to make saved knobs meaningful.
 
 Tests:
 
 - Benchmark scripts produce machine-readable JSON.
 - Performance budgets are explicit and versioned.
-- Rust/WASM output, if introduced, must match TypeScript golden fixtures.
+- Rust/WASM output must match TypeScript golden fixtures until the Rust path is
+  intentionally promoted as the source of truth.
+- `npm run check:wasm` verifies generated WASM metadata and asset freshness.
+- `cargo test -p terrain_core` validates Rust-side deterministic terrain logic.
+- Cross-language tests instantiate the generated WASM artifact and compare golden
+  density, height, and later chunk/mesh fixtures.
 - Browser smoke remains the final integration gate.
 
 Progress notes:
 
 | Date | Status | Notes |
 |---|---|---|
-| | Not started | |
+| 2026-06-01 | Started | Realtime-first pivot accepted. Added `crates/terrain_core`, `tools/build-terrain-wasm.mjs`, generated `assets/wasm/terrain_core.wasm`, and TypeScript WASM metadata/loader tests. The first Rust slice mirrors macro base elevation, density, and compatibility height sampling and is golden-tested against the TypeScript terrain generator. |
 
 ## Cross-Cutting Validation
 
 Every terrain milestone should preserve these checks:
 
 - `npm test`
+- `cargo test -p terrain_core` when Rust terrain code changes
 - `npm run check:shaders` when shader artifacts change
+- `npm run check:wasm` when Rust/WASM terrain artifacts change
 - `npm run smoke:browser` for visual, camera, render, streaming, material, or
   browser integration changes
 - `git diff --check`
@@ -751,4 +811,4 @@ would make the system harder for AI agents to understand and test.
 | OpenSimplex2 vs current Simplex only? | Current Simplex first, add variants if needed | Avoid algorithm churn before debug tools. |
 | Material weights in vertex data or chunk side buffer? | Start with vertex data | Simpler for current renderer. |
 | Terrain collision source? | Near render mesh first, then simplified collision mesh | Needs player movement upgrade. |
-| When Rust/WASM? | After mesher and field contracts stabilize | Must be golden-tested against TypeScript. |
+| When Rust/WASM? | Now for terrain hot paths | Realtime iteration is blocking believable terrain tuning; every migrated slice still needs golden tests against TypeScript until promoted. |

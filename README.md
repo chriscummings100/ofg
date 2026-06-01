@@ -16,8 +16,8 @@ The first playable milestone is intentionally small:
 - Deterministic engine code with tests.
 
 The current seed implements chunk-streamed generated terrain with per-chunk
-neighbor-aware Dual Contouring, Poly Haven terrain texture arrays, and the
-camera/player loop in TypeScript.
+neighbor-aware Dual Contouring, Poly Haven terrain texture arrays, a first
+Rust/WASM terrain core artifact, and the camera/player loop in TypeScript.
 
 ## Commands
 
@@ -25,21 +25,27 @@ camera/player loop in TypeScript.
 npm run build
 npm run build:shaders
 npm run check:shaders
+npm run build:wasm
+npm run check:wasm
 npm test
 npm run dev
 npm run smoke:browser
 ```
 
 The dev server serves the built app at `http://127.0.0.1:5173`. `npm run build`
-generates shader artifacts before running TypeScript. Run it after source changes,
-or keep `npm run watch` open in another terminal.
+generates shader and Rust/WASM terrain artifacts before running TypeScript. Run it
+after source changes, or keep `npm run watch` open in another terminal.
 
 ## Project Shape
 
 - `src/engine`: deterministic engine modules that should stay easy to unit test.
 - `src/app`: browser lifecycle, input, and game loop glue.
 - `src/platform`: temporary local type shims for platform APIs.
-- `src/generated`: deterministic generated TypeScript artifacts, currently shaders.
+- `src/generated`: deterministic generated TypeScript artifacts for shaders and
+  WASM terrain metadata.
+- `crates/terrain_core`: Rust terrain code built to WebAssembly for hot terrain
+  generation paths.
+- `assets/wasm`: checked-in generated WebAssembly artifacts used by the browser.
 - `docs`: roadmap, architecture notes, and AI workflow guidance.
 - `tools`: small repository scripts with no framework dependency.
 
