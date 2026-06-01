@@ -95,11 +95,17 @@ export async function startGame(elements: GameElements): Promise<void> {
   const terrainWorker = terrainCore === undefined
     ? undefined
     : createTerrainChunkWorkerClient(descriptor);
-  const terrainStreamConfig = {
-    horizontalRadius: 1,
-    verticalChunkOffsets: [-2, -1, 0, 1],
-    cellSize: 1
-  } as const;
+  const terrainStreamConfig = terrainCore === undefined
+    ? {
+        horizontalRadius: 0,
+        verticalChunkOffsets: [0],
+        cellSize: 1
+      } as const
+    : {
+        horizontalRadius: 1,
+        verticalChunkOffsets: [-2, -1, 0, 1],
+        cellSize: 1
+      } as const;
   const terrainStreamScheduler = terrainCore === undefined || terrainWorker === undefined
     ? undefined
     : createTerrainCoreStreamScheduler(terrainCore, {

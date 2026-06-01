@@ -17,6 +17,8 @@ The command:
 - Saves screenshots under `artifacts/browser-smoke/`.
 - Reads HUD state from the page.
 - Samples screenshot pixels to catch blank or solid-fill frames.
+- Reloads the already-running page, waits for terrain to settle again, captures a
+  refreshed first-person screenshot, and fails on black or blank refresh frames.
 - Presses `C` and verifies the camera mode changes from `FIRST` to `FLY`.
 - Returns to first-person, moves the player across terrain chunk columns through
   the debug hook, verifies streamed chunk keys, and captures a streamed view.
@@ -31,6 +33,8 @@ The command:
 
 - WebGPU unavailable in the selected browser.
 - Blank, transparent, or nearly solid-color frames.
+- Refresh-only black screens, including stale browser-cache or teardown/restart
+  regressions that do not appear on a fresh first load.
 - Regressions where the first-person scene is hidden by the player marker.
 - HUD mode not matching expected camera state.
 - Keyboard toggle regressions for the debug fly camera.

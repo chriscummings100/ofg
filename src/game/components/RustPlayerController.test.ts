@@ -119,6 +119,29 @@ describe("RustPlayerController", () => {
     assertClose(player.transform.position.z, 0);
     ok(engine.hasPlayer());
   });
+
+  it("recovers if the Rust engine loses its player between browser frames", async () => {
+    const scene = resetScene();
+    const engine = await loadEngineHandle();
+    const player = scene.createEntity("Player");
+    const controller = player.addComponent(new RustPlayerController(engine, {
+      initialPosition: vec3(0, 0, 0)
+    }));
+    controller.setMovementIntent({
+      forward: 1,
+      right: 0,
+      up: 0,
+      fast: false,
+      lookDeltaX: 0,
+      lookDeltaY: 0
+    });
+
+    engine.reset();
+    scene.update(1);
+
+    ok(engine.hasPlayer());
+    assertClose(player.transform.position.z, 5.5);
+  });
 });
 
 async function loadEngineHandle(): Promise<EngineCoreWasmHandle> {

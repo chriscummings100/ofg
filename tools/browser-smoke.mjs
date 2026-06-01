@@ -60,19 +60,9 @@ async function runBrowserSmoke(url) {
     });
 
     await page.goto(url, { waitUntil: "load" });
-    await page.waitForSelector("#camera-mode");
-    await page.waitForFunction(() => {
-      const mode = document.querySelector("#camera-mode")?.textContent;
-      const frameTime = document.querySelector("#frame-time")?.textContent;
-      return mode === "WEBGPU" || (mode === "FIRST" && frameTime !== "0.0 ms");
-    }, null, { timeout: 10000 });
-    await page.waitForFunction(() => {
-      const debug = window.__ofgDebug;
-      return debug !== undefined &&
-        debug.getTerrainChunkKeys().length > 0 &&
-        debug.getTerrainStreamStatus().pending === false;
-    }, null, { timeout: 10000 });
+    await waitForPlayableTerrain(page);
     await page.waitForTimeout(250);
+    assertNoBrowserFailures(consoleMessages);
 
     const firstHud = await readHud(page);
     assertHud(firstHud, "FIRST", consoleMessages);
@@ -85,6 +75,22 @@ async function runBrowserSmoke(url) {
     assertPlayerControllerRuntime(playerControllerRuntime);
     const terrainStreamRuntime = await readTerrainStreamRuntime(page);
     assertTerrainStreamRuntime(terrainStreamRuntime);
+
+    await page.reload({ waitUntil: "load" });
+    await waitForPlayableTerrain(page);
+    await page.waitForTimeout(250);
+    assertNoBrowserFailures(consoleMessages);
+
+    const refreshedHud = await readHud(page);
+    assertHud(refreshedHud, "FIRST", consoleMessages);
+    const refreshedScreenshot = await saveScreenshot(page, "refreshed-first-person.png");
+    screenshots.push(refreshedScreenshot.path);
+    assertPixelStats(refreshedScreenshot.stats, "refreshed-first-person", consoleMessages);
+    const refreshedTerrain = await readTerrainDebug(page);
+    assertTerrainDebug(refreshedTerrain, "refreshed terrain");
+    const refreshedTerrainStreamRuntime = await readTerrainStreamRuntime(page);
+    assertTerrainStreamRuntime(refreshedTerrainStreamRuntime);
+
     const beforeResetStreamStatus = await readTerrainStreamStatus(page);
     await page.evaluate(() => window.__ofgDebug?.resetTerrainStreaming());
     await page.waitForFunction((previousGeneration) => {
@@ -102,6 +108,7 @@ async function runBrowserSmoke(url) {
     await page.keyboard.press("KeyC");
     await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "FLY");
     await page.waitForTimeout(250);
+    assertNoBrowserFailures(consoleMessages);
 
     const flyHud = await readHud(page);
     assertHud(flyHud, "FLY", consoleMessages);
@@ -123,6 +130,7 @@ async function runBrowserSmoke(url) {
         debug.getTerrainStreamStatus().pending === false;
     }, null, { timeout: 10000 });
     await page.waitForTimeout(250);
+    assertNoBrowserFailures(consoleMessages);
 
     const streamedTerrain = await readTerrainDebug(page);
     assertTerrainDebug(streamedTerrain, "streamed terrain");
@@ -137,13 +145,16 @@ async function runBrowserSmoke(url) {
       headed,
       screenshots,
       firstHud,
+      refreshedHud,
       flyHud,
       playerControllerRuntime,
-      terrainStreamRuntime,
+      terrainStreamRuntime: refreshedTerrainStreamRuntime,
       initialTerrain,
+      refreshedTerrain,
       resetTerrain,
       streamedTerrain,
       firstPixelStats: firstScreenshot.stats,
+      refreshedPixelStats: refreshedScreenshot.stats,
       streamedPixelStats: streamedScreenshot.stats,
       flyPixelStats: flyScreenshot.stats,
       consoleMessages
@@ -151,6 +162,21 @@ async function runBrowserSmoke(url) {
   } finally {
     await browser.close();
   }
+}
+
+async function waitForPlayableTerrain(page) {
+  await page.waitForSelector("#camera-mode");
+  await page.waitForFunction(() => {
+    const mode = document.querySelector("#camera-mode")?.textContent;
+    const frameTime = document.querySelector("#frame-time")?.textContent;
+    return mode === "WEBGPU" || (mode === "FIRST" && frameTime !== "0.0 ms");
+  }, null, { timeout: 10000 });
+  await page.waitForFunction(() => {
+    const debug = window.__ofgDebug;
+    return debug !== undefined &&
+      debug.getTerrainChunkKeys().length > 0 &&
+      debug.getTerrainStreamStatus().pending === false;
+  }, null, { timeout: 10000 });
 }
 
 async function readHud(page) {
@@ -202,6 +228,17 @@ function assertTerrainStreamRuntime(runtime) {
 
   if (runtime.workerCount <= 0) {
     throw new Error(`Expected terrain workers to be active: ${JSON.stringify(runtime)}`);
+  }
+}
+
+function assertNoBrowserFailures(consoleMessages) {
+  const failures = consoleMessages.filter((message) =>
+    message.startsWith("pageerror:") ||
+    message.startsWith("error:") ||
+    message.includes("Rust engine rejected")
+  );
+  if (failures.length > 0) {
+    throw new Error(`Browser reported runtime failures: ${JSON.stringify(failures)}`);
   }
 }
 

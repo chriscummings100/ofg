@@ -40,6 +40,7 @@ createServer((request, response) => {
   }
 
   response.writeHead(200, {
+    "cache-control": "no-store",
     "content-type": contentTypes.get(extname(filePath)) ?? "application/octet-stream"
   });
   createReadStream(filePath).pipe(response);
