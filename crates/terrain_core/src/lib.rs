@@ -9,6 +9,7 @@ mod mesh;
 mod noise;
 mod presets;
 mod store;
+mod stream;
 
 pub(crate) use chunk::*;
 pub(crate) use constants::*;
@@ -22,6 +23,8 @@ pub(crate) use mesh::*;
 pub(crate) use noise::*;
 pub(crate) use presets::*;
 pub(crate) use store::*;
+#[allow(unused_imports)]
+pub(crate) use stream::*;
 
 #[cfg(test)]
 mod tests;

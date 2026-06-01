@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct TerrainChunkCoord {
     pub(crate) x: i32,
     pub(crate) y: i32,

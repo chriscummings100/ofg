@@ -112,6 +112,10 @@ Supported:
   fill-only, density fill-plus-copy, retained density-window preparation, and
   chunk mesh-build-plus-copy milliseconds and writes JSON under
   `artifacts/terrain-wasm-bench/`.
+- `crates/terrain_core` now has a first tested Rust-owned terrain stream
+  scheduler core for desired density sets, LOD0 render sets, density-apron
+  dependencies, priority, in-flight work, reset generations, stale completions,
+  retryable density failures, empty chunks, and pruning.
 
 Partially supported or placeholder-only:
 
@@ -139,6 +143,9 @@ Partially supported or placeholder-only:
   submissions. Mesh workers still copy/install those payloads into local
   Rust/WASM stores; this is not yet `SharedArrayBuffer`, partition-aware worker
   ownership, multi-resolution streaming, or mesh-upload optimized.
+- The Rust stream scheduler core is not wired into the browser yet. The
+  TypeScript `TerrainChunkStreamer` remains the runtime scheduler until the next
+  Phase 3 WASM facade/adapter slice.
 
 Not yet supported:
 
@@ -840,6 +847,7 @@ Progress notes:
 | 2026-06-01 | In progress | Added a browser module-worker pool and scheduler-style streaming loop. Each tick prioritizes nearest missing render chunks, keeps in-flight work bounded by worker count, and uses stream generations plus worker reset so tuning changes can invalidate old work immediately. This is intentionally a first worker slice; density reuse is still local to each worker's Rust store rather than a shared multi-resolution density layer. |
 | 2026-06-01 | In progress | Added explicit density-stage scheduling before render mesh jobs. The scheduler now tracks density-ready chunks and requires the 2x2x2 apron dependency before submitting a chunk mesh job, which is the first concrete shape of the future density -> LOD N -> LOD 0 state machine. |
 | 2026-06-01 | Prep complete | Split `crates/terrain_core` out of its single epic `lib.rs` into focused Rust modules for facade, field sampling, chunks, density generation, store, meshing, materials, noise, presets, and tests before starting the Rust-owned terrain streaming migration. No behavior change intended. |
+| 2026-06-01 | Started | Added the first Rust-owned terrain stream scheduler core in `terrain_core`. It models desired density and LOD0 sets, treats 2x2x2 positive-apron density chunks as LOD0 dependencies, prioritizes nearby jobs, tracks bounded in-flight density/LOD work, rejects stale completions after reset generations, prunes moved-out windows, and has Rust tests for each behavior. Browser runtime still uses the TypeScript scheduler until the next adapter slice. |
 
 ## Cross-Cutting Validation
 

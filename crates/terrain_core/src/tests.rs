@@ -141,3 +141,251 @@ fn stores_density_chunk_buffer_for_mesh_reuse() {
     assert!(ofg_density_chunk_store_reuse_count() >= 1.0);
     assert!(ofg_density_chunk_store_generation_count() >= generated_before);
 }
+
+#[test]
+fn stream_scheduler_builds_lod0_targets_and_density_aprons() {
+    let mut scheduler = test_stream_scheduler(0, vec![0], 8);
+
+    scheduler.sync_center(coord(0, 0, 0));
+
+    assert_eq!(scheduler.desired_lod0_coords(), vec![coord(0, 0, 0)]);
+    assert_eq!(scheduler.desired_density_coords().len(), 8);
+    assert!(scheduler.desired_density_coords().contains(&coord(0, 0, 0)));
+    assert!(scheduler.desired_density_coords().contains(&coord(1, 1, 1)));
+    assert_eq!(scheduler.status().desired_lod0_count, 1);
+    assert_eq!(scheduler.status().missing_density_count, 8);
+    assert_eq!(scheduler.status().missing_lod0_count, 0);
+}
+
+#[test]
+fn stream_scheduler_submits_nearest_density_jobs_first_up_to_capacity() {
+    let mut scheduler = test_stream_scheduler(1, vec![0], 2);
+
+    scheduler.sync_center(coord(0, 0, 0));
+    let jobs = scheduler.tick();
+
+    assert_eq!(
+        jobs,
+        vec![
+            TerrainStreamJob::Density {
+                generation: 0,
+                coord: coord(0, 0, 0)
+            },
+            TerrainStreamJob::Density {
+                generation: 0,
+                coord: coord(0, 1, 0)
+            }
+        ]
+    );
+    assert_eq!(scheduler.status().in_flight_density_count, 2);
+    assert_eq!(scheduler.status().in_flight_lod_count, 0);
+}
+
+#[test]
+fn stream_scheduler_waits_for_density_dependencies_before_lod0() {
+    let mut scheduler = test_stream_scheduler(0, vec![0], 8);
+
+    scheduler.sync_center(coord(0, 0, 0));
+    let jobs = scheduler.tick();
+    assert_eq!(jobs.len(), 8);
+    complete_density_jobs(&mut scheduler, &jobs[..7]);
+
+    assert!(scheduler.tick().is_empty());
+    complete_density_jobs(&mut scheduler, &jobs[7..]);
+
+    assert_eq!(
+        scheduler.tick(),
+        vec![TerrainStreamJob::Lod {
+            generation: 0,
+            lod: 0,
+            coord: coord(0, 0, 0)
+        }]
+    );
+}
+
+#[test]
+fn stream_scheduler_records_ready_and_empty_lod0_chunks() {
+    let mut ready_scheduler = test_stream_scheduler(0, vec![0], 8);
+    ready_scheduler.sync_center(coord(0, 0, 0));
+    let density_jobs = ready_scheduler.tick();
+    complete_density_jobs(&mut ready_scheduler, &density_jobs);
+    let [TerrainStreamJob::Lod {
+        generation,
+        coord: ready_coord,
+        ..
+    }] = ready_scheduler.tick()[..]
+    else {
+        panic!("expected one lod job");
+    };
+
+    assert!(ready_scheduler.complete_lod0(generation, ready_coord, false));
+    assert_eq!(
+        ready_scheduler.chunk_stage(ready_coord),
+        TerrainChunkStage::LodReady { lod: 0 }
+    );
+    assert_eq!(ready_scheduler.status().lod0_ready_count, 1);
+
+    let mut empty_scheduler = test_stream_scheduler(0, vec![0], 8);
+    empty_scheduler.sync_center(coord(0, 0, 0));
+    let density_jobs = empty_scheduler.tick();
+    complete_density_jobs(&mut empty_scheduler, &density_jobs);
+    let [TerrainStreamJob::Lod {
+        generation,
+        coord: empty_coord,
+        ..
+    }] = empty_scheduler.tick()[..]
+    else {
+        panic!("expected one lod job");
+    };
+
+    assert!(empty_scheduler.complete_lod0(generation, empty_coord, true));
+    assert_eq!(
+        empty_scheduler.chunk_stage(empty_coord),
+        TerrainChunkStage::LodEmpty { lod: 0 }
+    );
+    assert_eq!(empty_scheduler.status().lod0_empty_count, 1);
+}
+
+#[test]
+fn stream_scheduler_reset_rejects_stale_density_results() {
+    let mut scheduler = test_stream_scheduler(0, vec![0], 1);
+
+    scheduler.sync_center(coord(0, 0, 0));
+    let [TerrainStreamJob::Density {
+        generation: old_generation,
+        coord: old_coord,
+    }] = scheduler.tick()[..]
+    else {
+        panic!("expected one density job");
+    };
+
+    scheduler.reset(coord(0, 0, 0));
+    assert_eq!(scheduler.generation(), old_generation + 1);
+    let [TerrainStreamJob::Density {
+        generation: new_generation,
+        coord: new_coord,
+    }] = scheduler.tick()[..]
+    else {
+        panic!("expected one replacement density job");
+    };
+
+    assert_eq!(old_coord, new_coord);
+    assert!(!scheduler.complete_density(old_generation, old_coord));
+    assert_eq!(
+        scheduler.chunk_stage(new_coord),
+        TerrainChunkStage::DensityInFlight {
+            generation: new_generation
+        }
+    );
+    assert!(scheduler.complete_density(new_generation, new_coord));
+    assert_eq!(
+        scheduler.chunk_stage(new_coord),
+        TerrainChunkStage::DensityReady
+    );
+}
+
+#[test]
+fn stream_scheduler_prunes_chunks_outside_the_current_window() {
+    let mut scheduler = test_stream_scheduler(0, vec![0], 8);
+
+    scheduler.sync_center(coord(0, 0, 0));
+    let density_jobs = scheduler.tick();
+    complete_density_jobs(&mut scheduler, &density_jobs);
+    let [TerrainStreamJob::Lod {
+        generation,
+        coord: lod_coord,
+        ..
+    }] = scheduler.tick()[..]
+    else {
+        panic!("expected one lod job");
+    };
+    assert!(scheduler.complete_lod0(generation, lod_coord, false));
+
+    scheduler.sync_center(coord(4, 0, 0));
+
+    assert_eq!(
+        scheduler.chunk_stage(coord(0, 0, 0)),
+        TerrainChunkStage::NotPresent
+    );
+    assert_eq!(scheduler.desired_lod0_coords(), vec![coord(4, 0, 0)]);
+    assert!(scheduler.desired_density_coords().contains(&coord(5, 1, 1)));
+}
+
+#[test]
+fn stream_scheduler_failed_density_jobs_can_be_retried() {
+    let mut scheduler = test_stream_scheduler(0, vec![0], 1);
+
+    scheduler.sync_center(coord(0, 0, 0));
+    let [TerrainStreamJob::Density { generation, coord }] = scheduler.tick()[..] else {
+        panic!("expected one density job");
+    };
+
+    assert!(scheduler.fail_density(generation, coord));
+    assert_eq!(scheduler.chunk_stage(coord), TerrainChunkStage::NotPresent);
+    assert_eq!(
+        scheduler.tick(),
+        vec![TerrainStreamJob::Density { generation, coord }]
+    );
+}
+
+#[test]
+fn stream_scheduler_validates_configuration() {
+    assert_eq!(
+        TerrainStreamScheduler::new(TerrainStreamConfig {
+            horizontal_radius: -1,
+            ..TerrainStreamConfig::default()
+        })
+        .err(),
+        Some(TerrainStreamError::NegativeHorizontalRadius)
+    );
+    assert_eq!(
+        TerrainStreamScheduler::new(TerrainStreamConfig {
+            vertical_chunk_offsets: Vec::new(),
+            ..TerrainStreamConfig::default()
+        })
+        .err(),
+        Some(TerrainStreamError::EmptyVerticalOffsets)
+    );
+    assert_eq!(
+        TerrainStreamScheduler::new(TerrainStreamConfig {
+            vertical_chunk_offsets: vec![0, 0],
+            ..TerrainStreamConfig::default()
+        })
+        .err(),
+        Some(TerrainStreamError::DuplicateVerticalOffsets)
+    );
+    assert_eq!(
+        TerrainStreamScheduler::new(TerrainStreamConfig {
+            max_in_flight_jobs: 0,
+            ..TerrainStreamConfig::default()
+        })
+        .err(),
+        Some(TerrainStreamError::ZeroMaxInFlightJobs)
+    );
+}
+
+fn test_stream_scheduler(
+    horizontal_radius: i32,
+    vertical_chunk_offsets: Vec<i32>,
+    max_in_flight_jobs: usize,
+) -> TerrainStreamScheduler {
+    TerrainStreamScheduler::new(TerrainStreamConfig {
+        horizontal_radius,
+        vertical_chunk_offsets,
+        max_in_flight_jobs,
+    })
+    .expect("test stream config should be valid")
+}
+
+fn coord(x: i32, y: i32, z: i32) -> TerrainChunkCoord {
+    TerrainChunkCoord { x, y, z }
+}
+
+fn complete_density_jobs(scheduler: &mut TerrainStreamScheduler, jobs: &[TerrainStreamJob]) {
+    for job in jobs {
+        let TerrainStreamJob::Density { generation, coord } = *job else {
+            panic!("expected density job");
+        };
+        assert!(scheduler.complete_density(generation, coord));
+    }
+}
