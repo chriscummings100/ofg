@@ -34,18 +34,16 @@ import {
   type TerrainPresetId,
   type WorldDescriptor
 } from "../engine/world/terrainGenerator.js";
-import { createTerrainCoreDensityChunkGenerator } from "../engine/world/terrainCoreDensityChunk.js";
-import {
-  createTerrainCoreChunkMeshGenerator,
-  createTerrainCoreDensityChunkWindowGenerator
-} from "../engine/world/terrainCoreChunkMesh.js";
 import { createTerrainCoreDensityChunkStore } from "../engine/world/terrainCoreDensityChunkStore.js";
 import {
   loadTerrainCoreWasm,
   type TerrainCoreWasmInstance
 } from "../engine/world/terrainCoreWasm.js";
 import { createTerrainCoreStreamScheduler } from "../engine/world/terrainCoreStreamScheduler.js";
-import { createTerrainChunkWorkerClient } from "../engine/world/terrainChunkWorkerClient.js";
+import {
+  type TerrainChunkWorkerClient,
+  createTerrainChunkWorkerClient
+} from "../engine/world/terrainChunkWorkerClient.js";
 import {
   POSITION_COLOR_NORMAL_UV_LAYOUT,
   type MeshData
@@ -72,8 +70,8 @@ declare global {
       getTerrainPreset: () => TerrainPresetId;
       getTerrainSeed: () => number;
       getTerrainStreamStatus: () => ReturnType<TerrainChunkStreamer["getStreamStatus"]>;
-      getTerrainStreamSchedulerRuntime: () => "rust" | "typescript";
-      getTerrainDensityStoreRuntime: () => "rust" | "typescript";
+      getTerrainStreamSchedulerRuntime: () => "rust";
+      getTerrainDensityStoreRuntime: () => "rust";
       getRenderPacketRuntime: () => "rust" | "typescript";
       getTerrainWorkerCount: () => number;
       getTerrainDebugOverlayMode: () => TerrainDebugOverlayState;
@@ -95,32 +93,20 @@ export async function startGame(elements: GameElements): Promise<void> {
   const input = new InputTracker();
   const descriptor = readWorldDescriptor();
   const field = createTerrainGenerator(descriptor);
-  const terrainCore = await tryLoadTerrainCore();
+  const terrainCore = await loadRequiredTerrainCore();
   const engineCore = await loadRequiredEngineCore();
-  const terrainWorker = terrainCore === undefined
-    ? undefined
-    : createTerrainChunkWorkerClient(descriptor);
-  const terrainStreamConfig = terrainCore === undefined
-    ? {
-        horizontalRadius: 0,
-        verticalChunkOffsets: [0],
-        cellSize: 1
-      } as const
-    : {
-        horizontalRadius: 1,
-        verticalChunkOffsets: [-2, -1, 0, 1],
-        cellSize: 1
-      } as const;
-  const terrainStreamScheduler = terrainCore === undefined || terrainWorker === undefined
-    ? undefined
-    : createTerrainCoreStreamScheduler(terrainCore, {
-        horizontalRadius: terrainStreamConfig.horizontalRadius,
-        verticalChunkOffsets: terrainStreamConfig.verticalChunkOffsets,
-        maxInFlightJobs: terrainWorker.workerCount
-      });
-  const terrainDensityChunkStore = terrainCore === undefined || terrainWorker === undefined
-    ? undefined
-    : createTerrainCoreDensityChunkStore(terrainCore, descriptor);
+  const terrainWorker = createRequiredTerrainWorker(descriptor);
+  const terrainStreamConfig = {
+    horizontalRadius: 1,
+    verticalChunkOffsets: [-2, -1, 0, 1],
+    cellSize: 1
+  } as const;
+  const terrainStreamScheduler = createTerrainCoreStreamScheduler(terrainCore, {
+    horizontalRadius: terrainStreamConfig.horizontalRadius,
+    verticalChunkOffsets: terrainStreamConfig.verticalChunkOffsets,
+    maxInFlightJobs: terrainWorker.workerCount
+  });
+  const terrainDensityChunkStore = createTerrainCoreDensityChunkStore(terrainCore, descriptor);
   const terrainDebugOverlay = new TerrainDebugOverlayView(
     elements.terrainDebugOverlay,
     readTerrainDebugOverlayState()
@@ -176,16 +162,7 @@ export async function startGame(elements: GameElements): Promise<void> {
       cellSize: terrainStreamConfig.cellSize,
       chunkJobGenerator: terrainWorker,
       streamScheduler: terrainStreamScheduler,
-      densityChunkStore: terrainDensityChunkStore,
-      chunkMeshGenerator: terrainCore === undefined || terrainWorker !== undefined
-        ? undefined
-        : createTerrainCoreChunkMeshGenerator(terrainCore, descriptor),
-      prepareDensityChunks: terrainCore === undefined || terrainWorker !== undefined
-        ? undefined
-        : createTerrainCoreDensityChunkWindowGenerator(terrainCore, descriptor),
-      densityChunkGenerator: terrainCore === undefined || terrainWorker !== undefined
-        ? undefined
-        : createTerrainCoreDensityChunkGenerator(terrainCore, descriptor)
+      densityChunkStore: terrainDensityChunkStore
     }
   ));
   playerEntity.transform.setPosition(initialPlayerPosition);
@@ -210,12 +187,10 @@ export async function startGame(elements: GameElements): Promise<void> {
     getTerrainPreset: () => descriptor.terrainPreset,
     getTerrainSeed: () => descriptor.seed,
     getTerrainStreamStatus: () => terrainStreamer.getStreamStatus(),
-    getTerrainStreamSchedulerRuntime: () => terrainStreamScheduler === undefined
-      ? "typescript"
-      : "rust",
-    getTerrainDensityStoreRuntime: () => terrainDensityChunkStore?.runtime ?? "typescript",
+    getTerrainStreamSchedulerRuntime: () => "rust",
+    getTerrainDensityStoreRuntime: () => terrainDensityChunkStore.runtime,
     getRenderPacketRuntime: () => renderPacketRuntime,
-    getTerrainWorkerCount: () => terrainWorker?.workerCount ?? 0,
+    getTerrainWorkerCount: () => terrainWorker.workerCount,
     getTerrainDebugOverlayMode: () => terrainDebugOverlay.getState(),
     getPlayerControllerRuntime: () => "rust",
     setTerrainDebugOverlayMode(mode) {
@@ -304,13 +279,17 @@ function readWorldDescriptor(): WorldDescriptor {
   );
 }
 
-async function tryLoadTerrainCore(): Promise<TerrainCoreWasmInstance | undefined> {
-  try {
-    return await loadTerrainCoreWasm();
-  } catch (error) {
-    console.warn("Rust/WASM terrain core unavailable; falling back to TypeScript terrain chunks.", error);
-    return undefined;
+async function loadRequiredTerrainCore(): Promise<TerrainCoreWasmInstance> {
+  return loadTerrainCoreWasm();
+}
+
+function createRequiredTerrainWorker(descriptor: WorldDescriptor): TerrainChunkWorkerClient {
+  const worker = createTerrainChunkWorkerClient(descriptor);
+  if (worker === undefined) {
+    throw new Error("Terrain workers are required for the playable Rust terrain runtime.");
   }
+
+  return worker;
 }
 
 async function loadRequiredEngineCore(): Promise<EngineCoreWasmHandle> {

@@ -87,9 +87,10 @@ Supported:
   compare Rust density/height/chunk samples and validate emitted mesh buffers
   with the current TypeScript
   generator.
-- Runtime terrain streaming can load the generated WASM artifact in the browser
-  and use it to build renderable terrain chunk meshes, with a TypeScript fallback
-  if the artifact is unavailable.
+- Runtime terrain streaming requires the generated WASM artifact in the browser
+  and uses it to build renderable terrain chunk meshes. TypeScript terrain
+  generation remains a reference/golden-test implementation, not the playable
+  browser fallback.
 - Runtime streaming now treats density chunks as a retained lowest-detail
   streaming layer. The TypeScript streamer computes the full density window,
   including positive apron chunks, before render meshing; the Rust/WASM core can
@@ -314,7 +315,8 @@ Proposed order:
 3. Wire Rust/WASM density chunks into runtime streaming behind a narrow adapter.
    (First runtime slice complete.)
    - Keep the existing scene/component/render boundaries.
-   - Add a fallback path to the TypeScript generator while the migration is young.
+   - Historical: a TypeScript fallback path existed while the migration was young;
+     the playable browser terrain runtime now requires Rust/WASM terrain core.
    - Validation: browser smoke remains visually stable and chunk seam tests still
      pass.
 4. Move Dual Contouring meshing hot paths next if profiling still shows chunk
@@ -858,7 +860,7 @@ Progress notes:
 | Date | Status | Notes |
 |---|---|---|
 | 2026-06-01 | Started | Realtime-first pivot accepted. Added `crates/terrain_core`, `tools/build-terrain-wasm.mjs`, generated `assets/wasm/terrain_core.wasm`, and TypeScript WASM metadata/loader tests. The first Rust slice mirrors macro base elevation, density, and compatibility height sampling and is golden-tested against the TypeScript terrain generator. |
-| 2026-06-01 | In progress | Added density chunk filling to the Rust/WASM core and wired the browser runtime through a narrow `TerrainChunkStreamer` density chunk generator hook. This moves the first real streaming hot path onto WASM while preserving the TypeScript fallback and golden chunk tests. |
+| 2026-06-01 | In progress | Added density chunk filling to the Rust/WASM core and wired the browser runtime through a narrow `TerrainChunkStreamer` density chunk generator hook. This moved the first real streaming hot path onto WASM while preserving TypeScript golden chunk tests. The playable browser path later stopped using the TypeScript terrain fallback. |
 | 2026-06-01 | In progress | Added a retained Rust/WASM density chunk store and a density-window preparation API. `TerrainChunkStreamer` now treats `loadedChunkKeys` as the density window, not just render chunks, so positive apron chunks are generated once at the streaming layer and reused by mesh builds. `npm run bench:terrain:wasm` now reports retained density-window preparation and shows prepared mesh build plus copy at about 9.7 ms median versus about 61.8 ms cold. |
 | 2026-06-01 | In progress | Added a browser module-worker pool and scheduler-style streaming loop. Each tick prioritizes nearest missing render chunks, keeps in-flight work bounded by worker count, and uses stream generations plus worker reset so tuning changes can invalidate old work immediately. This is intentionally a first worker slice; density reuse is still local to each worker's Rust store rather than a shared multi-resolution density layer. |
 | 2026-06-01 | In progress | Added explicit density-stage scheduling before render mesh jobs. The scheduler now tracks density-ready chunks and requires the 2x2x2 apron dependency before submitting a chunk mesh job, which is the first concrete shape of the future density -> LOD N -> LOD 0 state machine. |
@@ -867,6 +869,7 @@ Progress notes:
 | 2026-06-01 | In progress | Wired the Rust stream scheduler into the browser runtime through a `terrain_core.wasm` facade and TypeScript adapter. The worker-backed `TerrainChunkStreamer` now asks Rust for desired density/LOD0 sets and ticked jobs, reports density and LOD completions back to Rust, and reads Rust status for debug/smoke. Browser smoke asserts `schedulerRuntime: rust` with active workers. Remaining Phase 3 ownership gap at this point: TypeScript still dispatched workers and owned transferred density payload maps/render uploads. |
 | 2026-06-01 | In progress | Moved the scheduler-backed retained density payload store into Rust/WASM. Completed density jobs are now copied into the main `terrain_core.wasm` density store, mesh dependency reads load the required apron chunks from that Rust store, and browser smoke asserts `densityStoreRuntime: rust`. Remaining Phase 3 ownership gap: TypeScript still dispatches workers, copies apron payloads into worker-local WASM stores, uploads meshes, and mutates `TerrainRenderer`. |
 | 2026-06-01 | In progress | Started the Rust render-packet bridge in `engine_core` for camera/light/player-marker snapshots and wired the browser render loop to consume the Rust camera/light packet. Terrain chunks still flow through `TerrainRenderer`; the next terrain-facing render step is chunk render packets so terrain draw-item assembly can leave the TypeScript scene. |
+| 2026-06-01 | In progress | Retired the playable app's optional TypeScript terrain fallback. Browser startup now requires `terrain_core.wasm`, the Rust stream scheduler, the Rust density store, and terrain workers; TypeScript terrain code remains for reference fixtures, tests, debug helpers, and lower-level compatibility hooks until those contracts are fully retired. |
 
 ## Cross-Cutting Validation
 
