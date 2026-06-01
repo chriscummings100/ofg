@@ -195,11 +195,10 @@ Status: runtime player/camera wiring slice complete on 2026-06-01.
 `engine_core` builds as a browser WASM artifact, TypeScript has a tested
 `EngineCoreWasmHandle`, and Rust owns the active player/camera rig model with
 movement, look, mode switching, camera eye snapshots, and facade exports. The
-browser runtime now uses `RustPlayerController` when `engine_core.wasm` loads,
-with the TypeScript `PlayerController` kept as compatibility fallback only.
-Browser smoke asserts the Rust runtime path so accidental fallback is visible.
-The TypeScript `Scene` still exists as a compatibility mirror for camera/player
-transform extraction and the current renderer.
+browser runtime now requires `engine_core.wasm` for player/camera startup. The
+TypeScript `PlayerController` fallback has been deleted; TypeScript forwards
+input through `RustPlayerController` and mirrors the Rust player transform only
+for terrain streaming and remaining scene render items.
 
 Implementation:
 
@@ -221,8 +220,8 @@ Validation:
 
 Deletion path:
 
-- Delete TypeScript `PlayerController` once Rust controls camera/player in the
-  browser.
+- TypeScript `PlayerController` deleted on 2026-06-01 after Rust became the
+  required browser player/camera runtime.
 - Mark TypeScript scene APIs as compatibility-only.
 
 ### Phase 3: Move Terrain Streaming Fully Into Rust
@@ -507,3 +506,4 @@ streaming, then render packets, then Rust/wgpu.
 | 2026-06-01 | Phase 3 scheduler runtime bridge complete | Exposed the Rust terrain stream scheduler through `terrain_core.wasm`, added a TypeScript adapter, and wired the playable worker-backed terrain streamer to use Rust for desired sets, ticks, completions, reset generations, and status. Browser smoke now asserts the Rust terrain scheduler path and active workers. At this point TypeScript still owned worker dispatch, transferred density payloads, and render uploads. |
 | 2026-06-01 | Phase 3 retained density store moved to Rust | Added WASM exports and a TypeScript adapter for Rust-owned retained density payload storage. Scheduler-backed runtime streaming now stores completed density chunks in `terrain_core.wasm` and loads mesh apron dependencies from that store; browser smoke asserts the Rust density-store path. TypeScript still dispatches workers and copies apron payloads into worker-local WASM stores for meshing. |
 | 2026-06-01 | Phase 4 render packet bridge started | Added `engine_core` render packet types and a WASM memory snapshot for camera, main light, and debug player marker data. TypeScript now decodes that packet, converts it to the existing `CameraFrame`/light data, and the browser render loop uses the Rust camera/light packet when available. The next render ownership step is terrain chunk render packets so `TerrainRenderer` and `SceneRenderExtractor` can stop owning Rust-world objects. |
+| 2026-06-01 | TypeScript player fallback retired | Deleted the TypeScript `PlayerController` and its tests, moved shared player intent/mode types into `playerTypes.ts`, and made the browser runtime require `engine_core.wasm` for player/camera startup. This removes the first old TypeScript gameplay authority rather than keeping parallel movement systems alive. |

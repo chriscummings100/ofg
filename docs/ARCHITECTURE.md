@@ -49,7 +49,7 @@ src/engine/scene
   should not receive new high-volume world ownership.
 
 src/game/components
-  Game-specific behavior components, currently PlayerController and
+  Game-specific compatibility components, currently RustPlayerController and
   TerrainChunkStreamer.
 ```
 
@@ -63,11 +63,14 @@ not a general-purpose ECS.
 The current playable is backed by this model:
 
 - A terrain entity owns `TerrainRenderer`.
-- A player entity owns `PlayerController`.
+- A player entity owns `RustPlayerController`, which forwards input into
+  `engine_core.wasm` and mirrors the Rust player transform back into the
+  TypeScript scene for terrain streaming and the debug marker.
 - A child marker entity owns `MeshRenderer` and is visible in debug fly mode.
-- A camera entity is assigned to `scene.activeCamera`.
-- `scene.mainLight` defines the sun direction, color, intensity, and ambient term.
-- `SceneRenderExtractor` builds plain `RenderWorld` data for `WebGpuRenderer`.
+- The runtime camera and main light come from a Rust render packet snapshot.
+- `SceneRenderExtractor` still gathers TypeScript scene render items for
+  `WebGpuRenderer`, but can consume a Rust packet camera/light instead of
+  `scene.activeCamera`.
 
 The detailed API and next rollout steps are tracked in
 [SCENE_MODEL_PLAN.md](SCENE_MODEL_PLAN.md).
@@ -162,12 +165,13 @@ not yet applied to lighting.
 
 The sky is also shader-driven. `WebGpuRenderer` draws a full-screen sky pass before
 scene geometry, reconstructs world rays from the inverse view-projection matrix, and
-renders a blue gradient plus a sun disk in the direction of `scene.mainLight`.
+renders a blue gradient plus a sun disk in the direction of `RenderWorld.mainLight`.
+The browser runtime now sources that light from the Rust render packet bridge.
 
 ## Testing Direction
 
-- Unit tests cover deterministic math, player/camera behavior, world, and mesh
-  generation code.
+- Unit tests cover deterministic math, Rust player/camera behavior, world, and
+  mesh generation code.
 - Shader tests verify generated shader metadata and the renderer vertex layout
   contract.
 - Browser smoke tests cover canvas rendering, input toggles, resize behavior, and

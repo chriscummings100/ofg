@@ -8,6 +8,10 @@ Current status note: this document now describes the implemented TypeScript
 prototype scene model and its test coverage. It is not the long-term ownership
 plan for high-volume world state. The current architecture direction is
 Rust-first and is tracked in [RUST_ENGINE_PLAN.md](RUST_ENGINE_PLAN.md).
+The TypeScript `PlayerController` described in older sections has been retired;
+runtime player/camera authority now lives in `engine_core.wasm`, with
+`RustPlayerController` acting as a scene compatibility mirror while render and
+terrain ownership migrate.
 This is not a full ECS and should not become one by accident. The model is:
 
 - One global active `Scene`.
@@ -43,7 +47,8 @@ src/engine/render/
   SceneRenderExtractor.ts
 
 src/game/components/
-  PlayerController.ts
+  RustPlayerController.ts
+  playerTypes.ts
   TerrainChunkStreamer.ts
 
 src/engine/world/
@@ -507,7 +512,7 @@ Rules:
 
 ## Game Components
 
-### PlayerController
+### Retired TypeScript PlayerController
 
 ```ts
 class PlayerController extends Component {
@@ -523,15 +528,16 @@ class PlayerController extends Component {
 
 Responsibilities:
 
-- Move the entity from input intent.
-- In first-person mode, ground the entity via `getScene().getTerrainHeight()`.
-- In debug-fly mode, move freely.
-- Provide the camera eye transform.
+- Historical only. This TypeScript component used to move the entity from input
+  intent, ground first-person mode via `getScene().getTerrainHeight()`, and
+  provide the camera eye transform.
+- Runtime player/camera behavior now lives in `engine_core.wasm`.
 
 Implementation note:
 
-- Input currently stays outside the scene model. `PlayerController` consumes a
-  `PlayerMovementIntent` object until an input binding layer exists.
+- `RustPlayerController` consumes `PlayerMovementIntent` from `playerTypes.ts`,
+  forwards it into Rust, and mirrors Rust player state back to the scene while
+  the remaining render/terrain compatibility path exists.
 
 ## Test Plan
 
@@ -661,13 +667,11 @@ Implementation note:
 - `excludes disabled entities`
 - `uses the scene active camera`
 
-### `src/game/components/PlayerController.test.ts`
+### Retired `src/game/components/PlayerController.test.ts`
 
-- `grounds first-person movement against scene terrain`
-- `debug fly movement ignores scene terrain`
-- `toggleCameraMode switches between first-person and debug fly`
-- `getEyeTransform includes eye height`
-- `does not move when disabled`
+- Deleted when Rust became the required player/camera runtime.
+- Equivalent behavior is covered by Rust `engine_core` tests,
+  `RustPlayerController.test.ts`, and browser smoke.
 
 ## Implementation Phases
 
@@ -717,11 +721,12 @@ extraction.
 Implemented notes:
 
 - `src/app/game.ts` creates the global scene and bootstraps terrain, player, marker,
-  and camera entities.
-- `PlayerController` owns first-person movement and a separate debug fly camera
+  and compatibility marker entities.
+- Rust owns first-person movement and the separate debug fly camera
   position/orientation.
 - `WebGpuRenderer` consumes `RenderWorld` and draws render items with per-object
-  transforms.
+  transforms. Runtime camera/light data now comes from the Rust render packet
+  bridge.
 
 Done when:
 

@@ -9,7 +9,7 @@ import type {
   PlayerMode,
   PlayerMovementIntent,
   TransformSnapshot
-} from "./PlayerController.js";
+} from "./playerTypes.js";
 
 export type RustPlayerControllerOptions = {
   readonly initialPosition?: Vec3;

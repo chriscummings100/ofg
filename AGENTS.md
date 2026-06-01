@@ -17,7 +17,7 @@ The current playable seed is still simple:
 - Poly Haven terrain materials rendered from global WebGPU texture arrays.
 - First Rust/WASM terrain core artifact with golden tests against the TypeScript
   terrain generator.
-- First-person camera/player movement.
+- Rust-owned first-person camera/player movement through `engine_core.wasm`.
 - Debug fly camera toggled with `C` or `F1`.
 - A yellow player marker visible in debug fly mode.
 - WebGPU renderer using generated WGSL shader artifacts.
@@ -106,7 +106,12 @@ src/engine/render/shaders
 
 src/generated
   Deterministic generated TypeScript artifacts, currently shader source modules
-  and Rust/WASM terrain artifact metadata.
+  and Rust/WASM terrain and engine artifact metadata.
+
+crates/engine_core
+  Rust engine core built to wasm32-unknown-unknown. It owns player/camera state,
+  a small world/entity ID model, transforms, and the first render packet snapshot
+  bridge for camera/light/player-marker data.
 
 crates/terrain_core
   Rust terrain core built to wasm32-unknown-unknown. It mirrors TypeScript macro
@@ -116,12 +121,12 @@ crates/terrain_core
   source of truth.
 
 Future crates
-  `docs/RUST_ENGINE_PLAN.md` proposes `engine_core` and browser-facing Rust/WASM
-  renderer crates. New world/simulation/render ownership should generally move in
-  that direction.
+  `docs/RUST_ENGINE_PLAN.md` proposes a browser-facing Rust/WASM renderer crate.
+  New world/simulation/render ownership should generally move in that direction.
 
 src/game/components
-  Game-level components such as PlayerController and TerrainChunkStreamer.
+  Game-level compatibility components such as RustPlayerController and
+  TerrainChunkStreamer.
 
 tools
   Local scripts, including shader generation, Poly Haven terrain texture import,
@@ -144,10 +149,12 @@ There is one global active `Scene`.
   not know about entities.
 - `scene.mainLight` is the sun: use it for world lighting and sky placement.
 
-The playable app is currently scene-model backed: terrain, player, camera, and the
-debug player marker are scene entities/components. Treat this as a transitional
-runtime path. New high-volume world, terrain streaming, simulation, render
-extraction, and WebGPU ownership should follow `docs/RUST_ENGINE_PLAN.md`.
+The playable app is currently partly scene-model backed: terrain, the mirrored
+player entity, and the debug player marker are scene entities/components. The
+authoritative player/camera state and first camera/light render packet are now
+Rust-owned. Treat the remaining scene path as transitional runtime glue. New
+high-volume world, terrain streaming, simulation, render extraction, and WebGPU
+ownership should follow `docs/RUST_ENGINE_PLAN.md`.
 
 ## Testing Expectations
 
@@ -166,7 +173,7 @@ Current test areas include:
   sampling, terrain edits, Dual Contouring meshing, highest-surface legacy meshing,
   chunk streaming, heightfield and primitive meshes, Rust/WASM terrain core
   golden fixtures.
-- Gameplay/input: player controller and input tracker.
+- Gameplay/input: Rust player controller adapter and input tracker.
 - Browser smoke: actual Chrome/Edge WebGPU render, screenshots, pixel checks, HUD
   camera toggle verification, and a basic player-position chunk streaming check.
 
