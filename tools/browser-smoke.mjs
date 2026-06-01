@@ -66,6 +66,12 @@ async function runBrowserSmoke(url) {
       const frameTime = document.querySelector("#frame-time")?.textContent;
       return mode === "WEBGPU" || (mode === "FIRST" && frameTime !== "0.0 ms");
     }, null, { timeout: 10000 });
+    await page.waitForFunction(() => {
+      const debug = window.__ofgDebug;
+      return debug !== undefined &&
+        debug.getTerrainChunkKeys().length > 0 &&
+        debug.getTerrainStreamStatus().pending === false;
+    }, null, { timeout: 10000 });
     await page.waitForTimeout(250);
 
     const firstHud = await readHud(page);
@@ -75,6 +81,19 @@ async function runBrowserSmoke(url) {
     assertPixelStats(firstScreenshot.stats, "first-person", consoleMessages);
     const initialTerrain = await readTerrainDebug(page);
     assertTerrainDebug(initialTerrain, "initial terrain");
+    const beforeResetStreamStatus = await readTerrainStreamStatus(page);
+    await page.evaluate(() => window.__ofgDebug?.resetTerrainStreaming());
+    await page.waitForFunction((previousGeneration) => {
+      const debug = window.__ofgDebug;
+      const status = debug?.getTerrainStreamStatus();
+      return debug !== undefined &&
+        status !== undefined &&
+        status.generation > previousGeneration &&
+        status.pending === false &&
+        debug.getTerrainChunkKeys().length > 0;
+    }, beforeResetStreamStatus.generation, { timeout: 10000 });
+    const resetTerrain = await readTerrainDebug(page);
+    assertTerrainDebug(resetTerrain, "reset terrain");
 
     await page.keyboard.press("KeyC");
     await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "FLY");
@@ -93,6 +112,12 @@ async function runBrowserSmoke(url) {
     await page.waitForFunction(() => window.__ofgDebug
       ?.getLoadedTerrainChunkKeys()
       .includes("3,0,0"));
+    await page.waitForFunction(() => {
+      const debug = window.__ofgDebug;
+      return debug !== undefined &&
+        debug.getTerrainChunkKeys().length > 0 &&
+        debug.getTerrainStreamStatus().pending === false;
+    }, null, { timeout: 10000 });
     await page.waitForTimeout(250);
 
     const streamedTerrain = await readTerrainDebug(page);
@@ -110,6 +135,7 @@ async function runBrowserSmoke(url) {
       firstHud,
       flyHud,
       initialTerrain,
+      resetTerrain,
       streamedTerrain,
       firstPixelStats: firstScreenshot.stats,
       streamedPixelStats: streamedScreenshot.stats,
@@ -137,6 +163,13 @@ async function readTerrainDebug(page) {
     loadedChunkKeys: window.__ofgDebug?.getLoadedTerrainChunkKeys() ?? [],
     renderChunkKeys: window.__ofgDebug?.getTerrainChunkKeys() ?? []
   }));
+}
+
+async function readTerrainStreamStatus(page) {
+  return page.evaluate(() => window.__ofgDebug?.getTerrainStreamStatus() ?? {
+    generation: -1,
+    pending: true
+  });
 }
 
 function assertHud(hud, expectedMode, consoleMessages) {

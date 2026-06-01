@@ -87,6 +87,11 @@ Supported:
   streaming layer. The TypeScript streamer computes the full density window,
   including positive apron chunks, before render meshing; the Rust/WASM core can
   prepare and retain that density window so mesh generation reuses stored chunks.
+- Browser runtime terrain can schedule Rust/WASM chunk mesh jobs through a module
+  worker pool. `TerrainChunkStreamer` now ticks over desired, rendered, empty,
+  and in-flight chunk sets, submits nearest missing chunks up to a concurrency
+  limit, and uses a generation token plus worker reset for immediate tuning
+  invalidation.
 - A release-WASM benchmark, `npm run bench:terrain:wasm`, reports density
   fill-only, density fill-plus-copy, retained density-window preparation, and
   chunk mesh-build-plus-copy milliseconds and writes JSON under
@@ -114,8 +119,9 @@ Partially supported or placeholder-only:
   generated terrain chunks, including material/biome classification, centroid
   Dual Contouring, same-LOD neighbor seam ownership, and triangle-local material
   palette expansion. It has a first retained density chunk store, but this is
-  still not worker-backed, multi-resolution, priority scheduled, or mesh-upload
-  optimized.
+  still not multi-resolution or mesh-upload optimized. The browser has a first
+  priority worker scheduler, but density stores are still per worker rather than
+  a shared multi-LOD streaming hierarchy.
 
 Not yet supported:
 
@@ -130,9 +136,9 @@ Not yet supported:
 - Caves, arches, tunnels, overhang-focused volumetric features, or cave entrance
   placement.
 - Far-field terrain, LOD, LOD transition meshes, or chunk-priority scheduling.
-- Worker-backed Rust/WASM terrain generation, batch chunk generation,
-  cancellation queues, multi-resolution density/mesh streaming, or mesh upload
-  preparation.
+- Shared multi-resolution density/mesh streaming, batch density jobs,
+  fine-grained cancellation queues beyond generation-token invalidation, or mesh
+  upload preparation.
 - Worker-backed terrain generation, cancellation, priority queues, or saveable
   human-facing terrain tuning knobs.
 - Terrain collision/grounding based on the generated mesh. Player grounding still
@@ -298,6 +304,7 @@ Progress notes:
 | 2026-06-01 | In progress | Added `npm run bench:terrain:wasm` to measure release WASM density chunk generation directly. Initial fill-only median was about 36.8 ms per 33x33x33 chunk, which confirmed the Rust path was still too slow. Caching macro terrain once per x/z column inside chunk fill reduced the quick benchmark to about 6.6 ms fill-only median and 6.5 ms fill-plus-copy median, with machine-readable JSON in `artifacts/terrain-wasm-bench/`. |
 | 2026-06-01 | In progress | Moved the browser runtime generated-terrain chunk mesh path into Rust/WASM. `ofg_build_chunk_mesh` now builds the density apron, extracts Hermite intersections, performs centroid Dual Contouring with same-LOD seam ownership, classifies biome/material weights, expands triangle-local material palettes, and returns renderable vertex/index buffers to TypeScript. Browser smoke passes. Quick benchmark now shows density fill around 6.5 ms median and full mesh build plus copy around 62.7 ms median per chunk. Added an apron-density phase estimate: filling the eight 33x33x33 density chunks needed for one mesh costs about 52.5 ms median, leaving about 10.2 ms median for contouring/material/palette/copy. The next target is a retained density streaming layer, then worker-backed scheduling. |
 | 2026-06-01 | In progress | Reframed apron reuse as a streaming-layer problem rather than an ad hoc cache. The streamer now builds a retained density window that includes apron chunks, and Rust/WASM exposes `ofg_prepare_density_chunk_window` plus density-store counters. The benchmark now separates cold mesh generation from prepared mesh generation: on the development run, cold mesh plus copy was about 61.8 ms median per chunk, while prepared mesh plus copy was about 9.7 ms median. Density-window preparation is still main-thread-bound and can spike, so the next target is worker-backed preparation, priority/cancellation, and then widening view distance. |
+| 2026-06-01 | In progress | Added the first worker-backed terrain scheduler. `TerrainChunkStreamer` now behaves like a ticked scheduler: it compares desired density/render sets with rendered, empty, and in-flight chunks, submits nearest missing render chunks up to a worker-pool concurrency limit, and ignores stale completions after reset. The app exposes `resetTerrainStreaming()` and stream status through `window.__ofgDebug`, giving future tuning UI a direct instant-regenerate path. Browser smoke waits for worker completion and passes. Remaining scheduler work: separate density jobs, shared or partition-aware density stores across workers, better queue cancellation, and wider view-distance budgets. |
 
 ## Milestone 1: Generator Core
 
@@ -800,6 +807,7 @@ Progress notes:
 | 2026-06-01 | Started | Realtime-first pivot accepted. Added `crates/terrain_core`, `tools/build-terrain-wasm.mjs`, generated `assets/wasm/terrain_core.wasm`, and TypeScript WASM metadata/loader tests. The first Rust slice mirrors macro base elevation, density, and compatibility height sampling and is golden-tested against the TypeScript terrain generator. |
 | 2026-06-01 | In progress | Added density chunk filling to the Rust/WASM core and wired the browser runtime through a narrow `TerrainChunkStreamer` density chunk generator hook. This moves the first real streaming hot path onto WASM while preserving the TypeScript fallback and golden chunk tests. |
 | 2026-06-01 | In progress | Added a retained Rust/WASM density chunk store and a density-window preparation API. `TerrainChunkStreamer` now treats `loadedChunkKeys` as the density window, not just render chunks, so positive apron chunks are generated once at the streaming layer and reused by mesh builds. `npm run bench:terrain:wasm` now reports retained density-window preparation and shows prepared mesh build plus copy at about 9.7 ms median versus about 61.8 ms cold. |
+| 2026-06-01 | In progress | Added a browser module-worker pool and scheduler-style streaming loop. Each tick prioritizes nearest missing render chunks, keeps in-flight work bounded by worker count, and uses stream generations plus worker reset so tuning changes can invalidate old work immediately. This is intentionally a first worker slice; density reuse is still local to each worker's Rust store rather than a shared multi-resolution density layer. |
 
 ## Cross-Cutting Validation
 

@@ -158,6 +158,137 @@ describe("TerrainChunkStreamer", () => {
     equal(terrain.chunks[0].mesh.indices.length, 3);
   });
 
+  it("applies async chunk jobs from a worker-style generator", async () => {
+    const source = createFlatField(0);
+    const terrain = new TerrainRenderer(source);
+    const streamer = new TerrainChunkStreamer(terrain, source, {
+      horizontalRadius: 0,
+      verticalChunkOffsets: [0],
+      chunkJobGenerator: {
+        async generateChunk(request) {
+          return {
+            generation: request.generation,
+            key: terrainChunkKey(request.coord),
+            ...createTriangleMeshData(),
+            stats: {
+              totalMs: 3,
+              vertexCount: 3,
+              indexCount: 3
+            }
+          };
+        }
+      }
+    });
+
+    streamer.syncAround(vec3(0, 0, 0));
+
+    equal(terrain.chunks.length, 0);
+    equal(streamer.getStreamStatus().pending, true);
+    await Promise.resolve();
+
+    equal(terrain.chunks.length, 1);
+    equal(terrain.chunks[0].key, "0,0,0");
+    equal(streamer.getStreamStatus().pending, false);
+    equal(streamer.getStreamStatus().lastChunkJobStats?.indexCount, 3);
+  });
+
+  it("ignores stale async chunk results after a streaming reset", async () => {
+    const source = createFlatField(0);
+    const terrain = new TerrainRenderer(source);
+    const requests: Array<{
+      readonly generation: number;
+      readonly resolve: (key: string) => void;
+    }> = [];
+    const streamer = new TerrainChunkStreamer(terrain, source, {
+      horizontalRadius: 0,
+      verticalChunkOffsets: [0],
+      chunkJobGenerator: {
+        generateChunk(request) {
+          return new Promise((resolve) => {
+            requests.push({
+              generation: request.generation,
+              resolve(key: string) {
+                resolve({
+                  generation: request.generation,
+                  key,
+                  ...createTriangleMeshData(),
+                  stats: {
+                    totalMs: 3,
+                    vertexCount: 3,
+                    indexCount: 3
+                  }
+                });
+              }
+            });
+          });
+        }
+      }
+    });
+
+    streamer.syncAround(vec3(0, 0, 0));
+    streamer.resetStreaming(vec3(32, 0, 0));
+
+    equal(requests.length, 2);
+    requests[0].resolve("0,0,0");
+    await Promise.resolve();
+    equal(terrain.chunks.length, 0);
+
+    requests[1].resolve("1,0,0");
+    await Promise.resolve();
+    equal(terrain.chunks.length, 1);
+    equal(terrain.chunks[0].key, "1,0,0");
+  });
+
+  it("submits nearest async chunk jobs up to the concurrency limit", async () => {
+    const source = createFlatField(0);
+    const terrain = new TerrainRenderer(source);
+    const requests: Array<{
+      readonly key: string;
+      readonly resolve: () => void;
+    }> = [];
+    const streamer = new TerrainChunkStreamer(terrain, source, {
+      horizontalRadius: 1,
+      verticalChunkOffsets: [0],
+      maxConcurrentChunkJobs: 2,
+      chunkJobGenerator: {
+        workerCount: 2,
+        generateChunk(request) {
+          const key = terrainChunkKey(request.coord);
+          return new Promise((resolve) => {
+            requests.push({
+              key,
+              resolve() {
+                resolve({
+                  generation: request.generation,
+                  key,
+                  ...createTriangleMeshData(),
+                  stats: {
+                    totalMs: 3,
+                    vertexCount: 3,
+                    indexCount: 3
+                  }
+                });
+              }
+            });
+          });
+        }
+      }
+    });
+
+    streamer.syncAround(vec3(0, 0, 0));
+
+    equal(requests.length, 2);
+    equal(requests[0].key, "0,0,0");
+    equal(streamer.getStreamStatus().inFlightChunkCount, 2);
+
+    requests[0].resolve();
+    await Promise.resolve();
+
+    equal(terrain.chunks.length, 1);
+    equal(requests.length, 3);
+    equal(streamer.getStreamStatus().inFlightChunkCount, 2);
+  });
+
   it("uses terrain density sample gradients when building chunk meshes", () => {
     const source: TerrainField = {
       heightAt: () => 0,
@@ -308,4 +439,15 @@ function stressNormalForPlacement(position: { readonly x: number; readonly z: nu
   }
 
   return vec3(0, 1, 0);
+}
+
+function createTriangleMeshData() {
+  return {
+    vertices: new Float32Array([
+      0, 0, 0, 0.3, 0.5, 0.4, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+      1, 0, 0, 0.3, 0.5, 0.4, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+      0, 0, 1, 0.3, 0.5, 0.4, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0
+    ]),
+    indices: new Uint32Array([0, 1, 2])
+  };
 }

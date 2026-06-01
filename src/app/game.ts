@@ -35,6 +35,7 @@ import {
   loadTerrainCoreWasm,
   type TerrainCoreWasmInstance
 } from "../engine/world/terrainCoreWasm.js";
+import { createTerrainChunkWorkerClient } from "../engine/world/terrainChunkWorkerClient.js";
 import {
   POSITION_COLOR_NORMAL_UV_LAYOUT,
   type MeshData
@@ -61,9 +62,11 @@ declare global {
       getTerrainChunkKeys: () => string[];
       getTerrainPreset: () => TerrainPresetId;
       getTerrainSeed: () => number;
+      getTerrainStreamStatus: () => ReturnType<TerrainChunkStreamer["getStreamStatus"]>;
       getTerrainDebugOverlayMode: () => TerrainDebugOverlayState;
       setTerrainDebugOverlayMode: (mode: TerrainDebugOverlayState) => void;
       cycleTerrainDebugOverlayMode: () => TerrainDebugOverlayState;
+      resetTerrainStreaming: () => void;
       getTerrainHeight: (x: number, z: number) => number;
       setCameraMode: (mode: PlayerMode) => void;
       setDebugCamera: (x: number, y: number, z: number, yaw: number, pitch: number) => void;
@@ -79,6 +82,9 @@ export async function startGame(elements: GameElements): Promise<void> {
   const descriptor = readWorldDescriptor();
   const field = createTerrainGenerator(descriptor);
   const terrainCore = await tryLoadTerrainCore();
+  const terrainWorker = terrainCore === undefined
+    ? undefined
+    : createTerrainChunkWorkerClient(descriptor);
   const terrainDebugOverlay = new TerrainDebugOverlayView(
     elements.terrainDebugOverlay,
     readTerrainDebugOverlayState()
@@ -131,13 +137,14 @@ export async function startGame(elements: GameElements): Promise<void> {
       horizontalRadius: 1,
       verticalChunkOffsets: [-2, -1, 0, 1],
       cellSize: 1,
-      chunkMeshGenerator: terrainCore === undefined
+      chunkJobGenerator: terrainWorker,
+      chunkMeshGenerator: terrainCore === undefined || terrainWorker !== undefined
         ? undefined
         : createTerrainCoreChunkMeshGenerator(terrainCore, descriptor),
-      prepareDensityChunks: terrainCore === undefined
+      prepareDensityChunks: terrainCore === undefined || terrainWorker !== undefined
         ? undefined
         : createTerrainCoreDensityChunkWindowGenerator(terrainCore, descriptor),
-      densityChunkGenerator: terrainCore === undefined
+      densityChunkGenerator: terrainCore === undefined || terrainWorker !== undefined
         ? undefined
         : createTerrainCoreDensityChunkGenerator(terrainCore, descriptor)
     }
@@ -163,6 +170,7 @@ export async function startGame(elements: GameElements): Promise<void> {
     getTerrainChunkKeys: () => terrainRenderer.chunks.map((chunk) => chunk.key).sort(),
     getTerrainPreset: () => descriptor.terrainPreset,
     getTerrainSeed: () => descriptor.seed,
+    getTerrainStreamStatus: () => terrainStreamer.getStreamStatus(),
     getTerrainDebugOverlayMode: () => terrainDebugOverlay.getState(),
     setTerrainDebugOverlayMode(mode) {
       terrainDebugOverlay.setState(validateTerrainDebugOverlayState(mode));
@@ -172,6 +180,9 @@ export async function startGame(elements: GameElements): Promise<void> {
       const mode = terrainDebugOverlay.cycleState();
       terrainDebugOverlay.render(field, playerEntity.transform.getWorldPosition());
       return mode;
+    },
+    resetTerrainStreaming() {
+      terrainStreamer.resetStreaming(playerEntity.transform.getWorldPosition());
     },
     getTerrainHeight(x, z) {
       return field.heightAt(x, z);
