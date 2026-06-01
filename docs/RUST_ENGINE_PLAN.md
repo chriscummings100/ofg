@@ -471,6 +471,7 @@ streaming, then render packets, then Rust/wgpu.
 | 2026-06-01 | Use `wgpu` for Rust-owned WebGPU | `wgpu` is the Rust WebGPU path that can target browsers through WASM while preserving native-renderer optionality later. |
 | 2026-06-01 | Keep `engine_core` browser-free in the first slice | The core crate should stay easy to test natively. Browser bindings, `wasm-bindgen`, and `wgpu` belong in a later `engine_web` layer once render packets and ownership contracts exist. |
 | 2026-06-01 | Keep Rust core modules focused | `engine_core` is split into `math`, `world`, `player`, `engine`, and `facade` modules so Rust ownership can grow without recreating a monolithic engine file. |
+| 2026-06-01 | Split Rust terrain before Phase 3 growth | `terrain_core` now has focused modules for facade, field sampling, chunk storage, density generation, meshing, materials, noise, presets, and tests so the streaming migration does not grow another epic Rust file. |
 
 ## Progress Log
 
@@ -479,3 +480,4 @@ streaming, then render packets, then Rust/wgpu.
 | 2026-06-01 | Phase 1 foundation complete | Added `crates/engine_core` with Rust-owned engine/world state, generational entity IDs, optional parented transforms, deterministic update ticks, raw WASM facade exports, and Rust tests. Current TypeScript runtime remains unchanged. |
 | 2026-06-01 | Phase 2 bridge started | Added generated `engine_core.wasm`, TypeScript metadata/handle tests, and Rust-owned player/camera movement state with Rust and WASM tests. Split `engine_core` into focused modules as part of the same slice. Runtime player/camera authority is still TypeScript until the next wiring slice. |
 | 2026-06-01 | Phase 2 runtime wiring slice complete | Added a tested `RustPlayerController` adapter and wired the playable browser runtime to Rust-owned player/camera state when `engine_core.wasm` is available. TypeScript now forwards input and mirrors transforms for existing renderer/streamer compatibility. Browser smoke records and asserts the Rust player controller path. |
+| 2026-06-01 | Terrain core module split complete | Split the monolithic Rust terrain crate into focused modules before starting Phase 3 terrain streaming ownership work. No behavior change intended; validation covered Rust terrain tests, workspace Rust tests, WASM freshness, and TypeScript tests. |

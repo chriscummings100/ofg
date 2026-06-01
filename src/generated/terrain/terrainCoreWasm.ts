@@ -38,7 +38,7 @@ export const TERRAIN_CORE_WASM_METADATA = Object.freeze({
   "sourceCrate": "crates/terrain_core",
   "assetPath": "assets/wasm/terrain_core.wasm",
   "target": "wasm32-unknown-unknown",
-  "artifactHash": "sha256-dd8c7190490d21a9abf1d1c793935656c8b8f5941a3bc08fc60f7f2223275ca0",
+  "artifactHash": "sha256-379b0f2de48d31de44a5bdb7d0bac49e306e037c118727560114042c436dc775",
   "exports": [
     "memory",
     "ofg_terrain_core_version",

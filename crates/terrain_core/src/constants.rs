@@ -1,0 +1,23 @@
+pub(crate) const TERRAIN_CORE_VERSION: u32 = 1;
+pub(crate) const DEFAULT_TERRAIN_PRESET: u32 = 1;
+pub(crate) const SURFACE_SEARCH_MIN_Y: f64 = -96.0;
+pub(crate) const SURFACE_SEARCH_MAX_Y: f64 = 96.0;
+pub(crate) const SURFACE_SEARCH_STEP: f64 = 1.0;
+pub(crate) const SURFACE_REFINE_STEPS: usize = 12;
+pub(crate) const TERRAIN_CHUNK_CELLS_PER_AXIS: usize = 32;
+pub(crate) const TERRAIN_CHUNK_SAMPLES_PER_AXIS: usize = TERRAIN_CHUNK_CELLS_PER_AXIS + 1;
+pub(crate) const TERRAIN_CHUNK_SAMPLE_COUNT: usize = TERRAIN_CHUNK_SAMPLES_PER_AXIS
+    * TERRAIN_CHUNK_SAMPLES_PER_AXIS
+    * TERRAIN_CHUNK_SAMPLES_PER_AXIS;
+pub(crate) const TERRAIN_CHUNK_APRON_CELLS_PER_AXIS: usize = TERRAIN_CHUNK_CELLS_PER_AXIS + 1;
+pub(crate) const TERRAIN_CHUNK_APRON_CELL_COUNT: usize = TERRAIN_CHUNK_APRON_CELLS_PER_AXIS
+    * TERRAIN_CHUNK_APRON_CELLS_PER_AXIS
+    * TERRAIN_CHUNK_APRON_CELLS_PER_AXIS;
+pub(crate) const DENSITY_CHUNK_STORE_MAX_ENTRIES: usize = 1024;
+pub(crate) const FLOATS_PER_VERTEX: usize = 19;
+pub(crate) const MATERIAL_INDICES_VERTEX_OFFSET: usize = 11;
+pub(crate) const MATERIAL_WEIGHTS_VERTEX_OFFSET: usize = 15;
+pub(crate) const F3: f64 = 1.0 / 3.0;
+pub(crate) const G3: f64 = 1.0 / 6.0;
+pub(crate) const NOISE_SCALE: f64 = 32.0;
+pub(crate) const UINT32_SCALE: f64 = 1.0 / 4294967296.0;
