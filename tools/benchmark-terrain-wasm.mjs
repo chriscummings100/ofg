@@ -385,6 +385,7 @@ function validateTerrainExports(exports) {
     "ofg_density_chunk_store_generation_count",
     "ofg_density_chunk_store_eviction_count",
     "ofg_reset_density_chunk_store",
+    "ofg_store_density_chunk_buffer",
     "ofg_prepare_density_chunk_window",
     "ofg_fill_density_chunk",
     "ofg_build_chunk_mesh",

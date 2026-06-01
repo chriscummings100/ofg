@@ -96,6 +96,11 @@ Supported:
   schedules density-field jobs across the widest active radius first, then only
   schedules render mesh jobs for chunks whose 2x2x2 positive-apron density
   dependencies are ready.
+- Density jobs now return retained `Float32Array` density payloads to the
+  TypeScript streamer. Mesh jobs receive their exact 2x2x2 apron density
+  dependencies and install those payloads into the worker-local Rust/WASM density
+  store before contouring, so the scheduler-owned density layer is the source of
+  truth for mesh dependencies.
 - A release-WASM benchmark, `npm run bench:terrain:wasm`, reports density
   fill-only, density fill-plus-copy, retained density-window preparation, and
   chunk mesh-build-plus-copy milliseconds and writes JSON under
@@ -122,11 +127,11 @@ Partially supported or placeholder-only:
 - The Rust core now owns the browser runtime density-to-render-mesh path for
   generated terrain chunks, including material/biome classification, centroid
   Dual Contouring, same-LOD neighbor seam ownership, and triangle-local material
-  palette expansion. It has a first retained density chunk store, but this is
-  still not multi-resolution or mesh-upload optimized. The browser has a first
-  priority worker scheduler with an explicit density-before-mesh stage, but
-  density stores are still per worker rather than a shared multi-LOD streaming
-  hierarchy.
+  palette expansion. It has a first retained density chunk store, and the
+  browser has a first scheduler-owned density payload store shared across mesh
+  submissions. Mesh workers still copy/install those payloads into local
+  Rust/WASM stores; this is not yet `SharedArrayBuffer`, partition-aware worker
+  ownership, multi-resolution streaming, or mesh-upload optimized.
 
 Not yet supported:
 
@@ -140,12 +145,12 @@ Not yet supported:
   driven by curvature, or regional material palettes.
 - Caves, arches, tunnels, overhang-focused volumetric features, or cave entrance
   placement.
-- Far-field terrain, LOD, LOD transition meshes, or chunk-priority scheduling.
-- Shared multi-resolution density/mesh streaming, batch density jobs,
-  fine-grained cancellation queues beyond generation-token invalidation, or mesh
-  upload preparation.
-- Worker-backed terrain generation, cancellation, priority queues, or saveable
-  human-facing terrain tuning knobs.
+- Far-field terrain, LOD, LOD transition meshes, or mature view/visibility
+  priority scheduling.
+- True shared-memory or partition-aware multi-resolution density/mesh streaming,
+  batch density jobs, fine-grained cancellation queues beyond generation-token
+  invalidation, or mesh upload preparation.
+- Saveable human-facing terrain tuning knobs.
 - Terrain collision/grounding based on the generated mesh. Player grounding still
   uses a compatibility `heightAt(x, z)` query.
 - High-quality sharp-feature Dual Contouring. QEF placement is guarded and
@@ -164,8 +169,9 @@ Current believability gap:
 - The next visible win should therefore be realtime terrain iteration: move the
   expensive chunk sampling/meshing path behind Rust/WASM, add generation timing
   counters, widen the visible terrain window, then expose saveable tuning knobs.
-  A first retained density window has separated density preparation from meshing,
-  but density preparation itself is still too slow and main-thread-bound.
+  The current Rust/WASM worker pipeline now separates density from meshing and
+  retains scheduler-owned density payloads, but it still copies density payloads
+  into mesh workers and has not yet proven a larger view distance budget.
   Hydrology and better biome composition remain the next believability layer once
   the terrain can regenerate fast enough to tune.
 
@@ -282,11 +288,14 @@ Proposed order:
    - Validation: mesh summaries and seam ownership match TypeScript golden
      fixtures before runtime promotion.
 5. Add worker-backed scheduling and retained streaming-layer budgets.
+   (First worker scheduler, density stage, and shared density payload slices
+   complete.)
    - Main thread should stop blocking on expensive terrain rebuilds.
    - Treat density chunks as the lowest current LOD generated over the widest
      active radius, so apron reuse falls out of the streaming model.
-   - Add priority queues, cancellation for stale camera positions, and retained
-     density/mesh eviction before increasing view distance aggressively.
+   - Next: reduce density payload copy cost, add batch/partition-aware density
+     work, improve stale-work cancellation, and measure wider view-distance
+     budgets before increasing view distance aggressively.
    - Validation: free-flight remains hole-free while visible radius increases.
 6. Add a terrain tuning panel with save/load only after regeneration is responsive.
    - Knobs should cover seed, preset, macro scales, ridge strength, detail
@@ -311,6 +320,7 @@ Progress notes:
 | 2026-06-01 | In progress | Reframed apron reuse as a streaming-layer problem rather than an ad hoc cache. The streamer now builds a retained density window that includes apron chunks, and Rust/WASM exposes `ofg_prepare_density_chunk_window` plus density-store counters. The benchmark now separates cold mesh generation from prepared mesh generation: on the development run, cold mesh plus copy was about 61.8 ms median per chunk, while prepared mesh plus copy was about 9.7 ms median. Density-window preparation is still main-thread-bound and can spike, so the next target is worker-backed preparation, priority/cancellation, and then widening view distance. |
 | 2026-06-01 | In progress | Added the first worker-backed terrain scheduler. `TerrainChunkStreamer` now behaves like a ticked scheduler: it compares desired density/render sets with rendered, empty, and in-flight chunks, submits nearest missing render chunks up to a worker-pool concurrency limit, and ignores stale completions after reset. The app exposes `resetTerrainStreaming()` and stream status through `window.__ofgDebug`, giving future tuning UI a direct instant-regenerate path. Browser smoke waits for worker completion and passes. Remaining scheduler work: separate density jobs, shared or partition-aware density stores across workers, better queue cancellation, and wider view-distance budgets. |
 | 2026-06-01 | In progress | Split the scheduler state into explicit stages: not present, density-field ready, and renderable LOD 0/empty. Worker messages now include density jobs as a separate stage, and the streamer only schedules a chunk mesh after its positive-apron density dependencies are marked ready. This matches the intended multi-stage architecture and sets up future LOD N stages. Caveat: Rust density storage is still local to each worker, so the next architecture step is a shared or partition-aware density store rather than just logical readiness in TypeScript. |
+| 2026-06-01 | In progress | Added the first properly shared density payload layer. Density jobs transfer generated 33x33x33 `Float32Array` chunks back to `TerrainChunkStreamer`, the streamer retains them by chunk key, and mesh jobs receive the exact 2x2x2 apron payloads they depend on before installing them into worker-local Rust/WASM storage. This makes the TypeScript scheduler's density-ready state physically meaningful across workers. Caveat: payloads are still copied into mesh workers, not backed by `SharedArrayBuffer` or persistent partition-owned worker stores. |
 
 ## Milestone 1: Generator Core
 
@@ -706,7 +716,7 @@ Progress notes:
 
 | Date | Status | Notes |
 |---|---|---|
-| | Not started | |
+| 2026-06-01 | Started | Streaming is now a staged scheduler instead of a one-shot chunk builder. It tracks desired density chunks, retained density payloads, render chunks, empty chunks, and in-flight work, then prioritizes nearby missing work up to the worker limit. This is still same-LOD only; far-field LOD, transition meshes, visibility-aware priority, and true multi-resolution density storage remain ahead. |
 
 ## Milestone 10: Presentation Layers
 

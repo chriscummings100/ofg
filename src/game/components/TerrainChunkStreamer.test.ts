@@ -170,10 +170,13 @@ describe("TerrainChunkStreamer", () => {
           return {
             generation: request.generation,
             key: terrainChunkKey(request.coord),
+            coord: request.coord,
+            densities: createDensitySamples(),
             stats: { totalMs: 1 }
           };
         },
         async generateChunk(request) {
+          equal(request.densityChunks.length, 8);
           return {
             generation: request.generation,
             key: terrainChunkKey(request.coord),
@@ -198,6 +201,7 @@ describe("TerrainChunkStreamer", () => {
     equal(terrain.chunks[0].key, "0,0,0");
     equal(streamer.getStreamStatus().pending, false);
     equal(streamer.getStreamStatus().densityReadyChunkCount, 8);
+    equal(streamer.getStreamStatus().sharedDensityChunkCount, 8);
     equal(streamer.getStreamStatus().lastDensityJobStats?.totalMs, 1);
     equal(streamer.getStreamStatus().lastChunkJobStats?.indexCount, 3);
   });
@@ -218,6 +222,8 @@ describe("TerrainChunkStreamer", () => {
           return {
             generation: request.generation,
             key: terrainChunkKey(request.coord),
+            coord: request.coord,
+            densities: createDensitySamples(),
             stats: { totalMs: 1 }
           };
         },
@@ -259,6 +265,62 @@ describe("TerrainChunkStreamer", () => {
     equal(terrain.chunks[0].key, "1,0,0");
   });
 
+  it("keeps newer same-key density work in flight when stale results arrive", async () => {
+    const source = createFlatField(0);
+    const terrain = new TerrainRenderer(source);
+    const densityRequests: Array<{
+      readonly resolve: () => void;
+    }> = [];
+    const streamer = new TerrainChunkStreamer(terrain, source, {
+      horizontalRadius: 0,
+      verticalChunkOffsets: [0],
+      maxConcurrentChunkJobs: 8,
+      chunkJobGenerator: {
+        prepareDensityChunk(request) {
+          const key = terrainChunkKey(request.coord);
+          return new Promise((resolve) => {
+            densityRequests.push({
+              resolve() {
+                resolve({
+                  generation: request.generation,
+                  key,
+                  coord: request.coord,
+                  densities: createDensitySamples(),
+                  stats: { totalMs: 1 }
+                });
+              }
+            });
+          });
+        },
+        async generateChunk(request) {
+          return {
+            generation: request.generation,
+            key: terrainChunkKey(request.coord),
+            ...createTriangleMeshData(),
+            stats: {
+              totalMs: 3,
+              vertexCount: 3,
+              indexCount: 3
+            }
+          };
+        }
+      }
+    });
+
+    streamer.syncAround(vec3(0, 0, 0));
+    equal(densityRequests.length, 8);
+
+    streamer.resetStreaming(vec3(0, 0, 0));
+    equal(densityRequests.length, 16);
+
+    densityRequests[0].resolve();
+    await Promise.resolve();
+
+    equal(densityRequests.length, 16);
+    equal(streamer.getStreamStatus().inFlightDensityCount, 8);
+    equal(streamer.getStreamStatus().sharedDensityChunkCount, 0);
+  });
+
   it("submits nearest async chunk jobs up to the concurrency limit", async () => {
     const source = createFlatField(0);
     const terrain = new TerrainRenderer(source);
@@ -285,6 +347,8 @@ describe("TerrainChunkStreamer", () => {
                 resolve({
                   generation: request.generation,
                   key,
+                  coord: request.coord,
+                  densities: createDensitySamples(),
                   stats: { totalMs: 1 }
                 });
               }
@@ -501,6 +565,10 @@ function createTriangleMeshData() {
     ]),
     indices: new Uint32Array([0, 1, 2])
   };
+}
+
+function createDensitySamples(): Float32Array {
+  return new Float32Array(33 * 33 * 33);
 }
 
 async function flushMicrotasks(count: number): Promise<void> {

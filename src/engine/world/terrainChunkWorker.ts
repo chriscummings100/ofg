@@ -1,8 +1,9 @@
 import { terrainChunkKey } from "./terrainChunk.js";
 import {
   generateTerrainChunkMeshWithWasm,
-  prepareTerrainCoreDensityChunkWindow
+  installTerrainCoreDensityChunk
 } from "./terrainCoreChunkMesh.js";
+import { generateTerrainDensityChunkWithWasm } from "./terrainCoreDensityChunk.js";
 import { loadTerrainCoreWasm, type TerrainCoreWasmInstance } from "./terrainCoreWasm.js";
 import type {
   TerrainChunkJobResult,
@@ -32,6 +33,10 @@ workerSelf.addEventListener("message", (event: MessageEvent<TerrainWorkerRequest
           type: "densityResult",
           requestId: message.requestId,
           result
+        }, {
+          transfer: [
+            result.densities.buffer
+          ]
         });
       })
       .catch((error: unknown) => {
@@ -71,17 +76,19 @@ async function prepareDensityChunk(
 ): Promise<TerrainDensityJobResult> {
   const terrainCore = await loadWorkerTerrainCore();
   const startedAt = performance.now();
-  prepareTerrainCoreDensityChunkWindow(
+  const chunk = generateTerrainDensityChunkWithWasm(
     terrainCore,
     request.descriptor,
-    [request.coord],
-    request.cellSize
+    request.coord,
+    { cellSize: request.cellSize }
   );
   const finishedAt = performance.now();
 
   return {
     generation: request.generation,
     key: terrainChunkKey(request.coord),
+    coord: request.coord,
+    densities: chunk.densities,
     stats: {
       totalMs: finishedAt - startedAt
     }
@@ -93,6 +100,16 @@ async function generateChunk(
 ): Promise<TerrainChunkJobResult> {
   const terrainCore = await loadWorkerTerrainCore();
   const startedAt = performance.now();
+  terrainCore.exports.ofg_reset_density_chunk_store();
+  for (const densityChunk of request.densityChunks) {
+    installTerrainCoreDensityChunk(
+      terrainCore,
+      request.descriptor,
+      densityChunk,
+      request.cellSize
+    );
+  }
+
   const mesh = generateTerrainChunkMeshWithWasm(
     terrainCore,
     request.descriptor,

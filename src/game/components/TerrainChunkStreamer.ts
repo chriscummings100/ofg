@@ -7,6 +7,7 @@ import type { Vec3 } from "../../engine/math/vec3.js";
 import type {
   TerrainChunkJobGenerator,
   TerrainChunkJobStats,
+  TerrainDensityChunkPayload,
   TerrainDensityJobStats
 } from "../../engine/world/terrainChunkWorkerTypes.js";
 import {
@@ -68,6 +69,7 @@ export class TerrainChunkStreamer extends Component {
 
   private readonly loadedChunkKeys = new Set<TerrainChunkKey>();
   private readonly densityReadyChunkKeys = new Set<TerrainChunkKey>();
+  private readonly densityChunks = new Map<TerrainChunkKey, TerrainDensityChunkPayload>();
   private readonly renderChunkKeys = new Set<TerrainChunkKey>();
   private readonly desiredRenderChunkKeys = new Set<TerrainChunkKey>();
   private readonly emptyRenderChunkKeys = new Set<TerrainChunkKey>();
@@ -158,6 +160,7 @@ export class TerrainChunkStreamer extends Component {
     this.clearRenderedChunks();
     this.loadedChunkKeys.clear();
     this.densityReadyChunkKeys.clear();
+    this.densityChunks.clear();
     this.desiredRenderChunkKeys.clear();
     this.emptyRenderChunkKeys.clear();
     this.inFlightDensityGenerations.clear();
@@ -177,6 +180,7 @@ export class TerrainChunkStreamer extends Component {
     this.clearRenderedChunks();
     this.loadedChunkKeys.clear();
     this.densityReadyChunkKeys.clear();
+    this.densityChunks.clear();
     this.desiredRenderChunkKeys.clear();
     this.emptyRenderChunkKeys.clear();
     this.inFlightDensityGenerations.clear();
@@ -196,6 +200,7 @@ export class TerrainChunkStreamer extends Component {
     this.clearRenderedChunks();
     this.loadedChunkKeys.clear();
     this.densityReadyChunkKeys.clear();
+    this.densityChunks.clear();
     this.desiredRenderChunkKeys.clear();
     this.emptyRenderChunkKeys.clear();
     this.inFlightDensityGenerations.clear();
@@ -211,6 +216,7 @@ export class TerrainChunkStreamer extends Component {
     readonly pending: boolean;
     readonly loadedChunkCount: number;
     readonly densityReadyChunkCount: number;
+    readonly sharedDensityChunkCount: number;
     readonly inFlightDensityCount: number;
     readonly missingDensityCount: number;
     readonly desiredRenderChunkCount: number;
@@ -235,6 +241,7 @@ export class TerrainChunkStreamer extends Component {
       ),
       loadedChunkCount: this.loadedChunkKeys.size,
       densityReadyChunkCount: this.densityReadyChunkKeys.size,
+      sharedDensityChunkCount: this.densityChunks.size,
       inFlightDensityCount: this.inFlightDensityGenerations.size,
       missingDensityCount,
       desiredRenderChunkCount: this.desiredRenderChunkKeys.size,
@@ -376,20 +383,33 @@ export class TerrainChunkStreamer extends Component {
       coord,
       cellSize: this.cellSize
     }).then((result) => {
-      this.inFlightDensityGenerations.delete(result.key);
+      const activeGeneration = this.inFlightDensityGenerations.get(key);
+      if (activeGeneration === generation) {
+        this.inFlightDensityGenerations.delete(key);
+      }
+
       if (
         result.generation !== this.streamGeneration ||
-        !this.loadedChunkKeys.has(result.key)
+        activeGeneration !== result.generation ||
+        result.key !== key ||
+        !this.loadedChunkKeys.has(key)
       ) {
         this.pumpChunkJobs();
         return;
       }
 
-      this.densityReadyChunkKeys.add(result.key);
+      this.densityReadyChunkKeys.add(key);
+      this.densityChunks.set(key, {
+        key,
+        coord: result.coord,
+        densities: result.densities
+      });
       this.lastDensityJobStats = result.stats;
       this.pumpChunkJobs();
     }).catch((error: unknown) => {
-      this.inFlightDensityGenerations.delete(key);
+      if (this.inFlightDensityGenerations.get(key) === generation) {
+        this.inFlightDensityGenerations.delete(key);
+      }
       if (generation === this.streamGeneration) {
         console.warn("Terrain density job failed.", error);
         this.pumpChunkJobs();
@@ -408,11 +428,18 @@ export class TerrainChunkStreamer extends Component {
     void this.chunkJobGenerator.generateChunk({
       generation,
       coord,
+      densityChunks: this.densityDependenciesForMesh(coord),
       cellSize: this.cellSize
     }).then((result) => {
-      this.inFlightChunkGenerations.delete(result.key);
+      const activeGeneration = this.inFlightChunkGenerations.get(key);
+      if (activeGeneration === generation) {
+        this.inFlightChunkGenerations.delete(key);
+      }
+
       if (
         result.generation !== this.streamGeneration ||
+        activeGeneration !== result.generation ||
+        result.key !== key ||
         !this.desiredRenderChunkKeys.has(result.key)
       ) {
         this.pumpChunkJobs();
@@ -423,7 +450,9 @@ export class TerrainChunkStreamer extends Component {
       this.lastChunkJobStats = result.stats;
       this.pumpChunkJobs();
     }).catch((error: unknown) => {
-      this.inFlightChunkGenerations.delete(key);
+      if (this.inFlightChunkGenerations.get(key) === generation) {
+        this.inFlightChunkGenerations.delete(key);
+      }
       if (generation === this.streamGeneration) {
         console.warn("Terrain chunk job failed.", error);
         this.emptyRenderChunkKeys.add(key);
@@ -471,7 +500,19 @@ export class TerrainChunkStreamer extends Component {
 
   private meshDensityDependenciesReady(coord: TerrainChunkCoord): boolean {
     return this.buildNeighborChunkCoords(coord)
-      .every((densityCoord) => this.densityReadyChunkKeys.has(terrainChunkKey(densityCoord)));
+      .every((densityCoord) => this.densityChunks.has(terrainChunkKey(densityCoord)));
+  }
+
+  private densityDependenciesForMesh(coord: TerrainChunkCoord): TerrainDensityChunkPayload[] {
+    return this.buildNeighborChunkCoords(coord).map((densityCoord) => {
+      const key = terrainChunkKey(densityCoord);
+      const chunk = this.densityChunks.get(key);
+      if (chunk === undefined) {
+        throw new Error(`Terrain mesh job missing density dependency '${key}'.`);
+      }
+
+      return chunk;
+    });
   }
 
   private applyChunkJobResult(
@@ -609,6 +650,13 @@ export class TerrainChunkStreamer extends Component {
     for (const key of [...this.densityReadyChunkKeys]) {
       if (!this.loadedChunkKeys.has(key)) {
         this.densityReadyChunkKeys.delete(key);
+        this.densityChunks.delete(key);
+      }
+    }
+
+    for (const key of [...this.densityChunks.keys()]) {
+      if (!this.loadedChunkKeys.has(key)) {
+        this.densityChunks.delete(key);
       }
     }
 

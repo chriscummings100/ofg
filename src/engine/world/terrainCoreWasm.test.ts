@@ -36,6 +36,7 @@ describe("terrain core WASM", () => {
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_height_at"));
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_density_at"));
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_fill_density_chunk"));
+    ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_store_density_chunk_buffer"));
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_prepare_density_chunk_window"));
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_density_chunk_store_entry_count"));
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_build_chunk_mesh"));

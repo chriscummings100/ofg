@@ -509,6 +509,42 @@ pub extern "C" fn ofg_reset_density_chunk_store() {
 }
 
 #[no_mangle]
+pub extern "C" fn ofg_store_density_chunk_buffer(
+    seed: u32,
+    preset: u32,
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+    cell_size: f64,
+) -> u32 {
+    if cell_size <= 0.0 {
+        return 0;
+    }
+
+    let coord = TerrainChunkCoord {
+        x: chunk_x,
+        y: chunk_y,
+        z: chunk_z,
+    };
+    let preset_id = terrain_preset_index(preset);
+    let key = density_chunk_store_key(seed, preset_id, coord, cell_size);
+    let densities = unsafe {
+        core::slice::from_raw_parts(
+            core::ptr::addr_of!(DENSITY_CHUNK_BUFFER).cast::<f32>(),
+            TERRAIN_CHUNK_SAMPLE_COUNT,
+        )
+    }
+    .to_vec();
+
+    density_chunk_store()
+        .lock()
+        .expect("density chunk store lock poisoned")
+        .insert(key, densities);
+
+    1
+}
+
+#[no_mangle]
 pub extern "C" fn ofg_prepare_density_chunk_window(
     seed: u32,
     preset: u32,
@@ -537,7 +573,9 @@ pub extern "C" fn ofg_prepare_density_chunk_window(
     density_chunk_store()
         .lock()
         .expect("density chunk store lock poisoned")
-        .retain_window(seed, preset_id, cell_size, min_x, min_y, min_z, max_x, max_y, max_z);
+        .retain_window(
+            seed, preset_id, cell_size, min_x, min_y, min_z, max_x, max_y, max_z,
+        );
 
     let mut prepared = 0;
     for z in min_z..=max_z {
@@ -2330,7 +2368,9 @@ impl DensityChunkStore {
                 && entry.key.chunk_z >= min_z
                 && entry.key.chunk_z <= max_z
         });
-        self.evictions = self.evictions.wrapping_add((before - self.entries.len()) as u64);
+        self.evictions = self
+            .evictions
+            .wrapping_add((before - self.entries.len()) as u64);
     }
 
     fn evict_until_within_budget(&mut self) {
@@ -2391,14 +2431,22 @@ fn fast_floor(value: f64) -> i32 {
 mod tests {
     use super::*;
 
+    static TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+        TEST_MUTEX.lock().expect("terrain core test lock poisoned")
+    }
+
     #[test]
     fn exported_version_is_stable() {
+        let _lock = test_lock();
         assert_eq!(ofg_terrain_core_version(), 1);
         assert_eq!(ofg_terrain_core_preset_count(), 4);
     }
 
     #[test]
     fn height_sampling_is_deterministic() {
+        let _lock = test_lock();
         let a = height_at(0x0F6, 1, 12.5, -20.25);
         let b = height_at(0x0F6, 1, 12.5, -20.25);
 
@@ -2407,6 +2455,7 @@ mod tests {
 
     #[test]
     fn presets_produce_different_surfaces() {
+        let _lock = test_lock();
         let rolling = height_at(0x0F6, 1, 44.0, -36.0);
         let mountains = height_at(0x0F6, 2, 44.0, -36.0);
         let highland = height_at(0x0F6, 3, 44.0, -36.0);
@@ -2417,6 +2466,7 @@ mod tests {
 
     #[test]
     fn density_crosses_zero_near_surface() {
+        let _lock = test_lock();
         let height = height_at(0x0F6, 1, -18.0, 27.0);
         let below = ofg_density_at(0x0F6, 1, -18.0, height - 0.5, 27.0);
         let above = ofg_density_at(0x0F6, 1, -18.0, height + 0.5, 27.0);
@@ -2427,6 +2477,7 @@ mod tests {
 
     #[test]
     fn fills_density_chunk_buffer_in_terrain_chunk_order() {
+        let _lock = test_lock();
         ofg_fill_density_chunk(0x0F6, 1, -1, 0, 2, 1.0);
         let buffer = unsafe {
             std::slice::from_raw_parts(
@@ -2459,6 +2510,7 @@ mod tests {
 
     #[test]
     fn builds_renderable_chunk_mesh_buffers() {
+        let _lock = test_lock();
         ofg_reset_density_chunk_store();
         let index_count = ofg_build_chunk_mesh(0x0F6, 1, 0, 0, 0, 1.0);
         let vertex_len = ofg_mesh_vertex_buffer_len() as usize;
@@ -2482,6 +2534,7 @@ mod tests {
 
     #[test]
     fn prepares_density_window_for_mesh_reuse() {
+        let _lock = test_lock();
         ofg_reset_density_chunk_store();
 
         let prepared = ofg_prepare_density_chunk_window(0x0F6, 1, 0, 0, 0, 1, 1, 1, 1.0);
@@ -2503,5 +2556,21 @@ mod tests {
             ofg_density_chunk_store_reuse_count(),
             reuses_before_mesh + 8.0
         );
+    }
+
+    #[test]
+    fn stores_density_chunk_buffer_for_mesh_reuse() {
+        let _lock = test_lock();
+        ofg_reset_density_chunk_store();
+        ofg_fill_density_chunk(0x0F6, 1, 0, 0, 0, 1.0);
+
+        assert_eq!(ofg_store_density_chunk_buffer(0x0F6, 1, 0, 0, 0, 1.0), 1);
+        assert_eq!(ofg_density_chunk_store_entry_count(), 1);
+
+        let generated_before = ofg_density_chunk_store_generation_count();
+        let _ = ofg_build_chunk_mesh(0x0F6, 1, 0, 0, 0, 1.0);
+
+        assert!(ofg_density_chunk_store_reuse_count() >= 1.0);
+        assert!(ofg_density_chunk_store_generation_count() >= generated_before);
     }
 }
