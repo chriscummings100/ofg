@@ -1,9 +1,14 @@
 import { terrainChunkKey } from "./terrainChunk.js";
-import { generateTerrainChunkMeshWithWasm } from "./terrainCoreChunkMesh.js";
+import {
+  generateTerrainChunkMeshWithWasm,
+  prepareTerrainCoreDensityChunkWindow
+} from "./terrainCoreChunkMesh.js";
 import { loadTerrainCoreWasm, type TerrainCoreWasmInstance } from "./terrainCoreWasm.js";
 import type {
   TerrainChunkJobResult,
+  TerrainDensityJobResult,
   TerrainWorkerChunkJobRequest,
+  TerrainWorkerDensityJobRequest,
   TerrainWorkerMessage,
   TerrainWorkerRequestMessage
 } from "./terrainChunkWorkerTypes.js";
@@ -19,7 +24,23 @@ const workerSelf = self as unknown as {
 
 workerSelf.addEventListener("message", (event: MessageEvent<TerrainWorkerRequestMessage>) => {
   const message = event.data;
-  if (message.type !== "generateChunk") {
+
+  if (message.type === "prepareDensityChunk") {
+    void prepareDensityChunk(message.request)
+      .then((result) => {
+        workerSelf.postMessage({
+          type: "densityResult",
+          requestId: message.requestId,
+          result
+        });
+      })
+      .catch((error: unknown) => {
+        workerSelf.postMessage({
+          type: "error",
+          requestId: message.requestId,
+          message: error instanceof Error ? error.message : String(error)
+        });
+      });
     return;
   }
 
@@ -44,6 +65,28 @@ workerSelf.addEventListener("message", (event: MessageEvent<TerrainWorkerRequest
       });
     });
 });
+
+async function prepareDensityChunk(
+  request: TerrainWorkerDensityJobRequest
+): Promise<TerrainDensityJobResult> {
+  const terrainCore = await loadWorkerTerrainCore();
+  const startedAt = performance.now();
+  prepareTerrainCoreDensityChunkWindow(
+    terrainCore,
+    request.descriptor,
+    [request.coord],
+    request.cellSize
+  );
+  const finishedAt = performance.now();
+
+  return {
+    generation: request.generation,
+    key: terrainChunkKey(request.coord),
+    stats: {
+      totalMs: finishedAt - startedAt
+    }
+  };
+}
 
 async function generateChunk(
   request: TerrainWorkerChunkJobRequest

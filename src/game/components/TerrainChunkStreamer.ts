@@ -6,7 +6,8 @@ import type { ResourceId } from "../../engine/scene/types.js";
 import type { Vec3 } from "../../engine/math/vec3.js";
 import type {
   TerrainChunkJobGenerator,
-  TerrainChunkJobStats
+  TerrainChunkJobStats,
+  TerrainDensityJobStats
 } from "../../engine/world/terrainChunkWorkerTypes.js";
 import {
   generateTerrainDensityChunk,
@@ -66,12 +67,15 @@ export class TerrainChunkStreamer extends Component {
   maxConcurrentChunkJobs: number;
 
   private readonly loadedChunkKeys = new Set<TerrainChunkKey>();
+  private readonly densityReadyChunkKeys = new Set<TerrainChunkKey>();
   private readonly renderChunkKeys = new Set<TerrainChunkKey>();
   private readonly desiredRenderChunkKeys = new Set<TerrainChunkKey>();
   private readonly emptyRenderChunkKeys = new Set<TerrainChunkKey>();
+  private readonly inFlightDensityGenerations = new Map<TerrainChunkKey, number>();
   private readonly inFlightChunkGenerations = new Map<TerrainChunkKey, number>();
   private lastCenterCoord?: TerrainChunkCoord;
   private streamGeneration = 0;
+  private lastDensityJobStats?: TerrainDensityJobStats;
   private lastChunkJobStats?: TerrainChunkJobStats;
 
   constructor(
@@ -140,6 +144,7 @@ export class TerrainChunkStreamer extends Component {
     for (const key of desiredRender) {
       this.desiredRenderChunkKeys.add(key);
     }
+    this.removeDensityChunksOutsideDesiredWindow();
     this.removeRenderChunksOutsideDesiredWindow();
     this.removeEmptyChunksOutsideDesiredWindow();
     this.lastCenterCoord = centerCoord;
@@ -152,8 +157,10 @@ export class TerrainChunkStreamer extends Component {
     this.nextGeneration();
     this.clearRenderedChunks();
     this.loadedChunkKeys.clear();
+    this.densityReadyChunkKeys.clear();
     this.desiredRenderChunkKeys.clear();
     this.emptyRenderChunkKeys.clear();
+    this.inFlightDensityGenerations.clear();
     this.inFlightChunkGenerations.clear();
     for (const key of this.buildDesiredDensityChunkKeys(centerCoord)) {
       this.loadedChunkKeys.add(key);
@@ -169,8 +176,10 @@ export class TerrainChunkStreamer extends Component {
     this.cancelPendingWork(true);
     this.clearRenderedChunks();
     this.loadedChunkKeys.clear();
+    this.densityReadyChunkKeys.clear();
     this.desiredRenderChunkKeys.clear();
     this.emptyRenderChunkKeys.clear();
+    this.inFlightDensityGenerations.clear();
     this.inFlightChunkGenerations.clear();
 
     const nextCenter =
@@ -186,8 +195,10 @@ export class TerrainChunkStreamer extends Component {
     this.cancelPendingWork(false);
     this.clearRenderedChunks();
     this.loadedChunkKeys.clear();
+    this.densityReadyChunkKeys.clear();
     this.desiredRenderChunkKeys.clear();
     this.emptyRenderChunkKeys.clear();
+    this.inFlightDensityGenerations.clear();
     this.inFlightChunkGenerations.clear();
   }
 
@@ -199,26 +210,40 @@ export class TerrainChunkStreamer extends Component {
     readonly generation: number;
     readonly pending: boolean;
     readonly loadedChunkCount: number;
+    readonly densityReadyChunkCount: number;
+    readonly inFlightDensityCount: number;
+    readonly missingDensityCount: number;
     readonly desiredRenderChunkCount: number;
     readonly renderedChunkCount: number;
     readonly emptyChunkCount: number;
     readonly inFlightChunkCount: number;
     readonly missingChunkCount: number;
     readonly maxConcurrentChunkJobs: number;
+    readonly lastDensityJobStats?: TerrainDensityJobStats;
     readonly lastChunkJobStats?: TerrainChunkJobStats;
   } {
+    const missingDensityCount = this.countMissingDensityJobs();
     const missingChunkCount = this.countMissingChunkJobs();
 
     return {
       generation: this.streamGeneration,
-      pending: this.inFlightChunkGenerations.size > 0 || missingChunkCount > 0,
+      pending: this.chunkJobGenerator !== undefined && (
+        this.inFlightDensityGenerations.size > 0 ||
+        this.inFlightChunkGenerations.size > 0 ||
+        missingDensityCount > 0 ||
+        missingChunkCount > 0
+      ),
       loadedChunkCount: this.loadedChunkKeys.size,
+      densityReadyChunkCount: this.densityReadyChunkKeys.size,
+      inFlightDensityCount: this.inFlightDensityGenerations.size,
+      missingDensityCount,
       desiredRenderChunkCount: this.desiredRenderChunkKeys.size,
       renderedChunkCount: this.renderChunkKeys.size,
       emptyChunkCount: this.emptyRenderChunkKeys.size,
       inFlightChunkCount: this.inFlightChunkGenerations.size,
       missingChunkCount,
       maxConcurrentChunkJobs: this.maxConcurrentChunkJobs,
+      lastDensityJobStats: this.lastDensityJobStats,
       lastChunkJobStats: this.lastChunkJobStats
     };
   }
@@ -322,41 +347,107 @@ export class TerrainChunkStreamer extends Component {
       return;
     }
 
-    while (this.inFlightChunkGenerations.size < this.maxConcurrentChunkJobs) {
+    while (this.activeWorkerJobCount() < this.maxConcurrentChunkJobs) {
+      const densityCoord = this.nextDensityJobCoord(this.lastCenterCoord);
+      if (densityCoord !== undefined) {
+        this.submitDensityJob(densityCoord);
+        continue;
+      }
+
       const coord = this.nextChunkJobCoord(this.lastCenterCoord);
       if (coord === undefined) {
         return;
       }
 
-      const key = terrainChunkKey(coord);
-      const generation = this.streamGeneration;
-      this.inFlightChunkGenerations.set(key, generation);
-      void this.chunkJobGenerator.generateChunk({
-        generation,
-        coord,
-        cellSize: this.cellSize
-      }).then((result) => {
-        this.inFlightChunkGenerations.delete(result.key);
-        if (
-          result.generation !== this.streamGeneration ||
-          !this.desiredRenderChunkKeys.has(result.key)
-        ) {
-          this.pumpChunkJobs();
-          return;
-        }
-
-        this.applyChunkJobResult(result.key, result.vertices, result.indices);
-        this.lastChunkJobStats = result.stats;
-        this.pumpChunkJobs();
-      }).catch((error: unknown) => {
-        this.inFlightChunkGenerations.delete(key);
-        if (generation === this.streamGeneration) {
-          console.warn("Terrain chunk job failed.", error);
-          this.emptyRenderChunkKeys.add(key);
-          this.pumpChunkJobs();
-        }
-      });
+      this.submitChunkJob(coord);
     }
+  }
+
+  private submitDensityJob(coord: TerrainChunkCoord): void {
+    if (this.chunkJobGenerator === undefined) {
+      return;
+    }
+
+    const key = terrainChunkKey(coord);
+    const generation = this.streamGeneration;
+    this.inFlightDensityGenerations.set(key, generation);
+    void this.chunkJobGenerator.prepareDensityChunk({
+      generation,
+      coord,
+      cellSize: this.cellSize
+    }).then((result) => {
+      this.inFlightDensityGenerations.delete(result.key);
+      if (
+        result.generation !== this.streamGeneration ||
+        !this.loadedChunkKeys.has(result.key)
+      ) {
+        this.pumpChunkJobs();
+        return;
+      }
+
+      this.densityReadyChunkKeys.add(result.key);
+      this.lastDensityJobStats = result.stats;
+      this.pumpChunkJobs();
+    }).catch((error: unknown) => {
+      this.inFlightDensityGenerations.delete(key);
+      if (generation === this.streamGeneration) {
+        console.warn("Terrain density job failed.", error);
+        this.pumpChunkJobs();
+      }
+    });
+  }
+
+  private submitChunkJob(coord: TerrainChunkCoord): void {
+    if (this.chunkJobGenerator === undefined) {
+      return;
+    }
+
+    const key = terrainChunkKey(coord);
+    const generation = this.streamGeneration;
+    this.inFlightChunkGenerations.set(key, generation);
+    void this.chunkJobGenerator.generateChunk({
+      generation,
+      coord,
+      cellSize: this.cellSize
+    }).then((result) => {
+      this.inFlightChunkGenerations.delete(result.key);
+      if (
+        result.generation !== this.streamGeneration ||
+        !this.desiredRenderChunkKeys.has(result.key)
+      ) {
+        this.pumpChunkJobs();
+        return;
+      }
+
+      this.applyChunkJobResult(result.key, result.vertices, result.indices);
+      this.lastChunkJobStats = result.stats;
+      this.pumpChunkJobs();
+    }).catch((error: unknown) => {
+      this.inFlightChunkGenerations.delete(key);
+      if (generation === this.streamGeneration) {
+        console.warn("Terrain chunk job failed.", error);
+        this.emptyRenderChunkKeys.add(key);
+        this.pumpChunkJobs();
+      }
+    });
+  }
+
+  private nextDensityJobCoord(centerCoord: TerrainChunkCoord): TerrainChunkCoord | undefined {
+    const candidates = [...this.loadedChunkKeys]
+      .filter((key) => this.shouldSubmitDensityJob(key))
+      .map(parseTerrainChunkKey);
+    candidates.sort((a, b) =>
+      chunkPriority(a, centerCoord) - chunkPriority(b, centerCoord) ||
+      terrainChunkKey(a).localeCompare(terrainChunkKey(b))
+    );
+
+    return candidates[0];
+  }
+
+  private shouldSubmitDensityJob(key: TerrainChunkKey): boolean {
+    return this.loadedChunkKeys.has(key) &&
+      !this.densityReadyChunkKeys.has(key) &&
+      !this.inFlightDensityGenerations.has(key);
   }
 
   private nextChunkJobCoord(centerCoord: TerrainChunkCoord): TerrainChunkCoord | undefined {
@@ -374,7 +465,13 @@ export class TerrainChunkStreamer extends Component {
     return this.desiredRenderChunkKeys.has(key) &&
       !this.renderChunkKeys.has(key) &&
       !this.emptyRenderChunkKeys.has(key) &&
-      !this.inFlightChunkGenerations.has(key);
+      !this.inFlightChunkGenerations.has(key) &&
+      this.meshDensityDependenciesReady(parseTerrainChunkKey(key));
+  }
+
+  private meshDensityDependenciesReady(coord: TerrainChunkCoord): boolean {
+    return this.buildNeighborChunkCoords(coord)
+      .every((densityCoord) => this.densityReadyChunkKeys.has(terrainChunkKey(densityCoord)));
   }
 
   private applyChunkJobResult(
@@ -416,6 +513,24 @@ export class TerrainChunkStreamer extends Component {
     }
 
     return missing;
+  }
+
+  private countMissingDensityJobs(): number {
+    let missing = 0;
+    for (const key of this.loadedChunkKeys) {
+      if (
+        !this.densityReadyChunkKeys.has(key) &&
+        !this.inFlightDensityGenerations.has(key)
+      ) {
+        missing += 1;
+      }
+    }
+
+    return missing;
+  }
+
+  private activeWorkerJobCount(): number {
+    return this.inFlightDensityGenerations.size + this.inFlightChunkGenerations.size;
   }
 
   private getOrGenerateDensityChunk(
@@ -476,6 +591,7 @@ export class TerrainChunkStreamer extends Component {
 
   private cancelPendingWork(resetGenerator: boolean): void {
     this.streamGeneration += 1;
+    this.lastDensityJobStats = undefined;
     this.lastChunkJobStats = undefined;
     if (resetGenerator) {
       this.chunkJobGenerator?.reset?.();
@@ -487,6 +603,20 @@ export class TerrainChunkStreamer extends Component {
       this.terrain.removeChunk(key);
     }
     this.renderChunkKeys.clear();
+  }
+
+  private removeDensityChunksOutsideDesiredWindow(): void {
+    for (const key of [...this.densityReadyChunkKeys]) {
+      if (!this.loadedChunkKeys.has(key)) {
+        this.densityReadyChunkKeys.delete(key);
+      }
+    }
+
+    for (const key of [...this.inFlightDensityGenerations.keys()]) {
+      if (!this.loadedChunkKeys.has(key)) {
+        this.inFlightDensityGenerations.delete(key);
+      }
+    }
   }
 
   private removeRenderChunksOutsideDesiredWindow(): void {

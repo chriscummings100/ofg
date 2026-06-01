@@ -7,7 +7,17 @@ export type TerrainChunkJobRequest = {
   readonly cellSize: number;
 };
 
+export type TerrainDensityJobRequest = {
+  readonly generation: number;
+  readonly coord: TerrainChunkCoord;
+  readonly cellSize: number;
+};
+
 export type TerrainWorkerChunkJobRequest = TerrainChunkJobRequest & {
+  readonly descriptor: WorldDescriptor;
+};
+
+export type TerrainWorkerDensityJobRequest = TerrainDensityJobRequest & {
   readonly descriptor: WorldDescriptor;
 };
 
@@ -15,6 +25,16 @@ export type TerrainChunkJobStats = {
   readonly totalMs: number;
   readonly vertexCount: number;
   readonly indexCount: number;
+};
+
+export type TerrainDensityJobStats = {
+  readonly totalMs: number;
+};
+
+export type TerrainDensityJobResult = {
+  readonly generation: number;
+  readonly key: TerrainChunkKey;
+  readonly stats: TerrainDensityJobStats;
 };
 
 export type TerrainChunkJobResult = {
@@ -27,15 +47,32 @@ export type TerrainChunkJobResult = {
 
 export type TerrainChunkJobGenerator = {
   readonly workerCount?: number;
+  prepareDensityChunk(request: TerrainDensityJobRequest): Promise<TerrainDensityJobResult>;
   generateChunk(request: TerrainChunkJobRequest): Promise<TerrainChunkJobResult>;
   reset?(): void;
   dispose?(): void;
 };
 
-export type TerrainWorkerRequestMessage = {
+export type TerrainWorkerDensityRequestMessage = {
+  readonly type: "prepareDensityChunk";
+  readonly requestId: number;
+  readonly request: TerrainWorkerDensityJobRequest;
+};
+
+export type TerrainWorkerChunkRequestMessage = {
   readonly type: "generateChunk";
   readonly requestId: number;
   readonly request: TerrainWorkerChunkJobRequest;
+};
+
+export type TerrainWorkerRequestMessage =
+  | TerrainWorkerDensityRequestMessage
+  | TerrainWorkerChunkRequestMessage;
+
+export type TerrainWorkerDensityResultMessage = {
+  readonly type: "densityResult";
+  readonly requestId: number;
+  readonly result: TerrainDensityJobResult;
 };
 
 export type TerrainWorkerResultMessage = {
@@ -50,4 +87,7 @@ export type TerrainWorkerErrorMessage = {
   readonly message: string;
 };
 
-export type TerrainWorkerMessage = TerrainWorkerResultMessage | TerrainWorkerErrorMessage;
+export type TerrainWorkerMessage =
+  | TerrainWorkerDensityResultMessage
+  | TerrainWorkerResultMessage
+  | TerrainWorkerErrorMessage;

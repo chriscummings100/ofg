@@ -3,12 +3,14 @@ import type {
   TerrainChunkJobGenerator,
   TerrainChunkJobRequest,
   TerrainChunkJobResult,
+  TerrainDensityJobRequest,
+  TerrainDensityJobResult,
   TerrainWorkerMessage,
   TerrainWorkerRequestMessage
 } from "./terrainChunkWorkerTypes.js";
 
 type PendingRequest = {
-  readonly resolve: (result: TerrainChunkJobResult) => void;
+  readonly resolve: (result: unknown) => void;
   readonly reject: (error: Error) => void;
 };
 
@@ -37,6 +39,29 @@ export class TerrainChunkWorkerClient implements TerrainChunkJobGenerator {
 
   private readonly workerFactory: () => Worker;
 
+  prepareDensityChunk(request: TerrainDensityJobRequest): Promise<TerrainDensityJobResult> {
+    const slot = this.nextSlot();
+    const requestId = this.nextRequestId;
+    this.nextRequestId += 1;
+
+    const message: TerrainWorkerRequestMessage = {
+      type: "prepareDensityChunk",
+      requestId,
+      request: {
+        ...request,
+        descriptor: this.descriptor
+      }
+    };
+
+    return new Promise<TerrainDensityJobResult>((resolve, reject) => {
+      slot.pending.set(requestId, {
+        resolve: (result) => resolve(result as TerrainDensityJobResult),
+        reject
+      });
+      slot.worker.postMessage(message);
+    });
+  }
+
   generateChunk(request: TerrainChunkJobRequest): Promise<TerrainChunkJobResult> {
     const slot = this.nextSlot();
     const requestId = this.nextRequestId;
@@ -52,7 +77,10 @@ export class TerrainChunkWorkerClient implements TerrainChunkJobGenerator {
     };
 
     return new Promise<TerrainChunkJobResult>((resolve, reject) => {
-      slot.pending.set(requestId, { resolve, reject });
+      slot.pending.set(requestId, {
+        resolve: (result) => resolve(result as TerrainChunkJobResult),
+        reject
+      });
       slot.worker.postMessage(message);
     });
   }

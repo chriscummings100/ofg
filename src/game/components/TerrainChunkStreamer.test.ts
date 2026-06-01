@@ -164,7 +164,15 @@ describe("TerrainChunkStreamer", () => {
     const streamer = new TerrainChunkStreamer(terrain, source, {
       horizontalRadius: 0,
       verticalChunkOffsets: [0],
+      maxConcurrentChunkJobs: 8,
       chunkJobGenerator: {
+        async prepareDensityChunk(request) {
+          return {
+            generation: request.generation,
+            key: terrainChunkKey(request.coord),
+            stats: { totalMs: 1 }
+          };
+        },
         async generateChunk(request) {
           return {
             generation: request.generation,
@@ -184,11 +192,13 @@ describe("TerrainChunkStreamer", () => {
 
     equal(terrain.chunks.length, 0);
     equal(streamer.getStreamStatus().pending, true);
-    await Promise.resolve();
+    await flushMicrotasks(4);
 
     equal(terrain.chunks.length, 1);
     equal(terrain.chunks[0].key, "0,0,0");
     equal(streamer.getStreamStatus().pending, false);
+    equal(streamer.getStreamStatus().densityReadyChunkCount, 8);
+    equal(streamer.getStreamStatus().lastDensityJobStats?.totalMs, 1);
     equal(streamer.getStreamStatus().lastChunkJobStats?.indexCount, 3);
   });
 
@@ -202,7 +212,15 @@ describe("TerrainChunkStreamer", () => {
     const streamer = new TerrainChunkStreamer(terrain, source, {
       horizontalRadius: 0,
       verticalChunkOffsets: [0],
+      maxConcurrentChunkJobs: 8,
       chunkJobGenerator: {
+        async prepareDensityChunk(request) {
+          return {
+            generation: request.generation,
+            key: terrainChunkKey(request.coord),
+            stats: { totalMs: 1 }
+          };
+        },
         generateChunk(request) {
           return new Promise((resolve) => {
             requests.push({
@@ -226,7 +244,9 @@ describe("TerrainChunkStreamer", () => {
     });
 
     streamer.syncAround(vec3(0, 0, 0));
+    await flushMicrotasks(4);
     streamer.resetStreaming(vec3(32, 0, 0));
+    await flushMicrotasks(4);
 
     equal(requests.length, 2);
     requests[0].resolve("0,0,0");
@@ -242,7 +262,11 @@ describe("TerrainChunkStreamer", () => {
   it("submits nearest async chunk jobs up to the concurrency limit", async () => {
     const source = createFlatField(0);
     const terrain = new TerrainRenderer(source);
-    const requests: Array<{
+    const densityRequests: Array<{
+      readonly key: string;
+      readonly resolve: () => void;
+    }> = [];
+    const chunkRequests: Array<{
       readonly key: string;
       readonly resolve: () => void;
     }> = [];
@@ -252,10 +276,25 @@ describe("TerrainChunkStreamer", () => {
       maxConcurrentChunkJobs: 2,
       chunkJobGenerator: {
         workerCount: 2,
+        prepareDensityChunk(request) {
+          const key = terrainChunkKey(request.coord);
+          return new Promise((resolve) => {
+            densityRequests.push({
+              key,
+              resolve() {
+                resolve({
+                  generation: request.generation,
+                  key,
+                  stats: { totalMs: 1 }
+                });
+              }
+            });
+          });
+        },
         generateChunk(request) {
           const key = terrainChunkKey(request.coord);
           return new Promise((resolve) => {
-            requests.push({
+            chunkRequests.push({
               key,
               resolve() {
                 resolve({
@@ -277,15 +316,27 @@ describe("TerrainChunkStreamer", () => {
 
     streamer.syncAround(vec3(0, 0, 0));
 
-    equal(requests.length, 2);
-    equal(requests[0].key, "0,0,0");
+    equal(densityRequests.length, 2);
+    equal(densityRequests[0].key, "0,0,0");
+    equal(streamer.getStreamStatus().inFlightDensityCount, 2);
+    equal(streamer.getStreamStatus().inFlightChunkCount, 0);
+
+    for (let index = 0; index < densityRequests.length; index += 1) {
+      densityRequests[index].resolve();
+      await Promise.resolve();
+    }
+    await flushMicrotasks(40);
+
+    equal(streamer.getStreamStatus().densityReadyChunkCount, streamer.getStreamStatus().loadedChunkCount);
+    equal(chunkRequests.length, 2);
+    equal(chunkRequests[0].key, "0,0,0");
     equal(streamer.getStreamStatus().inFlightChunkCount, 2);
 
-    requests[0].resolve();
+    chunkRequests[0].resolve();
     await Promise.resolve();
 
     equal(terrain.chunks.length, 1);
-    equal(requests.length, 3);
+    equal(chunkRequests.length, 3);
     equal(streamer.getStreamStatus().inFlightChunkCount, 2);
   });
 
@@ -450,4 +501,10 @@ function createTriangleMeshData() {
     ]),
     indices: new Uint32Array([0, 1, 2])
   };
+}
+
+async function flushMicrotasks(count: number): Promise<void> {
+  for (let index = 0; index < count; index += 1) {
+    await Promise.resolve();
+  }
 }
