@@ -51,6 +51,7 @@ declare global {
       getLoadedTerrainChunkKeys: () => string[];
       getTerrainChunkKeys: () => string[];
       getTerrainPreset: () => TerrainPresetId;
+      getTerrainSeed: () => number;
       getTerrainDebugOverlayMode: () => TerrainDebugOverlayState;
       setTerrainDebugOverlayMode: (mode: TerrainDebugOverlayState) => void;
       cycleTerrainDebugOverlayMode: () => TerrainDebugOverlayState;
@@ -142,6 +143,7 @@ export async function startGame(elements: GameElements): Promise<void> {
     getLoadedTerrainChunkKeys: () => terrainStreamer.getLoadedChunkKeys(),
     getTerrainChunkKeys: () => terrainRenderer.chunks.map((chunk) => chunk.key).sort(),
     getTerrainPreset: () => descriptor.terrainPreset,
+    getTerrainSeed: () => descriptor.seed,
     getTerrainDebugOverlayMode: () => terrainDebugOverlay.getState(),
     setTerrainDebugOverlayMode(mode) {
       terrainDebugOverlay.setState(validateTerrainDebugOverlayState(mode));
@@ -216,12 +218,12 @@ export async function startGame(elements: GameElements): Promise<void> {
 function readWorldDescriptor(): WorldDescriptor {
   const params = new URLSearchParams(window.location.search);
   const terrainPreset = readTerrainPreset(params.get("terrainPreset"));
+  const terrainSeed = readTerrainSeed(params.get("terrainSeed"));
 
-  if (terrainPreset === undefined) {
-    return createSeedWorldDescriptor();
-  }
-
-  return createSeedWorldDescriptor(undefined, { terrainPreset });
+  return createSeedWorldDescriptor(
+    terrainSeed,
+    terrainPreset === undefined ? {} : { terrainPreset }
+  );
 }
 
 function readTerrainPreset(value: string | null): TerrainPresetId | undefined {
@@ -234,6 +236,20 @@ function readTerrainPreset(value: string | null): TerrainPresetId | undefined {
   }
 
   console.warn(`Unknown terrain preset '${value}', using the default preset.`);
+  return undefined;
+}
+
+function readTerrainSeed(value: string | null): number | undefined {
+  if (value === null || value.trim() === "") {
+    return undefined;
+  }
+
+  const seed = Number(value);
+  if (Number.isInteger(seed) && seed >= 0) {
+    return seed;
+  }
+
+  console.warn(`Invalid terrain seed '${value}', using the default seed.`);
   return undefined;
 }
 

@@ -41,6 +41,8 @@ Supported:
 - A `TerrainGenerator` behind `WorldDescriptor`, with `seed`, `rollingHills`,
   `mountainValley`, and `rockyHighland` terrain presets. `rollingHills` is the
   default.
+- URL-selectable terrain presets and seeds through `?terrainPreset=...` and
+  `?terrainSeed=...`, primarily for repeatable verification captures.
 - Macro channels for base elevation, large feature value, mountainness,
   continentality, erosion susceptibility, ridge, and warp.
 - Terrain density formed from macro base elevation plus 3D detail noise. This is
@@ -61,7 +63,8 @@ Supported:
   layers at each triangle corner.
 - WGSL triplanar blending of terrain albedo and roughness from the texture arrays.
 - Browser and debug smoke coverage for regular gameplay render, terrain presets,
-  terrain debug overlays, and seam/corner views.
+  terrain debug overlays, seam/corner views, and surveyed material-variation
+  screenshots.
 - Debug overlays for macro elevation, mountainness, slope, normal, density slice,
   material weights, QEF error, and chunk borders.
 
@@ -227,6 +230,12 @@ Proposed order:
 Do not start with full hydraulic erosion. Add hydrology next only after biome and
 material screenshots prove that the existing field stack can produce readable
 regional variation.
+
+Progress notes:
+
+| Date | Status | Notes |
+|---|---|---|
+| 2026-06-01 | In progress | Added `?terrainSeed=` support and `npm run smoke:terrain-variation`. The smoke samples all current terrain presets across seeds `246`, `7001`, `112358`, and `424242`, scores representative meadow, wet lowland, dry soil, mossy ridge, rocky slope, and red cliff targets, captures browser screenshots, and writes a report with macro/biome/material evidence. This proves current material variation is real, while also making the missing biome layer explicit: all captured targets still report the placeholder `temperateGrassland: 1` biome. |
 
 ## Milestone 1: Generator Core
 
@@ -444,7 +453,7 @@ Progress notes:
 
 | Date | Status | Notes |
 |---|---|---|
-| 2026-06-01 | Not started | Current `biomeAt()` is a placeholder that always returns `temperateGrassland: 1`, with temperature and moisture scalars exposed for future use. Next recommended work is a first real weighted biome solver plus biome/debug screenshots. |
+| 2026-06-01 | Not started | Current `biomeAt()` is a placeholder that always returns `temperateGrassland: 1`, with temperature and moisture scalars exposed for future use. `npm run smoke:terrain-variation` now captures material-region screenshots and records the placeholder biome evidence in its report. Next recommended work is a first real weighted biome solver plus biome/debug screenshots. |
 
 ## Milestone 6: Material Classification
 
@@ -496,6 +505,7 @@ Progress notes:
 |---|---|---|
 | 2026-06-01 | In progress | Added a 16-material Poly Haven CC0 terrain library imported by `tools/import-polyhaven-terrain.mjs`, tracked through Git LFS, and loaded as global albedo/normal/roughness texture arrays. Terrain samples now emit slope/altitude/macro-driven material weights, Dual Contouring vertices pack the strongest four material layers, runtime meshes expand triangles to coherent local material palettes, and WGSL triplanar-blends albedo plus roughness from the arrays. Normal maps are loaded but not yet sampled for lighting. `npm test`, `npm run check:shaders`, `npm run smoke:browser`, and `npm run smoke:terrain-seams` pass. |
 | 2026-06-01 | In progress | Remaining material work for believable variation: feed biome/wetness/strata fields into classification, add a survey smoke that captures representative material/biome regions, and apply terrain normal maps in lighting after regional material choice is readable. |
+| 2026-06-01 | In progress | Added the first material-variation survey smoke. It currently finds visually distinct material conditions, but the evidence also shows several categories are still heuristic mixtures rather than true ecological/geological regions. The next classifier improvement should consume real biome weights once Milestone 5 starts. |
 
 ## Milestone 7: Hydrology And Rivers
 
