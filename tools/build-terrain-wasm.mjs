@@ -19,6 +19,11 @@ const expectedExports = [
   "ofg_density_chunk_sample_count",
   "ofg_density_chunk_buffer_ptr",
   "ofg_fill_density_chunk",
+  "ofg_build_chunk_mesh",
+  "ofg_mesh_vertex_buffer_ptr",
+  "ofg_mesh_vertex_buffer_len",
+  "ofg_mesh_index_buffer_ptr",
+  "ofg_mesh_index_buffer_len",
   "ofg_macro_base_elevation_at",
   "ofg_density_at",
   "ofg_height_at"

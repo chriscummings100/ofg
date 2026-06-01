@@ -27,6 +27,7 @@ import {
   type WorldDescriptor
 } from "../engine/world/terrainGenerator.js";
 import { createTerrainCoreDensityChunkGenerator } from "../engine/world/terrainCoreDensityChunk.js";
+import { createTerrainCoreChunkMeshGenerator } from "../engine/world/terrainCoreChunkMesh.js";
 import {
   loadTerrainCoreWasm,
   type TerrainCoreWasmInstance
@@ -127,6 +128,9 @@ export async function startGame(elements: GameElements): Promise<void> {
       horizontalRadius: 1,
       verticalChunkOffsets: [-2, -1, 0, 1],
       cellSize: 1,
+      chunkMeshGenerator: terrainCore === undefined
+        ? undefined
+        : createTerrainCoreChunkMeshGenerator(terrainCore, descriptor),
       densityChunkGenerator: terrainCore === undefined
         ? undefined
         : createTerrainCoreDensityChunkGenerator(terrainCore, descriptor)

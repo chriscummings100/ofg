@@ -15,6 +15,18 @@ export type TerrainCoreWasmExports = {
     chunkZ: number,
     cellSize: number
   ) => void;
+  readonly ofg_build_chunk_mesh: (
+    seed: number,
+    preset: number,
+    chunkX: number,
+    chunkY: number,
+    chunkZ: number,
+    cellSize: number
+  ) => number;
+  readonly ofg_mesh_vertex_buffer_ptr: () => number;
+  readonly ofg_mesh_vertex_buffer_len: () => number;
+  readonly ofg_mesh_index_buffer_ptr: () => number;
+  readonly ofg_mesh_index_buffer_len: () => number;
   readonly ofg_macro_base_elevation_at: (
     seed: number,
     preset: number,
@@ -82,6 +94,26 @@ export function readTerrainCoreDensityChunkBuffer(
   return new Float32Array(exports.memory.buffer, ptr, sampleCount);
 }
 
+export function readTerrainCoreMeshVertexBuffer(
+  exports: TerrainCoreWasmExports
+): Float32Array {
+  return new Float32Array(
+    exports.memory.buffer,
+    exports.ofg_mesh_vertex_buffer_ptr(),
+    exports.ofg_mesh_vertex_buffer_len()
+  );
+}
+
+export function readTerrainCoreMeshIndexBuffer(
+  exports: TerrainCoreWasmExports
+): Uint32Array {
+  return new Uint32Array(
+    exports.memory.buffer,
+    exports.ofg_mesh_index_buffer_ptr(),
+    exports.ofg_mesh_index_buffer_len()
+  );
+}
+
 function assertTerrainCoreExports(exports: WebAssembly.Exports): asserts exports is TerrainCoreWasmExports {
   if (!(exports.memory instanceof WebAssembly.Memory)) {
     throw new Error("Terrain WASM export is missing: memory");
@@ -93,6 +125,11 @@ function assertTerrainCoreExports(exports: WebAssembly.Exports): asserts exports
     "ofg_density_chunk_sample_count",
     "ofg_density_chunk_buffer_ptr",
     "ofg_fill_density_chunk",
+    "ofg_build_chunk_mesh",
+    "ofg_mesh_vertex_buffer_ptr",
+    "ofg_mesh_vertex_buffer_len",
+    "ofg_mesh_index_buffer_ptr",
+    "ofg_mesh_index_buffer_len",
     "ofg_macro_base_elevation_at",
     "ofg_density_at",
     "ofg_height_at"

@@ -15,9 +15,9 @@ The first playable milestone is intentionally small:
 - A debug fly camera that can be toggled at runtime.
 - Deterministic engine code with tests.
 
-The current seed implements chunk-streamed generated terrain with per-chunk
-neighbor-aware Dual Contouring, Poly Haven terrain texture arrays, a first
-Rust/WASM terrain core artifact, and the camera/player loop in TypeScript.
+The current seed implements chunk-streamed generated terrain with a Rust/WASM
+runtime chunk mesh path, Poly Haven terrain texture arrays, and the camera/player
+loop in TypeScript.
 
 ## Commands
 
@@ -37,7 +37,8 @@ The dev server serves the built app at `http://127.0.0.1:5173`. `npm run build`
 generates shader and Rust/WASM terrain artifacts before running TypeScript. Run it
 after source changes, or keep `npm run watch` open in another terminal.
 `npm run bench:terrain:wasm` measures release WASM density chunk generation and
-writes a JSON report under `artifacts/terrain-wasm-bench/`.
+chunk mesh generation, then writes a JSON report under
+`artifacts/terrain-wasm-bench/`.
 
 ## Project Shape
 

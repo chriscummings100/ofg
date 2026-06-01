@@ -9,6 +9,13 @@ const TERRAIN_CHUNK_SAMPLES_PER_AXIS: usize = TERRAIN_CHUNK_CELLS_PER_AXIS + 1;
 const TERRAIN_CHUNK_SAMPLE_COUNT: usize = TERRAIN_CHUNK_SAMPLES_PER_AXIS
     * TERRAIN_CHUNK_SAMPLES_PER_AXIS
     * TERRAIN_CHUNK_SAMPLES_PER_AXIS;
+const TERRAIN_CHUNK_APRON_CELLS_PER_AXIS: usize = TERRAIN_CHUNK_CELLS_PER_AXIS + 1;
+const TERRAIN_CHUNK_APRON_CELL_COUNT: usize = TERRAIN_CHUNK_APRON_CELLS_PER_AXIS
+    * TERRAIN_CHUNK_APRON_CELLS_PER_AXIS
+    * TERRAIN_CHUNK_APRON_CELLS_PER_AXIS;
+const FLOATS_PER_VERTEX: usize = 19;
+const MATERIAL_INDICES_VERTEX_OFFSET: usize = 11;
+const MATERIAL_WEIGHTS_VERTEX_OFFSET: usize = 15;
 const F3: f64 = 1.0 / 3.0;
 const G3: f64 = 1.0 / 6.0;
 const NOISE_SCALE: f64 = 32.0;
@@ -101,6 +108,68 @@ struct DensitySample {
 }
 
 #[derive(Clone, Copy)]
+struct TerrainChunkCoord {
+    x: i32,
+    y: i32,
+    z: i32,
+}
+
+#[derive(Clone, Copy)]
+struct TerrainCellCoord {
+    x: usize,
+    y: usize,
+    z: usize,
+}
+
+#[derive(Clone, Copy)]
+struct TerrainSampleCoord {
+    x: usize,
+    y: usize,
+    z: usize,
+}
+
+struct TerrainDensityChunk {
+    coord: TerrainChunkCoord,
+    cell_size: f64,
+    densities: Vec<f32>,
+}
+
+#[derive(Clone, Copy)]
+struct TerrainChunkBounds {
+    min: Vec3,
+    max: Vec3,
+}
+
+#[derive(Clone, Copy)]
+struct HermiteIntersection {
+    position: Vec3,
+    normal: Vec3,
+}
+
+#[derive(Clone, Copy)]
+struct BiomeWeights {
+    grassland: f64,
+    temperate_forest: f64,
+    wetland: f64,
+    coast_beach: f64,
+    dry_badland: f64,
+    alpine_meadow: f64,
+    high_mountain_rock: f64,
+    snow_tundra: f64,
+}
+
+#[derive(Clone, Copy)]
+struct PackedTerrainMaterial {
+    indices: [f32; 4],
+    weights: [f32; 4],
+}
+
+struct MeshData {
+    vertices: Vec<f32>,
+    indices: Vec<u32>,
+}
+
+#[derive(Clone, Copy)]
 struct DomainWarpSample {
     position: Vec3,
     offset: Vec3,
@@ -182,6 +251,33 @@ const GRADIENTS: [Vec3; 12] = [
 ];
 static mut DENSITY_CHUNK_BUFFER: [f32; TERRAIN_CHUNK_SAMPLE_COUNT] =
     [0.0; TERRAIN_CHUNK_SAMPLE_COUNT];
+static mut MESH_VERTEX_BUFFER: Vec<f32> = Vec::new();
+static mut MESH_INDEX_BUFFER: Vec<u32> = Vec::new();
+
+const CELL_CORNERS: [TerrainSampleCoord; 8] = [
+    TerrainSampleCoord { x: 0, y: 0, z: 0 },
+    TerrainSampleCoord { x: 1, y: 0, z: 0 },
+    TerrainSampleCoord { x: 0, y: 1, z: 0 },
+    TerrainSampleCoord { x: 1, y: 1, z: 0 },
+    TerrainSampleCoord { x: 0, y: 0, z: 1 },
+    TerrainSampleCoord { x: 1, y: 0, z: 1 },
+    TerrainSampleCoord { x: 0, y: 1, z: 1 },
+    TerrainSampleCoord { x: 1, y: 1, z: 1 },
+];
+const CELL_EDGES: [(usize, usize); 12] = [
+    (0, 1),
+    (2, 3),
+    (4, 5),
+    (6, 7),
+    (0, 2),
+    (1, 3),
+    (4, 6),
+    (5, 7),
+    (0, 4),
+    (1, 5),
+    (2, 6),
+    (3, 7),
+];
 
 const SEED_LARGE_FEATURE_NOISE: FractalNoiseOptions = FractalNoiseOptions {
     octaves: 3,
@@ -405,6 +501,61 @@ pub extern "C" fn ofg_fill_density_chunk(
 }
 
 #[no_mangle]
+pub extern "C" fn ofg_build_chunk_mesh(
+    seed: u32,
+    preset: u32,
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+    cell_size: f64,
+) -> u32 {
+    unsafe {
+        MESH_VERTEX_BUFFER.clear();
+        MESH_INDEX_BUFFER.clear();
+    }
+
+    if cell_size <= 0.0 {
+        return 0;
+    }
+
+    let noise = SimplexNoise3D::new(seed);
+    let preset = terrain_preset(preset);
+    let center_coord = TerrainChunkCoord {
+        x: chunk_x,
+        y: chunk_y,
+        z: chunk_z,
+    };
+    let chunks = generate_neighbor_apron_chunks(&noise, preset, seed, center_coord, cell_size);
+    let mesh = build_neighbor_aware_chunk_mesh(&noise, preset, seed, &chunks, center_coord);
+
+    unsafe {
+        MESH_VERTEX_BUFFER = mesh.vertices;
+        MESH_INDEX_BUFFER = mesh.indices;
+        MESH_INDEX_BUFFER.len() as u32
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_mesh_vertex_buffer_ptr() -> *const f32 {
+    unsafe { MESH_VERTEX_BUFFER.as_ptr() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_mesh_vertex_buffer_len() -> u32 {
+    unsafe { MESH_VERTEX_BUFFER.len() as u32 }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_mesh_index_buffer_ptr() -> *const u32 {
+    unsafe { MESH_INDEX_BUFFER.as_ptr() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_mesh_index_buffer_len() -> u32 {
+    unsafe { MESH_INDEX_BUFFER.len() as u32 }
+}
+
+#[no_mangle]
 pub extern "C" fn ofg_macro_base_elevation_at(seed: u32, preset: u32, x: f64, z: f64) -> f64 {
     let noise = SimplexNoise3D::new(seed);
     let preset = terrain_preset(preset);
@@ -505,6 +656,1004 @@ fn density_at_position_with_macro(
             z: -macro_sample.gradient_z - detail.gradient.z * preset.detail_amplitude,
         },
     }
+}
+
+fn generate_neighbor_apron_chunks(
+    noise: &SimplexNoise3D,
+    preset: TerrainPresetDefinition,
+    seed: u32,
+    center_coord: TerrainChunkCoord,
+    cell_size: f64,
+) -> Vec<TerrainDensityChunk> {
+    let mut chunks = Vec::with_capacity(8);
+
+    for dz in 0..=1 {
+        for dy in 0..=1 {
+            for dx in 0..=1 {
+                chunks.push(generate_density_chunk(
+                    noise,
+                    preset,
+                    seed,
+                    TerrainChunkCoord {
+                        x: center_coord.x + dx,
+                        y: center_coord.y + dy,
+                        z: center_coord.z + dz,
+                    },
+                    cell_size,
+                ));
+            }
+        }
+    }
+
+    chunks
+}
+
+fn generate_density_chunk(
+    noise: &SimplexNoise3D,
+    preset: TerrainPresetDefinition,
+    seed: u32,
+    coord: TerrainChunkCoord,
+    cell_size: f64,
+) -> TerrainDensityChunk {
+    let mut densities = vec![0.0; TERRAIN_CHUNK_SAMPLE_COUNT];
+    let origin = terrain_chunk_origin(coord, cell_size);
+
+    for z in 0..TERRAIN_CHUNK_SAMPLES_PER_AXIS {
+        for x in 0..TERRAIN_CHUNK_SAMPLES_PER_AXIS {
+            let column_x = origin.x + x as f64 * cell_size;
+            let column_z = origin.z + z as f64 * cell_size;
+            let macro_sample = sample_macro_terrain(
+                noise,
+                preset,
+                seed,
+                Vec3 {
+                    x: column_x,
+                    y: 0.0,
+                    z: column_z,
+                },
+            );
+
+            for y in 0..TERRAIN_CHUNK_SAMPLES_PER_AXIS {
+                let position = Vec3 {
+                    x: column_x,
+                    y: origin.y + y as f64 * cell_size,
+                    z: column_z,
+                };
+                densities[terrain_chunk_sample_index(x, y, z)] =
+                    density_at_position_with_macro(noise, preset, position, macro_sample).density
+                        as f32;
+            }
+        }
+    }
+
+    TerrainDensityChunk {
+        coord,
+        cell_size,
+        densities,
+    }
+}
+
+fn build_neighbor_aware_chunk_mesh(
+    noise: &SimplexNoise3D,
+    preset: TerrainPresetDefinition,
+    seed: u32,
+    chunks: &[TerrainDensityChunk],
+    center_coord: TerrainChunkCoord,
+) -> MeshData {
+    let center_chunk = match neighbor_chunk(chunks, center_coord, center_coord) {
+        Some(chunk) => chunk,
+        None => {
+            return MeshData {
+                vertices: Vec::new(),
+                indices: Vec::new(),
+            };
+        }
+    };
+    let mut vertex_indices = vec![-1_i32; TERRAIN_CHUNK_APRON_CELL_COUNT];
+    let mut vertices = Vec::new();
+    let mesh_bounds = center_chunk.bounds();
+
+    for z in 0..=TERRAIN_CHUNK_CELLS_PER_AXIS {
+        for y in 0..=TERRAIN_CHUNK_CELLS_PER_AXIS {
+            for x in 0..=TERRAIN_CHUNK_CELLS_PER_AXIS {
+                let (chunk_coord, cell) = local_apron_cell_ref(center_coord, x, y, z);
+                let chunk = match neighbor_chunk(chunks, center_coord, chunk_coord) {
+                    Some(chunk) => chunk,
+                    None => continue,
+                };
+                let intersections = extract_hermite_intersections(noise, preset, seed, chunk, cell);
+                if intersections.is_empty() {
+                    continue;
+                }
+
+                let position = centroid_of_intersections(&intersections, chunk.cell_bounds(cell));
+                let normal = average_normal(&intersections);
+                let vertex_index = vertices.len() / FLOATS_PER_VERTEX;
+                vertex_indices[apron_cell_index(x, y, z)] = vertex_index as i32;
+                write_dual_contouring_vertex(
+                    &mut vertices,
+                    mesh_bounds,
+                    position,
+                    normal,
+                    noise,
+                    preset,
+                    seed,
+                );
+            }
+        }
+    }
+
+    let mut indices = Vec::new();
+    emit_owned_x_edge_quads(center_chunk, &vertex_indices, &mut indices);
+    emit_owned_y_edge_quads(center_chunk, &vertex_indices, &mut indices);
+    emit_owned_z_edge_quads(center_chunk, &vertex_indices, &mut indices);
+
+    expand_terrain_mesh_for_triangle_material_palettes(&vertices, &indices)
+}
+
+fn extract_hermite_intersections(
+    noise: &SimplexNoise3D,
+    preset: TerrainPresetDefinition,
+    seed: u32,
+    chunk: &TerrainDensityChunk,
+    cell: TerrainCellCoord,
+) -> Vec<HermiteIntersection> {
+    let mut corner_densities = [0.0_f32; 8];
+    for (index, corner) in CELL_CORNERS.iter().enumerate() {
+        corner_densities[index] = chunk.density_at_sample(sample_for_cell_corner(cell, *corner));
+    }
+
+    let mut intersections = Vec::new();
+    for (start_corner_index, end_corner_index) in CELL_EDGES {
+        let start_density = corner_densities[start_corner_index];
+        let end_density = corner_densities[end_corner_index];
+        if !has_sign_change(start_density, end_density) {
+            continue;
+        }
+
+        let start_sample = sample_for_cell_corner(cell, CELL_CORNERS[start_corner_index]);
+        let end_sample = sample_for_cell_corner(cell, CELL_CORNERS[end_corner_index]);
+        let start_position = chunk.sample_position(start_sample);
+        let end_position = chunk.sample_position(end_sample);
+        let t = clamp(
+            start_density as f64 / (start_density as f64 - end_density as f64),
+            0.0,
+            1.0,
+        );
+        let position = lerp_vec3(start_position, end_position, t);
+        let normal = normalize_vec3(density_at_position(noise, preset, seed, position).gradient);
+
+        intersections.push(HermiteIntersection { position, normal });
+    }
+
+    intersections
+}
+
+fn emit_owned_x_edge_quads(
+    chunk: &TerrainDensityChunk,
+    cell_vertex_indices: &[i32],
+    indices: &mut Vec<u32>,
+) {
+    for z in 0..TERRAIN_CHUNK_CELLS_PER_AXIS {
+        for y in 0..TERRAIN_CHUNK_CELLS_PER_AXIS {
+            for x in 0..TERRAIN_CHUNK_CELLS_PER_AXIS {
+                let start_density = chunk.density_at_sample(TerrainSampleCoord {
+                    x,
+                    y: y + 1,
+                    z: z + 1,
+                });
+                let end_density = chunk.density_at_sample(TerrainSampleCoord {
+                    x: x + 1,
+                    y: y + 1,
+                    z: z + 1,
+                });
+                if !has_sign_change(start_density, end_density) {
+                    continue;
+                }
+
+                emit_quad(
+                    indices,
+                    [
+                        local_cell_vertex_index(cell_vertex_indices, x as i32, y as i32, z as i32),
+                        local_cell_vertex_index(
+                            cell_vertex_indices,
+                            x as i32,
+                            y as i32 + 1,
+                            z as i32,
+                        ),
+                        local_cell_vertex_index(
+                            cell_vertex_indices,
+                            x as i32,
+                            y as i32,
+                            z as i32 + 1,
+                        ),
+                        local_cell_vertex_index(
+                            cell_vertex_indices,
+                            x as i32,
+                            y as i32 + 1,
+                            z as i32 + 1,
+                        ),
+                    ],
+                    start_density <= 0.0 && end_density > 0.0,
+                );
+            }
+        }
+    }
+}
+
+fn emit_owned_y_edge_quads(
+    chunk: &TerrainDensityChunk,
+    cell_vertex_indices: &[i32],
+    indices: &mut Vec<u32>,
+) {
+    for z in 0..TERRAIN_CHUNK_CELLS_PER_AXIS {
+        for y in 0..TERRAIN_CHUNK_CELLS_PER_AXIS {
+            for x in 0..TERRAIN_CHUNK_CELLS_PER_AXIS {
+                let start_density = chunk.density_at_sample(TerrainSampleCoord {
+                    x: x + 1,
+                    y,
+                    z: z + 1,
+                });
+                let end_density = chunk.density_at_sample(TerrainSampleCoord {
+                    x: x + 1,
+                    y: y + 1,
+                    z: z + 1,
+                });
+                if !has_sign_change(start_density, end_density) {
+                    continue;
+                }
+
+                emit_quad(
+                    indices,
+                    [
+                        local_cell_vertex_index(cell_vertex_indices, x as i32, y as i32, z as i32),
+                        local_cell_vertex_index(
+                            cell_vertex_indices,
+                            x as i32,
+                            y as i32,
+                            z as i32 + 1,
+                        ),
+                        local_cell_vertex_index(
+                            cell_vertex_indices,
+                            x as i32 + 1,
+                            y as i32,
+                            z as i32,
+                        ),
+                        local_cell_vertex_index(
+                            cell_vertex_indices,
+                            x as i32 + 1,
+                            y as i32,
+                            z as i32 + 1,
+                        ),
+                    ],
+                    start_density <= 0.0 && end_density > 0.0,
+                );
+            }
+        }
+    }
+}
+
+fn emit_owned_z_edge_quads(
+    chunk: &TerrainDensityChunk,
+    cell_vertex_indices: &[i32],
+    indices: &mut Vec<u32>,
+) {
+    for z in 0..TERRAIN_CHUNK_CELLS_PER_AXIS {
+        for y in 0..TERRAIN_CHUNK_CELLS_PER_AXIS {
+            for x in 0..TERRAIN_CHUNK_CELLS_PER_AXIS {
+                let start_density = chunk.density_at_sample(TerrainSampleCoord {
+                    x: x + 1,
+                    y: y + 1,
+                    z,
+                });
+                let end_density = chunk.density_at_sample(TerrainSampleCoord {
+                    x: x + 1,
+                    y: y + 1,
+                    z: z + 1,
+                });
+                if !has_sign_change(start_density, end_density) {
+                    continue;
+                }
+
+                emit_quad(
+                    indices,
+                    [
+                        local_cell_vertex_index(cell_vertex_indices, x as i32, y as i32, z as i32),
+                        local_cell_vertex_index(
+                            cell_vertex_indices,
+                            x as i32 + 1,
+                            y as i32,
+                            z as i32,
+                        ),
+                        local_cell_vertex_index(
+                            cell_vertex_indices,
+                            x as i32,
+                            y as i32 + 1,
+                            z as i32,
+                        ),
+                        local_cell_vertex_index(
+                            cell_vertex_indices,
+                            x as i32 + 1,
+                            y as i32 + 1,
+                            z as i32,
+                        ),
+                    ],
+                    start_density <= 0.0 && end_density > 0.0,
+                );
+            }
+        }
+    }
+}
+
+fn emit_quad(indices: &mut Vec<u32>, vertices: [i32; 4], forward: bool) {
+    if vertices.iter().any(|vertex| *vertex < 0) {
+        return;
+    }
+
+    let [a, b, c, d] = vertices.map(|vertex| vertex as u32);
+    if forward {
+        indices.extend_from_slice(&[a, b, c, c, b, d]);
+    } else {
+        indices.extend_from_slice(&[a, c, b, c, d, b]);
+    }
+}
+
+fn write_dual_contouring_vertex(
+    vertices: &mut Vec<f32>,
+    chunk_bounds: TerrainChunkBounds,
+    position: Vec3,
+    normal: Vec3,
+    noise: &SimplexNoise3D,
+    preset: TerrainPresetDefinition,
+    seed: u32,
+) {
+    let color = color_for_height(position.y);
+    let width = chunk_bounds.max.x - chunk_bounds.min.x;
+    let depth = chunk_bounds.max.z - chunk_bounds.min.z;
+    let material = material_pack_at(noise, preset, seed, position);
+
+    vertices.extend_from_slice(&[
+        position.x as f32,
+        position.y as f32,
+        position.z as f32,
+        color[0],
+        color[1],
+        color[2],
+        normal.x as f32,
+        normal.y as f32,
+        normal.z as f32,
+        if width == 0.0 {
+            0.0
+        } else {
+            ((position.x - chunk_bounds.min.x) / width) as f32
+        },
+        if depth == 0.0 {
+            0.0
+        } else {
+            ((position.z - chunk_bounds.min.z) / depth) as f32
+        },
+        material.indices[0],
+        material.indices[1],
+        material.indices[2],
+        material.indices[3],
+        material.weights[0],
+        material.weights[1],
+        material.weights[2],
+        material.weights[3],
+    ]);
+}
+
+fn material_pack_at(
+    noise: &SimplexNoise3D,
+    preset: TerrainPresetDefinition,
+    seed: u32,
+    position: Vec3,
+) -> PackedTerrainMaterial {
+    let macro_sample = sample_macro_terrain(noise, preset, seed, position);
+    let density_sample = density_at_position_with_macro(noise, preset, position, macro_sample);
+    let biome = biome_weights_at(noise, preset, seed, position, macro_sample);
+    let normal = normalize_vec3(density_sample.gradient);
+    let slope = clamp(1.0 - normal.y, 0.0, 1.0);
+    let lowland = clamp((4.0 - position.y) / 8.0, 0.0, 1.0);
+    let highland = clamp((position.y - 28.0) / 28.0, 0.0, 1.0);
+    let cliff = smoothstep(0.62, 0.86, slope);
+    let rocky = smoothstep(0.34, 0.68, slope) * (1.0 - cliff);
+    let snow = smoothstep(38.0, 56.0, position.y) * smoothstep(0.1, 0.65, normal.y);
+    let wet = lowland * smoothstep(0.12, 0.72, normal.y) * (1.0 - rocky) * (1.0 - cliff);
+    let sand = clamp((2.5 - position.y.abs()) / 5.0, 0.0, 1.0)
+        * smoothstep(0.18, 0.82, normal.y)
+        * (0.45 + macro_sample.continentality * 0.25);
+    let dry = clamp(
+        0.35 + macro_sample.continentality * 0.45 - macro_sample.mountainness * 0.25,
+        0.0,
+        1.0,
+    );
+    let moss = clamp(
+        (macro_sample.mountainness + macro_sample.ridge) * 0.35,
+        0.0,
+        0.8,
+    ) * (1.0 - cliff)
+        * (1.0 - snow);
+    let red_soil = clamp((macro_sample.cellular_edge - 0.42) / 0.45, 0.0, 0.75)
+        * dry
+        * (1.0 - rocky)
+        * (1.0 - snow);
+    let meadow = (1.0 - dry * 0.55) * smoothstep(0.2, 0.85, normal.y) * (1.0 - wet) * (1.0 - snow);
+    let dry_ground = dry * smoothstep(0.28, 0.88, normal.y) * (1.0 - wet) * (1.0 - snow);
+    let scree = rocky * highland * 0.65;
+
+    pack_material_weights(&[
+        (
+            0,
+            meadow * (0.72 + biome.grassland * 0.42 + biome.alpine_meadow * 0.18),
+        ),
+        (1, dry_ground * (0.72 + biome.dry_badland * 0.65)),
+        (
+            2,
+            (1.0 - dry) * 0.2 * (1.0 - rocky) * (1.0 - wet) + biome.temperate_forest * 0.45,
+        ),
+        (
+            4,
+            lowland * 0.28 * (1.0 - wet) * (1.0 - sand) + biome.wetland * 0.1,
+        ),
+        (6, wet + biome.wetland * 0.65),
+        (7, sand + biome.coast_beach * 0.55),
+        (8, sand * rocky * 0.8 + biome.coast_beach * rocky * 0.22),
+        (10, scree + biome.high_mountain_rock * rocky * 0.28),
+        (
+            11,
+            rocky * (1.0 - highland * 0.35) + biome.high_mountain_rock * 0.3,
+        ),
+        (12, cliff + biome.high_mountain_rock * cliff * 0.35),
+        (
+            13,
+            moss + biome.temperate_forest * 0.16 + biome.alpine_meadow * 0.14,
+        ),
+        (14, red_soil + biome.dry_badland * 0.4),
+        (15, snow + biome.snow_tundra * 0.85),
+    ])
+}
+
+fn biome_weights_at(
+    noise: &SimplexNoise3D,
+    _preset: TerrainPresetDefinition,
+    _seed: u32,
+    position: Vec3,
+    macro_sample: MacroTerrainSample,
+) -> BiomeWeights {
+    let climate_noise = sample_fractal_simplex_3d(
+        noise,
+        Vec3 {
+            x: position.x + 971.2,
+            y: 43.5,
+            z: position.z - 211.7,
+        },
+        FractalNoiseOptions {
+            octaves: 3,
+            frequency: 0.0025,
+            lacunarity: 2.0,
+            persistence: 0.52,
+        },
+    );
+    let moisture_noise = sample_fractal_simplex_3d(
+        noise,
+        Vec3 {
+            x: position.x - 317.6,
+            y: -29.25,
+            z: position.z + 513.4,
+        },
+        FractalNoiseOptions {
+            octaves: 3,
+            frequency: 0.0032,
+            lacunarity: 2.0,
+            persistence: 0.5,
+        },
+    );
+    let altitude = position.y;
+    let high = smoothstep(14.0, 34.0, altitude);
+    let very_high = smoothstep(30.0, 52.0, altitude);
+    let near_sea_level = clamp(1.0 - altitude.abs() / 8.0, 0.0, 1.0);
+    let temperature = clamp(
+        0.72 - high * 0.34 - very_high * 0.22 - macro_sample.continentality * 0.05
+            + climate_noise.value * 0.12,
+        0.0,
+        1.0,
+    );
+    let moisture = clamp(
+        0.42 + (1.0 - macro_sample.continentality) * 0.22
+            + macro_sample.erosion_susceptibility * 0.12
+            - high * 0.09
+            + moisture_noise.value * 0.18,
+        0.0,
+        1.0,
+    );
+    let wetness = smoothstep(0.5, 0.78, moisture) * (1.0 - high * 0.75);
+    let dryness = smoothstep(0.48, 0.76, macro_sample.continentality)
+        * (1.0 - smoothstep(0.42, 0.68, moisture))
+        * (1.0 - high * 0.35);
+    let coast = near_sea_level * smoothstep(0.4, 0.82, moisture) * (1.0 - high);
+    let mountain_rock =
+        smoothstep(0.46, 0.76, macro_sample.mountainness) * smoothstep(10.0, 26.0, altitude);
+    let snow = smoothstep(34.0, 54.0, altitude) * (1.0 - smoothstep(0.28, 0.58, temperature));
+    let alpine = smoothstep(16.0, 34.0, altitude) * (1.0 - snow) * (1.0 - mountain_rock * 0.5);
+    let forest = smoothstep(0.52, 0.78, moisture)
+        * smoothstep(0.34, 0.72, temperature)
+        * (1.0 - high * 0.7)
+        * (1.0 - coast * 0.5)
+        * (1.0 - dryness * 0.55);
+    let grassland = (1.0 - high * 0.55)
+        * (1.0 - wetness * 0.6)
+        * (1.0 - dryness * 0.45)
+        * (1.0 - forest * 0.45);
+
+    normalize_biome_weights([
+        grassland,
+        forest,
+        wetness * (1.0 - coast * 0.35),
+        coast,
+        dryness,
+        alpine,
+        mountain_rock * (1.0 - snow * 0.5),
+        snow,
+    ])
+}
+
+fn normalize_biome_weights(weights: [f64; 8]) -> BiomeWeights {
+    let total: f64 = weights.iter().copied().filter(|weight| *weight > 0.0).sum();
+    if total <= f64::EPSILON {
+        return BiomeWeights {
+            grassland: 1.0,
+            temperate_forest: 0.0,
+            wetland: 0.0,
+            coast_beach: 0.0,
+            dry_badland: 0.0,
+            alpine_meadow: 0.0,
+            high_mountain_rock: 0.0,
+            snow_tundra: 0.0,
+        };
+    }
+
+    BiomeWeights {
+        grassland: positive_weight(weights[0]) / total,
+        temperate_forest: positive_weight(weights[1]) / total,
+        wetland: positive_weight(weights[2]) / total,
+        coast_beach: positive_weight(weights[3]) / total,
+        dry_badland: positive_weight(weights[4]) / total,
+        alpine_meadow: positive_weight(weights[5]) / total,
+        high_mountain_rock: positive_weight(weights[6]) / total,
+        snow_tundra: positive_weight(weights[7]) / total,
+    }
+}
+
+fn pack_material_weights(candidates: &[(usize, f64)]) -> PackedTerrainMaterial {
+    let mut positive: Vec<(usize, f64, usize)> = candidates
+        .iter()
+        .enumerate()
+        .filter_map(|(order, (layer, weight))| {
+            if *weight > 0.0 {
+                Some((*layer, *weight, order))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if positive.is_empty() {
+        return default_material_pack();
+    }
+
+    positive.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(core::cmp::Ordering::Equal)
+            .then_with(|| a.2.cmp(&b.2))
+    });
+    positive.truncate(4);
+    let total: f64 = positive.iter().map(|(_, weight, _)| *weight).sum();
+    if total <= f64::EPSILON {
+        return default_material_pack();
+    }
+
+    let mut indices = [0.0_f32; 4];
+    let mut weights = [0.0_f32; 4];
+    for (slot, (layer, weight, _)) in positive.iter().enumerate() {
+        indices[slot] = *layer as f32;
+        weights[slot] = (*weight / total) as f32;
+    }
+
+    if weights[0] == 0.0 {
+        return default_material_pack();
+    }
+
+    PackedTerrainMaterial { indices, weights }
+}
+
+fn expand_terrain_mesh_for_triangle_material_palettes(
+    source_vertices: &[f32],
+    source_indices: &[u32],
+) -> MeshData {
+    if source_indices.is_empty() {
+        return MeshData {
+            vertices: Vec::new(),
+            indices: Vec::new(),
+        };
+    }
+
+    let mut vertices = vec![0.0_f32; source_indices.len() * FLOATS_PER_VERTEX];
+    let mut indices = Vec::with_capacity(source_indices.len());
+
+    for triangle_offset in (0..source_indices.len()).step_by(3) {
+        let source_vertex_indices = [
+            source_indices[triangle_offset] as usize,
+            source_indices[triangle_offset + 1] as usize,
+            source_indices[triangle_offset + 2] as usize,
+        ];
+        let palette = triangle_material_palette(source_vertices, source_vertex_indices);
+
+        for corner in 0..3 {
+            let source_vertex_offset = source_vertex_indices[corner] * FLOATS_PER_VERTEX;
+            let expanded_vertex_index = triangle_offset + corner;
+            let expanded_vertex_offset = expanded_vertex_index * FLOATS_PER_VERTEX;
+
+            vertices[expanded_vertex_offset..expanded_vertex_offset + FLOATS_PER_VERTEX]
+                .copy_from_slice(
+                    &source_vertices
+                        [source_vertex_offset..source_vertex_offset + FLOATS_PER_VERTEX],
+                );
+            let weights =
+                vertex_weights_for_palette(source_vertices, source_vertex_offset, palette);
+            write_packed_material_to_vertex(
+                &mut vertices,
+                expanded_vertex_offset,
+                PackedTerrainMaterial {
+                    indices: [
+                        palette[0] as f32,
+                        palette[1] as f32,
+                        palette[2] as f32,
+                        palette[3] as f32,
+                    ],
+                    weights,
+                },
+            );
+            indices.push(expanded_vertex_index as u32);
+        }
+    }
+
+    MeshData { vertices, indices }
+}
+
+fn triangle_material_palette(vertices: &[f32], source_vertex_indices: [usize; 3]) -> [usize; 4] {
+    let mut weight_by_layer = [0.0_f32; 16];
+
+    for source_vertex_index in source_vertex_indices {
+        let source_vertex_offset = source_vertex_index * FLOATS_PER_VERTEX;
+        for slot in 0..4 {
+            let layer = vertices[source_vertex_offset + MATERIAL_INDICES_VERTEX_OFFSET + slot]
+                .round() as usize;
+            let weight = vertices[source_vertex_offset + MATERIAL_WEIGHTS_VERTEX_OFFSET + slot];
+            if layer < weight_by_layer.len() && weight > 0.0 {
+                weight_by_layer[layer] += weight;
+            }
+        }
+    }
+
+    let mut ranked: Vec<usize> = (0..weight_by_layer.len())
+        .filter(|layer| weight_by_layer[*layer] > 0.0)
+        .collect();
+    ranked.sort_by(|a, b| {
+        weight_by_layer[*b]
+            .partial_cmp(&weight_by_layer[*a])
+            .unwrap_or(core::cmp::Ordering::Equal)
+            .then_with(|| a.cmp(b))
+    });
+
+    let mut palette = [0_usize; 4];
+    for (index, layer) in ranked.into_iter().take(4).enumerate() {
+        palette[index] = layer;
+    }
+
+    palette
+}
+
+fn vertex_weights_for_palette(
+    vertices: &[f32],
+    source_vertex_offset: usize,
+    palette: [usize; 4],
+) -> [f32; 4] {
+    let mut weights = [0.0_f32; 4];
+
+    for slot in 0..4 {
+        let source_layer =
+            vertices[source_vertex_offset + MATERIAL_INDICES_VERTEX_OFFSET + slot].round() as usize;
+        let source_weight = vertices[source_vertex_offset + MATERIAL_WEIGHTS_VERTEX_OFFSET + slot];
+        if let Some(palette_slot) = palette.iter().position(|layer| *layer == source_layer) {
+            weights[palette_slot] += source_weight;
+        }
+    }
+
+    let total: f32 = weights.iter().sum();
+    if total <= f32::EPSILON {
+        weights[0] = 1.0;
+        return weights;
+    }
+
+    for weight in &mut weights {
+        *weight /= total;
+    }
+
+    weights
+}
+
+fn write_packed_material_to_vertex(
+    vertices: &mut [f32],
+    vertex_offset: usize,
+    material: PackedTerrainMaterial,
+) {
+    for slot in 0..4 {
+        vertices[vertex_offset + MATERIAL_INDICES_VERTEX_OFFSET + slot] = material.indices[slot];
+        vertices[vertex_offset + MATERIAL_WEIGHTS_VERTEX_OFFSET + slot] = material.weights[slot];
+    }
+}
+
+impl TerrainDensityChunk {
+    fn density_at_sample(&self, sample: TerrainSampleCoord) -> f32 {
+        self.densities[terrain_chunk_sample_index(sample.x, sample.y, sample.z)]
+    }
+
+    fn sample_position(&self, sample: TerrainSampleCoord) -> Vec3 {
+        let origin = terrain_chunk_origin(self.coord, self.cell_size);
+
+        Vec3 {
+            x: origin.x + sample.x as f64 * self.cell_size,
+            y: origin.y + sample.y as f64 * self.cell_size,
+            z: origin.z + sample.z as f64 * self.cell_size,
+        }
+    }
+
+    fn bounds(&self) -> TerrainChunkBounds {
+        let min = terrain_chunk_origin(self.coord, self.cell_size);
+        let chunk_size = TERRAIN_CHUNK_CELLS_PER_AXIS as f64 * self.cell_size;
+
+        TerrainChunkBounds {
+            min,
+            max: Vec3 {
+                x: min.x + chunk_size,
+                y: min.y + chunk_size,
+                z: min.z + chunk_size,
+            },
+        }
+    }
+
+    fn cell_bounds(&self, cell: TerrainCellCoord) -> TerrainChunkBounds {
+        let min = self.sample_position(TerrainSampleCoord {
+            x: cell.x,
+            y: cell.y,
+            z: cell.z,
+        });
+
+        TerrainChunkBounds {
+            min,
+            max: Vec3 {
+                x: min.x + self.cell_size,
+                y: min.y + self.cell_size,
+                z: min.z + self.cell_size,
+            },
+        }
+    }
+}
+
+fn neighbor_chunk<'a>(
+    chunks: &'a [TerrainDensityChunk],
+    center_coord: TerrainChunkCoord,
+    coord: TerrainChunkCoord,
+) -> Option<&'a TerrainDensityChunk> {
+    let dx = coord.x - center_coord.x;
+    let dy = coord.y - center_coord.y;
+    let dz = coord.z - center_coord.z;
+    if !(0..=1).contains(&dx) || !(0..=1).contains(&dy) || !(0..=1).contains(&dz) {
+        return None;
+    }
+
+    chunks.get(dx as usize + dy as usize * 2 + dz as usize * 4)
+}
+
+fn local_apron_cell_ref(
+    center_coord: TerrainChunkCoord,
+    x: usize,
+    y: usize,
+    z: usize,
+) -> (TerrainChunkCoord, TerrainCellCoord) {
+    (
+        TerrainChunkCoord {
+            x: center_coord.x
+                + if x == TERRAIN_CHUNK_CELLS_PER_AXIS {
+                    1
+                } else {
+                    0
+                },
+            y: center_coord.y
+                + if y == TERRAIN_CHUNK_CELLS_PER_AXIS {
+                    1
+                } else {
+                    0
+                },
+            z: center_coord.z
+                + if z == TERRAIN_CHUNK_CELLS_PER_AXIS {
+                    1
+                } else {
+                    0
+                },
+        },
+        TerrainCellCoord {
+            x: if x == TERRAIN_CHUNK_CELLS_PER_AXIS {
+                0
+            } else {
+                x
+            },
+            y: if y == TERRAIN_CHUNK_CELLS_PER_AXIS {
+                0
+            } else {
+                y
+            },
+            z: if z == TERRAIN_CHUNK_CELLS_PER_AXIS {
+                0
+            } else {
+                z
+            },
+        },
+    )
+}
+
+fn sample_for_cell_corner(
+    cell: TerrainCellCoord,
+    corner: TerrainSampleCoord,
+) -> TerrainSampleCoord {
+    TerrainSampleCoord {
+        x: cell.x + corner.x,
+        y: cell.y + corner.y,
+        z: cell.z + corner.z,
+    }
+}
+
+fn centroid_of_intersections(
+    intersections: &[HermiteIntersection],
+    bounds: TerrainChunkBounds,
+) -> Vec3 {
+    let mut x = 0.0;
+    let mut y = 0.0;
+    let mut z = 0.0;
+
+    for intersection in intersections {
+        x += intersection.position.x;
+        y += intersection.position.y;
+        z += intersection.position.z;
+    }
+
+    let scale = 1.0 / intersections.len() as f64;
+    clamp_vec3_to_bounds(
+        Vec3 {
+            x: x * scale,
+            y: y * scale,
+            z: z * scale,
+        },
+        bounds,
+    )
+}
+
+fn average_normal(intersections: &[HermiteIntersection]) -> Vec3 {
+    let mut normal = Vec3 {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+    for intersection in intersections {
+        normal.x += intersection.normal.x;
+        normal.y += intersection.normal.y;
+        normal.z += intersection.normal.z;
+    }
+
+    normalize_vec3(normal)
+}
+
+fn terrain_chunk_origin(coord: TerrainChunkCoord, cell_size: f64) -> Vec3 {
+    let chunk_size = TERRAIN_CHUNK_CELLS_PER_AXIS as f64 * cell_size;
+
+    Vec3 {
+        x: coord.x as f64 * chunk_size,
+        y: coord.y as f64 * chunk_size,
+        z: coord.z as f64 * chunk_size,
+    }
+}
+
+fn apron_cell_index(x: usize, y: usize, z: usize) -> usize {
+    x + y * TERRAIN_CHUNK_APRON_CELLS_PER_AXIS
+        + z * TERRAIN_CHUNK_APRON_CELLS_PER_AXIS * TERRAIN_CHUNK_APRON_CELLS_PER_AXIS
+}
+
+fn local_cell_vertex_index(indices: &[i32], x: i32, y: i32, z: i32) -> i32 {
+    if x < 0
+        || y < 0
+        || z < 0
+        || x > TERRAIN_CHUNK_CELLS_PER_AXIS as i32
+        || y > TERRAIN_CHUNK_CELLS_PER_AXIS as i32
+        || z > TERRAIN_CHUNK_CELLS_PER_AXIS as i32
+    {
+        return -1;
+    }
+
+    indices[apron_cell_index(x as usize, y as usize, z as usize)]
+}
+
+fn has_sign_change(a: f32, b: f32) -> bool {
+    (a <= 0.0 && b > 0.0) || (a > 0.0 && b <= 0.0)
+}
+
+fn lerp_vec3(a: Vec3, b: Vec3, t: f64) -> Vec3 {
+    Vec3 {
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t,
+        z: a.z + (b.z - a.z) * t,
+    }
+}
+
+fn normalize_vec3(value: Vec3) -> Vec3 {
+    let length = (value.x * value.x + value.y * value.y + value.z * value.z).sqrt();
+    if length <= f64::EPSILON {
+        return Vec3 {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
+    }
+
+    Vec3 {
+        x: value.x / length,
+        y: value.y / length,
+        z: value.z / length,
+    }
+}
+
+fn clamp_vec3_to_bounds(position: Vec3, bounds: TerrainChunkBounds) -> Vec3 {
+    Vec3 {
+        x: clamp(position.x, bounds.min.x, bounds.max.x),
+        y: clamp(position.y, bounds.min.y, bounds.max.y),
+        z: clamp(position.z, bounds.min.z, bounds.max.z),
+    }
+}
+
+fn color_for_height(height: f64) -> [f32; 3] {
+    if height > 2.2 {
+        return [0.72, 0.75, 0.7];
+    }
+
+    if height > 0.4 {
+        return [0.38, 0.48, 0.31];
+    }
+
+    if height < -2.0 {
+        return [0.26, 0.35, 0.44];
+    }
+
+    [0.31, 0.55, 0.38]
+}
+
+fn default_material_pack() -> PackedTerrainMaterial {
+    PackedTerrainMaterial {
+        indices: [0.0, 0.0, 0.0, 0.0],
+        weights: [1.0, 0.0, 0.0, 0.0],
+    }
+}
+
+fn positive_weight(weight: f64) -> f64 {
+    if weight > 0.0 {
+        weight
+    } else {
+        0.0
+    }
+}
+
+fn smoothstep(edge0: f64, edge1: f64, value: f64) -> f64 {
+    let t = clamp((value - edge0) / (edge1 - edge0), 0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 fn sample_macro_terrain(
@@ -1024,5 +2173,27 @@ mod tests {
             buffer[terrain_chunk_sample_index(0, 0, 1)].to_bits(),
             (ofg_density_at(0x0F6, 1, origin_x, origin_y, origin_z + 1.0) as f32).to_bits()
         );
+    }
+
+    #[test]
+    fn builds_renderable_chunk_mesh_buffers() {
+        let index_count = ofg_build_chunk_mesh(0x0F6, 1, 0, 0, 0, 1.0);
+        let vertex_len = ofg_mesh_vertex_buffer_len() as usize;
+        let index_len = ofg_mesh_index_buffer_len() as usize;
+        let vertices =
+            unsafe { std::slice::from_raw_parts(ofg_mesh_vertex_buffer_ptr(), vertex_len) };
+        let indices = unsafe { std::slice::from_raw_parts(ofg_mesh_index_buffer_ptr(), index_len) };
+
+        assert!(index_count > 0);
+        assert!(vertex_len > 0);
+        assert!(vertices.iter().all(|value| value.is_finite()));
+        assert_eq!(index_count as usize, index_len);
+        assert_eq!(vertex_len % FLOATS_PER_VERTEX, 0);
+        assert_eq!(index_len % 3, 0);
+
+        let vertex_count = vertex_len / FLOATS_PER_VERTEX;
+        for index in indices {
+            assert!((*index as usize) < vertex_count);
+        }
     }
 }

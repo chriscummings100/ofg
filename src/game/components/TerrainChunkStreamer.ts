@@ -20,6 +20,12 @@ import {
   POSITION_COLOR_NORMAL_UV_LAYOUT,
   expandTerrainMeshForTriangleMaterialPalettes
 } from "../../engine/world/terrainMesh.js";
+import type { MeshData } from "../../engine/world/terrainMesh.js";
+
+export type TerrainChunkMeshGenerator = (
+  coord: TerrainChunkCoord,
+  cellSize: number
+) => MeshData;
 
 export type TerrainChunkStreamerOptions = {
   readonly target?: Entity;
@@ -29,6 +35,7 @@ export type TerrainChunkStreamerOptions = {
   readonly cellSize?: number;
   readonly meshIdPrefix?: string;
   readonly densityChunkGenerator?: TerrainDensityChunkGenerator;
+  readonly chunkMeshGenerator?: TerrainChunkMeshGenerator;
 };
 
 export class TerrainChunkStreamer extends Component {
@@ -41,6 +48,7 @@ export class TerrainChunkStreamer extends Component {
   cellSize: number;
   meshIdPrefix: string;
   densityChunkGenerator?: TerrainDensityChunkGenerator;
+  chunkMeshGenerator?: TerrainChunkMeshGenerator;
 
   private readonly loadedChunkKeys = new Set<TerrainChunkKey>();
   private readonly renderChunkKeys = new Set<TerrainChunkKey>();
@@ -61,6 +69,7 @@ export class TerrainChunkStreamer extends Component {
     this.cellSize = options.cellSize ?? 1;
     this.meshIdPrefix = options.meshIdPrefix ?? "mesh:terrain.chunk";
     this.densityChunkGenerator = options.densityChunkGenerator;
+    this.chunkMeshGenerator = options.chunkMeshGenerator;
     validateOptions(this.horizontalRadius, this.verticalChunkOffsets, this.cellSize);
   }
 
@@ -133,6 +142,11 @@ export class TerrainChunkStreamer extends Component {
   }
 
   private loadRenderWindow(centerCoord: TerrainChunkCoord): void {
+    if (this.chunkMeshGenerator !== undefined) {
+      this.loadRenderWindowFromMeshGenerator(centerCoord, this.chunkMeshGenerator);
+      return;
+    }
+
     const densityChunks = new Map<TerrainChunkKey, ReturnType<typeof generateTerrainDensityChunk>>();
 
     for (const coord of this.buildRenderChunkCoords(centerCoord)) {
@@ -148,6 +162,31 @@ export class TerrainChunkStreamer extends Component {
         placement: "centroid"
       });
       const meshData = expandTerrainMeshForTriangleMaterialPalettes(rawMeshData);
+      if (meshData.indices.length === 0) {
+        continue;
+      }
+
+      const key = terrainChunkKey(coord);
+      this.terrain.addChunk({
+        key,
+        mesh: new Mesh(
+          `${this.meshIdPrefix}:${key}`,
+          meshData.vertices,
+          meshData.indices,
+          POSITION_COLOR_NORMAL_UV_LAYOUT
+        ),
+        material: this.material
+      });
+      this.renderChunkKeys.add(key);
+    }
+  }
+
+  private loadRenderWindowFromMeshGenerator(
+    centerCoord: TerrainChunkCoord,
+    chunkMeshGenerator: TerrainChunkMeshGenerator
+  ): void {
+    for (const coord of this.buildRenderChunkCoords(centerCoord)) {
+      const meshData = chunkMeshGenerator(coord, this.cellSize);
       if (meshData.indices.length === 0) {
         continue;
       }

@@ -7,6 +7,11 @@ export type TerrainCoreWasmExportName =
   | "ofg_density_chunk_sample_count"
   | "ofg_density_chunk_buffer_ptr"
   | "ofg_fill_density_chunk"
+  | "ofg_build_chunk_mesh"
+  | "ofg_mesh_vertex_buffer_ptr"
+  | "ofg_mesh_vertex_buffer_len"
+  | "ofg_mesh_index_buffer_ptr"
+  | "ofg_mesh_index_buffer_len"
   | "ofg_macro_base_elevation_at"
   | "ofg_density_at"
   | "ofg_height_at";
@@ -25,7 +30,7 @@ export const TERRAIN_CORE_WASM_METADATA = Object.freeze({
   "sourceCrate": "crates/terrain_core",
   "assetPath": "assets/wasm/terrain_core.wasm",
   "target": "wasm32-unknown-unknown",
-  "artifactHash": "sha256-a7821886d4a203da4e9eec07ef8e997b9000d65d4080e3fd90f19d957e5323d1",
+  "artifactHash": "sha256-043b93a08dbab0cbf6bfb5d83060d2d4534cdc79052fb49c98209907b0f4caae",
   "exports": [
     "memory",
     "ofg_terrain_core_version",
@@ -33,6 +38,11 @@ export const TERRAIN_CORE_WASM_METADATA = Object.freeze({
     "ofg_density_chunk_sample_count",
     "ofg_density_chunk_buffer_ptr",
     "ofg_fill_density_chunk",
+    "ofg_build_chunk_mesh",
+    "ofg_mesh_vertex_buffer_ptr",
+    "ofg_mesh_vertex_buffer_len",
+    "ofg_mesh_index_buffer_ptr",
+    "ofg_mesh_index_buffer_len",
     "ofg_macro_base_elevation_at",
     "ofg_density_at",
     "ofg_height_at"

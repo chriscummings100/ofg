@@ -116,6 +116,33 @@ describe("TerrainChunkStreamer", () => {
     equal(terrain.chunks.length, 0);
   });
 
+  it("uses a custom chunk mesh generator when provided", () => {
+    const generatedKeys: string[] = [];
+    const source = createFlatField(0);
+    const terrain = new TerrainRenderer(source);
+    const streamer = new TerrainChunkStreamer(terrain, source, {
+      horizontalRadius: 0,
+      verticalChunkOffsets: [0],
+      chunkMeshGenerator(coord) {
+        generatedKeys.push(terrainChunkKey(coord));
+        return {
+          vertices: new Float32Array([
+            0, 0, 0, 0.3, 0.5, 0.4, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+            1, 0, 0, 0.3, 0.5, 0.4, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+            0, 0, 1, 0.3, 0.5, 0.4, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0
+          ]),
+          indices: new Uint32Array([0, 1, 2])
+        };
+      }
+    });
+
+    streamer.syncAround(vec3(0, 0, 0));
+
+    equal(generatedKeys.join(","), "0,0,0");
+    equal(terrain.chunks.length, 1);
+    equal(terrain.chunks[0].mesh.indices.length, 3);
+  });
+
   it("uses terrain density sample gradients when building chunk meshes", () => {
     const source: TerrainField = {
       heightAt: () => 0,

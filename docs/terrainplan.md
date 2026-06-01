@@ -75,16 +75,17 @@ Supported:
 - Deterministic generated TypeScript metadata for the terrain WASM artifact.
 - Rust/WASM exports for terrain core versioning, preset count, macro base
   elevation, density, compatibility height sampling, and 33x33x33 density chunk
-  filling.
+  filling, plus neighbor-aware runtime chunk mesh generation.
 - Cross-language golden tests that instantiate the WASM artifact in Node and
-  compare Rust density/height/chunk samples with the current TypeScript
+  compare Rust density/height/chunk samples and validate emitted mesh buffers
+  with the current TypeScript
   generator.
 - Runtime terrain streaming can load the generated WASM artifact in the browser
-  and use it to fill terrain density chunks, with a TypeScript fallback if the
-  artifact is unavailable.
-- A release-WASM density chunk benchmark, `npm run bench:terrain:wasm`, reports
-  fill-only and fill-plus-copy milliseconds per 33x33x33 chunk and writes JSON
-  under `artifacts/terrain-wasm-bench/`.
+  and use it to build renderable terrain chunk meshes, with a TypeScript fallback
+  if the artifact is unavailable.
+- A release-WASM benchmark, `npm run bench:terrain:wasm`, reports density
+  fill-only, density fill-plus-copy, and chunk mesh-build-plus-copy milliseconds
+  per chunk and writes JSON under `artifacts/terrain-wasm-bench/`.
 
 Partially supported or placeholder-only:
 
@@ -104,9 +105,11 @@ Partially supported or placeholder-only:
 - Terrain variation screenshots now prove several material and biome-weight
   regions exist, but the result is still early and needs better regional
   composition.
-- The Rust core currently mirrors scalar-field sampling and density chunk filling
-  only. Material classification, biome sampling, Dual Contouring meshing, worker
-  scheduling, and mesh upload still run through the TypeScript path.
+- The Rust core now owns the browser runtime density-to-render-mesh path for
+  generated terrain chunks, including material/biome classification, centroid
+  Dual Contouring, same-LOD neighbor seam ownership, and triangle-local material
+  palette expansion. This is still a first pass and is not yet worker-backed or
+  batch/cache optimized.
 
 Not yet supported:
 
@@ -121,8 +124,8 @@ Not yet supported:
 - Caves, arches, tunnels, overhang-focused volumetric features, or cave entrance
   placement.
 - Far-field terrain, LOD, LOD transition meshes, or chunk-priority scheduling.
-- Runtime use of the Rust/WASM terrain core for material/biome sampling, Dual
-  Contouring meshing, worker scheduling, or mesh upload preparation.
+- Worker-backed Rust/WASM terrain generation, batch chunk generation, cancellation
+  queues, cache reuse across neighboring chunks, or mesh upload preparation.
 - Worker-backed terrain generation, cancellation, priority queues, or saveable
   human-facing terrain tuning knobs.
 - Terrain collision/grounding based on the generated mesh. Player grounding still
@@ -254,7 +257,7 @@ Proposed order:
    - Validation: browser smoke remains visually stable and chunk seam tests still
      pass.
 4. Move Dual Contouring meshing hot paths next if profiling still shows chunk
-   rebuilds are too slow.
+   rebuilds are too slow. (First runtime WASM mesh path complete.)
    - Start with Hermite extraction and QEF placement, then mesh buffer emission.
    - Validation: mesh summaries and seam ownership match TypeScript golden
      fixtures before runtime promotion.
@@ -282,6 +285,7 @@ Progress notes:
 | 2026-06-01 | Pivoted | Screenshots still read too similar, but further material tuning is blocked by slow iteration and short view distance. The recommended next slice is now Rust/WASM-backed realtime terrain generation, then tuning knobs and save/load, then renewed biome/hydrology/material polish. |
 | 2026-06-01 | In progress | Added a Rust/WASM density chunk fill API for the 33x33x33 `TerrainChunk` sample layout, copied it into `TerrainDensityChunk`, and wired `TerrainChunkStreamer` to use it at runtime when the browser loads `assets/wasm/terrain_core.wasm`. Browser smoke passes with no fallback warnings. Next target is profiling plus moving meshing/worker scheduling enough to widen view distance. |
 | 2026-06-01 | In progress | Added `npm run bench:terrain:wasm` to measure release WASM density chunk generation directly. Initial fill-only median was about 36.8 ms per 33x33x33 chunk, which confirmed the Rust path was still too slow. Caching macro terrain once per x/z column inside chunk fill reduced the quick benchmark to about 6.6 ms fill-only median and 6.5 ms fill-plus-copy median, with machine-readable JSON in `artifacts/terrain-wasm-bench/`. |
+| 2026-06-01 | In progress | Moved the browser runtime generated-terrain chunk mesh path into Rust/WASM. `ofg_build_chunk_mesh` now builds the density apron, extracts Hermite intersections, performs centroid Dual Contouring with same-LOD seam ownership, classifies biome/material weights, expands triangle-local material palettes, and returns renderable vertex/index buffers to TypeScript. Browser smoke passes. Quick benchmark now shows density fill around 6.5 ms median and full mesh build plus copy around 62.7 ms median per chunk, so the next performance target is worker-backed batch generation and cache reuse across neighboring chunks. |
 
 ## Milestone 1: Generator Core
 

@@ -8,6 +8,7 @@ const assetPath = "assets/wasm/terrain_core.wasm";
 const outputPath = readStringArg("--output") ??
   `artifacts/terrain-wasm-bench/${new Date().toISOString().replace(/[:.]/g, "-")}/report.json`;
 const iterations = readPositiveIntegerArg("--iterations") ?? 6;
+const meshIterations = readPositiveIntegerArg("--mesh-iterations") ?? 2;
 const warmupIterations = readPositiveIntegerArg("--warmup") ?? 1;
 const seed = readNonNegativeIntegerArg("--seed") ?? 0x0F6;
 const cellSize = readPositiveNumberArg("--cell-size") ?? 1;
@@ -36,7 +37,7 @@ const densityBuffer = new Float32Array(
 const scenarios = buildScenarios();
 
 console.log(`Benchmarking ${scenarios.length} terrain WASM density chunk scenarios.`);
-console.log(`Warmup: ${warmupIterations} pass(es). Timed iterations: ${iterations}.`);
+console.log(`Warmup: ${warmupIterations} pass(es). Density iterations: ${iterations}. Mesh iterations: ${meshIterations}.`);
 warmUp(terrain, scenarios, warmupIterations);
 console.log("Warmup complete.");
 
@@ -51,8 +52,33 @@ const fillAndCopy = benchmark("fillAndCopy", scenarios, (scenario) => {
   const copy = new Float32Array(densityBuffer);
   return copy[0] + copy[32768] + copy[copy.length - 1];
 });
+console.log("Running mesh-build-plus-copy benchmark...");
+const meshBuildAndCopy = benchmark("meshBuildAndCopy", scenarios, (scenario) => {
+  terrain.ofg_build_chunk_mesh(
+    scenario.seed,
+    scenario.presetCode,
+    scenario.chunk.x,
+    scenario.chunk.y,
+    scenario.chunk.z,
+    scenario.cellSize
+  );
+  const vertices = new Float32Array(
+    terrain.memory.buffer,
+    terrain.ofg_mesh_vertex_buffer_ptr(),
+    terrain.ofg_mesh_vertex_buffer_len()
+  );
+  const indices = new Uint32Array(
+    terrain.memory.buffer,
+    terrain.ofg_mesh_index_buffer_ptr(),
+    terrain.ofg_mesh_index_buffer_len()
+  );
+  const vertexCopy = new Float32Array(vertices);
+  const indexCopy = new Uint32Array(indices);
+
+  return vertexCopy.length + indexCopy.length + (vertexCopy[0] ?? 0) + (indexCopy[0] ?? 0);
+}, meshIterations);
 const report = {
-  benchmark: "terrain-wasm-density-chunk",
+  benchmark: "terrain-wasm-chunk-pipeline",
   assetPath,
   seed,
   cellSize,
@@ -60,11 +86,14 @@ const report = {
   samplesPerChunk: "33x33x33",
   scenarioCount: scenarios.length,
   iterations,
+  meshIterations,
   warmupIterations,
   chunksPerBenchmark: scenarios.length * iterations,
+  chunksPerMeshBenchmark: scenarios.length * meshIterations,
   results: {
     fillOnly,
-    fillAndCopy
+    fillAndCopy,
+    meshBuildAndCopy
   },
   scenarios
 };
@@ -73,9 +102,10 @@ const absoluteOutputPath = resolve(root, outputPath);
 mkdirSync(dirname(absoluteOutputPath), { recursive: true });
 writeFileSync(absoluteOutputPath, `${JSON.stringify(report, null, 2)}\n`);
 
-console.log(`Terrain WASM density chunk benchmark (${scenarios.length * iterations} chunks)`);
+console.log(`Terrain WASM chunk benchmark (${scenarios.length * iterations} density chunks)`);
 console.log(`  fill only:    median ${formatMs(fillOnly.medianMs)} ms/chunk, p95 ${formatMs(fillOnly.p95Ms)}, mean ${formatMs(fillOnly.meanMs)}`);
 console.log(`  fill + copy:  median ${formatMs(fillAndCopy.medianMs)} ms/chunk, p95 ${formatMs(fillAndCopy.p95Ms)}, mean ${formatMs(fillAndCopy.meanMs)}`);
+console.log(`  mesh + copy:  median ${formatMs(meshBuildAndCopy.medianMs)} ms/chunk, p95 ${formatMs(meshBuildAndCopy.p95Ms)}, mean ${formatMs(meshBuildAndCopy.meanMs)}`);
 console.log(`Report: ${absoluteOutputPath}`);
 
 function buildScenarios() {
@@ -103,12 +133,12 @@ function warmUp(terrain, scenarios, passes) {
   }
 }
 
-function benchmark(name, scenarios, runScenario) {
+function benchmark(name, scenarios, runScenario, timedIterations = iterations) {
   const durations = [];
   let checksum = 0;
   const startedAt = performance.now();
 
-  for (let iteration = 0; iteration < iterations; iteration += 1) {
+  for (let iteration = 0; iteration < timedIterations; iteration += 1) {
     for (const scenario of scenarios) {
       const start = performance.now();
       checksum += runScenario(scenario);
@@ -148,7 +178,12 @@ function validateTerrainExports(exports) {
   const expectedFunctions = [
     "ofg_density_chunk_sample_count",
     "ofg_density_chunk_buffer_ptr",
-    "ofg_fill_density_chunk"
+    "ofg_fill_density_chunk",
+    "ofg_build_chunk_mesh",
+    "ofg_mesh_vertex_buffer_ptr",
+    "ofg_mesh_vertex_buffer_len",
+    "ofg_mesh_index_buffer_ptr",
+    "ofg_mesh_index_buffer_len"
   ];
 
   if (!(exports.memory instanceof WebAssembly.Memory)) {

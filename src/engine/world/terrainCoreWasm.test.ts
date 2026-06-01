@@ -2,6 +2,7 @@ import { equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { TERRAIN_CORE_WASM_METADATA } from "../../generated/terrain/terrainCoreWasm.js";
 import { generateTerrainDensityChunk } from "./terrainChunk.js";
+import { generateTerrainChunkMeshWithWasm } from "./terrainCoreChunkMesh.js";
 import { generateTerrainDensityChunkWithWasm } from "./terrainCoreDensityChunk.js";
 import {
   createSeedWorldDescriptor,
@@ -10,9 +11,12 @@ import {
 } from "./terrainGenerator.js";
 import {
   instantiateTerrainCoreWasm,
+  readTerrainCoreMeshIndexBuffer,
+  readTerrainCoreMeshVertexBuffer,
   readTerrainCoreDensityChunkBuffer,
   terrainPresetToWasmCode
 } from "./terrainCoreWasm.js";
+import { getFloatsPerVertex } from "./terrainMesh.js";
 
 const PRESETS: readonly TerrainPresetId[] = [
   "seed",
@@ -31,6 +35,7 @@ describe("terrain core WASM", () => {
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_height_at"));
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_density_at"));
     ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_fill_density_chunk"));
+    ok(TERRAIN_CORE_WASM_METADATA.exports.includes("ofg_build_chunk_mesh"));
   });
 
   it("instantiates the generated WASM artifact", async () => {
@@ -92,6 +97,42 @@ describe("terrain core WASM", () => {
 
     for (let index = 0; index < expected.densities.length; index += 1) {
       assertClose(actual.densities[index], expected.densities[index], 0.00002);
+    }
+  });
+
+  it("builds renderable terrain chunk meshes in WASM", async () => {
+    const wasm = await loadTerrainCore();
+    const descriptor = createSeedWorldDescriptor(0x0F6, { terrainPreset: "rollingHills" });
+    const mesh = generateTerrainChunkMeshWithWasm(
+      wasm,
+      descriptor,
+      { x: 0, y: 0, z: 0 },
+      1
+    );
+
+    ok(mesh.vertices.length > 0);
+    ok(mesh.indices.length > 0);
+    equal(mesh.vertices.length % getFloatsPerVertex(), 0);
+    equal(mesh.indices.length % 3, 0);
+    equal(readTerrainCoreMeshVertexBuffer(wasm.exports).length, mesh.vertices.length);
+    equal(readTerrainCoreMeshIndexBuffer(wasm.exports).length, mesh.indices.length);
+
+    const vertexCount = mesh.vertices.length / getFloatsPerVertex();
+    for (const index of mesh.indices) {
+      ok(index < vertexCount, `Mesh index ${index} should reference ${vertexCount} vertices.`);
+    }
+
+    for (let offset = 0; offset < mesh.vertices.length; offset += getFloatsPerVertex()) {
+      const materialWeightSum =
+        mesh.vertices[offset + 15] +
+        mesh.vertices[offset + 16] +
+        mesh.vertices[offset + 17] +
+        mesh.vertices[offset + 18];
+
+      ok(Number.isFinite(mesh.vertices[offset]));
+      ok(Number.isFinite(mesh.vertices[offset + 1]));
+      ok(Number.isFinite(mesh.vertices[offset + 2]));
+      assertClose(materialWeightSum, 1, 0.00001);
     }
   });
 });

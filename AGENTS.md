@@ -103,10 +103,11 @@ src/generated
   and Rust/WASM terrain artifact metadata.
 
 crates/terrain_core
-  Rust terrain core built to wasm32-unknown-unknown. The first slice mirrors
-  TypeScript macro base elevation, density, compatibility height sampling, and
-  density chunk filling. Keep migrated terrain slices golden-tested against
-  TypeScript until a Rust path is intentionally promoted as source of truth.
+  Rust terrain core built to wasm32-unknown-unknown. It mirrors TypeScript macro
+  base elevation, density, compatibility height sampling, density chunk filling,
+  and the browser runtime chunk mesh path. Keep migrated terrain slices
+  golden-tested against TypeScript until a Rust path is intentionally promoted as
+  source of truth.
 
 src/game/components
   Game-level components such as PlayerController and TerrainChunkStreamer.
