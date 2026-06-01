@@ -1,13 +1,36 @@
-import { loadRgbaTextureFromUrl } from "./textureLoader.js";
+import {
+  TERRAIN_MATERIAL_LAYER_COUNT,
+  TERRAIN_MATERIALS
+} from "../world/terrainMaterials.js";
+import type { Texture } from "./Texture.js";
+import { loadRgbaTextureArrayFromUrls } from "./textureLoader.js";
 
-export const TERRAIN_ALBEDO_TEXTURE_ID = "texture:terrain.albedo";
-export const TERRAIN_ALBEDO_ATLAS_URL = "/assets/textures/terrain-albedo-atlas.png";
-export const TERRAIN_ALBEDO_ATLAS_TILE_COUNT = 3;
-export const TERRAIN_ALBEDO_ATLAS_TILE_SIZE = 724;
-export const TERRAIN_ALBEDO_ATLAS_WIDTH =
-  TERRAIN_ALBEDO_ATLAS_TILE_SIZE * TERRAIN_ALBEDO_ATLAS_TILE_COUNT;
-export const TERRAIN_ALBEDO_ATLAS_HEIGHT = TERRAIN_ALBEDO_ATLAS_TILE_SIZE;
+export const TERRAIN_ALBEDO_TEXTURE_ID = "texture:terrain.albedoArray";
+export const TERRAIN_NORMAL_TEXTURE_ID = "texture:terrain.normalArray";
+export const TERRAIN_MATERIAL_TEXTURE_ID = "texture:terrain.materialArray";
+export const TERRAIN_TEXTURE_ARRAY_LAYER_COUNT = TERRAIN_MATERIAL_LAYER_COUNT;
 
-export async function loadTerrainAlbedoTexture() {
-  return loadRgbaTextureFromUrl(TERRAIN_ALBEDO_TEXTURE_ID, TERRAIN_ALBEDO_ATLAS_URL);
+export type TerrainMaterialTextures = {
+  readonly albedo: Texture;
+  readonly normal: Texture;
+  readonly material: Texture;
+};
+
+export async function loadTerrainMaterialTextures(): Promise<TerrainMaterialTextures> {
+  const [albedo, normal, material] = await Promise.all([
+    loadRgbaTextureArrayFromUrls(
+      TERRAIN_ALBEDO_TEXTURE_ID,
+      TERRAIN_MATERIALS.map((terrainMaterial) => terrainMaterial.albedoUrl)
+    ),
+    loadRgbaTextureArrayFromUrls(
+      TERRAIN_NORMAL_TEXTURE_ID,
+      TERRAIN_MATERIALS.map((terrainMaterial) => terrainMaterial.normalUrl)
+    ),
+    loadRgbaTextureArrayFromUrls(
+      TERRAIN_MATERIAL_TEXTURE_ID,
+      TERRAIN_MATERIALS.map((terrainMaterial) => terrainMaterial.roughnessUrl)
+    )
+  ]);
+
+  return { albedo, normal, material };
 }

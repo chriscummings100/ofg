@@ -202,24 +202,45 @@ function analyzeSurfaceCellQef(
 }
 
 function materialWeightColor(weights: readonly TerrainMaterialWeight[]): Vec3 {
-  let grass = 0;
+  let vegetation = 0;
   let soil = 0;
   let rock = 0;
+  let snow = 0;
 
   for (const weight of weights) {
-    if (weight.material === "grass") {
-      grass += weight.weight;
-    } else if (weight.material === "soil") {
+    if (
+      weight.material === "meadowGrass" ||
+      weight.material === "dryGround" ||
+      weight.material === "forestGround" ||
+      weight.material === "leafLitter" ||
+      weight.material === "mossRock"
+    ) {
+      vegetation += weight.weight;
+    } else if (
+      weight.material === "bareSoil" ||
+      weight.material === "dryMud" ||
+      weight.material === "wetMud" ||
+      weight.material === "sand" ||
+      weight.material === "gravelSand" ||
+      weight.material === "redSoil"
+    ) {
       soil += weight.weight;
-    } else if (weight.material === "rock") {
+    } else if (
+      weight.material === "scree" ||
+      weight.material === "rockyGround" ||
+      weight.material === "cliffRock" ||
+      weight.material === "riverPebbles"
+    ) {
       rock += weight.weight;
+    } else if (weight.material === "snow") {
+      snow += weight.weight;
     }
   }
 
   return vec3(
-    50 + soil * 175 + rock * 120,
-    54 + grass * 175 + soil * 72 + rock * 112,
-    44 + rock * 160
+    42 + soil * 185 + rock * 104 + snow * 168,
+    56 + vegetation * 168 + soil * 76 + rock * 92 + snow * 176,
+    48 + rock * 150 + snow * 188
   );
 }
 

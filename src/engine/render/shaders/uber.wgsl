@@ -16,18 +16,20 @@ struct ObjectUniforms {
 
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(1) @binding(0) var<uniform> object: ObjectUniforms;
-@group(1) @binding(1) var albedoTexture: texture_2d<f32>;
-@group(1) @binding(2) var albedoSampler: sampler;
+@group(1) @binding(1) var albedoTexture: texture_2d_array<f32>;
+@group(1) @binding(2) var normalTexture: texture_2d_array<f32>;
+@group(1) @binding(3) var materialTexture: texture_2d_array<f32>;
+@group(1) @binding(4) var albedoSampler: sampler;
 
 const MATERIAL_FLAG_TRIPLANAR_ALBEDO: f32 = 1.0;
-const TERRAIN_ATLAS_TILE_COUNT: f32 = 3.0;
-const TERRAIN_ATLAS_HORIZONTAL_PADDING: f32 = 0.5 / 2172.0;
 
 struct VertexInput {
   @location(0) position: vec3<f32>,
   @location(1) color: vec3<f32>,
   @location(2) normal: vec3<f32>,
   @location(3) uv: vec2<f32>,
+  @location(4) materialIndices: vec4<f32>,
+  @location(5) materialWeights: vec4<f32>,
 };
 
 struct VertexOutput {
@@ -36,6 +38,8 @@ struct VertexOutput {
   @location(1) worldPosition: vec3<f32>,
   @location(2) worldNormal: vec3<f32>,
   @location(3) uv: vec2<f32>,
+  @location(4) @interpolate(flat) materialIndices: vec4<f32>,
+  @location(5) materialWeights: vec4<f32>,
 };
 
 @vertex
@@ -47,24 +51,23 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
   output.worldPosition = worldPosition.xyz;
   output.worldNormal = normalize((object.normalWorld * vec4<f32>(input.normal, 0.0)).xyz);
   output.uv = input.uv;
+  output.materialIndices = input.materialIndices;
+  output.materialWeights = input.materialWeights;
   return output;
 }
 
-fn terrainAtlasUv(tileIndex: f32, uv: vec2<f32>) -> vec2<f32> {
-  let localUv = fract(uv);
-  let minX = tileIndex / TERRAIN_ATLAS_TILE_COUNT + TERRAIN_ATLAS_HORIZONTAL_PADDING;
-  let maxX = (tileIndex + 1.0) / TERRAIN_ATLAS_TILE_COUNT - TERRAIN_ATLAS_HORIZONTAL_PADDING;
-  return vec2<f32>(mix(minX, maxX, localUv.x), localUv.y);
+fn sampleTerrainAlbedoLayer(uv: vec2<f32>, layer: f32) -> vec3<f32> {
+  return textureSample(albedoTexture, albedoSampler, fract(uv), i32(round(layer))).rgb;
 }
 
-fn sampleTerrainAtlasTile(uv: vec2<f32>, tileIndex: f32) -> vec3<f32> {
-  return textureSample(albedoTexture, albedoSampler, terrainAtlasUv(tileIndex, uv)).rgb;
+fn sampleTerrainMaterialLayer(uv: vec2<f32>, layer: f32) -> vec4<f32> {
+  return textureSample(materialTexture, albedoSampler, fract(uv), i32(round(layer)));
 }
 
-fn sampleTriplanarTerrainTile(
+fn sampleTriplanarTerrainAlbedoLayer(
   worldPosition: vec3<f32>,
   normal: vec3<f32>,
-  tileIndex: f32
+  layer: f32
 ) -> vec3<f32> {
   var weights = abs(normal);
   weights = weights * weights;
@@ -72,27 +75,61 @@ fn sampleTriplanarTerrainTile(
   weights = weights / max(weights.x + weights.y + weights.z, 0.0001);
 
   let textureScale = object.textureOptions.y;
-  let xSample = sampleTerrainAtlasTile(worldPosition.zy * textureScale, tileIndex);
-  let ySample = sampleTerrainAtlasTile(worldPosition.xz * textureScale, tileIndex);
-  let zSample = sampleTerrainAtlasTile(worldPosition.xy * textureScale, tileIndex);
+  let xSample = sampleTerrainAlbedoLayer(worldPosition.zy * textureScale, layer);
+  let ySample = sampleTerrainAlbedoLayer(worldPosition.xz * textureScale, layer);
+  let zSample = sampleTerrainAlbedoLayer(worldPosition.xy * textureScale, layer);
+
+  return xSample * weights.x + ySample * weights.y + zSample * weights.z;
+}
+
+fn sampleTriplanarTerrainRoughnessLayer(
+  worldPosition: vec3<f32>,
+  normal: vec3<f32>,
+  layer: f32
+) -> f32 {
+  var weights = abs(normal);
+  weights = weights * weights;
+  weights = weights * weights;
+  weights = weights / max(weights.x + weights.y + weights.z, 0.0001);
+
+  let textureScale = object.textureOptions.y;
+  let xSample = sampleTerrainMaterialLayer(worldPosition.zy * textureScale, layer).r;
+  let ySample = sampleTerrainMaterialLayer(worldPosition.xz * textureScale, layer).r;
+  let zSample = sampleTerrainMaterialLayer(worldPosition.xy * textureScale, layer).r;
 
   return xSample * weights.x + ySample * weights.y + zSample * weights.z;
 }
 
 fn sampleAlbedo(input: VertexOutput, normal: vec3<f32>) -> vec3<f32> {
   if (object.textureOptions.x >= MATERIAL_FLAG_TRIPLANAR_ALBEDO) {
-    let grass = sampleTriplanarTerrainTile(input.worldPosition, normal, 0.0);
-    let rock = sampleTriplanarTerrainTile(input.worldPosition, normal, 1.0);
-    let soil = sampleTriplanarTerrainTile(input.worldPosition, normal, 2.0);
-    let slope = 1.0 - clamp(normal.y, 0.0, 1.0);
-    let rockBlend = smoothstep(0.42, 0.74, slope);
-    let soilBlend = 1.0 - smoothstep(-3.0, 2.0, input.worldPosition.y);
-    let ground = mix(grass, soil, soilBlend * 0.75);
-
-    return mix(ground, rock, rockBlend);
+    let weights = input.materialWeights / max(
+      input.materialWeights.x + input.materialWeights.y + input.materialWeights.z + input.materialWeights.w,
+      0.0001
+    );
+    return
+      sampleTriplanarTerrainAlbedoLayer(input.worldPosition, normal, input.materialIndices.x) * weights.x +
+      sampleTriplanarTerrainAlbedoLayer(input.worldPosition, normal, input.materialIndices.y) * weights.y +
+      sampleTriplanarTerrainAlbedoLayer(input.worldPosition, normal, input.materialIndices.z) * weights.z +
+      sampleTriplanarTerrainAlbedoLayer(input.worldPosition, normal, input.materialIndices.w) * weights.w;
   }
 
-  return textureSample(albedoTexture, albedoSampler, input.uv).rgb;
+  return textureSample(albedoTexture, albedoSampler, input.uv, 0).rgb;
+}
+
+fn sampleRoughness(input: VertexOutput, normal: vec3<f32>) -> f32 {
+  if (object.textureOptions.x >= MATERIAL_FLAG_TRIPLANAR_ALBEDO) {
+    let weights = input.materialWeights / max(
+      input.materialWeights.x + input.materialWeights.y + input.materialWeights.z + input.materialWeights.w,
+      0.0001
+    );
+    return
+      sampleTriplanarTerrainRoughnessLayer(input.worldPosition, normal, input.materialIndices.x) * weights.x +
+      sampleTriplanarTerrainRoughnessLayer(input.worldPosition, normal, input.materialIndices.y) * weights.y +
+      sampleTriplanarTerrainRoughnessLayer(input.worldPosition, normal, input.materialIndices.z) * weights.z +
+      sampleTriplanarTerrainRoughnessLayer(input.worldPosition, normal, input.materialIndices.w) * weights.w;
+  }
+
+  return textureSample(materialTexture, albedoSampler, input.uv, 0).r;
 }
 
 @fragment
@@ -103,8 +140,11 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
   let lightDirection = normalize(camera.sunDirectionAndIntensity.xyz);
   let halfDirection = normalize(lightDirection + viewDirection);
   let diffuse = max(dot(normal, lightDirection), 0.0) * camera.sunDirectionAndIntensity.w;
-  let specular = pow(max(dot(normal, halfDirection), 0.0), 32.0) *
+  let roughness = clamp(sampleRoughness(input, normal), 0.04, 1.0);
+  let shininess = mix(96.0, 10.0, roughness);
+  let specular = pow(max(dot(normal, halfDirection), 0.0), shininess) *
     object.specularAndFactor.w *
+    (1.0 - roughness * 0.72) *
     camera.sunDirectionAndIntensity.w;
   let sampledAlbedo = sampleAlbedo(input, normal);
   var vertexColor = input.color;

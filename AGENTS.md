@@ -13,14 +13,15 @@ a Rust/TypeScript toolchain that stays friendly to automated AI development.
 The current playable seed is still simple:
 
 - Chunk-streamed generated terrain from 3D density chunks.
-- Runtime terrain meshed with an initial stitched-window Dual Contouring path.
+- Runtime terrain meshed as per-chunk neighbor-aware Dual Contouring chunks.
+- Poly Haven terrain materials rendered from global WebGPU texture arrays.
 - First-person camera/player movement.
 - Debug fly camera toggled with `C` or `F1`.
 - A yellow player marker visible in debug fly mode.
 - WebGPU renderer using generated WGSL shader artifacts.
 
-The current terrain uses Dual Contouring, but as a transitional whole-window mesh.
-Per-chunk neighbor-aware meshing is still the next terrain architecture step.
+The current terrain uses same-LOD per-chunk Dual Contouring. LOD transitions and
+far-field terrain are still future terrain architecture work.
 
 ## Read These When Needed
 
@@ -70,9 +71,10 @@ src/engine/input
 src/engine/world
   Seed terrain scalar field backed by low-frequency x/z noise plus octave 3D
   simplex density detail with gradients, 3D density chunk model, runtime Dual
-  Contouring Hermite extraction and guarded QEF placement, legacy highest-surface
-  and heightfield mesh generation, primitive box mesh. Runtime meshes currently use
-  position/color/normal/uv vertex data.
+  Contouring Hermite extraction and guarded QEF placement, terrain material
+  classification and packed material weights, legacy highest-surface and
+  heightfield mesh generation, primitive box mesh. Runtime terrain meshes use
+  position/color/normal/uv/material-index/material-weight vertex data.
 
 src/engine/scene
   Global Scene, Entity tree, Component lifecycle, Transform hierarchy,
@@ -81,8 +83,10 @@ src/engine/scene
 src/engine/render
   WebGPU renderer plus scene render data types. Runtime rendering flows through
   MeshRenderer, TerrainRenderer, RenderWorld, and SceneRenderExtractor.
-  Materials currently support albedo factor, albedo texture sampling, specular, and
-  specular factor; the shader uses Lambert plus Blinn-Phong lighting.
+  Materials currently support albedo factor, albedo/normal/material texture
+  resources, specular, and specular factor; the shader uses Lambert plus
+  Blinn-Phong lighting. Terrain rendering uses global 16-layer albedo, normal, and
+  roughness texture arrays; normal maps are loaded but not yet applied in shading.
   `RenderWorld.mainLight` also drives the procedural sky sun disk.
 
 src/engine/render/shaders
@@ -96,8 +100,8 @@ src/game/components
   Game-level components such as PlayerController and TerrainChunkStreamer.
 
 tools
-  Local scripts, including shader generation, the static dev server, and browser
-  smoke test.
+  Local scripts, including shader generation, Poly Haven terrain texture import,
+  the static dev server, and browser smoke tests.
 ```
 
 ## Scene Model Rules

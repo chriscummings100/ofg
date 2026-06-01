@@ -180,13 +180,23 @@ describe("TerrainRenderer", () => {
 
   it("resolves terrain albedo textures from scene resources", () => {
     const scene = resetScene();
-    const texture = new Texture("texture:terrain", 1, 1, "rgba8unorm", {
+    const albedo = new Texture("texture:terrain.albedo", 1, 1, "rgba8unorm", {
       data: new Uint8Array([0, 255, 0, 255])
     });
-    const material = new Material("material:terrain", {
-      albedoTexture: texture.id
+    const normal = new Texture("texture:terrain.normal", 1, 1, "rgba8unorm", {
+      data: new Uint8Array([128, 128, 255, 255])
     });
-    scene.resources.addTexture(texture);
+    const packedMaterial = new Texture("texture:terrain.material", 1, 1, "rgba8unorm", {
+      data: new Uint8Array([0, 255, 255, 128])
+    });
+    const material = new Material("material:terrain", {
+      albedoTexture: albedo.id,
+      normalTexture: normal.id,
+      materialTexture: packedMaterial.id
+    });
+    scene.resources.addTexture(albedo);
+    scene.resources.addTexture(normal);
+    scene.resources.addTexture(packedMaterial);
     scene.resources.addMaterial(material);
     const terrain = scene.createEntity("Terrain").addComponent(new TerrainRenderer(
       createSeedTerrainField(),
@@ -196,7 +206,9 @@ describe("TerrainRenderer", () => {
     const items = terrain.getRenderItems();
 
     equal(items[0].material, material);
-    equal(items[0].albedoTexture, texture);
+    equal(items[0].albedoTexture, albedo);
+    equal(items[0].normalTexture, normal);
+    equal(items[0].materialTexture, packedMaterial);
   });
 
   it("throws a useful error for missing terrain material resources", () => {

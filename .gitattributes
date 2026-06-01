@@ -1,1 +1,4 @@
 assets/textures/*.png filter=lfs diff=lfs merge=lfs -text
+assets/textures/**/*.jpg filter=lfs diff=lfs merge=lfs -text
+assets/textures/**/*.jpeg filter=lfs diff=lfs merge=lfs -text
+assets/textures/**/*.png filter=lfs diff=lfs merge=lfs -text

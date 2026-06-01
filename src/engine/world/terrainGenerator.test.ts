@@ -5,6 +5,7 @@ import {
   createTerrainGenerator,
   TERRAIN_PRESET_IDS,
   type BiomeWeight,
+  type TerrainMaterialId,
   type TerrainPresetId,
   type TerrainMaterialWeight
 } from "./terrainGenerator.js";
@@ -55,7 +56,7 @@ describe("terrainGenerator", () => {
     ok(Math.abs(generator.densityAt(vec3(x, y, z))) < 0.001);
   });
 
-  it("includes normalized placeholder biome and material weights", () => {
+  it("includes normalized biome and material weights", () => {
     const generator = createTerrainGenerator();
     const sample = generator.surfaceAt(vec3(7, 3, -11));
 
@@ -63,6 +64,43 @@ describe("terrainGenerator", () => {
     ok(Math.abs(sumMaterialWeights(sample.materialWeights) - 1) < 1e-12);
     ok(sample.materialWeights.length >= 1);
     ok(sample.biomeWeights.length >= 1);
+  });
+
+  it("prefers snow at high cold altitude", () => {
+    const generator = createTerrainGenerator();
+    const sample = generator.surfaceAt(vec3(0, 60, 0));
+
+    equal(dominantMaterial(sample.materialWeights), "snow");
+    ok(materialWeight(sample.materialWeights, "snow") > 0.75);
+  });
+
+  it("prefers cliff rock on steep rocky highland surfaces", () => {
+    const generator = createTerrainGenerator(
+      createSeedWorldDescriptor(246, { terrainPreset: "rockyHighland" })
+    );
+    const y = generator.heightAt(-152, -192);
+    const sample = generator.surfaceAt(vec3(-152, y, -192));
+
+    equal(dominantMaterial(sample.materialWeights), "cliffRock");
+    ok(materialWeight(sample.materialWeights, "cliffRock") > 0.75);
+  });
+
+  it("adds wet and sandy materials around lowland sea-level terrain", () => {
+    const generator = createTerrainGenerator();
+    const sample = generator.surfaceAt(vec3(0, 0, 0));
+
+    ok(materialWeight(sample.materialWeights, "wetMud") > 0.15);
+    ok(materialWeight(sample.materialWeights, "sand") > 0.1);
+  });
+
+  it("keeps material weights continuous across chunk boundary positions", () => {
+    const generator = createTerrainGenerator();
+    const leftOfBoundary = generator.surfaceAt(vec3(31.999, 2, -7.5)).materialWeights;
+    const rightOfBoundary = generator.surfaceAt(vec3(32.001, 2, -7.5)).materialWeights;
+
+    for (const material of ["meadowGrass", "dryGround", "mossRock", "redSoil"] as const) {
+      ok(Math.abs(materialWeight(leftOfBoundary, material) - materialWeight(rightOfBoundary, material)) < 0.01);
+    }
   });
 
   it("preserves descriptor values on the generator", () => {
@@ -115,6 +153,17 @@ function sumBiomeWeights(weights: readonly BiomeWeight[]): number {
 
 function sumMaterialWeights(weights: readonly TerrainMaterialWeight[]): number {
   return weights.reduce((total, weight) => total + weight.weight, 0);
+}
+
+function dominantMaterial(weights: readonly TerrainMaterialWeight[]): TerrainMaterialId {
+  return weights.reduce((best, weight) => weight.weight > best.weight ? weight : best).material;
+}
+
+function materialWeight(
+  weights: readonly TerrainMaterialWeight[],
+  material: TerrainMaterialId
+): number {
+  return weights.find((weight) => weight.material === material)?.weight ?? 0;
 }
 
 function sampleMacroGrid(

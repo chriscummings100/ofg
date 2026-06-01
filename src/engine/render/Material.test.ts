@@ -10,6 +10,8 @@ describe("Material", () => {
     const material = new Material("material:test", {
       albedoFactor,
       albedoTexture: "texture:albedo",
+      normalTexture: "texture:normal",
+      materialTexture: "texture:material",
       specular,
       specularFactor: 0.42,
       flags: MATERIAL_FLAG_TRIPLANAR_ALBEDO,
@@ -19,6 +21,8 @@ describe("Material", () => {
     equal(material.id, "material:test");
     equal(material.albedoFactor, albedoFactor);
     equal(material.albedoTexture, "texture:albedo");
+    equal(material.normalTexture, "texture:normal");
+    equal(material.materialTexture, "texture:material");
     equal(material.specular, specular);
     equal(material.specularFactor, 0.42);
     equal(material.flags, MATERIAL_FLAG_TRIPLANAR_ALBEDO);
@@ -33,6 +37,8 @@ describe("Material", () => {
     equal(material.albedoFactor.z, 1);
     equal(material.albedoFactor.w, 1);
     equal(material.albedoTexture, undefined);
+    equal(material.normalTexture, undefined);
+    equal(material.materialTexture, undefined);
     equal(material.specular.x, 1);
     equal(material.specular.y, 1);
     equal(material.specular.z, 1);

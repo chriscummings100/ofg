@@ -16,5 +16,7 @@ export type RenderItem = {
   readonly mesh: Mesh;
   readonly material?: Material;
   readonly albedoTexture?: Texture;
+  readonly normalTexture?: Texture;
+  readonly materialTexture?: Texture;
   readonly worldMatrix: Mat4;
 };

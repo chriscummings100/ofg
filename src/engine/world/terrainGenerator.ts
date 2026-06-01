@@ -6,6 +6,10 @@ import {
 } from "./simplexNoise3D.js";
 import type { TerrainDensitySample, TerrainDensitySource } from "./terrainChunk.js";
 import {
+  normalizeTerrainMaterialWeights,
+  type TerrainMaterialWeight
+} from "./terrainMaterials.js";
+import {
   sampleCellular2D,
   sampleDomainWarp2D,
   sampleRidgedFractalSimplex3D,
@@ -22,10 +26,10 @@ export const TERRAIN_PRESET_IDS = [
 ] as const;
 
 export type TerrainPresetId = typeof TERRAIN_PRESET_IDS[number];
+export type { TerrainMaterialId, TerrainMaterialWeight } from "./terrainMaterials.js";
 export type ClimatePresetId = "temperate";
 export type TerrainMaterialPaletteId = "seed";
 export type TerrainBiomeId = "temperateGrassland";
-export type TerrainMaterialId = "grass" | "rock" | "soil";
 
 export type WorldDescriptor = {
   readonly seed: number;
@@ -55,11 +59,6 @@ export type BiomeSample = {
   readonly moisture: number;
   readonly province: number;
   readonly weights: readonly BiomeWeight[];
-};
-
-export type TerrainMaterialWeight = {
-  readonly material: TerrainMaterialId;
-  readonly weight: number;
 };
 
 export type TerrainDebugChannels = {
@@ -386,7 +385,7 @@ export function createTerrainGenerator(
 
     return {
       ...densitySample,
-      materialWeights: materialWeightsAt(position, densitySample.gradient, descriptor.seaLevel),
+      materialWeights: materialWeightsAt(position, densitySample.gradient, descriptor.seaLevel, macro),
       biomeWeights: biome.weights,
       debug: {
         largeFeature: macro.largeFeature,
@@ -476,37 +475,47 @@ function sampleMacroTerrain(
 function materialWeightsAt(
   position: Vec3,
   gradient: Vec3,
-  seaLevel: number
+  seaLevel: number,
+  macro: MacroTerrainSample
 ): readonly TerrainMaterialWeight[] {
   const normal = normalize(gradient);
   const slope = clamp(1 - normal.y, 0, 1);
-  const rock = clamp((slope - 0.35) / 0.45, 0, 1);
-  const soil = clamp((seaLevel + 2 - position.y) / 6, 0, 0.5) * (1 - rock);
-  const grass = Math.max(0, 1 - rock - soil);
+  const lowland = clamp((seaLevel + 4 - position.y) / 8, 0, 1);
+  const highland = clamp((position.y - 28) / 28, 0, 1);
+  const cliff = smoothstep(0.62, 0.86, slope);
+  const rocky = smoothstep(0.34, 0.68, slope) * (1 - cliff);
+  const snow = smoothstep(38, 56, position.y) * smoothstep(0.1, 0.65, normal.y);
+  const wet = lowland * smoothstep(0.12, 0.72, normal.y) * (1 - rocky) * (1 - cliff);
+  const sand = clamp((seaLevel + 2.5 - Math.abs(position.y - seaLevel)) / 5, 0, 1) *
+    smoothstep(0.18, 0.82, normal.y) *
+    (0.45 + macro.continentality * 0.25);
+  const dry = clamp(0.35 + macro.continentality * 0.45 - macro.mountainness * 0.25, 0, 1);
+  const moss = clamp((macro.mountainness + macro.ridge) * 0.35, 0, 0.8) * (1 - cliff) * (1 - snow);
+  const redSoil = clamp((macro.cellularEdge - 0.42) / 0.45, 0, 0.75) * dry * (1 - rocky) * (1 - snow);
+  const meadow = (1 - dry * 0.55) * smoothstep(0.2, 0.85, normal.y) * (1 - wet) * (1 - snow);
+  const dryGround = dry * smoothstep(0.28, 0.88, normal.y) * (1 - wet) * (1 - snow);
+  const scree = rocky * highland * 0.65;
 
-  return normalizeMaterialWeights([
-    { material: "grass", weight: grass },
-    { material: "soil", weight: soil },
-    { material: "rock", weight: rock }
+  return normalizeTerrainMaterialWeights([
+    { material: "meadowGrass", weight: meadow },
+    { material: "dryGround", weight: dryGround },
+    { material: "forestGround", weight: (1 - dry) * 0.28 * (1 - rocky) * (1 - wet) },
+    { material: "bareSoil", weight: lowland * 0.4 * (1 - wet) * (1 - sand) },
+    { material: "wetMud", weight: wet },
+    { material: "sand", weight: sand },
+    { material: "gravelSand", weight: sand * rocky * 0.8 },
+    { material: "scree", weight: scree },
+    { material: "rockyGround", weight: rocky * (1 - highland * 0.35) },
+    { material: "cliffRock", weight: cliff },
+    { material: "mossRock", weight: moss },
+    { material: "redSoil", weight: redSoil },
+    { material: "snow", weight: snow }
   ]);
 }
 
-function normalizeMaterialWeights(
-  weights: readonly TerrainMaterialWeight[]
-): readonly TerrainMaterialWeight[] {
-  const total = weights.reduce((sum, weight) => sum + weight.weight, 0);
-  if (total <= Number.EPSILON) {
-    return Object.freeze([
-      Object.freeze({ material: "grass", weight: 1 })
-    ]);
-  }
-
-  return Object.freeze(weights.map((weight) =>
-    Object.freeze({
-      material: weight.material,
-      weight: weight.weight / total
-    })
-  ));
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
 }
 
 function validateWorldDescriptor(descriptor: WorldDescriptor): void {

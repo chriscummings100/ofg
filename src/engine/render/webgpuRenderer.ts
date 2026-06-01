@@ -17,6 +17,8 @@ type GpuObject = {
   readonly uniformValues: Float32Array;
   readonly bindGroup: GpuAny;
   readonly albedoTexture: GpuTexture;
+  readonly normalTexture: GpuTexture;
+  readonly materialTexture: GpuTexture;
 };
 
 type GpuTexture = {
@@ -31,6 +33,20 @@ const FALLBACK_ALBEDO_TEXTURE = new Texture(
   "rgba8unorm",
   { data: new Uint8Array([255, 255, 255, 255]) }
 );
+const FALLBACK_NORMAL_TEXTURE = new Texture(
+  "texture:fallback.normal",
+  1,
+  1,
+  "rgba8unorm",
+  { data: new Uint8Array([128, 128, 255, 255]) }
+);
+const FALLBACK_MATERIAL_TEXTURE = new Texture(
+  "texture:fallback.material",
+  1,
+  1,
+  "rgba8unorm",
+  { data: new Uint8Array([0, 255, 255, 128]) }
+);
 
 export class WebGpuRenderer {
   private readonly canvas: HTMLCanvasElement;
@@ -44,6 +60,8 @@ export class WebGpuRenderer {
   private objectBindGroupLayout: GpuAny = undefined;
   private albedoSampler: GpuAny = undefined;
   private fallbackAlbedoTexture: GpuTexture | undefined;
+  private fallbackNormalTexture: GpuTexture | undefined;
+  private fallbackMaterialTexture: GpuTexture | undefined;
   private depthTexture: GpuAny = undefined;
   private readonly meshCache = new WeakMap<Mesh, GpuMesh>();
   private readonly textureCache = new WeakMap<Texture, GpuTexture>();
@@ -67,7 +85,18 @@ export class WebGpuRenderer {
       throw new Error("No WebGPU adapter is available.");
     }
 
-    this.device = await adapter.requestDevice();
+    if (adapter.limits.maxTextureArrayLayers < 16) {
+      throw new Error(
+        `WebGPU adapter only supports ${adapter.limits.maxTextureArrayLayers} texture array layers; ` +
+        "terrain materials require at least 16."
+      );
+    }
+
+    this.device = await adapter.requestDevice({
+      requiredLimits: {
+        maxTextureArrayLayers: 16
+      }
+    });
     const context = this.canvas.getContext("webgpu");
     if (context === null) {
       throw new Error("Unable to create a WebGPU canvas context.");
@@ -113,10 +142,20 @@ export class WebGpuRenderer {
         {
           binding: 1,
           visibility: GPUShaderStage.FRAGMENT,
-          texture: { sampleType: "float" }
+          texture: { sampleType: "float", viewDimension: "2d-array" }
         },
         {
           binding: 2,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: "float", viewDimension: "2d-array" }
+        },
+        {
+          binding: 3,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: "float", viewDimension: "2d-array" }
+        },
+        {
+          binding: 4,
           visibility: GPUShaderStage.FRAGMENT,
           sampler: { type: "filtering" }
         }
@@ -161,6 +200,16 @@ export class WebGpuRenderer {
                 shaderLocation: 3,
                 offset: 9 * Float32Array.BYTES_PER_ELEMENT,
                 format: "float32x2"
+              },
+              {
+                shaderLocation: 4,
+                offset: 11 * Float32Array.BYTES_PER_ELEMENT,
+                format: "float32x4"
+              },
+              {
+                shaderLocation: 5,
+                offset: 15 * Float32Array.BYTES_PER_ELEMENT,
+                format: "float32x4"
               }
             ]
           }
@@ -204,6 +253,8 @@ export class WebGpuRenderer {
       }
     });
     this.fallbackAlbedoTexture = this.createGpuTexture(FALLBACK_ALBEDO_TEXTURE);
+    this.fallbackNormalTexture = this.createGpuTexture(FALLBACK_NORMAL_TEXTURE);
+    this.fallbackMaterialTexture = this.createGpuTexture(FALLBACK_MATERIAL_TEXTURE);
 
     this.resize();
   }
@@ -351,31 +402,44 @@ export class WebGpuRenderer {
   private createGpuTexture(texture: Texture): GpuTexture {
     const gpuTexture = this.device.createTexture({
       label: texture.id,
-      size: [texture.width, texture.height],
+      size: [texture.width, texture.height, texture.layers],
       format: texture.format,
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
     });
-    const data = texture.data ?? createOpaqueWhiteTextureData(texture.width, texture.height);
-    this.device.queue.writeTexture(
-      { texture: gpuTexture },
-      data,
-      {
-        bytesPerRow: texture.width * 4,
-        rowsPerImage: texture.height
-      },
-      [texture.width, texture.height]
-    );
+    const data = texture.data ?? createOpaqueWhiteTextureData(texture.width, texture.height, texture.layers);
+    const bytesPerLayer = texture.width * texture.height * 4;
+    for (let layer = 0; layer < texture.layers; layer += 1) {
+      this.device.queue.writeTexture(
+        { texture: gpuTexture, origin: [0, 0, layer] },
+        data.subarray(layer * bytesPerLayer, (layer + 1) * bytesPerLayer),
+        {
+          bytesPerRow: texture.width * 4,
+          rowsPerImage: texture.height
+        },
+        [texture.width, texture.height, 1]
+      );
+    }
 
     return {
       texture: gpuTexture,
-      view: gpuTexture.createView()
+      view: gpuTexture.createView({
+        dimension: "2d-array",
+        arrayLayerCount: texture.layers
+      })
     };
   }
 
   private getGpuObject(item: RenderItem): GpuObject {
     const albedoTexture = this.getGpuTexture(item.albedoTexture);
+    const normalTexture = this.getGpuTextureOrFallback(item.normalTexture, this.fallbackNormalTexture, "normal");
+    const materialTexture = this.getGpuTextureOrFallback(item.materialTexture, this.fallbackMaterialTexture, "material");
     const cached = this.objectUniforms.get(item.id);
-    if (cached !== undefined && cached.albedoTexture === albedoTexture) {
+    if (
+      cached !== undefined &&
+      cached.albedoTexture === albedoTexture &&
+      cached.normalTexture === normalTexture &&
+      cached.materialTexture === materialTexture
+    ) {
       return cached;
     }
 
@@ -399,13 +463,44 @@ export class WebGpuRenderer {
         },
         {
           binding: 2,
+          resource: normalTexture.view
+        },
+        {
+          binding: 3,
+          resource: materialTexture.view
+        },
+        {
+          binding: 4,
           resource: this.albedoSampler
         }
       ]
     });
-    const gpuObject = { uniformBuffer, uniformValues, bindGroup, albedoTexture };
+    const gpuObject = {
+      uniformBuffer,
+      uniformValues,
+      bindGroup,
+      albedoTexture,
+      normalTexture,
+      materialTexture
+    };
     this.objectUniforms.set(item.id, gpuObject);
     return gpuObject;
+  }
+
+  private getGpuTextureOrFallback(
+    texture: Texture | undefined,
+    fallback: GpuTexture | undefined,
+    label: string
+  ): GpuTexture {
+    if (texture !== undefined) {
+      return this.getGpuTexture(texture);
+    }
+
+    if (fallback === undefined) {
+      throw new Error(`Fallback ${label} texture has not been initialized.`);
+    }
+
+    return fallback;
   }
 
   private pruneObjectUniforms(seenItemIds: Set<string>): void {
@@ -435,8 +530,8 @@ export class WebGpuRenderer {
   }
 }
 
-function createOpaqueWhiteTextureData(width: number, height: number): Uint8Array {
-  const data = new Uint8Array(width * height * 4);
+function createOpaqueWhiteTextureData(width: number, height: number, layers: number): Uint8Array {
+  const data = new Uint8Array(width * height * layers * 4);
   for (let offset = 0; offset < data.length; offset += 4) {
     data[offset] = 255;
     data[offset + 1] = 255;

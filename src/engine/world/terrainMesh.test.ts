@@ -1,8 +1,17 @@
-import { equal, ok } from "node:assert/strict";
+import { deepEqual, equal, ok } from "node:assert/strict";
 import { vec3 } from "../math/vec3.js";
 import type { TerrainField } from "./scalarField.js";
 import { createSeedTerrainField } from "./scalarField.js";
-import { buildHeightfieldMesh, getFloatsPerVertex } from "./terrainMesh.js";
+import { packTerrainMaterialWeights, terrainMaterialLayer } from "./terrainMaterials.js";
+import {
+  MATERIAL_INDICES_VERTEX_OFFSET,
+  MATERIAL_WEIGHTS_VERTEX_OFFSET,
+  POSITION_COLOR_NORMAL_UV_LAYOUT,
+  buildHeightfieldMesh,
+  expandTerrainMeshForTriangleMaterialPalettes,
+  getFloatsPerVertex,
+  writePackedTerrainMaterial
+} from "./terrainMesh.js";
 
 describe("terrainMesh", () => {
   it("builds a heightfield mesh with shared vertices", () => {
@@ -13,6 +22,14 @@ describe("terrainMesh", () => {
 
     equal(mesh.vertices.length, 9 * 9 * getFloatsPerVertex());
     equal(mesh.indices.length, 8 * 8 * 6);
+  });
+
+  it("defines the terrain vertex material layout", () => {
+    equal(getFloatsPerVertex(), 19);
+    equal(POSITION_COLOR_NORMAL_UV_LAYOUT.attributes[4].name, "materialIndices");
+    equal(POSITION_COLOR_NORMAL_UV_LAYOUT.attributes[4].offset, MATERIAL_INDICES_VERTEX_OFFSET);
+    equal(POSITION_COLOR_NORMAL_UV_LAYOUT.attributes[5].name, "materialWeights");
+    equal(POSITION_COLOR_NORMAL_UV_LAYOUT.attributes[5].offset, MATERIAL_WEIGHTS_VERTEX_OFFSET);
   });
 
   it("places the first vertex at the negative terrain extent", () => {
@@ -99,6 +116,68 @@ describe("terrainMesh", () => {
     equal(mesh.vertices[10], 0);
     equal(mesh.vertices[finalVertexOffset + 9], 1);
     equal(mesh.vertices[finalVertexOffset + 10], 1);
+  });
+
+  it("writes default material weights for heightfield vertices", () => {
+    const mesh = buildHeightfieldMesh(createFlatField(0), {
+      halfExtent: 1,
+      cellsPerAxis: 1
+    });
+
+    equal(mesh.vertices[MATERIAL_INDICES_VERTEX_OFFSET], 0);
+    equal(mesh.vertices[MATERIAL_WEIGHTS_VERTEX_OFFSET], 1);
+    equal(mesh.vertices[MATERIAL_WEIGHTS_VERTEX_OFFSET + 1], 0);
+  });
+
+  it("expands indexed terrain triangles to triangle-local material palettes", () => {
+    const floatsPerVertex = getFloatsPerVertex();
+    const vertices = new Float32Array(3 * floatsPerVertex);
+    writePackedTerrainMaterial(
+      vertices,
+      0,
+      packTerrainMaterialWeights([{ material: "meadowGrass", weight: 1 }])
+    );
+    writePackedTerrainMaterial(
+      vertices,
+      floatsPerVertex,
+      packTerrainMaterialWeights([{ material: "snow", weight: 1 }])
+    );
+    writePackedTerrainMaterial(
+      vertices,
+      floatsPerVertex * 2,
+      packTerrainMaterialWeights([{ material: "cliffRock", weight: 1 }])
+    );
+
+    const expanded = expandTerrainMeshForTriangleMaterialPalettes({
+      vertices,
+      indices: new Uint32Array([0, 1, 2])
+    });
+
+    deepEqual(Array.from(expanded.indices), [0, 1, 2]);
+    equal(expanded.vertices.length, 3 * floatsPerVertex);
+    for (let offset = 0; offset < expanded.vertices.length; offset += floatsPerVertex) {
+      deepEqual(
+        Array.from(expanded.vertices.slice(offset + MATERIAL_INDICES_VERTEX_OFFSET, offset + MATERIAL_INDICES_VERTEX_OFFSET + 4)),
+        [
+          terrainMaterialLayer("meadowGrass"),
+          terrainMaterialLayer("cliffRock"),
+          terrainMaterialLayer("snow"),
+          0
+        ]
+      );
+    }
+    deepEqual(
+      Array.from(expanded.vertices.slice(MATERIAL_WEIGHTS_VERTEX_OFFSET, MATERIAL_WEIGHTS_VERTEX_OFFSET + 4)),
+      [1, 0, 0, 0]
+    );
+    deepEqual(
+      Array.from(expanded.vertices.slice(floatsPerVertex + MATERIAL_WEIGHTS_VERTEX_OFFSET, floatsPerVertex + MATERIAL_WEIGHTS_VERTEX_OFFSET + 4)),
+      [0, 0, 1, 0]
+    );
+    deepEqual(
+      Array.from(expanded.vertices.slice(floatsPerVertex * 2 + MATERIAL_WEIGHTS_VERTEX_OFFSET, floatsPerVertex * 2 + MATERIAL_WEIGHTS_VERTEX_OFFSET + 4)),
+      [0, 1, 0, 0]
+    );
   });
 });
 

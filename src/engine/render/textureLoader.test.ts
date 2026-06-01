@@ -15,6 +15,7 @@ describe("textureLoader", () => {
     equal(texture.id, "texture:test");
     equal(texture.width, 2);
     equal(texture.height, 2);
+    equal(texture.layers, 1);
     equal(texture.format, "rgba8unorm");
     equal(texture.data?.length, 16);
     equal(texture.data?.[1], 0);

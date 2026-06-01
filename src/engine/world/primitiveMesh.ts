@@ -1,4 +1,4 @@
-import { getFloatsPerVertex, type MeshData } from "./terrainMesh.js";
+import { getFloatsPerVertex, writePackedTerrainMaterial, type MeshData } from "./terrainMesh.js";
 import { normalize, vec3, type Vec3 } from "../math/vec3.js";
 
 export function createBoxMesh(center: Vec3, halfSize: Vec3, color: Vec3): MeshData {
@@ -30,6 +30,7 @@ export function createBoxMesh(center: Vec3, halfSize: Vec3, color: Vec3): MeshDa
     vertices[offset + 8] = normal.z;
     vertices[offset + 9] = (x + 1) * 0.5;
     vertices[offset + 10] = (z + 1) * 0.5;
+    writePackedTerrainMaterial(vertices, offset);
   }
 
   const indices = new Uint32Array([

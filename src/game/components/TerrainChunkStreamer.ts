@@ -15,7 +15,10 @@ import {
   type TerrainDensitySource
 } from "../../engine/world/terrainChunk.js";
 import { meshChunkDualContouringWithNeighbors } from "../../engine/world/dualContouring.js";
-import { POSITION_COLOR_NORMAL_UV_LAYOUT } from "../../engine/world/terrainMesh.js";
+import {
+  POSITION_COLOR_NORMAL_UV_LAYOUT,
+  expandTerrainMeshForTriangleMaterialPalettes
+} from "../../engine/world/terrainMesh.js";
 
 export type TerrainChunkStreamerOptions = {
   readonly target?: Entity;
@@ -136,10 +139,11 @@ export class TerrainChunkStreamer extends Component {
 
       const neighborChunks = this.buildNeighborChunkCoords(coord)
         .map((neighborCoord) => this.getOrGenerateDensityChunk(densityChunks, neighborCoord));
-      const meshData = meshChunkDualContouringWithNeighbors(neighborChunks, coord, this.source, {
+      const rawMeshData = meshChunkDualContouringWithNeighbors(neighborChunks, coord, this.source, {
         // Raw QEF placement is too unstable on noisy terrain until it is regularized.
         placement: "centroid"
       });
+      const meshData = expandTerrainMeshForTriangleMaterialPalettes(rawMeshData);
       if (meshData.indices.length === 0) {
         continue;
       }

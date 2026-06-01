@@ -5,6 +5,8 @@ import type { ResourceId } from "../scene/types.js";
 export type MaterialOptions = {
   readonly albedoFactor?: Vec4;
   readonly albedoTexture?: ResourceId;
+  readonly normalTexture?: ResourceId;
+  readonly materialTexture?: ResourceId;
   readonly specular?: Vec3;
   readonly specularFactor?: number;
   readonly flags?: number;
@@ -21,6 +23,8 @@ export class Material {
   readonly id: ResourceId;
   albedoFactor: Vec4;
   albedoTexture?: ResourceId;
+  normalTexture?: ResourceId;
+  materialTexture?: ResourceId;
   specular: Vec3;
   specularFactor: number;
   flags: number;
@@ -35,6 +39,8 @@ export class Material {
     this.id = id;
     this.albedoFactor = options.albedoFactor ?? DEFAULT_ALBEDO_FACTOR;
     this.albedoTexture = options.albedoTexture;
+    this.normalTexture = options.normalTexture;
+    this.materialTexture = options.materialTexture;
     this.specular = options.specular ?? DEFAULT_SPECULAR;
     this.specularFactor = options.specularFactor ?? DEFAULT_SPECULAR_FACTOR;
     this.flags = options.flags ?? 0;

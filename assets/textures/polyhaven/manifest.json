@@ -1,0 +1,424 @@
+{
+  "source": "Poly Haven",
+  "license": "CC0",
+  "resolution": "1k",
+  "generatedAt": "2026-06-01T09:09:16.052Z",
+  "materials": [
+    {
+      "id": "meadowGrass",
+      "name": "Meadow Grass",
+      "slug": "grass_path_3",
+      "sourceUrl": "https://polyhaven.com/a/grass_path_3",
+      "maps": {
+        "albedo": {
+          "path": "assets/textures/polyhaven/meadowGrass/albedo.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/grass_path_3/grass_path_3_diff_1k.jpg",
+          "md5": "c4a7eb198fdc7773e56abd8b640a98c8",
+          "size": 646551
+        },
+        "normal": {
+          "path": "assets/textures/polyhaven/meadowGrass/normal.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/grass_path_3/grass_path_3_nor_gl_1k.jpg",
+          "md5": "f02d1a46aa4da024741e00deac01e7d8",
+          "size": 829401
+        },
+        "roughness": {
+          "path": "assets/textures/polyhaven/meadowGrass/roughness.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/grass_path_3/grass_path_3_rough_1k.jpg",
+          "md5": "0dccd70ba83c5d13df7c90e55745ec33",
+          "size": 589060
+        }
+      }
+    },
+    {
+      "id": "dryGround",
+      "name": "Dry Ground",
+      "slug": "dry_ground_01",
+      "sourceUrl": "https://polyhaven.com/a/dry_ground_01",
+      "maps": {
+        "albedo": {
+          "path": "assets/textures/polyhaven/dryGround/albedo.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dry_ground_01/dry_ground_01_diff_1k.jpg",
+          "md5": "f928726e24cf06765877ae77b9a04b4a",
+          "size": 604799
+        },
+        "normal": {
+          "path": "assets/textures/polyhaven/dryGround/normal.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dry_ground_01/dry_ground_01_nor_gl_1k.jpg",
+          "md5": "6088d590e646993784228156696e9948",
+          "size": 243523
+        },
+        "roughness": {
+          "path": "assets/textures/polyhaven/dryGround/roughness.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dry_ground_01/dry_ground_01_rough_1k.jpg",
+          "md5": "63b583296c606971ce605e5b160a21bc",
+          "size": 336234
+        }
+      }
+    },
+    {
+      "id": "forestGround",
+      "name": "Forest Ground",
+      "slug": "forest_ground_04",
+      "sourceUrl": "https://polyhaven.com/a/forest_ground_04",
+      "maps": {
+        "albedo": {
+          "path": "assets/textures/polyhaven/forestGround/albedo.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forest_ground_04/forest_ground_04_diff_1k.jpg",
+          "md5": "6ad9df4d731a238299806f739a26af83",
+          "size": 1113899
+        },
+        "normal": {
+          "path": "assets/textures/polyhaven/forestGround/normal.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forest_ground_04/forest_ground_04_nor_gl_1k.jpg",
+          "md5": "a010a0802c2d9a930c6f00d3b1f196d2",
+          "size": 1326812
+        },
+        "roughness": {
+          "path": "assets/textures/polyhaven/forestGround/roughness.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forest_ground_04/forest_ground_04_rough_1k.jpg",
+          "md5": "b5c7ba5c16f00261e9a765d52cf7e0ac",
+          "size": 627507
+        }
+      }
+    },
+    {
+      "id": "leafLitter",
+      "name": "Leaf Litter",
+      "slug": "dry_decay_leaves",
+      "sourceUrl": "https://polyhaven.com/a/dry_decay_leaves",
+      "maps": {
+        "albedo": {
+          "path": "assets/textures/polyhaven/leafLitter/albedo.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dry_decay_leaves/dry_decay_leaves_diff_1k.jpg",
+          "md5": "195514abaeb19e6766df1c8ba181f29c",
+          "size": 756437
+        },
+        "normal": {
+          "path": "assets/textures/polyhaven/leafLitter/normal.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dry_decay_leaves/dry_decay_leaves_nor_gl_1k.jpg",
+          "md5": "7fe6c1aee86a022636323b017968a8ec",
+          "size": 1072874
+        },
+        "roughness": {
+          "path": "assets/textures/polyhaven/leafLitter/roughness.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dry_decay_leaves/dry_decay_leaves_rough_1k.jpg",
+          "md5": "bd818090b76c5a4b084325b314b50e5c",
+          "size": 545422
+        }
+      }
+    },
+    {
+      "id": "bareSoil",
+      "name": "Bare Soil",
+      "slug": "aerial_ground_rock",
+      "sourceUrl": "https://polyhaven.com/a/aerial_ground_rock",
+      "maps": {
+        "albedo": {
+          "path": "assets/textures/polyhaven/bareSoil/albedo.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/aerial_ground_rock/aerial_ground_rock_diff_1k.jpg",
+          "md5": "bf5dca7bdd00de98f6a18ed10ec74b42",
+          "size": 599629
+        },
+        "normal": {
+          "path": "assets/textures/polyhaven/bareSoil/normal.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/aerial_ground_rock/aerial_ground_rock_nor_gl_1k.jpg",
+          "md5": "bd562f48b85edc5929cd2a7f0a6e6b05",
+          "size": 613846
+        },
+        "roughness": {
+          "path": "assets/textures/polyhaven/bareSoil/roughness.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/aerial_ground_rock/aerial_ground_rock_rough_1k.jpg",
+          "md5": "88d1b5a8161e5a5cbc0232793e3ea099",
+          "size": 376876
+        }
+      }
+    },
+    {
+      "id": "dryMud",
+      "name": "Dry Mud",
+      "slug": "brown_mud_dry",
+      "sourceUrl": "https://polyhaven.com/a/brown_mud_dry",
+      "maps": {
+        "albedo": {
+          "path": "assets/textures/polyhaven/dryMud/albedo.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/brown_mud_dry/brown_mud_dry_diff_1k.jpg",
+          "md5": "0c0ad82fec60f091690c69c23657cb74",
+          "size": 920456
+        },
+        "normal": {
+          "path": "assets/textures/polyhaven/dryMud/normal.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/brown_mud_dry/brown_mud_dry_nor_gl_1k.jpg",
+          "md5": "a842517bea5187ccbceb69fd26629d1e",
+          "size": 1539092
+        },
+        "roughness": {
+          "path": "assets/textures/polyhaven/dryMud/roughness.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/brown_mud_dry/brown_mud_dry_rough_1k.jpg",
+          "md5": "4e047a601af768eded6468faab4ec615",
+          "size": 390385
+        }
+      }
+    },
+    {
+      "id": "wetMud",
+      "name": "Wet Mud",
+      "slug": "brown_mud",
+      "sourceUrl": "https://polyhaven.com/a/brown_mud",
+      "maps": {
+        "albedo": {
+          "path": "assets/textures/polyhaven/wetMud/albedo.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/brown_mud/brown_mud_diff_1k.jpg",
+          "md5": "b141af27b413db140818d0a4998c394c",
+          "size": 501955
+        },
+        "normal": {
+          "path": "assets/textures/polyhaven/wetMud/normal.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/brown_mud/brown_mud_nor_gl_1k.jpg",
+          "md5": "62df05266fa5a0adc7733a7184a15dea",
+          "size": 1011780
+        },
+        "roughness": {
+          "path": "assets/textures/polyhaven/wetMud/roughness.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/brown_mud/brown_mud_rough_1k.jpg",
+          "md5": "fb4d5d8ef98ebee6a402955b99103a3a",
+          "size": 340815
+        }
+      }
+    },
+    {
+      "id": "sand",
+      "name": "Sand",
+      "slug": "coast_sand_01",
+      "sourceUrl": "https://polyhaven.com/a/coast_sand_01",
+      "maps": {
+        "albedo": {
+          "path": "assets/textures/polyhaven/sand/albedo.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/coast_sand_01/coast_sand_01_diff_1k.jpg",
+          "md5": "a1e243fc8635806381505c7dc44b192a",
+          "size": 960614
+        },
+        "normal": {
+          "path": "assets/textures/polyhaven/sand/normal.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/coast_sand_01/coast_sand_01_nor_gl_1k.jpg",
+          "md5": "38bbe6863249a3d20d8417c9db207780",
+          "size": 1146826
+        },
+        "roughness": {
+          "path": "assets/textures/polyhaven/sand/roughness.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/coast_sand_01/coast_sand_01_rough_1k.jpg",
+          "md5": "978aca9e374cf988095392a91d3a4f71",
+          "size": 383892
+        }
+      }
+    },
+    {
+      "id": "gravelSand",
+      "name": "Gravel Sand",
+      "slug": "gravelly_sand",
+      "sourceUrl": "https://polyhaven.com/a/gravelly_sand",
+      "maps": {
+        "albedo": {
+          "path": "assets/textures/polyhaven/gravelSand/albedo.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/gravelly_sand/gravelly_sand_diff_1k.jpg",
+          "md5": "16b7593a26ce1bd43f1d95e61dc25f05",
+          "size": 1062525
+        },
+        "normal": {
+          "path": "assets/textures/polyhaven/gravelSand/normal.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/gravelly_sand/gravelly_sand_nor_gl_1k.jpg",
+          "md5": "92053a3e135c938def2dc974c76e3763",
+          "size": 1387739
+        },
+        "roughness": {
+          "path": "assets/textures/polyhaven/gravelSand/roughness.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/gravelly_sand/gravelly_sand_rough_1k.jpg",
+          "md5": "1152ab34b85ec42a5d4d6c8ed2c1100b",
+          "size": 419895
+        }
+      }
+    },
+    {
+      "id": "riverPebbles",
+      "name": "River Pebbles",
+      "slug": "ganges_river_pebbles",
+      "sourceUrl": "https://polyhaven.com/a/ganges_river_pebbles",
+      "maps": {
+        "albedo": {
+          "path": "assets/textures/polyhaven/riverPebbles/albedo.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/ganges_river_pebbles/ganges_river_pebbles_diff_1k.jpg",
+          "md5": "0dabfef242e8801c333a60d610dfa396",
+          "size": 868952
+        },
+        "normal": {
+          "path": "assets/textures/polyhaven/riverPebbles/normal.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/ganges_river_pebbles/ganges_river_pebbles_nor_gl_1k.jpg",
+          "md5": "6a64e7646e0b556056d52dc67c793a7c",
+          "size": 1212799
+        },
+        "roughness": {
+          "path": "assets/textures/polyhaven/riverPebbles/roughness.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/ganges_river_pebbles/ganges_river_pebbles_rough_1k.jpg",
+          "md5": "3ce5d468c2e6094c7898c94958fe57ab",
+          "size": 495688
+        }
+      }
+    },
+    {
+      "id": "scree",
+      "name": "Scree",
+      "slug": "rocks_ground_02",
+      "sourceUrl": "https://polyhaven.com/a/rocks_ground_02",
+      "maps": {
+        "albedo": {
+          "path": "assets/textures/polyhaven/scree/albedo.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rocks_ground_02/rocks_ground_02_col_1k.jpg",
+          "md5": "e13bff613fb440add6d9502b2be35901",
+          "size": 881510
+        },
+        "normal": {
+          "path": "assets/textures/polyhaven/scree/normal.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rocks_ground_02/rocks_ground_02_nor_gl_1k.jpg",
+          "md5": "c9858a7f2d625ee40f30ddd9a7ca714a",
+          "size": 1466816
+        },
+        "roughness": {
+          "path": "assets/textures/polyhaven/scree/roughness.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rocks_ground_02/rocks_ground_02_rough_1k.jpg",
+          "md5": "61ace2e125738a72da78a1064b0e9b43",
+          "size": 489453
+        }
+      }
+    },
+    {
+      "id": "rockyGround",
+      "name": "Rocky Ground",
+      "slug": "rocky_terrain_02",
+      "sourceUrl": "https://polyhaven.com/a/rocky_terrain_02",
+      "maps": {
+        "albedo": {
+          "path": "assets/textures/polyhaven/rockyGround/albedo.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rocky_terrain_02/rocky_terrain_02_diff_1k.jpg",
+          "md5": "cf604d3868398a6a996cb5ba330dd3ab",
+          "size": 843188
+        },
+        "normal": {
+          "path": "assets/textures/polyhaven/rockyGround/normal.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rocky_terrain_02/rocky_terrain_02_nor_gl_1k.jpg",
+          "md5": "c1636176f0fa8eb9b924ebdecd47ddfd",
+          "size": 993692
+        },
+        "roughness": {
+          "path": "assets/textures/polyhaven/rockyGround/roughness.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rocky_terrain_02/rocky_terrain_02_rough_1k.jpg",
+          "md5": "f940e341352cca8bdd2dc4d0c30f3da1",
+          "size": 437094
+        }
+      }
+    },
+    {
+      "id": "cliffRock",
+      "name": "Cliff Rock",
+      "slug": "rock_face_03",
+      "sourceUrl": "https://polyhaven.com/a/rock_face_03",
+      "maps": {
+        "albedo": {
+          "path": "assets/textures/polyhaven/cliffRock/albedo.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_face_03/rock_face_03_diff_1k.jpg",
+          "md5": "e4c34abb1aad5befe12754fad507147a",
+          "size": 927082
+        },
+        "normal": {
+          "path": "assets/textures/polyhaven/cliffRock/normal.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_face_03/rock_face_03_nor_gl_1k.jpg",
+          "md5": "cbd30858439ece391480c5e67e09de89",
+          "size": 1146788
+        },
+        "roughness": {
+          "path": "assets/textures/polyhaven/cliffRock/roughness.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_face_03/rock_face_03_rough_1k.jpg",
+          "md5": "bbb2c7dafde3f81808fa7404d4527a56",
+          "size": 638904
+        }
+      }
+    },
+    {
+      "id": "mossRock",
+      "name": "Moss Rock",
+      "slug": "lichen_rock",
+      "sourceUrl": "https://polyhaven.com/a/lichen_rock",
+      "maps": {
+        "albedo": {
+          "path": "assets/textures/polyhaven/mossRock/albedo.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/lichen_rock/lichen_rock_diff_1k.jpg",
+          "md5": "453cc496091c1be83d0151249c97cecd",
+          "size": 1070311
+        },
+        "normal": {
+          "path": "assets/textures/polyhaven/mossRock/normal.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/lichen_rock/lichen_rock_nor_gl_1k.jpg",
+          "md5": "93783a7b605a162b4be4600f561ea408",
+          "size": 1259569
+        },
+        "roughness": {
+          "path": "assets/textures/polyhaven/mossRock/roughness.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/lichen_rock/lichen_rock_rough_1k.jpg",
+          "md5": "29bc56b1e789e65d7fa821d31b775f4b",
+          "size": 573955
+        }
+      }
+    },
+    {
+      "id": "redSoil",
+      "name": "Red Soil",
+      "slug": "red_laterite_soil_stones",
+      "sourceUrl": "https://polyhaven.com/a/red_laterite_soil_stones",
+      "maps": {
+        "albedo": {
+          "path": "assets/textures/polyhaven/redSoil/albedo.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/red_laterite_soil_stones/red_laterite_soil_stones_diff_1k.jpg",
+          "md5": "f5d483e42da0c704f320b8c159ebca5e",
+          "size": 906764
+        },
+        "normal": {
+          "path": "assets/textures/polyhaven/redSoil/normal.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/red_laterite_soil_stones/red_laterite_soil_stones_nor_gl_1k.jpg",
+          "md5": "08737e3b461efa2583c648fbb3472e84",
+          "size": 1494933
+        },
+        "roughness": {
+          "path": "assets/textures/polyhaven/redSoil/roughness.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/red_laterite_soil_stones/red_laterite_soil_stones_rough_1k.jpg",
+          "md5": "564a0faa8182a6cdb0fcff8e357dc064",
+          "size": 722823
+        }
+      }
+    },
+    {
+      "id": "snow",
+      "name": "Snow",
+      "slug": "snow_02",
+      "sourceUrl": "https://polyhaven.com/a/snow_02",
+      "maps": {
+        "albedo": {
+          "path": "assets/textures/polyhaven/snow/albedo.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/snow_02/snow_02_diff_1k.jpg",
+          "md5": "fc54766c6b36ff298699115a619d440b",
+          "size": 325497
+        },
+        "normal": {
+          "path": "assets/textures/polyhaven/snow/normal.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/snow_02/snow_02_nor_gl_1k.jpg",
+          "md5": "f16b5701f9ad521cdd6af10c1d6d2b48",
+          "size": 1081858
+        },
+        "roughness": {
+          "path": "assets/textures/polyhaven/snow/roughness.jpg",
+          "sourceUrl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/snow_02/snow_02_rough_1k.jpg",
+          "md5": "1dbae0269e53dbf80d4fd1c4335f25a2",
+          "size": 146089
+        }
+      }
+    }
+  ]
+}

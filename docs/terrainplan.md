@@ -29,25 +29,87 @@ and materials.
 
 ## Current State
 
-Implemented:
+This section should stay bluntly current. The project now has a real terrain
+generation/rendering pipeline, but only the first layers of the high-grade terrain
+plan are implemented.
 
-- 3D terrain density chunks with 32x32x32 cells and 33x33x33 samples.
-- Deterministic simplex noise with analytic gradients.
-- Seed density field with low-frequency x/z height preference and 3D detail noise.
+Supported:
+
+- Deterministic 3D terrain density chunks with 32x32x32 cells and 33x33x33
+  samples.
+- Deterministic simplex, ridged, domain-warp, and cellular macro noise helpers.
+- A `TerrainGenerator` behind `WorldDescriptor`, with `seed`, `rollingHills`,
+  `mountainValley`, and `rockyHighland` terrain presets. `rollingHills` is the
+  default.
+- Macro channels for base elevation, large feature value, mountainness,
+  continentality, erosion susceptibility, ridge, and warp.
+- Terrain density formed from macro base elevation plus 3D detail noise. This is
+  still fundamentally a height-biased field, but Dual Contouring can represent
+  local non-heightfield detail where the density field creates it.
 - Editable terrain source with subtract-sphere edit support.
-- Dual Contouring Hermite extraction and guarded QEF placement.
-- Runtime terrain streamed as per-chunk neighbor-aware Dual Contouring meshes
-  with deterministic same-LOD seam ownership.
-- Triplanar terrain albedo sampling from a checked-in LFS PNG atlas.
-- Browser smoke screenshots for first-person, debug fly, and streamed terrain.
+- Dual Contouring Hermite extraction, guarded QEF placement, QEF diagnostics, and
+  per-chunk neighbor-aware meshing with deterministic same-LOD seam ownership.
+- Runtime streaming of per-chunk terrain render meshes inside the loaded density
+  window.
+- A 16-material Poly Haven CC0 terrain library imported under
+  `assets/textures/polyhaven`.
+- Global WebGPU texture arrays for terrain albedo, normal, and roughness maps.
+- Terrain samples that emit slope/altitude/macro-driven material weights.
+- Terrain mesh vertices that pack the strongest four material layers and weights.
+- A terrain mesh post-pass that expands triangles to coherent local material
+  palettes, preventing interpolated weights from referring to different texture
+  layers at each triangle corner.
+- WGSL triplanar blending of terrain albedo and roughness from the texture arrays.
+- Browser and debug smoke coverage for regular gameplay render, terrain presets,
+  terrain debug overlays, and seam/corner views.
+- Debug overlays for macro elevation, mountainness, slope, normal, density slice,
+  material weights, QEF error, and chunk borders.
 
-Known limitations:
+Partially supported or placeholder-only:
 
-- The current terrain generator is still a simple noise-based field.
-- Runtime meshing is same-LOD only; there is no LOD transition strategy yet.
-- No biome, hydrology, strata, material-weight, cave, or LOD systems yet.
-- Player grounding still uses a compatibility `heightAt(x, z)` query.
-- QEF placement is guarded but not yet high-quality or sharp-feature robust.
+- `climatePreset` and `materialPalette` exist on `WorldDescriptor`, but do not
+  yet drive distinct generation behavior.
+- `biomeAt()` exposes temperature and moisture scalars, but all biome weights are
+  still `temperateGrassland: 1`. There are no real biome regions yet.
+- Material classification uses slope, altitude, sea-level proximity, and macro
+  values. It does not yet use biome weights, hydrology/wetness fields, curvature,
+  strata, cave humidity, or authored geological regions.
+- Snow, cliff, mud, sand, grass, moss, rock, and red-soil materials can appear,
+  but their placement is heuristic rather than biome/geology driven.
+- Normal and roughness texture arrays are loaded; roughness is sampled for
+  lighting, but normal maps are not yet applied to perturb terrain normals.
+- Terrain preset screenshots prove presets render and differ, but they do not yet
+  prove biome diversity because biome diversity is not implemented.
+
+Not yet supported:
+
+- Real biome solver, biome provinces, biome heatmap screenshots, or soft biome
+  transition bands.
+- Hydrology: no river graph, flow accumulation, drainage, lakes, river carving,
+  floodplains, beaches driven by water bodies, or wetness propagation.
+- Erosion simulation or erosion-inspired post-processing beyond simple macro
+  noise channels.
+- Geological strata, sediment layers, cliffs formed by rock layers, talus fields
+  driven by curvature, or regional material palettes.
+- Caves, arches, tunnels, overhang-focused volumetric features, or cave entrance
+  placement.
+- Far-field terrain, LOD, LOD transition meshes, or chunk-priority scheduling.
+- Terrain collision/grounding based on the generated mesh. Player grounding still
+  uses a compatibility `heightAt(x, z)` query.
+- High-quality sharp-feature Dual Contouring. QEF placement is guarded and
+  diagnosable, but not feature-preserving at production quality.
+
+Current believability gap:
+
+- The terrain can look textured and varied at the material level, but it does not
+  yet read as a believable world with distinct ecological or geological regions.
+- The main missing layer is regional structure: biome/climate provinces,
+  hydrology-informed wetness and river corridors, and material logic tied to those
+  fields.
+- The next visible win should be a verification-first biome/material variation
+  pass: add real biome weights and a screenshot/report tool that finds and captures
+  representative grassland, forest, wetland/coast, badland/dry, alpine, cliff, and
+  snow/rock areas across seeds and presets.
 
 ## Target Data Flow
 
@@ -127,6 +189,44 @@ landmarks, not for every generated sample.
 | 9 | Streaming and LOD | Chunk scheduler, caches, LOD/seam transition plan | Free-flight remains hole-free within budget |
 | 10 | Presentation layers | Vegetation masks, water rendering, atmosphere improvements | Terrain reads at multiple scales |
 | 11 | Optimisation path | Profiling, budgets, Rust/WASM decision gates | Generation and rendering meet target budgets |
+
+## Recommended Next Slice: Believable Variation
+
+Goal: make the world visibly read as varied terrain rather than one noisy material
+field. This should be implemented before caves, LOD, or full erosion.
+
+Proposed order:
+
+1. Add a terrain variation survey tool.
+   - Sample a broad grid across each terrain preset and several seeds.
+   - Score points by macro values, surface height, slope, current material weights,
+     temperature, moisture, and future biome weights.
+   - Pick representative camera targets for grassland, forest-capable slopes,
+     dry/badland areas, wet/coastal lowlands, alpine/snow, steep cliffs, and rocky
+     highlands.
+   - Capture screenshots and write a JSON report with the sampled channel values.
+   - Validation: the report should prove that the screenshots are taken from
+     materially different sampled conditions, not arbitrary coordinates.
+2. Implement the first real biome solver.
+   - Replace the current single `temperateGrassland` output with weighted biome
+     archetypes driven by temperature, moisture, altitude, continentality,
+     mountainness, slope, and province noise.
+   - Start without rivers, but leave drainage/wetness as an input slot.
+   - Validation: biome weights sum to 1, transition smoothly, and have screenshot
+     heatmaps.
+3. Rework material classification to consume biome weights.
+   - Grassland, forest, wetland/coast, badland/dry, alpine, cliff, and snow/rock
+     areas should choose visibly different material mixes.
+   - Validation: material-weight overlay and browser screenshots should show
+     region-level differences, not only local slope differences.
+4. Apply terrain normal maps in shading.
+   - This is a strong surface-quality boost after the regional choices are clear.
+   - Validation: browser screenshots should show more tactile detail without
+     breaking lighting or introducing shimmering.
+
+Do not start with full hydraulic erosion. Add hydrology next only after biome and
+material screenshots prove that the existing field stack can produce readable
+regional variation.
 
 ## Milestone 1: Generator Core
 
@@ -344,7 +444,7 @@ Progress notes:
 
 | Date | Status | Notes |
 |---|---|---|
-| | Not started | |
+| 2026-06-01 | Not started | Current `biomeAt()` is a placeholder that always returns `temperateGrassland: 1`, with temperature and moisture scalars exposed for future use. Next recommended work is a first real weighted biome solver plus biome/debug screenshots. |
 
 ## Milestone 6: Material Classification
 
@@ -394,7 +494,8 @@ Progress notes:
 
 | Date | Status | Notes |
 |---|---|---|
-| | In progress | Single atlas and triplanar flag exist; material weights do not. |
+| 2026-06-01 | In progress | Added a 16-material Poly Haven CC0 terrain library imported by `tools/import-polyhaven-terrain.mjs`, tracked through Git LFS, and loaded as global albedo/normal/roughness texture arrays. Terrain samples now emit slope/altitude/macro-driven material weights, Dual Contouring vertices pack the strongest four material layers, runtime meshes expand triangles to coherent local material palettes, and WGSL triplanar-blends albedo plus roughness from the arrays. Normal maps are loaded but not yet sampled for lighting. `npm test`, `npm run check:shaders`, `npm run smoke:browser`, and `npm run smoke:terrain-seams` pass. |
+| 2026-06-01 | In progress | Remaining material work for believable variation: feed biome/wetness/strata fields into classification, add a survey smoke that captures representative material/biome regions, and apply terrain normal maps in lighting after regional material choice is readable. |
 
 ## Milestone 7: Hydrology And Rivers
 

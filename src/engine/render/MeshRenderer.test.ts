@@ -86,6 +86,39 @@ describe("MeshRenderer", () => {
     equal(item?.albedoTexture, texture);
   });
 
+  it("resolves material texture arrays from scene resources", () => {
+    const scene = resetScene();
+    const mesh = createMesh("mesh:test");
+    const albedo = new Texture("texture:albedo", 1, 1, "rgba8unorm", {
+      data: new Uint8Array([255, 255, 255, 255])
+    });
+    const normal = new Texture("texture:normal", 1, 1, "rgba8unorm", {
+      data: new Uint8Array([128, 128, 255, 255])
+    });
+    const packedMaterial = new Texture("texture:material", 1, 1, "rgba8unorm", {
+      data: new Uint8Array([0, 255, 255, 128])
+    });
+    const material = new Material("material:test", {
+      albedoTexture: albedo.id,
+      normalTexture: normal.id,
+      materialTexture: packedMaterial.id
+    });
+    scene.resources.addMesh(mesh);
+    scene.resources.addTexture(albedo);
+    scene.resources.addTexture(normal);
+    scene.resources.addTexture(packedMaterial);
+    scene.resources.addMaterial(material);
+    const renderer = scene
+      .createEntity("Rendered")
+      .addComponent(new MeshRenderer(mesh.id, material.id));
+
+    const item = renderer.getRenderItem();
+
+    equal(item?.albedoTexture, albedo);
+    equal(item?.normalTexture, normal);
+    equal(item?.materialTexture, packedMaterial);
+  });
+
   it("allows material to be cleared", () => {
     const scene = resetScene();
     const mesh = createMesh("mesh:test");
@@ -176,6 +209,19 @@ describe("MeshRenderer", () => {
     const scene = resetScene();
     const mesh = createMesh("mesh:test");
     const material = new Material("material:test", { albedoTexture: "texture:missing" });
+    scene.resources.addMesh(mesh);
+    scene.resources.addMaterial(material);
+    const renderer = scene
+      .createEntity("Rendered")
+      .addComponent(new MeshRenderer(mesh.id, material.id));
+
+    throws(() => renderer.getRenderItem(), /Texture resource 'texture:missing'/);
+  });
+
+  it("throws a useful error for missing material map resources", () => {
+    const scene = resetScene();
+    const mesh = createMesh("mesh:test");
+    const material = new Material("material:test", { materialTexture: "texture:missing" });
     scene.resources.addMesh(mesh);
     scene.resources.addMaterial(material);
     const renderer = scene

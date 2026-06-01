@@ -26,6 +26,9 @@ describe("uber shader build", () => {
     ok(UBER_SHADER_SOURCE.includes("@location(1) color: vec3<f32>"));
     ok(UBER_SHADER_SOURCE.includes("@location(2) normal: vec3<f32>"));
     ok(UBER_SHADER_SOURCE.includes("@location(3) uv: vec2<f32>"));
+    ok(UBER_SHADER_SOURCE.includes("@location(4) materialIndices: vec4<f32>"));
+    ok(UBER_SHADER_SOURCE.includes("@location(4) @interpolate(flat) materialIndices: vec4<f32>"));
+    ok(UBER_SHADER_SOURCE.includes("@location(5) materialWeights: vec4<f32>"));
   });
 
   it("contains the basic material lighting contract", () => {
@@ -36,20 +39,24 @@ describe("uber shader build", () => {
     ok(UBER_SHADER_SOURCE.includes("specularAndFactor: vec4<f32>"));
     ok(UBER_SHADER_SOURCE.includes("textureOptions: vec4<f32>"));
     ok(UBER_SHADER_SOURCE.includes("normalWorld: mat4x4<f32>"));
-    ok(UBER_SHADER_SOURCE.includes("var albedoTexture: texture_2d<f32>"));
+    ok(UBER_SHADER_SOURCE.includes("var albedoTexture: texture_2d_array<f32>"));
+    ok(UBER_SHADER_SOURCE.includes("var normalTexture: texture_2d_array<f32>"));
+    ok(UBER_SHADER_SOURCE.includes("var materialTexture: texture_2d_array<f32>"));
     ok(UBER_SHADER_SOURCE.includes("fn sampleAlbedo"));
+    ok(UBER_SHADER_SOURCE.includes("fn sampleRoughness"));
     ok(UBER_SHADER_SOURCE.includes("textureSample(albedoTexture, albedoSampler"));
     ok(UBER_SHADER_SOURCE.includes("input.worldNormal"));
-    ok(UBER_SHADER_SOURCE.includes("pow(max(dot(normal, halfDirection), 0.0), 32.0)"));
+    ok(UBER_SHADER_SOURCE.includes("pow(max(dot(normal, halfDirection), 0.0), shininess)"));
   });
 
   it("contains the triplanar terrain sampling contract", () => {
     ok(UBER_SHADER_SOURCE.includes("MATERIAL_FLAG_TRIPLANAR_ALBEDO"));
-    ok(UBER_SHADER_SOURCE.includes("fn sampleTriplanarTerrainTile"));
+    ok(UBER_SHADER_SOURCE.includes("fn sampleTriplanarTerrainAlbedoLayer"));
+    ok(UBER_SHADER_SOURCE.includes("input.materialIndices"));
+    ok(UBER_SHADER_SOURCE.includes("input.materialWeights"));
     ok(UBER_SHADER_SOURCE.includes("worldPosition.zy * textureScale"));
     ok(UBER_SHADER_SOURCE.includes("worldPosition.xz * textureScale"));
     ok(UBER_SHADER_SOURCE.includes("worldPosition.xy * textureScale"));
-    ok(UBER_SHADER_SOURCE.includes("smoothstep(0.42, 0.74, slope)"));
   });
 
   it("does not flip lighting normals based on the camera view", () => {

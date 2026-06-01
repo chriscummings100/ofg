@@ -1,6 +1,7 @@
 import { dot, normalize, vec3, type Vec3 } from "../math/vec3.js";
 import {
   sampleTerrainDensity,
+  type TerrainDensitySample,
   TERRAIN_CHUNK_CELLS_PER_AXIS,
   TerrainDensityChunk,
   type TerrainChunkCoord,
@@ -8,7 +9,13 @@ import {
   type TerrainChunkSampleCoord,
   type TerrainDensitySource
 } from "./terrainChunk.js";
-import { colorForHeight, getFloatsPerVertex, type MeshData } from "./terrainMesh.js";
+import {
+  colorForHeight,
+  getFloatsPerVertex,
+  writePackedTerrainMaterial,
+  type MeshData
+} from "./terrainMesh.js";
+import { packTerrainMaterialWeights, type TerrainMaterialWeight } from "./terrainMaterials.js";
 
 export type TerrainCellCoord = {
   readonly x: number;
@@ -300,7 +307,7 @@ export function meshChunkDualContouring(
 
         const vertexIndex = vertices.length / getFloatsPerVertex();
         cellVertexIndices[cellIndex(x, y, z)] = vertexIndex;
-        writeDualContouringVertex(vertices, chunk.bounds(), position, averageNormal(intersections));
+        writeDualContouringVertex(vertices, chunk.bounds(), position, averageNormal(intersections), source);
       }
     }
   }
@@ -354,7 +361,7 @@ export function meshChunksDualContouring(
 
           const vertexIndex = vertices.length / getFloatsPerVertex();
           vertexIndices.set(globalCellKey(chunk, x, y, z), vertexIndex);
-          writeDualContouringVertex(vertices, meshBounds, position, averageNormal(intersections));
+          writeDualContouringVertex(vertices, meshBounds, position, averageNormal(intersections), source);
         }
       }
     }
@@ -424,7 +431,7 @@ export function meshChunkDualContouringWithNeighbors(
 
         const vertexIndex = vertices.length / getFloatsPerVertex();
         vertexIndices.set(localCellKey(x, y, z), vertexIndex);
-        writeDualContouringVertex(vertices, meshBounds, position, averageNormal(intersections));
+        writeDualContouringVertex(vertices, meshBounds, position, averageNormal(intersections), source);
       }
     }
   }
@@ -722,11 +729,14 @@ function writeDualContouringVertex(
   vertices: number[],
   chunkBounds: TerrainChunkBounds,
   position: Vec3,
-  normal: Vec3
+  normal: Vec3,
+  source: TerrainDensitySource
 ): void {
   const color = colorForHeight(position.y);
   const width = chunkBounds.max.x - chunkBounds.min.x;
   const depth = chunkBounds.max.z - chunkBounds.min.z;
+  const vertexOffset = vertices.length;
+  const material = packTerrainMaterialWeights(materialWeightsAt(source, position));
 
   vertices.push(
     position.x,
@@ -739,8 +749,35 @@ function writeDualContouringVertex(
     normal.y,
     normal.z,
     width === 0 ? 0 : (position.x - chunkBounds.min.x) / width,
-    depth === 0 ? 0 : (position.z - chunkBounds.min.z) / depth
+    depth === 0 ? 0 : (position.z - chunkBounds.min.z) / depth,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
   );
+  writePackedTerrainMaterial(vertices, vertexOffset, material);
+}
+
+function materialWeightsAt(
+  source: TerrainDensitySource,
+  position: Vec3
+): readonly TerrainMaterialWeight[] {
+  const sample = sampleTerrainDensity(source, position);
+  if (hasTerrainMaterialWeights(sample)) {
+    return sample.materialWeights;
+  }
+
+  return [];
+}
+
+function hasTerrainMaterialWeights(
+  sample: TerrainDensitySample
+): sample is TerrainDensitySample & { readonly materialWeights: readonly TerrainMaterialWeight[] } {
+  return "materialWeights" in sample && Array.isArray(sample.materialWeights);
 }
 
 function averageNormal(intersections: readonly HermiteIntersection[]): Vec3 {

@@ -28,6 +28,12 @@ export class MeshRenderer extends Component {
       albedoTexture: material?.albedoTexture === undefined
         ? undefined
         : resources.getTexture(material.albedoTexture),
+      normalTexture: material?.normalTexture === undefined
+        ? undefined
+        : resources.getTexture(material.normalTexture),
+      materialTexture: material?.materialTexture === undefined
+        ? undefined
+        : resources.getTexture(material.materialTexture),
       worldMatrix: this.entity.transform.getWorldMatrix()
     };
   }

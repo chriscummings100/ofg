@@ -65,10 +65,10 @@ The detailed API and next rollout steps are tracked in
 
 ## Terrain Direction
 
-The visible seed terrain now uses a first Dual Contouring path. It is still a
-transitional implementation: the runtime streamer builds one stitched mesh for the
-currently loaded density-chunk window, which avoids internal chunk-border gaps while
-the project moves toward true per-chunk neighbor-aware meshing.
+The visible seed terrain now uses a same-LOD per-chunk Dual Contouring path. The
+runtime streamer builds neighbor-aware chunk meshes with deterministic seam
+ownership, so adjacent chunks do not both emit the same border quads. LOD
+transitions and far-field terrain are still future work.
 
 The terrain data model is 3D from the start. A terrain density chunk has 32 cells
 per axis and 33 samples per axis, so adjacent chunks share boundary samples cleanly.
@@ -84,27 +84,28 @@ density near that surface:
 density(p) = p.y - largeFeatureHeight(p.x, p.z) - detail3D(p) * amplitude
 ```
 
-The simplex module exposes analytic gradients, and the seed field exposes
-`sampleAt(position)` so terrain systems can get signed density and gradient at any
-world-space position. `heightAt(x, z)` is now a compatibility query that scans a
-density column for the highest zero crossing so player grounding can keep working
-until movement is density/mesh aware.
+The simplex module exposes analytic gradients, and the terrain generator exposes
+`sampleAt(position)` so terrain systems can get signed density, gradient, biome
+weights, and material weights at any world-space position. `heightAt(x, z)` is now
+a compatibility query that scans a density column for the highest zero crossing so
+player grounding can keep working until movement is density/mesh aware.
 
 `TerrainChunkStreamer` keeps a square x/z neighborhood of density chunks around a
 target entity, centers its vertical chunk-offset stack on the target chunk y
-coordinate, and rebuilds a stitched Dual Contouring render mesh as the player
-crosses chunk boundaries. Loaded density chunk keys remain fully 3D. The current
-render mesh is keyed by the center terrain chunk of the loaded window, so browser
-smoke expects one visible terrain render mesh rather than one render mesh per x/z
-column.
+coordinate, and rebuilds the visible per-chunk Dual Contouring meshes as the
+player crosses chunk boundaries. Loaded density chunk keys remain fully 3D.
+Runtime terrain meshes carry position, color, normal, uv, material layer indices,
+and material weights. A small mesh post-pass expands indexed triangles so each
+triangle has a coherent local four-material palette for interpolation.
 
 The Dual Contouring implementation lives in
 `src/engine/world/dualContouring.ts`. It extracts Hermite edge intersections for
 one cell, places one vertex per active cell with centroid or QEF placement, can
-mesh a chunk-local surface, and can mesh multiple chunks into one stitched render
-mesh. It is tested against flat planes, diagonal planes, sphere-like fields,
-scaled/offset chunks, winding reversal, underconstrained and out-of-cell QEFs,
-procedural-field Hermite plane sanity, and invalid index invariants. QEF placement
+mesh a chunk-local surface, can mesh multiple chunks into one stitched debug mesh,
+and can mesh one chunk with positive-neighbor apron data for runtime rendering. It
+is tested against flat planes, diagonal planes, sphere-like fields, scaled/offset
+chunks, winding reversal, underconstrained and out-of-cell QEFs, procedural-field
+Hermite plane sanity, seam ownership, and invalid index invariants. QEF placement
 rejects solves outside the owning cell and falls back to the Hermite centroid.
 Runtime terrain currently uses centroid placement while QEF conditioning is still
 being improved for noisy terrain.
@@ -138,9 +139,11 @@ specular factor. The shader uses a simple Lambert diffuse plus Blinn-Phong specu
 model. `Texture` stores CPU-side rgba8 data that the WebGPU renderer uploads into
 GPU-owned texture resources.
 
-Terrain uses a checked-in albedo PNG atlas with grass, rock, and soil tiles.
-Terrain materials opt into world-space triplanar sampling through a material flag
-and texture scale, so steep slopes and vertical faces do not depend on mesh UVs.
+Terrain uses checked-in Poly Haven CC0 materials imported into 16-layer global
+texture arrays. The runtime currently loads albedo, normal, and roughness arrays;
+the WGSL terrain path triplanar-blends albedo and roughness from up to four
+material weights per vertex. Normal maps are loaded as renderer resources but are
+not yet applied to lighting.
 
 The sky is also shader-driven. `WebGpuRenderer` draws a full-screen sky pass before
 scene geometry, reconstructs world rays from the inverse view-projection matrix, and

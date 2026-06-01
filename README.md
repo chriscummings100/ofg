@@ -15,8 +15,9 @@ The first playable milestone is intentionally small:
 - A debug fly camera that can be toggled at runtime.
 - Deterministic engine code with tests.
 
-The current seed implements chunk-streamed generated terrain with an initial
-stitched Dual Contouring render path, plus the camera/player loop in TypeScript.
+The current seed implements chunk-streamed generated terrain with per-chunk
+neighbor-aware Dual Contouring, Poly Haven terrain texture arrays, and the
+camera/player loop in TypeScript.
 
 ## Commands
 

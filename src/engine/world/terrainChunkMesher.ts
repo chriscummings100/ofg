@@ -5,7 +5,12 @@ import {
   TerrainDensityChunk,
   terrainChunkCoord
 } from "./terrainChunk.js";
-import { colorForHeight, getFloatsPerVertex, type MeshData } from "./terrainMesh.js";
+import {
+  colorForHeight,
+  getFloatsPerVertex,
+  writePackedTerrainMaterial,
+  type MeshData
+} from "./terrainMesh.js";
 
 const NO_SURFACE = Number.NaN;
 
@@ -168,6 +173,7 @@ function writeSurfaceVertex(
   vertices[vertexOffset + 8] = normal.z;
   vertices[vertexOffset + 9] = x / TERRAIN_CHUNK_CELLS_PER_AXIS;
   vertices[vertexOffset + 10] = z / TERRAIN_CHUNK_CELLS_PER_AXIS;
+  writePackedTerrainMaterial(vertices, vertexOffset);
 }
 
 function sampledNormalAt(options: TerrainSurfaceMesherOptions, position: Vec3): Vec3 | undefined {

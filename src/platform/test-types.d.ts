@@ -11,5 +11,7 @@ declare module "node:assert/strict" {
 }
 
 declare module "node:fs" {
+  export function existsSync(path: string): boolean;
   export function readFileSync(path: string): Uint8Array;
+  export function readFileSync(path: string, encoding: "utf8"): string;
 }

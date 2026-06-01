@@ -7,7 +7,7 @@ import { Mesh } from "../engine/render/Mesh.js";
 import { MeshRenderer } from "../engine/render/MeshRenderer.js";
 import { SceneRenderExtractor } from "../engine/render/SceneRenderExtractor.js";
 import { TerrainRenderer } from "../engine/render/TerrainRenderer.js";
-import { loadTerrainAlbedoTexture } from "../engine/render/terrainTextures.js";
+import { loadTerrainMaterialTextures } from "../engine/render/terrainTextures.js";
 import { WebGpuRenderer } from "../engine/render/webgpuRenderer.js";
 import { createDirectionalLight } from "../engine/render/Lighting.js";
 import { createScene } from "../engine/scene/activeScene.js";
@@ -83,9 +83,11 @@ export async function startGame(elements: GameElements): Promise<void> {
     "mesh:player.marker",
     createBoxMesh(vec3(0, 0.9, 0), vec3(0.28, 0.9, 0.22), vec3(0.96, 0.7, 0.24))
   );
-  const terrainAlbedo = await loadTerrainAlbedoTexture();
+  const terrainTextures = await loadTerrainMaterialTextures();
   const terrainMaterial = new Material("material:terrain.seed", {
-    albedoTexture: terrainAlbedo.id,
+    albedoTexture: terrainTextures.albedo.id,
+    normalTexture: terrainTextures.normal.id,
+    materialTexture: terrainTextures.material.id,
     albedoFactor: vec4(1, 1, 1, 1),
     specular: vec3(0.55, 0.58, 0.52),
     specularFactor: 0.04,
@@ -103,7 +105,9 @@ export async function startGame(elements: GameElements): Promise<void> {
   const cameraEntity = scene.createEntity("Camera");
 
   scene.resources.addMesh(playerMarker);
-  scene.resources.addTexture(terrainAlbedo);
+  scene.resources.addTexture(terrainTextures.albedo);
+  scene.resources.addTexture(terrainTextures.normal);
+  scene.resources.addTexture(terrainTextures.material);
   scene.resources.addMaterial(terrainMaterial);
   scene.resources.addMaterial(playerMarkerMaterial);
   const terrainRenderer = terrainEntity.addComponent(new TerrainRenderer(field));
