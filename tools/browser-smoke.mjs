@@ -77,6 +77,8 @@ async function runBrowserSmoke(url) {
     assertRenderPacketRuntime(renderPacketRuntime);
     const terrainStreamRuntime = await readTerrainStreamRuntime(page);
     assertTerrainStreamRuntime(terrainStreamRuntime);
+    const terrainRenderPacketRuntime = await readTerrainRenderPacketRuntime(page);
+    assertTerrainRenderPacketRuntime(terrainRenderPacketRuntime);
 
     await page.reload({ waitUntil: "load" });
     await waitForPlayableTerrain(page);
@@ -92,6 +94,8 @@ async function runBrowserSmoke(url) {
     assertTerrainDebug(refreshedTerrain, "refreshed terrain");
     const refreshedTerrainStreamRuntime = await readTerrainStreamRuntime(page);
     assertTerrainStreamRuntime(refreshedTerrainStreamRuntime);
+    const refreshedTerrainRenderPacketRuntime = await readTerrainRenderPacketRuntime(page);
+    assertTerrainRenderPacketRuntime(refreshedTerrainRenderPacketRuntime);
 
     const beforeResetStreamStatus = await readTerrainStreamStatus(page);
     await page.evaluate(() => window.__ofgDebug?.resetTerrainStreaming());
@@ -151,6 +155,8 @@ async function runBrowserSmoke(url) {
       flyHud,
       playerControllerRuntime,
       renderPacketRuntime,
+      terrainRenderPacketRuntime,
+      refreshedTerrainRenderPacketRuntime,
       terrainStreamRuntime: refreshedTerrainStreamRuntime,
       initialTerrain,
       refreshedTerrain,
@@ -200,6 +206,10 @@ async function readRenderPacketRuntime(page) {
   return page.evaluate(() => window.__ofgDebug?.getRenderPacketRuntime?.() ?? "missing");
 }
 
+async function readTerrainRenderPacketRuntime(page) {
+  return page.evaluate(() => window.__ofgDebug?.getTerrainRenderPacketRuntime?.() ?? "missing");
+}
+
 async function readTerrainStreamRuntime(page) {
   return page.evaluate(() => ({
     schedulerRuntime: window.__ofgDebug?.getTerrainStreamSchedulerRuntime?.() ?? "missing",
@@ -232,6 +242,12 @@ function assertPlayerControllerRuntime(runtime) {
 function assertRenderPacketRuntime(runtime) {
   if (runtime !== "rust") {
     throw new Error(`Expected Rust render packet runtime, saw '${runtime}'.`);
+  }
+}
+
+function assertTerrainRenderPacketRuntime(runtime) {
+  if (runtime !== "rust") {
+    throw new Error(`Expected Rust terrain render packet runtime, saw '${runtime}'.`);
   }
 }
 

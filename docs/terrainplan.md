@@ -154,14 +154,15 @@ Partially supported or placeholder-only:
   `SharedArrayBuffer`, partition-aware worker ownership, multi-resolution
   streaming, or mesh-upload optimized.
 - TypeScript still owns the Web Worker pool, density payload copies into mesh
-  workers, mesh upload, and `TerrainRenderer` mutation around the Rust
-  scheduler. The scheduler state machine and main retained density payload store
-  are Rust-backed, but worker partition ownership and render packet emission are
-  not yet Rust-owned.
+  workers, mesh object creation, terrain packet storage, and WebGPU upload around
+  the Rust scheduler. The playable runtime no longer mutates `TerrainRenderer`
+  for streamed chunks: Rust/WASM worker mesh payloads are now held by
+  `TerrainRenderPacketStore` and appended to `RenderWorld` outside the scene
+  terrain component path. This is a bridge, not full Rust render extraction.
 - The Rust engine migration has started the render-packet bridge for camera,
-  main light, and debug player marker data. Terrain render chunks are not yet
-  emitted as Rust render packets, so `TerrainRenderer` and scene extraction still
-  own terrain draw-item assembly.
+  main light, debug player marker data, and streamed terrain chunk mesh payloads.
+  Terrain chunk packet storage is still TypeScript compatibility code, but
+  `TerrainRenderer` no longer owns playable terrain draw-item assembly.
 
 Not yet supported:
 
@@ -870,6 +871,7 @@ Progress notes:
 | 2026-06-01 | In progress | Moved the scheduler-backed retained density payload store into Rust/WASM. Completed density jobs are now copied into the main `terrain_core.wasm` density store, mesh dependency reads load the required apron chunks from that Rust store, and browser smoke asserts `densityStoreRuntime: rust`. Remaining Phase 3 ownership gap: TypeScript still dispatches workers, copies apron payloads into worker-local WASM stores, uploads meshes, and mutates `TerrainRenderer`. |
 | 2026-06-01 | In progress | Started the Rust render-packet bridge in `engine_core` for camera/light/player-marker snapshots and wired the browser render loop to consume the Rust camera/light packet. Terrain chunks still flow through `TerrainRenderer`; the next terrain-facing render step is chunk render packets so terrain draw-item assembly can leave the TypeScript scene. |
 | 2026-06-01 | In progress | Retired the playable app's optional TypeScript terrain fallback. Browser startup now requires `terrain_core.wasm`, the Rust stream scheduler, the Rust density store, and terrain workers; TypeScript terrain code remains for reference fixtures, tests, debug helpers, and lower-level compatibility hooks until those contracts are fully retired. |
+| 2026-06-02 | In progress | Added the first playable terrain render-packet bridge. `TerrainChunkStreamer` now targets a chunk-sink interface, the browser runtime streams Rust/WASM worker mesh payloads into `TerrainRenderPacketStore`, and `SceneRenderExtractor` appends those packet items to `RenderWorld` instead of discovering playable terrain through `TerrainRenderer`. Browser smoke asserts `terrainRenderPacketRuntime: rust`. Remaining ownership gap: TypeScript still owns worker dispatch, density payload transfer into workers, mesh object creation, packet storage, and WebGPU upload. |
 
 ## Cross-Cutting Validation
 

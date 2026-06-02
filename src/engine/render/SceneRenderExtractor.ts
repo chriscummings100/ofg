@@ -15,6 +15,7 @@ export class SceneRenderExtractor {
     options: {
       readonly camera?: CameraFrame;
       readonly mainLight?: DirectionalLight;
+      readonly additionalItems?: readonly RenderItem[];
     } = {}
   ): RenderWorld {
     const scene = getScene();
@@ -35,6 +36,7 @@ export class SceneRenderExtractor {
     for (const renderer of scene.queryComponents(TerrainRenderer)) {
       items.push(...renderer.getRenderItems());
     }
+    items.push(...(options.additionalItems ?? []));
 
     return {
       camera: options.camera ?? buildCameraFrame(activeCamera as Entity, aspect),

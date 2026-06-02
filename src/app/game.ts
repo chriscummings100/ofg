@@ -10,7 +10,7 @@ import { MATERIAL_FLAG_TRIPLANAR_ALBEDO, Material } from "../engine/render/Mater
 import { Mesh } from "../engine/render/Mesh.js";
 import { MeshRenderer } from "../engine/render/MeshRenderer.js";
 import { SceneRenderExtractor } from "../engine/render/SceneRenderExtractor.js";
-import { TerrainRenderer } from "../engine/render/TerrainRenderer.js";
+import { TerrainRenderPacketStore } from "../engine/render/TerrainRenderPackets.js";
 import {
   cameraFrameFromEnginePacket,
   directionalLightFromEnginePacket
@@ -73,6 +73,7 @@ declare global {
       getTerrainStreamSchedulerRuntime: () => "rust";
       getTerrainDensityStoreRuntime: () => "rust";
       getRenderPacketRuntime: () => "rust" | "typescript";
+      getTerrainRenderPacketRuntime: () => "rust";
       getTerrainWorkerCount: () => number;
       getTerrainDebugOverlayMode: () => TerrainDebugOverlayState;
       getPlayerControllerRuntime: () => "rust";
@@ -150,9 +151,11 @@ export async function startGame(elements: GameElements): Promise<void> {
   scene.resources.addTexture(terrainTextures.material);
   scene.resources.addMaterial(terrainMaterial);
   scene.resources.addMaterial(playerMarkerMaterial);
-  const terrainRenderer = terrainEntity.addComponent(new TerrainRenderer(field));
+  const terrainRenderPackets = new TerrainRenderPacketStore({
+    itemIdPrefix: "terrain:rust"
+  });
   const terrainStreamer = terrainEntity.addComponent(new TerrainChunkStreamer(
-    terrainRenderer,
+    terrainRenderPackets,
     terrainSource,
     {
       target: playerEntity,
@@ -183,13 +186,14 @@ export async function startGame(elements: GameElements): Promise<void> {
   let renderPacketRuntime: "rust" | "typescript" = "typescript";
   window.__ofgDebug = {
     getLoadedTerrainChunkKeys: () => terrainStreamer.getLoadedChunkKeys(),
-    getTerrainChunkKeys: () => terrainRenderer.chunks.map((chunk) => chunk.key).sort(),
+    getTerrainChunkKeys: () => terrainRenderPackets.chunks.map((chunk) => chunk.key).sort(),
     getTerrainPreset: () => descriptor.terrainPreset,
     getTerrainSeed: () => descriptor.seed,
     getTerrainStreamStatus: () => terrainStreamer.getStreamStatus(),
     getTerrainStreamSchedulerRuntime: () => "rust",
     getTerrainDensityStoreRuntime: () => terrainDensityChunkStore.runtime,
     getRenderPacketRuntime: () => renderPacketRuntime,
+    getTerrainRenderPacketRuntime: () => "rust",
     getTerrainWorkerCount: () => terrainWorker.workerCount,
     getTerrainDebugOverlayMode: () => terrainDebugOverlay.getState(),
     getPlayerControllerRuntime: () => "rust",
@@ -255,7 +259,8 @@ export async function startGame(elements: GameElements): Promise<void> {
     renderPacketRuntime = "rust";
     renderer.render(SceneRenderExtractor.buildRenderWorld(aspect, {
       camera: cameraFrameFromEnginePacket(renderSnapshot.camera, aspect),
-      mainLight: directionalLightFromEnginePacket(renderSnapshot.mainLight)
+      mainLight: directionalLightFromEnginePacket(renderSnapshot.mainLight),
+      additionalItems: terrainRenderPackets.getRenderItems(scene.resources)
     }));
 
     elements.cameraMode.textContent = playerController.mode === "firstPerson" ? "FIRST" : "FLY";

@@ -91,8 +91,9 @@ src/engine/scene
   should not become the high-volume world authority.
 
 src/engine/render
-  WebGPU renderer plus scene render data types. Runtime rendering flows through
-  MeshRenderer, TerrainRenderer, RenderWorld, and SceneRenderExtractor.
+  WebGPU renderer plus scene and packet render data types. Runtime rendering
+  flows through MeshRenderer, TerrainRenderPacketStore for streamed terrain
+  chunks, RenderWorld, and SceneRenderExtractor.
   Materials currently support albedo factor, albedo/normal/material texture
   resources, specular, and specular factor; the shader uses Lambert plus
   Blinn-Phong lighting. Terrain rendering uses global 16-layer albedo, normal, and
@@ -149,12 +150,13 @@ There is one global active `Scene`.
   not know about entities.
 - `scene.mainLight` is the sun: use it for world lighting and sky placement.
 
-The playable app is currently partly scene-model backed: terrain, the mirrored
-player entity, and the debug player marker are scene entities/components. The
-authoritative player/camera state and first camera/light render packet are now
-Rust-owned. Treat the remaining scene path as transitional runtime glue. New
-high-volume world, terrain streaming, simulation, render extraction, and WebGPU
-ownership should follow `docs/RUST_ENGINE_PLAN.md`.
+The playable app is currently partly scene-model backed: the terrain streamer,
+mirrored player entity, and debug player marker are scene entities/components,
+but streamed terrain chunks render through `TerrainRenderPacketStore` rather than
+`TerrainRenderer`. The authoritative player/camera state and first camera/light
+render packet are now Rust-owned. Treat the remaining scene path as transitional
+runtime glue. New high-volume world, terrain streaming, simulation, render
+extraction, and WebGPU ownership should follow `docs/RUST_ENGINE_PLAN.md`.
 
 ## Testing Expectations
 
@@ -166,7 +168,7 @@ Current test areas include:
 - Scene core: active scene lifecycle, entity hierarchy, component lifecycle,
   transform propagation, resource storage.
 - Render data: mesh/material/texture metadata, mesh renderer, terrain renderer,
-  render extraction.
+  terrain render packet store, render extraction.
 - Shader boundary: generated shader source artifact metadata and vertex layout
   contract.
 - World terrain: simplex noise generation, 3D density chunks, baseline field

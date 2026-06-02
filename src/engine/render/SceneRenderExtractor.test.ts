@@ -82,6 +82,28 @@ describe("SceneRenderExtractor", () => {
     equal(renderWorld.items[1].mesh, terrainMesh);
   });
 
+  it("appends external render packet items after scene items", () => {
+    const scene = resetScene();
+    scene.activeCamera = scene.createEntity("Camera");
+    const mesh = createMesh("mesh:actor");
+    const packetMesh = createMesh("mesh:terrain.packet");
+    scene.resources.addMesh(mesh);
+    scene.createEntity("Rendered").addComponent(new MeshRenderer(mesh.id));
+
+    const renderWorld = SceneRenderExtractor.buildRenderWorld(1, {
+      additionalItems: [{
+        id: "terrain:packet:0,0,0",
+        mesh: packetMesh,
+        worldMatrix: new Float32Array(16)
+      }]
+    });
+
+    equal(renderWorld.items.length, 2);
+    equal(renderWorld.items[0].mesh, mesh);
+    equal(renderWorld.items[1].id, "terrain:packet:0,0,0");
+    equal(renderWorld.items[1].mesh, packetMesh);
+  });
+
   it("excludes disabled entities", () => {
     const scene = resetScene();
     scene.activeCamera = scene.createEntity("Camera");

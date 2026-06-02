@@ -1,5 +1,5 @@
 import { Mesh } from "../../engine/render/Mesh.js";
-import { TerrainRenderer } from "../../engine/render/TerrainRenderer.js";
+import type { TerrainRenderChunkSink } from "../../engine/render/TerrainRenderPackets.js";
 import { Component } from "../../engine/scene/Component.js";
 import type { Entity } from "../../engine/scene/Entity.js";
 import type { ResourceId } from "../../engine/scene/types.js";
@@ -60,7 +60,7 @@ export type TerrainChunkStreamerOptions = {
 };
 
 export class TerrainChunkStreamer extends Component {
-  readonly terrain: TerrainRenderer;
+  readonly terrain: TerrainRenderChunkSink;
   readonly source: TerrainDensitySource;
   target?: Entity;
   material?: ResourceId;
@@ -90,7 +90,7 @@ export class TerrainChunkStreamer extends Component {
   private lastChunkJobStats?: TerrainChunkJobStats;
 
   constructor(
-    terrain: TerrainRenderer,
+    terrain: TerrainRenderChunkSink,
     source: TerrainDensitySource,
     options: TerrainChunkStreamerOptions = {}
   ) {
