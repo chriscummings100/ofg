@@ -244,8 +244,8 @@ the scene terrain component path. Scheduler-backed terrain packet pruning also
 runs through that Rust store, and rendered/empty LOD0 status comes from the Rust
 scheduler rather than a TypeScript render-key mirror. TypeScript still owns the
 browser Worker host and WebGPU upload/cache adaptation, but the playable app now
-uses `TerrainCoreWorkerStreamer` instead of the legacy `TerrainChunkStreamer`
-manager. The dev/smoke browser runtime is now cross-origin isolated and uses
+uses `TerrainCoreWorkerStreamer` and the compiled legacy `TerrainChunkStreamer`
+has been deleted. The dev/smoke browser runtime is now cross-origin isolated and uses
 `SharedArrayBuffer`-backed LOD0 density dependency payloads when available, so
 the browser no longer structured-clones the 2x2x2 apron fields into each mesh
 worker. Mesh workers still copy/install those shared payloads into their local
@@ -287,9 +287,8 @@ Validation:
 
 Deletion path:
 
-- `TerrainChunkStreamer` is demoted from the playable browser path as of
-  2026-06-02; it remains legacy/reference infrastructure while
-  `TerrainCoreWorkerStreamer` bridges Rust-owned stream state to browser Workers.
+- TypeScript `TerrainChunkStreamer` and its tests were deleted on 2026-06-02
+  after `TerrainCoreWorkerStreamer` became the playable Rust-owned stream bridge.
 
 ### Phase 4: Define Rust Render Packets
 
@@ -326,9 +325,12 @@ Validation:
 
 Deletion path:
 
-- Delete TypeScript `SceneRenderExtractor` for Rust-owned objects once terrain
-  chunks and marker/static meshes are emitted as Rust render packets instead of
-  TypeScript scene components.
+- TypeScript `TerrainRenderer`, the old TypeScript `TerrainRenderPacketStore`,
+  and the legacy heightfield/highest-surface meshing tests were deleted on
+  2026-06-02 after streamed terrain chunks moved to the Rust mesh packet store.
+- Delete TypeScript `SceneRenderExtractor` for remaining Rust-owned objects once
+  marker/static meshes are emitted as Rust render packets instead of TypeScript
+  scene components.
 
 ### Phase 5: Move WebGPU Rendering To Rust/wgpu
 
@@ -536,3 +538,4 @@ streaming, then render packets, then Rust/wgpu.
 | 2026-06-02 | Playable terrain worker queue moved to Rust-owned bridge | Added `TerrainCoreWorkerStreamer`, a small browser bridge that executes Worker jobs selected by `terrain_core.wasm`, uses Rust-written LOD0 dependency coordinates, stores density and mesh packets in Rust, and reports status from the Rust scheduler. The playable app now uses this bridge instead of `TerrainChunkStreamer`; at that point TypeScript still hosted browser Workers and copied payloads until the later shared-transfer slice. |
 | 2026-06-02 | Shared density transfer enabled for terrain workers | The dev server now serves COOP/COEP/CORP headers so browser smoke runs cross-origin isolated. `TerrainCoreWorkerStreamer` wraps LOD0 density dependencies in `SharedArrayBuffer` payloads when available and reports `densityTransferMode`; browser smoke asserts the shared path. Remaining bridge work: TypeScript still hosts Workers, each worker still installs shared payloads into its local WASM density store, and Rust-owned wasm thread spawning is still ahead. |
 | 2026-06-02 | Terrain worker-pool model moved to Rust | Added a tested `TerrainWorkerPool` in `terrain_core` with WASM exports for worker count, slot assignment, request IDs, in-flight tracking, reset, stale completion rejection, and mismatch detection. The browser terrain worker client now uses a generic `BrowserWorkerGroup` only to construct/post to Web Workers, while Rust owns the terrain threading/request model. Browser smoke asserts `workerPoolRuntime: rust`. |
+| 2026-06-02 | Retired compiled TypeScript terrain legacy paths | Deleted `TerrainChunkStreamer`, `TerrainRenderer`, the old TypeScript `TerrainRenderPacketStore`, the highest-surface chunk mesher, and the heightfield mesh builder/tests from the compiled `src` tree. The remaining TypeScript terrain code is live browser bridge/debug/parity support rather than an alternate playable terrain owner. |

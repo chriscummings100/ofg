@@ -81,9 +81,8 @@ src/engine/world
   Seed terrain scalar field backed by low-frequency x/z noise plus octave 3D
   simplex density detail with gradients, 3D density chunk model, runtime Dual
   Contouring Hermite extraction and guarded QEF placement, terrain material
-  classification and packed material weights, legacy highest-surface and
-  heightfield mesh generation, primitive box mesh. Runtime terrain meshes use
-  position/color/normal/uv/material-index/material-weight vertex data.
+  classification and packed material weights, primitive box mesh. Runtime terrain
+  meshes use position/color/normal/uv/material-index/material-weight vertex data.
 
 src/engine/scene
   Global Scene, Entity tree, Component lifecycle, Transform hierarchy,
@@ -127,7 +126,7 @@ Future crates
 
 src/game/components
   Game-level compatibility/browser bridge components such as RustPlayerController,
-  TerrainCoreWorkerStreamer, and legacy TerrainChunkStreamer.
+  and TerrainCoreWorkerStreamer.
 
 tools
   Local scripts, including shader generation, Poly Haven terrain texture import,
@@ -170,14 +169,13 @@ Current test areas include:
 - Math: vectors, quaternions, matrices through transform behavior.
 - Scene core: active scene lifecycle, entity hierarchy, component lifecycle,
   transform propagation, resource storage.
-- Render data: mesh/material/texture metadata, mesh renderer, terrain renderer,
-  terrain render packet store, render extraction.
+- Render data: mesh/material/texture metadata, mesh renderer, Rust-backed terrain
+  render packet store, render extraction.
 - Shader boundary: generated shader source artifact metadata and vertex layout
   contract.
 - World terrain: simplex noise generation, 3D density chunks, baseline field
-  sampling, terrain edits, Dual Contouring meshing, highest-surface legacy meshing,
-  chunk streaming, heightfield and primitive meshes, Rust/WASM terrain core
-  golden fixtures.
+  sampling, terrain edits, Dual Contouring meshing, Rust-owned chunk streaming,
+  primitive meshes, Rust/WASM terrain core golden fixtures.
 - Gameplay/input: Rust player controller adapter and input tracker.
 - Browser smoke: actual Chrome/Edge WebGPU render, screenshots, pixel checks, HUD
   camera toggle verification, and a basic player-position chunk streaming check.

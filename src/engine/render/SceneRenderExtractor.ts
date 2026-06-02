@@ -3,7 +3,6 @@ import { add, vec3, VEC3_UP } from "../math/vec3.js";
 import { rotateVec3ByQuat } from "../math/quat.js";
 import { inverseMat4, lookAtMat4, multiplyMat4, perspectiveMat4 } from "../math/mat4.js";
 import { MeshRenderer } from "./MeshRenderer.js";
-import { TerrainRenderer } from "./TerrainRenderer.js";
 import type { Entity } from "../scene/Entity.js";
 import type { CameraFrame } from "./CameraFrame.js";
 import type { DirectionalLight } from "./Lighting.js";
@@ -33,9 +32,6 @@ export class SceneRenderExtractor {
       }
     }
 
-    for (const renderer of scene.queryComponents(TerrainRenderer)) {
-      items.push(...renderer.getRenderItems());
-    }
     items.push(...(options.additionalItems ?? []));
 
     return {

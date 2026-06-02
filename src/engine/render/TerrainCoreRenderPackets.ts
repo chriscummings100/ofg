@@ -16,13 +16,37 @@ import {
   type TerrainCoreWasmInstance
 } from "../world/terrainCoreWasm.js";
 import { POSITION_COLOR_NORMAL_UV_LAYOUT } from "../world/terrainMesh.js";
-import { Mesh } from "./Mesh.js";
+import { Mesh, type VertexLayout } from "./Mesh.js";
 import type { RenderItem } from "./RenderWorld.js";
-import type {
-  TerrainRenderChunkInput,
-  TerrainRenderChunkPacket,
-  TerrainRenderChunkSink
-} from "./TerrainRenderPackets.js";
+
+export type TerrainRenderChunkPacket = {
+  readonly key: TerrainChunkKey;
+  readonly mesh: Mesh;
+  readonly material?: ResourceId;
+  readonly worldMatrix?: Mat4;
+};
+
+export type TerrainRenderChunkMeshPacket = {
+  readonly key: TerrainChunkKey;
+  readonly meshId: ResourceId;
+  readonly vertices: Float32Array;
+  readonly indices: Uint32Array;
+  readonly layout: VertexLayout;
+  readonly material?: ResourceId;
+  readonly worldMatrix?: Mat4;
+};
+
+export type TerrainRenderChunkInput =
+  | TerrainRenderChunkPacket
+  | TerrainRenderChunkMeshPacket;
+
+export type TerrainRenderChunkSink = {
+  addChunk(chunk: TerrainRenderChunkInput): void;
+  getChunk(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainRenderChunkPacket | undefined;
+  removeChunk(chunk: TerrainChunkKey | TerrainChunkCoord): boolean;
+  clear(): void;
+  retainChunks(chunks: readonly (TerrainChunkKey | TerrainChunkCoord)[]): void;
+};
 
 export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
   readonly runtime = "rust" as const;

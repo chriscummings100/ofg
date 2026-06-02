@@ -2,8 +2,6 @@ import { equal } from "node:assert/strict";
 import { Component } from "./Component.js";
 import { resetScene } from "./activeScene.js";
 import { createDirectionalLight } from "../render/Lighting.js";
-import { TerrainRenderer } from "../render/TerrainRenderer.js";
-import type { TerrainField } from "../world/scalarField.js";
 import { vec3 } from "../math/vec3.js";
 
 class TestComponent extends Component {
@@ -62,15 +60,6 @@ describe("Scene", () => {
     equal(component.updates, 0);
   });
 
-  it("getTerrainHeight delegates to scene terrain", () => {
-    const scene = resetScene();
-    scene
-      .createEntity("Terrain")
-      .addComponent(new TerrainRenderer(createFlatField(7)));
-
-    equal(scene.getTerrainHeight(1, 2), 7);
-  });
-
   it("stores the main directional light for render extraction", () => {
     const scene = resetScene();
     const light = createDirectionalLight({ direction: vec3(1, 1, 0), ambient: 0.4 });
@@ -103,11 +92,3 @@ describe("Scene", () => {
     equal(scene.activeCamera, camera);
   });
 });
-
-function createFlatField(height: number): TerrainField {
-  return {
-    heightAt: () => height,
-    densityAt: (position) => position.y - height,
-    normalAt: () => vec3(0, 1, 0)
-  };
-}

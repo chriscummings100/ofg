@@ -52,8 +52,7 @@ src/engine/scene
 
 src/game/components
   Game-specific compatibility/browser bridge components, currently
-  RustPlayerController, TerrainCoreWorkerStreamer, and legacy
-  TerrainChunkStreamer.
+  RustPlayerController and TerrainCoreWorkerStreamer.
 ```
 
 ## Scene Model
@@ -68,8 +67,7 @@ The current playable is partly backed by this model:
 - A terrain entity owns `TerrainCoreWorkerStreamer`, a browser bridge that
   executes Worker jobs selected by `terrain_core.wasm`. Visible terrain chunks
   are stored in `terrain_core.wasm` through `TerrainCoreRenderPacketStore`
-  outside the scene component render path. Legacy `TerrainChunkStreamer` remains
-  reference/compatibility infrastructure.
+  outside the scene component render path.
 - A player entity owns `RustPlayerController`, which forwards input into
   `engine_core.wasm` and mirrors the Rust player transform back into the
   TypeScript scene for terrain streaming and the debug marker.
@@ -77,7 +75,7 @@ The current playable is partly backed by this model:
 - The runtime camera and main light come from a Rust render packet snapshot.
 - `SceneRenderExtractor` still gathers TypeScript scene render items for
   `WebGpuRenderer`, can consume a Rust packet camera/light instead of
-  `scene.activeCamera`, and can append external terrain packet render items.
+  `scene.activeCamera`, and can append external Rust terrain packet render items.
 
 The detailed API and next rollout steps are tracked in
 [SCENE_MODEL_PLAN.md](SCENE_MODEL_PLAN.md).
@@ -130,8 +128,10 @@ and material weights. A small mesh post-pass expands indexed triangles so each
 triangle has a coherent local four-material palette for interpolation.
 In the playable browser runtime, those chunk mesh payloads are written into and
 pruned from a Rust-owned mesh packet store in `terrain_core.wasm`, then appended
-to the `RenderWorld` by `TerrainCoreRenderPacketStore`; `TerrainRenderer`
-remains compatibility/reference infrastructure for tests and older scene paths.
+to the `RenderWorld` by `TerrainCoreRenderPacketStore`. The old compiled
+TypeScript `TerrainChunkStreamer`, `TerrainRenderer`, `TerrainRenderPacketStore`,
+highest-surface mesher, and heightfield mesh path have been retired rather than
+kept as parallel terrain owners.
 
 The Dual Contouring implementation lives in
 `src/engine/world/dualContouring.ts`. It extracts Hermite edge intersections for

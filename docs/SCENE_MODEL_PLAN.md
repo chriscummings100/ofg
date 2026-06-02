@@ -12,6 +12,10 @@ The TypeScript `PlayerController` described in older sections has been retired;
 runtime player/camera authority now lives in `engine_core.wasm`, with
 `RustPlayerController` acting as a scene compatibility mirror while render and
 terrain ownership migrate.
+The originally planned TypeScript terrain scene pieces have also been retired
+from the compiled source tree: `TerrainRenderer`, `TerrainChunkStreamer`,
+`terrainChunkMesher`, and the old TypeScript terrain packet store no longer
+exist as live runtime/test modules.
 This is not a full ECS and should not become one by accident. The model is:
 
 - One global active `Scene`.

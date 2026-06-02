@@ -91,14 +91,14 @@ Supported:
   and uses it to build renderable terrain chunk meshes. TypeScript terrain
   generation remains a reference/golden-test implementation, not the playable
   browser fallback.
-- Runtime streaming now treats density chunks as a retained lowest-detail
-  streaming layer. The TypeScript streamer computes the full density window,
-  including positive apron chunks, before render meshing; the Rust/WASM core can
-  prepare and retain that density window so mesh generation reuses stored chunks.
-- Browser runtime terrain can schedule Rust/WASM chunk mesh jobs through a module
-  worker pool. `TerrainChunkStreamer` now ticks over desired, rendered, empty,
-  and in-flight chunk sets, submits nearest missing chunks up to a concurrency
-  limit, and uses a generation token plus worker reset for immediate tuning
+- Runtime streaming treats density chunks as a retained lowest-detail streaming
+  layer. The Rust scheduler computes the density window, including positive
+  apron chunks, before render meshing; the Rust/WASM core prepares and retains
+  that density window so mesh generation reuses stored chunks.
+- Browser runtime terrain schedules Rust/WASM density and LOD0 mesh jobs through
+  `TerrainCoreWorkerStreamer`, a browser bridge over Rust-owned scheduler and
+  worker-pool state. Rust owns desired sets, rendered/empty status, in-flight task
+  records, generation tokens, stale completion rejection, and immediate tuning
   invalidation.
 - The scheduler now models density readiness as an explicit chunk stage. It
   schedules density-field jobs across the widest active radius first, then only
@@ -118,9 +118,9 @@ Supported:
   dependencies, priority, in-flight work, reset generations, stale completions,
   retryable density failures, empty chunks, and pruning.
 - The browser runtime now wires that Rust stream scheduler through
-  `terrain_core.wasm`. `TerrainChunkStreamer` delegates desired set generation,
-  scheduler ticks, density/LOD completions, reset generations, and stream status
-  to Rust while TypeScript remains the worker and render-upload shell.
+  `terrain_core.wasm`. `TerrainCoreWorkerStreamer` executes Rust-selected
+  density/LOD jobs and reports completions back to Rust while TypeScript remains
+  the worker transport and render-upload shell.
 - Scheduler-backed browser streaming now stores completed density payloads in the
   main `terrain_core.wasm` density store instead of a TypeScript-owned payload
   map. Mesh job submission loads the required 2x2x2 apron payloads from that
@@ -166,9 +166,10 @@ Partially supported or placeholder-only:
   mesh-upload optimized.
 - TypeScript still owns the browser Worker transport, shared-density payload
   wrapping, renderer cache objects, and WebGPU upload around the Rust scheduler.
-  The playable runtime no longer uses `TerrainChunkStreamer` as its terrain
-  manager and no longer mutates `TerrainRenderer` or a TypeScript packet store
-  for streamed chunks. `TerrainCoreWorkerStreamer` is now a small browser bridge
+  The compiled legacy `TerrainChunkStreamer`, `TerrainRenderer`, TypeScript
+  terrain packet store, highest-surface mesher, and heightfield mesh path have
+  been deleted from `src` rather than kept as parallel terrain owners.
+  `TerrainCoreWorkerStreamer` is now a small browser bridge
   that executes Worker jobs selected by `terrain_core.wasm`, asks Rust for LOD0
   density dependency coordinates, stores density and mesh payloads in Rust, and
   appends terrain packets to `RenderWorld` through a TypeScript WebGPU cache
@@ -384,6 +385,7 @@ Progress notes:
 | 2026-06-01 | In progress | Moved the scheduler-backed retained density payload owner from the TypeScript streamer map into the main Rust/WASM terrain core. `TerrainChunkStreamer` now writes completed density payloads into the Rust density store, loads mesh apron dependencies from that store, and exposes `densityStoreRuntime: rust` for browser smoke. Caveat: mesh workers still receive copied payloads and install them into worker-local Rust/WASM stores; partition-aware worker ownership and shared-memory transfer remain next. |
 | 2026-06-02 | In progress | Enabled the first browser shared-memory density transfer path. The dev/smoke server now sends COOP/COEP/CORP headers, `TerrainCoreWorkerStreamer` wraps LOD0 apron dependencies from the Rust density store in `SharedArrayBuffer` payloads when available, and browser smoke asserts cross-origin isolation plus `densityTransferMode: "shared"`. Caveat: TypeScript still hosts Workers, and each worker still copies shared payload contents into its own `terrain_core.wasm` density store before meshing; Rust-managed wasm threads and partition-owned worker stores remain next. |
 | 2026-06-02 | In progress | Moved the terrain worker-pool/request model into Rust. `terrain_core.wasm` now assigns worker slots and request IDs, tracks in-flight density/LOD tasks, bumps reset generations, rejects stale completions, and detects mismatched completions. TypeScript now uses a generic browser Worker group for transport; the intended end state remains a coarse Rust facade close to `game.tick()`. |
+| 2026-06-02 | Cleanup complete | Deleted the compiled legacy TypeScript terrain manager/renderer path: `TerrainChunkStreamer`, `TerrainRenderer`, the old TypeScript terrain packet store, the highest-surface chunk mesher, and the heightfield mesh builder/tests. No reference copy was kept in `src`; remaining TypeScript terrain is live bridge/debug/parity code. |
 
 ## Milestone 1: Generator Core
 
@@ -901,6 +903,7 @@ Progress notes:
 | 2026-06-02 | In progress | Moved the playable terrain worker queue to a Rust-owned bridge. `TerrainCoreWorkerStreamer` now replaces `TerrainChunkStreamer` in the browser app; it executes Worker jobs emitted by the Rust scheduler, loads LOD0 density dependencies from Rust-provided coordinates, stores completed density/mesh payloads in Rust, and exposes `streamerRuntime: rust` in browser smoke. At that point TypeScript still hosted browser Workers and copied payloads until the later shared-transfer slice. |
 | 2026-06-02 | In progress | Added SharedArrayBuffer-backed density dependency transfer for the playable Rust worker bridge. The dev/smoke server now enables cross-origin isolation, `TerrainCoreWorkerStreamer` reports `densityTransferMode`, and browser smoke asserts the shared path after refresh. Remaining gap: Workers are still hosted from TypeScript, and shared density payloads are still copied into worker-local WASM memory before contouring; Rust-managed wasm threads remain the next threading slice. |
 | 2026-06-02 | In progress | Moved the terrain worker-pool/request model into Rust. `terrain_core.wasm` now owns worker count, slot assignment, request IDs, in-flight task records, reset generation tokens, stale completion rejection, and mismatch detection. TypeScript still constructs browser Workers, but only through a generic worker transport; browser smoke asserts `workerPoolRuntime: rust`. |
+| 2026-06-02 | Cleanup complete | Deleted compiled legacy TypeScript terrain streaming/rendering code now superseded by the Rust scheduler/mesh packet path: `TerrainChunkStreamer`, `TerrainRenderer`, old TypeScript terrain packet store, highest-surface chunk mesher, and heightfield mesh builder/tests. |
 
 ## Cross-Cutting Validation
 

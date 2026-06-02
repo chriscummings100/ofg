@@ -1,4 +1,3 @@
-import type { TerrainField } from "./scalarField.js";
 import {
   DEFAULT_TERRAIN_MATERIAL_PACK,
   type PackedTerrainMaterialWeights
@@ -7,11 +6,6 @@ import {
 export type MeshData = {
   readonly vertices: Float32Array;
   readonly indices: Uint32Array;
-};
-
-export type HeightfieldMeshOptions = {
-  readonly halfExtent: number;
-  readonly cellsPerAxis: number;
 };
 
 const FLOATS_PER_VERTEX = 19;
@@ -84,62 +78,6 @@ export function expandTerrainMeshForTriangleMaterialPalettes(mesh: MeshData): Me
         weights: vertexWeightsForPalette(mesh.vertices, sourceVertexOffset, palette)
       });
       indices[expandedVertexIndex] = expandedVertexIndex;
-    }
-  }
-
-  return { vertices, indices };
-}
-
-export function buildHeightfieldMesh(
-  field: TerrainField,
-  options: HeightfieldMeshOptions
-): MeshData {
-  const vertexCountPerAxis = options.cellsPerAxis + 1;
-  const step = (options.halfExtent * 2) / options.cellsPerAxis;
-  const vertices = new Float32Array(vertexCountPerAxis * vertexCountPerAxis * FLOATS_PER_VERTEX);
-  const indices = new Uint32Array(options.cellsPerAxis * options.cellsPerAxis * 6);
-
-  let vertexOffset = 0;
-  for (let zIndex = 0; zIndex < vertexCountPerAxis; zIndex += 1) {
-    const z = -options.halfExtent + zIndex * step;
-
-    for (let xIndex = 0; xIndex < vertexCountPerAxis; xIndex += 1) {
-      const x = -options.halfExtent + xIndex * step;
-      const y = field.heightAt(x, z);
-      const color = colorForHeight(y);
-
-      vertices[vertexOffset + 0] = x;
-      vertices[vertexOffset + 1] = y;
-      vertices[vertexOffset + 2] = z;
-      vertices[vertexOffset + 3] = color[0];
-      vertices[vertexOffset + 4] = color[1];
-      vertices[vertexOffset + 5] = color[2];
-      const normal = field.normalAt(x, z);
-      vertices[vertexOffset + 6] = normal.x;
-      vertices[vertexOffset + 7] = normal.y;
-      vertices[vertexOffset + 8] = normal.z;
-      vertices[vertexOffset + 9] = xIndex / options.cellsPerAxis;
-      vertices[vertexOffset + 10] = zIndex / options.cellsPerAxis;
-      writePackedTerrainMaterial(vertices, vertexOffset);
-      vertexOffset += FLOATS_PER_VERTEX;
-    }
-  }
-
-  let indexOffset = 0;
-  for (let zIndex = 0; zIndex < options.cellsPerAxis; zIndex += 1) {
-    for (let xIndex = 0; xIndex < options.cellsPerAxis; xIndex += 1) {
-      const topLeft = zIndex * vertexCountPerAxis + xIndex;
-      const topRight = topLeft + 1;
-      const bottomLeft = topLeft + vertexCountPerAxis;
-      const bottomRight = bottomLeft + 1;
-
-      indices[indexOffset + 0] = topLeft;
-      indices[indexOffset + 1] = bottomLeft;
-      indices[indexOffset + 2] = topRight;
-      indices[indexOffset + 3] = topRight;
-      indices[indexOffset + 4] = bottomLeft;
-      indices[indexOffset + 5] = bottomRight;
-      indexOffset += 6;
     }
   }
 
