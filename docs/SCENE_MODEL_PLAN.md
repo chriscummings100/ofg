@@ -733,9 +733,9 @@ Implemented notes:
   and compatibility marker entities.
 - Rust owns first-person movement and the separate debug fly camera
   position/orientation.
-- `WebGpuRenderer` consumes `RenderWorld` and draws render items with per-object
-  transforms. Runtime camera/light data now comes from the Rust render packet
-  bridge.
+- Historical note: this phase originally used the TypeScript `WebGpuRenderer` to
+  consume `RenderWorld`. That renderer was deleted on 2026-06-02 when Rust/wgpu
+  became the browser renderer.
 
 Done when:
 
@@ -754,13 +754,15 @@ Implemented notes:
 - `src/engine/render/shaders/uber.wgsl` owns the current WGSL source.
 - `tools/build-shaders.mjs` generates `src/generated/render/uberShader.ts` with
   source, entry-point metadata, and a deterministic source hash.
-- `WebGpuRenderer` imports the generated shader artifact instead of embedding WGSL.
+- Historical note: the deleted TypeScript `WebGpuRenderer` imported the generated
+  shader artifact instead of embedding WGSL; the current Rust/wgpu renderer now
+  includes the shared WGSL source while TypeScript tests still validate metadata.
 - The shader includes both the mesh material pass and the procedural sky pass.
 - `RenderWorld.mainLight` drives Lambert/Blinn-Phong lighting and the sky sun disk.
 
 Done when:
 
-- Shader source is no longer embedded in `WebGpuRenderer`.
+- Shader source is no longer embedded in a TypeScript renderer.
 - Shader build output is committed or generated deterministically.
 - A test or script verifies shader artifacts can be produced.
 

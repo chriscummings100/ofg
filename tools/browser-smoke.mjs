@@ -219,12 +219,11 @@ async function readTerrainRenderPacketRuntime(page) {
 async function readRendererRuntime(page) {
   return page.evaluate(() => {
     const debug = window.__ofgDebug;
-    const status = debug?.getRendererBridgeStatus?.();
+    const status = debug?.getRendererStatus?.();
 
     return {
       rendererRuntime: debug?.getRendererRuntime?.() ?? "missing",
-      bridgeRuntime: debug?.getRendererBridgeRuntime?.() ?? "missing",
-      bridgeStatus: status === undefined
+      rendererStatus: status === undefined
         ? undefined
         : {
             version: status.version,
@@ -296,21 +295,17 @@ function assertTerrainRenderPacketRuntime(runtime) {
 }
 
 function assertRendererRuntime(runtime) {
-  if (runtime.rendererRuntime !== "typescript") {
-    throw new Error(`Expected temporary TypeScript renderer, saw '${runtime.rendererRuntime}'.`);
+  if (runtime.rendererRuntime !== "rust-wgpu") {
+    throw new Error(`Expected Rust/wgpu renderer, saw '${runtime.rendererRuntime}'.`);
   }
 
-  if (runtime.bridgeRuntime !== "rust") {
-    throw new Error(`Expected Rust WebGPU renderer bridge, saw '${runtime.bridgeRuntime}'.`);
-  }
-
-  const status = runtime.bridgeStatus;
+  const status = runtime.rendererStatus;
   if (status === undefined) {
-    throw new Error(`Rust WebGPU renderer bridge status is unavailable: ${JSON.stringify(runtime)}`);
+    throw new Error(`Rust/wgpu renderer status is unavailable: ${JSON.stringify(runtime)}`);
   }
 
-  if (!status.configured || status.version !== 1 || status.runtime !== "rust") {
-    throw new Error(`Rust WebGPU renderer bridge is not configured: ${JSON.stringify(runtime)}`);
+  if (!status.configured || status.version !== 1 || status.runtime !== "rust-wgpu") {
+    throw new Error(`Rust/wgpu renderer is not configured: ${JSON.stringify(runtime)}`);
   }
 
   if (
@@ -319,15 +314,15 @@ function assertRendererRuntime(runtime) {
     status.maxTextureArrayLayers < status.requiredTextureArrayLayers ||
     status.requiredTextureArrayLayers !== 16
   ) {
-    throw new Error(`Rust WebGPU renderer bridge reported invalid limits: ${JSON.stringify(runtime)}`);
+    throw new Error(`Rust/wgpu renderer reported invalid limits: ${JSON.stringify(runtime)}`);
   }
 
   if (status.meshCount <= 0 || status.textureCount < 3 || status.objectCount <= 0) {
-    throw new Error(`Rust WebGPU renderer bridge did not track live resources: ${JSON.stringify(runtime)}`);
+    throw new Error(`Rust/wgpu renderer did not track live resources: ${JSON.stringify(runtime)}`);
   }
 
   if (Number.parseInt(status.frameIndex, 10) <= 0 || status.frameDrawCount <= 0) {
-    throw new Error(`Rust WebGPU renderer bridge did not track frame draws: ${JSON.stringify(runtime)}`);
+    throw new Error(`Rust/wgpu renderer did not track frame draws: ${JSON.stringify(runtime)}`);
   }
 }
 

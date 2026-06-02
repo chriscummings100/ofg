@@ -23,6 +23,10 @@ pub struct ResourceStore<T> {
 }
 
 impl ResourceHandle {
+    pub const INVALID: Self = Self {
+        slot: u32::MAX,
+        generation: u32::MAX,
+    };
     pub const INVALID_RAW: u64 = u64::MAX;
 
     pub fn from_raw(raw: u64) -> Option<Self> {
@@ -111,6 +115,16 @@ impl<T> ResourceStore<T> {
         }
 
         slot.value.as_ref()
+    }
+
+    #[allow(dead_code)]
+    pub fn get_mut(&mut self, handle: ResourceHandle) -> Option<&mut T> {
+        let slot = self.slots.get_mut(handle.slot as usize)?;
+        if slot.generation != handle.generation {
+            return None;
+        }
+
+        slot.value.as_mut()
     }
 
     pub fn len(&self) -> usize {

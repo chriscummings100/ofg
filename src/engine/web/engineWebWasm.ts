@@ -1,55 +1,10 @@
 import { ENGINE_WEB_WASM_METADATA } from "../../generated/web/engineWebWasm.js";
 
 export const ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM = 1;
-export const ENGINE_WEB_INVALID_HANDLE = -1n;
-
-export type EngineWebWasmExports = {
-  readonly memory: WebAssembly.Memory;
-  readonly ofg_engine_web_version: () => number;
-  readonly ofg_engine_web_required_texture_array_layers: () => number;
-  readonly ofg_engine_web_reset: () => void;
-  readonly ofg_engine_web_configure: (
-    canvasWidth: number,
-    canvasHeight: number,
-    maxTextureArrayLayers: number
-  ) => number;
-  readonly ofg_engine_web_configured: () => number;
-  readonly ofg_engine_web_resize: (canvasWidth: number, canvasHeight: number) => number;
-  readonly ofg_engine_web_canvas_width: () => number;
-  readonly ofg_engine_web_canvas_height: () => number;
-  readonly ofg_engine_web_max_texture_array_layers: () => number;
-  readonly ofg_engine_web_register_mesh: (
-    vertexFloatCount: number,
-    indexCount: number,
-    floatsPerVertex: number
-  ) => bigint;
-  readonly ofg_engine_web_destroy_mesh: (handle: bigint) => number;
-  readonly ofg_engine_web_register_texture: (
-    width: number,
-    height: number,
-    layers: number,
-    formatCode: number
-  ) => bigint;
-  readonly ofg_engine_web_destroy_texture: (handle: bigint) => number;
-  readonly ofg_engine_web_register_object: () => bigint;
-  readonly ofg_engine_web_destroy_object: (handle: bigint) => number;
-  readonly ofg_engine_web_begin_frame: (canvasWidth: number, canvasHeight: number) => number;
-  readonly ofg_engine_web_note_draw: (meshHandle: bigint, objectHandle: bigint) => number;
-  readonly ofg_engine_web_mesh_count: () => number;
-  readonly ofg_engine_web_texture_count: () => number;
-  readonly ofg_engine_web_object_count: () => number;
-  readonly ofg_engine_web_frame_index: () => bigint;
-  readonly ofg_engine_web_frame_draw_count: () => number;
-  readonly ofg_engine_web_last_error_code: () => number;
-};
-
-export type EngineWebWasmInstance = {
-  readonly exports: EngineWebWasmExports;
-};
 
 export type EngineWebRendererStatus = {
   readonly version: number;
-  readonly runtime: "rust";
+  readonly runtime: "rust-wgpu";
   readonly configured: boolean;
   readonly canvasWidth: number;
   readonly canvasHeight: number;
@@ -58,172 +13,114 @@ export type EngineWebRendererStatus = {
   readonly meshCount: number;
   readonly textureCount: number;
   readonly objectCount: number;
-  readonly frameIndex: bigint;
+  readonly frameIndex: number;
   readonly frameDrawCount: number;
-  readonly lastErrorCode: number;
 };
 
-export type EngineWebMeshRegistration = {
-  readonly vertexFloatCount: number;
-  readonly indexCount: number;
-  readonly floatsPerVertex: number;
+export type EngineWebWgpuRenderer = {
+  resize(width: number, height: number): void;
+  registerMesh(
+    vertices: Float32Array,
+    indices: Uint32Array,
+    floatsPerVertex: number
+  ): number;
+  destroyMesh(handle: number): void;
+  registerTexture(
+    width: number,
+    height: number,
+    layers: number,
+    formatCode: number,
+    data: Uint8Array
+  ): number;
+  destroyTexture(handle: number): void;
+  registerObject(): number;
+  destroyObject(handle: number): void;
+  render(
+    frameUniforms: Float32Array,
+    meshHandles: Float64Array,
+    objectHandles: Float64Array,
+    albedoTextureHandles: Float64Array,
+    normalTextureHandles: Float64Array,
+    materialTextureHandles: Float64Array,
+    objectUniforms: Float32Array
+  ): void;
+  fallbackAlbedoTextureHandle(): number;
+  fallbackNormalTextureHandle(): number;
+  fallbackMaterialTextureHandle(): number;
+  status(): EngineWebRendererStatus;
 };
 
-export type EngineWebTextureRegistration = {
-  readonly width: number;
-  readonly height: number;
-  readonly layers: number;
-  readonly formatCode: number;
+export type EngineWebWasmModule = {
+  default(input?: unknown): Promise<unknown>;
+  readonly RustWgpuRenderer: {
+    create(canvas: HTMLCanvasElement): Promise<EngineWebWgpuRenderer>;
+  };
 };
 
-export class EngineWebGpuBridge {
-  readonly runtime = "rust" as const;
-  readonly #exports: EngineWebWasmExports;
+type DynamicImport = (specifier: string) => Promise<unknown>;
 
-  constructor(instance: EngineWebWasmInstance) {
-    this.#exports = instance.exports;
-  }
+export async function loadEngineWebWasmModule(
+  importModule: DynamicImport = (specifier) => import(specifier)
+): Promise<EngineWebWasmModule> {
+  const moduleUrl = new URL(`../../../${ENGINE_WEB_WASM_METADATA.modulePath}`, import.meta.url);
+  const module = await importModule(moduleUrl.href) as EngineWebWasmModule;
+  await module.default();
 
-  reset(): void {
-    this.#exports.ofg_engine_web_reset();
-  }
-
-  configure(
-    canvasWidth: number,
-    canvasHeight: number,
-    maxTextureArrayLayers: number
-  ): boolean {
-    return this.#exports.ofg_engine_web_configure(
-      canvasWidth,
-      canvasHeight,
-      maxTextureArrayLayers
-    ) === 1;
-  }
-
-  resize(canvasWidth: number, canvasHeight: number): boolean {
-    return this.#exports.ofg_engine_web_resize(canvasWidth, canvasHeight) === 1;
-  }
-
-  registerMesh(mesh: EngineWebMeshRegistration): bigint | undefined {
-    return this.handleOrUndefined(this.#exports.ofg_engine_web_register_mesh(
-      mesh.vertexFloatCount,
-      mesh.indexCount,
-      mesh.floatsPerVertex
-    ));
-  }
-
-  destroyMesh(handle: bigint): boolean {
-    return this.#exports.ofg_engine_web_destroy_mesh(handle) === 1;
-  }
-
-  registerTexture(texture: EngineWebTextureRegistration): bigint | undefined {
-    return this.handleOrUndefined(this.#exports.ofg_engine_web_register_texture(
-      texture.width,
-      texture.height,
-      texture.layers,
-      texture.formatCode
-    ));
-  }
-
-  destroyTexture(handle: bigint): boolean {
-    return this.#exports.ofg_engine_web_destroy_texture(handle) === 1;
-  }
-
-  registerObject(): bigint | undefined {
-    return this.handleOrUndefined(this.#exports.ofg_engine_web_register_object());
-  }
-
-  destroyObject(handle: bigint): boolean {
-    return this.#exports.ofg_engine_web_destroy_object(handle) === 1;
-  }
-
-  beginFrame(canvasWidth: number, canvasHeight: number): boolean {
-    return this.#exports.ofg_engine_web_begin_frame(canvasWidth, canvasHeight) === 1;
-  }
-
-  noteDraw(meshHandle: bigint, objectHandle: bigint): boolean {
-    return this.#exports.ofg_engine_web_note_draw(meshHandle, objectHandle) === 1;
-  }
-
-  status(): EngineWebRendererStatus {
-    return Object.freeze({
-      version: this.#exports.ofg_engine_web_version(),
-      runtime: "rust" as const,
-      configured: this.#exports.ofg_engine_web_configured() === 1,
-      canvasWidth: this.#exports.ofg_engine_web_canvas_width(),
-      canvasHeight: this.#exports.ofg_engine_web_canvas_height(),
-      maxTextureArrayLayers: this.#exports.ofg_engine_web_max_texture_array_layers(),
-      requiredTextureArrayLayers: this.#exports.ofg_engine_web_required_texture_array_layers(),
-      meshCount: this.#exports.ofg_engine_web_mesh_count(),
-      textureCount: this.#exports.ofg_engine_web_texture_count(),
-      objectCount: this.#exports.ofg_engine_web_object_count(),
-      frameIndex: this.#exports.ofg_engine_web_frame_index(),
-      frameDrawCount: this.#exports.ofg_engine_web_frame_draw_count(),
-      lastErrorCode: this.#exports.ofg_engine_web_last_error_code()
-    });
-  }
-
-  private handleOrUndefined(handle: bigint): bigint | undefined {
-    return handle === ENGINE_WEB_INVALID_HANDLE ? undefined : handle;
-  }
+  return module;
 }
 
-export async function instantiateEngineWebWasm(
-  bytes: ArrayBuffer
-): Promise<EngineWebWasmInstance> {
-  const wasm = await WebAssembly.instantiate(bytes, {});
-  const exports = wasm.instance.exports as EngineWebWasmExports;
-  assertEngineWebExports(exports);
+export async function createEngineWebRenderer(
+  canvas: HTMLCanvasElement,
+  loadModule: () => Promise<EngineWebWasmModule> = loadEngineWebWasmModule
+): Promise<EngineWebWgpuRenderer> {
+  patchLegacyWgpuRequiredLimits();
+  const module = await loadModule();
 
-  return Object.freeze({ exports });
+  return module.RustWgpuRenderer.create(canvas);
 }
 
-export async function loadEngineWebWasm(
-  assetPath = ENGINE_WEB_WASM_METADATA.assetPath,
-  fetchWasm: typeof fetch = fetch
-): Promise<EngineWebWasmInstance> {
-  const response = await fetchWasm(assetPath);
-  if (!response.ok) {
-    throw new Error(`Failed to load engine web WASM artifact '${assetPath}': ${response.status}`);
+export function patchLegacyWgpuRequiredLimits(globalObject: typeof globalThis = globalThis): boolean {
+  const gpuAdapter = (globalObject as unknown as {
+    GPUAdapter?: {
+      prototype?: {
+        requestDevice?: (descriptor?: GpuDeviceDescriptorCompat) => Promise<unknown>;
+        __ofgLegacyLimitPatch?: true;
+      };
+    };
+  }).GPUAdapter;
+  const prototype = gpuAdapter?.prototype;
+  const original = prototype?.requestDevice;
+  if (prototype === undefined || original === undefined || prototype.__ofgLegacyLimitPatch) {
+    return false;
   }
 
-  return instantiateEngineWebWasm(await response.arrayBuffer());
-}
+  prototype.requestDevice = function patchedRequestDevice(
+    this: unknown,
+    descriptor?: GpuDeviceDescriptorCompat
+  ): Promise<unknown> {
+    const requiredLimits = descriptor?.requiredLimits;
+    if (
+      requiredLimits !== undefined &&
+      "maxInterStageShaderComponents" in requiredLimits
+    ) {
+      const patchedLimits = { ...requiredLimits };
+      delete patchedLimits.maxInterStageShaderComponents;
 
-function assertEngineWebExports(exports: WebAssembly.Exports): asserts exports is EngineWebWasmExports {
-  if (!(exports.memory instanceof WebAssembly.Memory)) {
-    throw new Error("Engine Web WASM export is missing: memory");
-  }
-
-  const expectedFunctionNames = [
-    "ofg_engine_web_version",
-    "ofg_engine_web_required_texture_array_layers",
-    "ofg_engine_web_reset",
-    "ofg_engine_web_configure",
-    "ofg_engine_web_configured",
-    "ofg_engine_web_resize",
-    "ofg_engine_web_canvas_width",
-    "ofg_engine_web_canvas_height",
-    "ofg_engine_web_max_texture_array_layers",
-    "ofg_engine_web_register_mesh",
-    "ofg_engine_web_destroy_mesh",
-    "ofg_engine_web_register_texture",
-    "ofg_engine_web_destroy_texture",
-    "ofg_engine_web_register_object",
-    "ofg_engine_web_destroy_object",
-    "ofg_engine_web_begin_frame",
-    "ofg_engine_web_note_draw",
-    "ofg_engine_web_mesh_count",
-    "ofg_engine_web_texture_count",
-    "ofg_engine_web_object_count",
-    "ofg_engine_web_frame_index",
-    "ofg_engine_web_frame_draw_count",
-    "ofg_engine_web_last_error_code"
-  ] as const;
-
-  for (const name of expectedFunctionNames) {
-    if (typeof exports[name] !== "function") {
-      throw new Error(`Engine Web WASM export is missing: ${name}`);
+      return original.call(this, { ...descriptor, requiredLimits: patchedLimits });
     }
-  }
+
+    return original.call(this, descriptor);
+  };
+  prototype.__ofgLegacyLimitPatch = true;
+
+  return true;
 }
+
+type GpuDeviceDescriptorCompat = {
+  readonly requiredFeatures?: readonly string[];
+  readonly requiredLimits?: {
+    readonly [key: string]: number | undefined;
+    maxInterStageShaderComponents?: number;
+    maxInterStageShaderVariables?: number;
+  };
+};

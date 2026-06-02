@@ -1,6 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,34 +16,14 @@ const crateName = "engine_web";
 const packageName = "engine_web";
 const target = "wasm32-unknown-unknown";
 const cargoArtifactPath = `target/${target}/release/${crateName}.wasm`;
-const assetPath = "assets/wasm/engine_web.wasm";
 const generatedPath = "src/generated/web/engineWebWasm.ts";
-const expectedExports = [
-  "memory",
-  "ofg_engine_web_version",
-  "ofg_engine_web_required_texture_array_layers",
-  "ofg_engine_web_reset",
-  "ofg_engine_web_configure",
-  "ofg_engine_web_configured",
-  "ofg_engine_web_resize",
-  "ofg_engine_web_canvas_width",
-  "ofg_engine_web_canvas_height",
-  "ofg_engine_web_max_texture_array_layers",
-  "ofg_engine_web_register_mesh",
-  "ofg_engine_web_destroy_mesh",
-  "ofg_engine_web_register_texture",
-  "ofg_engine_web_destroy_texture",
-  "ofg_engine_web_register_object",
-  "ofg_engine_web_destroy_object",
-  "ofg_engine_web_begin_frame",
-  "ofg_engine_web_note_draw",
-  "ofg_engine_web_mesh_count",
-  "ofg_engine_web_texture_count",
-  "ofg_engine_web_object_count",
-  "ofg_engine_web_frame_index",
-  "ofg_engine_web_frame_draw_count",
-  "ofg_engine_web_last_error_code"
-];
+const outDir = "assets/wasm/engine_web";
+const modulePath = `${outDir}/${crateName}.js`;
+const wasmPath = `${outDir}/${crateName}_bg.wasm`;
+const dtsPath = `${outDir}/${crateName}.d.ts`;
+const tempOutDir = `target/wasm-bindgen/${crateName}`;
+const wasmBindgenCommand = process.env.WASM_BINDGEN ?? "wasm-bindgen";
+const expectedExports = ["RustWgpuRenderer", "RustWgpuRendererStatus"];
 
 const build = spawnSync(
   "cargo",
@@ -53,63 +39,94 @@ if (build.status !== 0) {
   process.exit();
 }
 
-const wasmBytes = readFileSync(resolve(root, cargoArtifactPath));
-const wasmExports = WebAssembly.Module.exports(new WebAssembly.Module(wasmBytes)).map(
-  (entry) => entry.name
+const tempOutAbsolute = resolve(root, tempOutDir);
+rmSync(tempOutAbsolute, { recursive: true, force: true });
+mkdirSync(tempOutAbsolute, { recursive: true });
+
+const bindgen = spawnSync(
+  wasmBindgenCommand,
+  [
+    resolve(root, cargoArtifactPath),
+    "--target",
+    "web",
+    "--out-dir",
+    tempOutAbsolute,
+    "--out-name",
+    crateName
+  ],
+  {
+    cwd: root,
+    stdio: "inherit"
+  }
 );
-const missingExports = expectedExports.filter((name) => !wasmExports.includes(name));
+
+if (bindgen.status !== 0) {
+  process.exitCode = bindgen.status ?? 1;
+  process.exit();
+}
+
+const generatedModulePath = resolve(tempOutAbsolute, `${crateName}.js`);
+const generatedWasmPath = resolve(tempOutAbsolute, `${crateName}_bg.wasm`);
+const generatedDtsPath = resolve(tempOutAbsolute, `${crateName}.d.ts`);
+const moduleText = readFileSync(generatedModulePath, "utf8");
+const wasmBytes = readFileSync(generatedWasmPath);
+const dtsText = readFileSync(generatedDtsPath, "utf8");
+
+const missingExports = expectedExports.filter(
+  (name) => !moduleText.includes(`export class ${name}`) || !dtsText.includes(`export class ${name}`)
+);
 if (missingExports.length > 0) {
-  console.error(`Engine Web WASM artifact is missing exports: ${missingExports.join(", ")}`);
+  console.error(`Engine Web wasm-bindgen glue is missing exports: ${missingExports.join(", ")}`);
   process.exitCode = 1;
   process.exit();
 }
 
-const generated = buildTypeScriptModule(wasmBytes);
-const assetAbsolutePath = resolve(root, assetPath);
-const generatedAbsolutePath = resolve(root, generatedPath);
-const currentAsset = existsSync(assetAbsolutePath)
-  ? readFileSync(assetAbsolutePath)
-  : undefined;
-const currentGenerated = existsSync(generatedAbsolutePath)
-  ? readFileSync(generatedAbsolutePath, "utf8")
-  : undefined;
-
+const generatedMetadata = buildTypeScriptModule(moduleText, wasmBytes, dtsText);
 let hasMismatch = false;
 
-if (!currentAsset || !Buffer.from(currentAsset).equals(Buffer.from(wasmBytes))) {
-  if (checkOnly) {
-    console.error(`Engine Web WASM asset is stale: ${assetPath}`);
-    hasMismatch = true;
-  } else {
-    mkdirSync(dirname(assetAbsolutePath), { recursive: true });
-    writeFileSync(assetAbsolutePath, wasmBytes);
-    console.log(`Generated ${assetPath}`);
-  }
-}
-
-if (currentGenerated !== generated) {
-  if (checkOnly) {
-    console.error(`Engine Web WASM metadata is stale: ${generatedPath}`);
-    hasMismatch = true;
-  } else {
-    mkdirSync(dirname(generatedAbsolutePath), { recursive: true });
-    writeFileSync(generatedAbsolutePath, generated);
-    console.log(`Generated ${generatedPath}`);
-  }
-}
+compareOrWrite(modulePath, moduleText);
+compareOrWrite(wasmPath, wasmBytes);
+compareOrWrite(dtsPath, dtsText);
+compareOrWrite(generatedPath, generatedMetadata);
 
 if (hasMismatch) {
   process.exitCode = 1;
 }
 
-function buildTypeScriptModule(wasmBytes) {
-  const artifactHash = createHash("sha256").update(wasmBytes).digest("hex");
+function compareOrWrite(path, content) {
+  const absolutePath = resolve(root, path);
+  const current = existsSync(absolutePath) ? readFileSync(absolutePath) : undefined;
+  const next = Buffer.isBuffer(content) ? content : Buffer.from(content, "utf8");
+
+  if (current && Buffer.from(current).equals(next)) {
+    return;
+  }
+
+  if (checkOnly) {
+    console.error(`Engine Web WASM artifact is stale: ${path}`);
+    hasMismatch = true;
+    return;
+  }
+
+  mkdirSync(dirname(absolutePath), { recursive: true });
+  writeFileSync(absolutePath, next);
+  console.log(`Generated ${path}`);
+}
+
+function buildTypeScriptModule(moduleText, wasmBytes, dtsText) {
+  const wasmHash = createHash("sha256").update(wasmBytes).digest("hex");
+  const moduleHash = createHash("sha256").update(moduleText).digest("hex");
+  const dtsHash = createHash("sha256").update(dtsText).digest("hex");
   const metadata = {
     id: "engine_web",
     sourceCrate: "crates/engine_web",
-    assetPath,
+    modulePath,
+    wasmPath,
+    dtsPath,
     target,
-    artifactHash: `sha256-${artifactHash}`,
+    wasmHash: `sha256-${wasmHash}`,
+    moduleHash: `sha256-${moduleHash}`,
+    dtsHash: `sha256-${dtsHash}`,
     exports: expectedExports
   };
 
@@ -124,9 +141,13 @@ function buildTypeScriptModule(wasmBytes) {
     "export type EngineWebWasmMetadata = {",
     "  readonly id: string;",
     "  readonly sourceCrate: string;",
-    "  readonly assetPath: string;",
+    "  readonly modulePath: string;",
+    "  readonly wasmPath: string;",
+    "  readonly dtsPath: string;",
     "  readonly target: string;",
-    "  readonly artifactHash: string;",
+    "  readonly wasmHash: string;",
+    "  readonly moduleHash: string;",
+    "  readonly dtsHash: string;",
     "  readonly exports: readonly EngineWebWasmExportName[];",
     "};",
     "",

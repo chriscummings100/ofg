@@ -11,8 +11,9 @@
 
 The detailed migration path is tracked in
 [RUST_ENGINE_PLAN.md](RUST_ENGINE_PLAN.md). The TypeScript scene/component model
-has been retired from the compiled source tree. The remaining TypeScript renderer
-is temporary infrastructure until Rust/wgpu becomes the browser path.
+has been retired from the compiled source tree, and Rust/wgpu is now the browser
+WebGPU renderer. The remaining TypeScript render code is a temporary packet
+adapter around Rust-owned GPU resources.
 
 ## Current Layers
 
@@ -35,17 +36,17 @@ src/engine/math
   Small vector and matrix primitives.
 
 src/engine/render
-  CPU-side render resources, Rust packet adapters, RenderWorld data, and WebGPU
-  resource setup/draw submission. Runtime terrain chunks enter this path through
-  a Rust-backed terrain render-packet adapter. This renderer is current runtime
-  infrastructure, but Rust/wgpu is the target renderer. The TypeScript renderer
-  now mirrors GPU resource lifetimes into `engine_web.wasm` while it still owns
-  actual WebGPU calls.
+  CPU-side render resources, Rust packet adapters, and transitional RenderWorld
+  data. Runtime terrain chunks enter this path through a Rust-backed terrain
+  render-packet adapter. Actual browser WebGPU resource creation and draw
+  submission now happen in Rust/wgpu through `crates/engine_web`; TypeScript only
+  packs the current render items into coarse arrays for the Rust renderer.
 
 src/engine/web
   Browser-facing WASM loaders for Rust systems that are not pure engine core or
-  terrain. `engineWebWasm.ts` currently loads the first Rust WebGPU renderer
-  bridge.
+  terrain. `engineWebWasm.ts` loads the wasm-bindgen `RustWgpuRenderer` facade
+  and applies a narrow browser compatibility shim for the pinned `wgpu` limit
+  name.
 
 src/engine/render/shaders
   Shader source inputs. The current `uber.wgsl` is the single shader contract for
@@ -70,14 +71,15 @@ adapter.
 - `terrain_core.wasm` owns terrain height/density sampling, generated chunk mesh
   emission, stream scheduling, density storage, worker-pool request state, and
   terrain mesh packet storage.
-- `engine_web.wasm` owns the first Rust-side WebGPU renderer resource ledger:
-  canvas limits, terrain texture array requirements, live mesh/texture/object
-  handles, frame draw counts, and stale resource destruction validation.
+- `engine_web` owns the Rust/wgpu browser renderer: WebGPU canvas surface,
+  adapter/device/queue, surface configuration, depth texture, shader modules,
+  pipelines, buffers, texture arrays, samplers, bind groups, render-pass
+  submission, frame/resource counts, and GPU resource pruning.
 - TypeScript collects DOM input, parses URL seed/preset values, starts WASM,
-  hosts browser Workers, wraps shared density buffers, exposes debug hooks, and
-  assembles `RenderWorld` for the still-TypeScript `WebGpuRenderer`. TypeScript
-  still owns the actual WebGPU device, pipelines, texture uploads, and render
-  pass submission until the Rust/wgpu slice lands.
+  hosts browser Workers, wraps shared density buffers, exposes debug hooks,
+  assembles the transitional `RenderWorld`, and packs render arrays for Rust/wgpu.
+  It no longer creates WebGPU devices, pipelines, buffers, textures, or render
+  passes.
 
 [SCENE_MODEL_PLAN.md](SCENE_MODEL_PLAN.md) is now historical documentation of the
 deleted TypeScript scene model. Future large-scale world state should move into
@@ -138,16 +140,16 @@ Shader source sits behind `tools/build-shaders.mjs`. The current input is
 `src/engine/render/shaders/uber.wgsl`, and the generated runtime artifact is
 `src/generated/render/uberShader.ts`.
 
-The renderer imports WGSL source and entry-point metadata from the generated
-artifact rather than embedding shader text. WGSL is the intended shader language
-for this project because it is browser-native, direct, and familiar enough for
-AI-driven changes.
+The Rust renderer includes the shared WGSL shader source, while TypeScript shader
+tests still validate the generated metadata and vertex-layout contract. WGSL is
+the intended shader language for this project because it is browser-native,
+direct, and familiar enough for AI-driven changes.
 
 The first material model is intentionally pre-PBR: mesh vertex color multiplied by
 an albedo factor and optional albedo texture sample, plus specular color and
 specular factor. The shader uses a simple Lambert diffuse plus Blinn-Phong specular
-model. `Texture` stores CPU-side rgba8 data that the WebGPU renderer uploads into
-GPU-owned texture resources.
+model. `Texture` stores CPU-side rgba8 data that the TypeScript shell passes to
+the Rust/wgpu renderer for GPU upload.
 
 Terrain uses checked-in Poly Haven CC0 materials imported into 16-layer global
 texture arrays. The runtime currently loads albedo, normal, and roughness arrays;
@@ -155,10 +157,11 @@ the WGSL terrain path triplanar-blends albedo and roughness from up to four
 material weights per vertex. Normal maps are loaded as renderer resources but are
 not yet applied to lighting.
 
-The sky is also shader-driven. `WebGpuRenderer` draws a full-screen sky pass before
-scene geometry, reconstructs world rays from the inverse view-projection matrix, and
-renders a blue gradient plus a sun disk in the direction of `RenderWorld.mainLight`.
-The browser runtime now sources that light from the Rust render packet bridge.
+The sky is also shader-driven. Rust/wgpu draws a full-screen sky pass before
+terrain and marker geometry, reconstructs world rays from the inverse
+view-projection matrix, and renders a blue gradient plus a sun disk in the
+direction of `RenderWorld.mainLight`. The browser runtime sources that light from
+the Rust render packet bridge.
 
 ## Testing Direction
 

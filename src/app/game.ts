@@ -5,11 +5,7 @@ import {
   loadEngineCoreWasm,
   type EngineCoreRenderDebugMarkerPacket
 } from "../engine/core/engineCoreWasm.js";
-import {
-  EngineWebGpuBridge,
-  loadEngineWebWasm,
-  type EngineWebRendererStatus
-} from "../engine/web/engineWebWasm.js";
+import type { EngineWebRendererStatus } from "../engine/web/engineWebWasm.js";
 import { identityMat4, type Mat4 } from "../engine/math/mat4.js";
 import { vec3, type Vec3 } from "../engine/math/vec3.js";
 import { vec4 } from "../engine/math/vec4.js";
@@ -21,7 +17,7 @@ import {
   directionalLightFromEnginePacket
 } from "../engine/render/engineRenderPackets.js";
 import { loadTerrainMaterialTextures } from "../engine/render/terrainTextures.js";
-import { WebGpuRenderer } from "../engine/render/webgpuRenderer.js";
+import { RustWgpuRendererAdapter } from "../engine/render/rustWgpuRenderer.js";
 import type { RenderItem, RenderWorld } from "../engine/render/RenderWorld.js";
 import { TerrainCoreWorkerStreamer } from "../game/components/TerrainCoreWorkerStreamer.js";
 import { createBoxMesh } from "../engine/world/primitiveMesh.js";
@@ -74,9 +70,8 @@ declare global {
       getTerrainWorkerPoolRuntime: () => "rust" | "typescript";
       getRenderPacketRuntime: () => "rust" | "typescript";
       getTerrainRenderPacketRuntime: () => "rust";
-      getRendererRuntime: () => "typescript";
-      getRendererBridgeRuntime: () => "rust";
-      getRendererBridgeStatus: () => EngineWebRendererStatus | undefined;
+      getRendererRuntime: () => "rust-wgpu";
+      getRendererStatus: () => EngineWebRendererStatus;
       getTerrainWorkerCount: () => number;
       getPlayerControllerRuntime: () => "rust";
       resetTerrainStreaming: () => void;
@@ -89,10 +84,7 @@ declare global {
 }
 
 export async function startGame(elements: GameElements): Promise<void> {
-  const engineWeb = await loadRequiredEngineWeb();
-  const rendererBridge = new EngineWebGpuBridge(engineWeb);
-  rendererBridge.reset();
-  const renderer = new WebGpuRenderer(elements.canvas, rendererBridge);
+  const renderer = await RustWgpuRendererAdapter.create(elements.canvas);
   const input = new InputTracker();
   const descriptor = readWorldDescriptor();
   const terrainCore = await loadRequiredTerrainCore();
@@ -172,9 +164,8 @@ export async function startGame(elements: GameElements): Promise<void> {
     getTerrainWorkerPoolRuntime: () => terrainWorker.workerPoolRuntime,
     getRenderPacketRuntime: () => renderPacketRuntime,
     getTerrainRenderPacketRuntime: () => "rust",
-    getRendererRuntime: () => "typescript",
-    getRendererBridgeRuntime: () => rendererBridge.runtime,
-    getRendererBridgeStatus: () => renderer.getRustBridgeStatus(),
+    getRendererRuntime: () => renderer.runtime,
+    getRendererStatus: () => renderer.getStatus(),
     getTerrainWorkerCount: () => terrainWorker.workerCount,
     getPlayerControllerRuntime: () => "rust",
     resetTerrainStreaming() {
@@ -195,7 +186,6 @@ export async function startGame(elements: GameElements): Promise<void> {
     }
   };
 
-  await renderer.initialize();
   input.attach(elements.canvas);
 
   let lastTimestamp = performance.now();
@@ -278,10 +268,6 @@ async function loadRequiredEngineCore(): Promise<EngineCoreWasmHandle> {
   const handle = new EngineCoreWasmHandle(await loadEngineCoreWasm());
   handle.reset();
   return handle;
-}
-
-async function loadRequiredEngineWeb() {
-  return loadEngineWebWasm();
 }
 
 function createTerrainHeightSampler(

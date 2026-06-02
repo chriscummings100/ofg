@@ -245,7 +245,8 @@ flow into a Rust-owned terrain mesh packet store in `terrain_core.wasm` outside
 the scene terrain component path. Scheduler-backed terrain packet pruning also
 runs through that Rust store, and rendered/empty LOD0 status comes from the Rust
 scheduler rather than a TypeScript render-key mirror. TypeScript still owns the
-browser Worker host and WebGPU upload/cache adaptation, but the playable app now
+browser Worker host and the temporary render-packet adapter, but Rust/wgpu now
+owns actual WebGPU upload/cache resources and draw submission. The playable app
 uses `TerrainCoreWorkerStreamer` and the compiled legacy `TerrainChunkStreamer`
 has been deleted. The dev/smoke browser runtime is now cross-origin isolated and uses
 `SharedArrayBuffer`-backed LOD0 density dependency payloads when available, so
@@ -345,18 +346,24 @@ Deletion path:
 
 Goal: Rust owns GPU resource lifetime and draw submission.
 
-Status: started on 2026-06-02. `crates/engine_web` now exists as the
-browser-facing Rust renderer crate and builds to `assets/wasm/engine_web.wasm`.
-The first slice is dependency-free CPU-side renderer ownership: Rust validates
-the WebGPU terrain resource contract, tracks canvas limits, live mesh/texture/
-object handles, frame indices, draw counts, and stale resource destruction.
-The temporary TypeScript `WebGpuRenderer` still creates the actual WebGPU
-device, buffers, textures, bind groups, pipelines, and render passes, but it now
-mirrors those resource lifetimes into the Rust bridge and browser smoke asserts
-that the bridge is loaded, configured, and tracking live draw resources.
-This is not yet `wgpu` draw submission; the next Phase 5 slice should add the
-`wgpu`/`wasm-bindgen` browser toolchain and move initialization or a small draw
-path into Rust.
+Status: Rust/wgpu browser draw submission is complete for the current runtime as
+of 2026-06-02. `crates/engine_web` builds through `wasm-bindgen` into
+`assets/wasm/engine_web/` and exposes a browser-facing `RustWgpuRenderer`.
+Rust now owns the browser WebGPU instance/surface, adapter/device/queue,
+surface configuration, depth texture, shader modules, pipeline layouts,
+pipelines, buffers, texture arrays, samplers, bind groups, draw submission,
+frame/resource counts, and GPU resource pruning. The old TypeScript
+`WebGpuRenderer`, raw `engine_web.wasm` bridge, and ambient WebGPU type shim have
+been deleted.
+
+The remaining Phase 5/ownership gap is facade granularity, not GPU ownership:
+TypeScript still assembles the transitional `RenderWorld`, converts existing
+mesh/texture objects into Rust renderer handles, packs frame/object uniform
+arrays, fetches/decodes texture assets, and applies a narrow browser compatibility
+shim for the older `wgpu` limit name used by the pinned Rust toolchain. The next
+renderer/world slices should move render extraction and texture asset ownership
+farther into Rust so TypeScript approaches a coarse `game.tick()` or
+`engine.render()` call.
 
 Implementation:
 
@@ -389,8 +396,11 @@ Validation:
 
 Deletion path:
 
-- Delete TypeScript `WebGpuRenderer` once Rust/wgpu is the default browser path.
-- Keep only a thin TypeScript `startEngine(canvas, options)` wrapper.
+- TypeScript `WebGpuRenderer`, its tests, the raw `EngineWebGpuBridge`, the old
+  raw `assets/wasm/engine_web.wasm`, and the TypeScript WebGPU ambient type shim
+  were deleted on 2026-06-02 after Rust/wgpu became the default browser renderer.
+- Keep shrinking the remaining `RustWgpuRendererAdapter` until TypeScript is a
+  browser/UI shell around coarse Rust engine calls.
 
 ### Phase 6: Move Factory Simulation And Spatial World Data To Rust
 
@@ -563,5 +573,6 @@ streaming, then render packets, then Rust/wgpu.
 | 2026-06-02 | Shared density transfer enabled for terrain workers | The dev server now serves COOP/COEP/CORP headers so browser smoke runs cross-origin isolated. `TerrainCoreWorkerStreamer` wraps LOD0 density dependencies in `SharedArrayBuffer` payloads when available and reports `densityTransferMode`; browser smoke asserts the shared path. Remaining bridge work: TypeScript still hosts Workers, each worker still installs shared payloads into its local WASM density store, and Rust-owned wasm thread spawning is still ahead. |
 | 2026-06-02 | Terrain worker-pool model moved to Rust | Added a tested `TerrainWorkerPool` in `terrain_core` with WASM exports for worker count, slot assignment, request IDs, in-flight tracking, reset, stale completion rejection, and mismatch detection. The browser terrain worker client now uses a generic `BrowserWorkerGroup` only to construct/post to Web Workers, while Rust owns the terrain threading/request model. Browser smoke asserts `workerPoolRuntime: rust`. |
 | 2026-06-02 | Retired compiled TypeScript terrain legacy paths | Deleted `TerrainChunkStreamer`, `TerrainRenderer`, the old TypeScript `TerrainRenderPacketStore`, the highest-surface chunk mesher, and the heightfield mesh builder/tests from the compiled `src` tree. The remaining TypeScript terrain code was narrowed to browser bridge/debug/parity support at that point. |
-| 2026-06-02 | TypeScript terrain and scene owners retired | Deleted the compiled TypeScript terrain generator/noise reference, TypeScript Dual Contouring/debug overlay path, old terrain debug/variation smoke tools, and the TypeScript scene/component/render-extractor model. The app now directly assembles `RenderWorld` from Rust camera/light/player-marker packets and Rust terrain mesh packets. TypeScript still owns browser startup, input, Worker transport, shared-density wrapping, debug hooks, WebGPU resource upload/cache adaptation, and the temporary `WebGpuRenderer`; WebGPU is the major remaining TypeScript engine subsystem. |
-| 2026-06-02 | Phase 5 Rust renderer bridge started | Added `crates/engine_web`, generated `engine_web.wasm`, and a TypeScript `EngineWebGpuBridge` loader. Rust now validates and tracks the current WebGPU renderer resource ledger: canvas dimensions, terrain texture array limits, generational mesh/texture/object handles, frame indices, draw counts, and stale resource destruction. The playable app loads this bridge and browser smoke asserts it is configured and tracking live resources. Actual WebGPU device/pipeline/buffer/texture creation and draw submission remain in the temporary TypeScript `WebGpuRenderer` until the next Rust/wgpu slice. |
+| 2026-06-02 | TypeScript terrain and scene owners retired | Deleted the compiled TypeScript terrain generator/noise reference, TypeScript Dual Contouring/debug overlay path, old terrain debug/variation smoke tools, and the TypeScript scene/component/render-extractor model. The app now directly assembles `RenderWorld` from Rust camera/light/player-marker packets and Rust terrain mesh packets. TypeScript still owns browser startup, input, Worker transport, shared-density wrapping, debug hooks, and the temporary render adapter. |
+| 2026-06-02 | Phase 5 Rust renderer bridge started | Added `crates/engine_web`, generated raw `engine_web.wasm`, and a TypeScript `EngineWebGpuBridge` loader. Rust validated and tracked the current WebGPU renderer resource ledger while the temporary TypeScript renderer still owned actual GPU calls. This was a short-lived stepping stone to the Rust/wgpu slice below. |
+| 2026-06-02 | Rust/wgpu browser renderer became default | Added the `wasm-bindgen`/`wgpu` browser renderer in `crates/engine_web`, generated `assets/wasm/engine_web/`, and replaced the TypeScript WebGPU renderer with `RustWgpuRendererAdapter`. Rust now creates the WebGPU canvas surface, device/queue, pipelines, buffers, texture arrays, bind groups, depth resources, and render passes. Browser smoke proves first-person, refresh, debug-fly, and streamed terrain views draw through `rendererRuntime: "rust-wgpu"`. |
