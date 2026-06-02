@@ -1,5 +1,17 @@
 /* tslint:disable */
 /* eslint-disable */
+export class RustBrowserGame {
+  private constructor();
+  free(): void;
+  static create(canvas: HTMLCanvasElement): Promise<RustBrowserGame>;
+  resize(width: number, height: number): void;
+  upsertMesh(id: string, vertices: Float32Array, indices: Uint32Array, floats_per_vertex: number): void;
+  destroyMesh(id: string): void;
+  upsertTexture(id: string, width: number, height: number, layers: number, format_code: number, data: Uint8Array): void;
+  destroyTexture(id: string): void;
+  renderEngineFrame(engine_snapshot: Float32Array, aspect: number, item_ids: Array<any>, mesh_ids: Array<any>, albedo_texture_ids: Array<any>, normal_texture_ids: Array<any>, material_texture_ids: Array<any>, world_matrices: Float32Array, material_packets: Float32Array): void;
+  status(): RustWgpuRendererStatus;
+}
 export class RustWgpuRenderer {
   private constructor();
   free(): void;
@@ -63,6 +75,7 @@ export interface InitOutput {
   readonly ofg_engine_web_frame_draw_count: () => number;
   readonly ofg_engine_web_last_error_code: () => number;
   readonly __wbg_rustwgpurenderer_free: (a: number, b: number) => void;
+  readonly __wbg_rustbrowsergame_free: (a: number, b: number) => void;
   readonly __wbg_rustwgpurendererstatus_free: (a: number, b: number) => void;
   readonly rustwgpurenderer_create: (a: number) => number;
   readonly rustwgpurenderer_resize: (a: number, b: number, c: number, d: number) => void;
@@ -74,10 +87,17 @@ export interface InitOutput {
   readonly rustwgpurenderer_destroyObject: (a: number, b: number, c: number) => void;
   readonly rustwgpurenderer_render: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number) => void;
   readonly rustwgpurenderer_renderEngineFrame: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number, s: number, t: number, u: number, v: number, w: number, x: number, y: number, z: number) => void;
-  readonly rustwgpurenderer_status: (a: number) => number;
   readonly rustwgpurenderer_fallbackAlbedoTextureHandle: (a: number) => number;
   readonly rustwgpurenderer_fallbackNormalTextureHandle: (a: number) => number;
   readonly rustwgpurenderer_fallbackMaterialTextureHandle: (a: number) => number;
+  readonly rustbrowsergame_create: (a: number) => number;
+  readonly rustbrowsergame_resize: (a: number, b: number, c: number, d: number) => void;
+  readonly rustbrowsergame_upsertMesh: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => void;
+  readonly rustbrowsergame_destroyMesh: (a: number, b: number, c: number, d: number) => void;
+  readonly rustbrowsergame_upsertTexture: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => void;
+  readonly rustbrowsergame_destroyTexture: (a: number, b: number, c: number, d: number) => void;
+  readonly rustbrowsergame_renderEngineFrame: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number) => void;
+  readonly rustbrowsergame_status: (a: number) => number;
   readonly rustwgpurendererstatus_version: (a: number) => number;
   readonly rustwgpurendererstatus_runtime: (a: number, b: number) => void;
   readonly rustwgpurendererstatus_configured: (a: number) => number;
@@ -90,6 +110,7 @@ export interface InitOutput {
   readonly rustwgpurendererstatus_objectCount: (a: number) => number;
   readonly rustwgpurendererstatus_frameIndex: (a: number) => number;
   readonly rustwgpurendererstatus_frameDrawCount: (a: number) => number;
+  readonly rustwgpurenderer_status: (a: number) => number;
   readonly __wbindgen_exn_store: (a: number) => void;
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;

@@ -2,10 +2,12 @@ import { equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { ENGINE_WEB_WASM_METADATA } from "../../generated/web/engineWebWasm.js";
 import {
+  createEngineWebBrowserGame,
   createEngineWebRenderer,
   ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM,
   loadEngineWebWasmModule,
   patchLegacyWgpuRequiredLimits,
+  type EngineWebBrowserGame,
   type EngineWebWasmModule,
   type EngineWebWgpuRenderer
 } from "./engineWebWasm.js";
@@ -21,6 +23,7 @@ describe("engine web WASM", () => {
     ok(/^sha256-[0-9a-f]{64}$/.test(ENGINE_WEB_WASM_METADATA.wasmHash));
     ok(/^sha256-[0-9a-f]{64}$/.test(ENGINE_WEB_WASM_METADATA.moduleHash));
     ok(/^sha256-[0-9a-f]{64}$/.test(ENGINE_WEB_WASM_METADATA.dtsHash));
+    ok(ENGINE_WEB_WASM_METADATA.exports.includes("RustBrowserGame"));
     ok(ENGINE_WEB_WASM_METADATA.exports.includes("RustWgpuRenderer"));
     ok(ENGINE_WEB_WASM_METADATA.exports.includes("RustWgpuRendererStatus"));
   });
@@ -29,8 +32,12 @@ describe("engine web WASM", () => {
     const moduleText = readFileSync(ENGINE_WEB_WASM_METADATA.modulePath, "utf8");
     const dtsText = readFileSync(ENGINE_WEB_WASM_METADATA.dtsPath, "utf8");
 
+    ok(moduleText.includes("export class RustBrowserGame"));
     ok(moduleText.includes("export class RustWgpuRenderer"));
     ok(moduleText.includes("export class RustWgpuRendererStatus"));
+    ok(dtsText.includes("static create(canvas: HTMLCanvasElement): Promise<RustBrowserGame>"));
+    ok(dtsText.includes("upsertMesh"));
+    ok(dtsText.includes("upsertTexture"));
     ok(dtsText.includes("static create(canvas: HTMLCanvasElement): Promise<RustWgpuRenderer>"));
     ok(dtsText.includes("render("));
     ok(dtsText.includes("fallbackAlbedoTextureHandle"));
@@ -61,6 +68,15 @@ describe("engine web WASM", () => {
     equal(ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM, 1);
   });
 
+  it("creates the Rust browser game facade from the loaded module", async () => {
+    const game = fakeBrowserGame();
+    const created = await createEngineWebBrowserGame({} as HTMLCanvasElement, async () =>
+      fakeModule(fakeRenderer(), game)
+    );
+
+    equal(created, game);
+  });
+
   it("patches the legacy wgpu limit name before browser device requests", async () => {
     let requestedLimits: Record<string, number | undefined> | undefined;
     const globalObject = {
@@ -89,16 +105,51 @@ describe("engine web WASM", () => {
   });
 });
 
-function fakeModule(renderer: EngineWebWgpuRenderer): EngineWebWasmModule & { initialized: boolean } {
+function fakeModule(
+  renderer: EngineWebWgpuRenderer,
+  game: EngineWebBrowserGame = fakeBrowserGame()
+): EngineWebWasmModule & { initialized: boolean } {
   return {
     initialized: false,
     async default() {
       this.initialized = true;
     },
+    RustBrowserGame: {
+      async create() {
+        return game;
+      }
+    },
     RustWgpuRenderer: {
       async create() {
         return renderer;
       }
+    }
+  };
+}
+
+function fakeBrowserGame(): EngineWebBrowserGame {
+  return {
+    resize() {},
+    upsertMesh() {},
+    destroyMesh() {},
+    upsertTexture() {},
+    destroyTexture() {},
+    renderEngineFrame() {},
+    status() {
+      return {
+        version: 1,
+        runtime: "rust-wgpu",
+        configured: true,
+        canvasWidth: 1,
+        canvasHeight: 1,
+        maxTextureArrayLayers: 16,
+        requiredTextureArrayLayers: 16,
+        meshCount: 0,
+        textureCount: 3,
+        objectCount: 1,
+        frameIndex: 0,
+        frameDrawCount: 0
+      };
     }
   };
 }

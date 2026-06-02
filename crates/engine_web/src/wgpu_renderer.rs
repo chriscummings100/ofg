@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::{HashMap, HashSet};
 
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -23,6 +24,17 @@ const SHADER_SOURCE: &str = include_str!("../../../src/engine/render/shaders/ube
 #[wasm_bindgen]
 pub struct RustWgpuRenderer {
     renderer: BrowserWgpuRenderer,
+}
+
+#[wasm_bindgen]
+pub struct RustBrowserGame {
+    renderer: BrowserWgpuRenderer,
+    mesh_handles_by_id: HashMap<String, ResourceHandle>,
+    texture_handles_by_id: HashMap<String, ResourceHandle>,
+    object_handles_by_id: HashMap<String, ResourceHandle>,
+    player_marker_mesh: ResourceHandle,
+    player_marker_object: ResourceHandle,
+    player_marker_material_packet: [f32; MATERIAL_PACKET_FLOATS],
 }
 
 #[derive(Debug)]
@@ -82,6 +94,11 @@ struct GpuObject {
     normal_texture: Option<ResourceHandle>,
     material_texture: Option<ResourceHandle>,
 }
+
+const TERRAIN_MATERIAL_INDICES_OFFSET: usize = 11;
+const TERRAIN_MATERIAL_WEIGHTS_OFFSET: usize = 15;
+const PLAYER_MARKER_MATERIAL_PACKET: [f32; MATERIAL_PACKET_FLOATS] =
+    [1.0, 1.0, 1.0, 1.0, 1.0, 0.92, 0.65, 0.45, 0.0, 1.0];
 
 #[wasm_bindgen]
 impl RustWgpuRenderer {
@@ -224,6 +241,244 @@ impl RustWgpuRenderer {
     #[wasm_bindgen(js_name = fallbackMaterialTextureHandle)]
     pub fn fallback_material_texture_handle(&self) -> f64 {
         handle_to_js(self.renderer.fallback_material)
+    }
+}
+
+#[wasm_bindgen]
+impl RustBrowserGame {
+    #[wasm_bindgen(js_name = create)]
+    pub async fn create(canvas: web_sys::HtmlCanvasElement) -> Result<RustBrowserGame, JsValue> {
+        console_error_panic_hook::set_once();
+        let mut renderer = BrowserWgpuRenderer::new(canvas).await?;
+        let (player_marker_vertices, player_marker_indices) = create_player_marker_mesh();
+        let player_marker_mesh = renderer.register_mesh(
+            &player_marker_vertices,
+            &player_marker_indices,
+            TERRAIN_VERTEX_FLOATS,
+        )?;
+        let player_marker_object = renderer.register_object()?;
+
+        Ok(Self {
+            renderer,
+            mesh_handles_by_id: HashMap::new(),
+            texture_handles_by_id: HashMap::new(),
+            object_handles_by_id: HashMap::new(),
+            player_marker_mesh,
+            player_marker_object,
+            player_marker_material_packet: PLAYER_MARKER_MATERIAL_PACKET,
+        })
+    }
+
+    #[wasm_bindgen(js_name = resize)]
+    pub fn resize(&mut self, width: u32, height: u32) -> Result<(), JsValue> {
+        self.renderer.resize(width, height)
+    }
+
+    #[wasm_bindgen(js_name = upsertMesh)]
+    pub fn upsert_mesh(
+        &mut self,
+        id: &str,
+        vertices: &[f32],
+        indices: &[u32],
+        floats_per_vertex: u32,
+    ) -> Result<(), JsValue> {
+        if let Some(handle) = self.mesh_handles_by_id.remove(id) {
+            self.renderer.destroy_mesh(handle)?;
+        }
+
+        let handle = self
+            .renderer
+            .register_mesh(vertices, indices, floats_per_vertex)?;
+        self.mesh_handles_by_id.insert(id.to_string(), handle);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = destroyMesh)]
+    pub fn destroy_mesh(&mut self, id: &str) -> Result<(), JsValue> {
+        let Some(handle) = self.mesh_handles_by_id.remove(id) else {
+            return Ok(());
+        };
+        self.renderer.destroy_mesh(handle)
+    }
+
+    #[wasm_bindgen(js_name = upsertTexture)]
+    pub fn upsert_texture(
+        &mut self,
+        id: &str,
+        width: u32,
+        height: u32,
+        layers: u32,
+        format_code: u32,
+        data: &[u8],
+    ) -> Result<(), JsValue> {
+        if let Some(handle) = self.texture_handles_by_id.remove(id) {
+            self.renderer.destroy_texture(handle)?;
+        }
+
+        let handle = self
+            .renderer
+            .register_texture(width, height, layers, format_code, data)?;
+        self.texture_handles_by_id.insert(id.to_string(), handle);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = destroyTexture)]
+    pub fn destroy_texture(&mut self, id: &str) -> Result<(), JsValue> {
+        let Some(handle) = self.texture_handles_by_id.remove(id) else {
+            return Ok(());
+        };
+        self.renderer.destroy_texture(handle)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[wasm_bindgen(js_name = renderEngineFrame)]
+    pub fn render_engine_frame(
+        &mut self,
+        engine_snapshot: &[f32],
+        aspect: f32,
+        item_ids: js_sys::Array,
+        mesh_ids: js_sys::Array,
+        albedo_texture_ids: js_sys::Array,
+        normal_texture_ids: js_sys::Array,
+        material_texture_ids: js_sys::Array,
+        world_matrices: &[f32],
+        material_packets: &[f32],
+    ) -> Result<(), JsValue> {
+        let item_ids = string_array_values(&item_ids)?;
+        let mesh_ids = string_array_values(&mesh_ids)?;
+        let albedo_texture_ids = string_array_values(&albedo_texture_ids)?;
+        let normal_texture_ids = string_array_values(&normal_texture_ids)?;
+        let material_texture_ids = string_array_values(&material_texture_ids)?;
+        let item_count = item_ids.len();
+        if mesh_ids.len() != item_count
+            || albedo_texture_ids.len() != item_count
+            || normal_texture_ids.len() != item_count
+            || material_texture_ids.len() != item_count
+            || world_matrices.len() != item_count * WORLD_MATRIX_FLOATS
+            || material_packets.len() != item_count * MATERIAL_PACKET_FLOATS
+        {
+            return Err(js_error(
+                "Rust browser game received mismatched render packet arrays.",
+            ));
+        }
+
+        let mut mesh_handles = Vec::with_capacity(item_count);
+        let mut object_handles = Vec::with_capacity(item_count);
+        let mut albedo_texture_handles = Vec::with_capacity(item_count);
+        let mut normal_texture_handles = Vec::with_capacity(item_count);
+        let mut material_texture_handles = Vec::with_capacity(item_count);
+        let mut seen_mesh_ids = HashSet::with_capacity(item_count);
+        let mut seen_item_ids = HashSet::with_capacity(item_count);
+
+        for index in 0..item_count {
+            let item_id = &item_ids[index];
+            let mesh_id = &mesh_ids[index];
+            let mesh_handle = *self.mesh_handles_by_id.get(mesh_id).ok_or_else(|| {
+                js_error(format!("Rust browser game is missing mesh '{mesh_id}'."))
+            })?;
+            let object_handle = self.object_handle_for_id(item_id)?;
+
+            seen_item_ids.insert(item_id.clone());
+            seen_mesh_ids.insert(mesh_id.clone());
+            mesh_handles.push(handle_to_js(mesh_handle));
+            object_handles.push(handle_to_js(object_handle));
+            albedo_texture_handles.push(handle_to_js(self.texture_handle_or_fallback(
+                &albedo_texture_ids[index],
+                self.renderer.fallback_albedo,
+            )?));
+            normal_texture_handles.push(handle_to_js(self.texture_handle_or_fallback(
+                &normal_texture_ids[index],
+                self.renderer.fallback_normal,
+            )?));
+            material_texture_handles.push(handle_to_js(self.texture_handle_or_fallback(
+                &material_texture_ids[index],
+                self.renderer.fallback_material,
+            )?));
+        }
+
+        self.renderer.render_engine_frame(
+            engine_snapshot,
+            aspect,
+            &mesh_handles,
+            &object_handles,
+            &albedo_texture_handles,
+            &normal_texture_handles,
+            &material_texture_handles,
+            world_matrices,
+            material_packets,
+            handle_to_js(self.player_marker_mesh),
+            handle_to_js(self.player_marker_object),
+            handle_to_js(self.renderer.fallback_albedo),
+            handle_to_js(self.renderer.fallback_normal),
+            handle_to_js(self.renderer.fallback_material),
+            &self.player_marker_material_packet,
+        )?;
+
+        self.retain_mesh_ids(&seen_mesh_ids)?;
+        self.retain_object_ids(&seen_item_ids)?;
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = status)]
+    pub fn status(&self) -> RustWgpuRendererStatus {
+        self.renderer.status()
+    }
+}
+
+impl RustBrowserGame {
+    fn object_handle_for_id(&mut self, id: &str) -> Result<ResourceHandle, JsValue> {
+        if let Some(handle) = self.object_handles_by_id.get(id) {
+            return Ok(*handle);
+        }
+
+        let handle = self.renderer.register_object()?;
+        self.object_handles_by_id.insert(id.to_string(), handle);
+        Ok(handle)
+    }
+
+    fn texture_handle_or_fallback(
+        &self,
+        id: &str,
+        fallback: ResourceHandle,
+    ) -> Result<ResourceHandle, JsValue> {
+        if id.is_empty() {
+            return Ok(fallback);
+        }
+
+        self.texture_handles_by_id
+            .get(id)
+            .copied()
+            .ok_or_else(|| js_error(format!("Rust browser game is missing texture '{id}'.")))
+    }
+
+    fn retain_mesh_ids(&mut self, seen_mesh_ids: &HashSet<String>) -> Result<(), JsValue> {
+        let stale_ids = self
+            .mesh_handles_by_id
+            .keys()
+            .filter(|id| !seen_mesh_ids.contains(*id))
+            .cloned()
+            .collect::<Vec<_>>();
+        for id in stale_ids {
+            if let Some(handle) = self.mesh_handles_by_id.remove(&id) {
+                self.renderer.destroy_mesh(handle)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn retain_object_ids(&mut self, seen_item_ids: &HashSet<String>) -> Result<(), JsValue> {
+        let stale_ids = self
+            .object_handles_by_id
+            .keys()
+            .filter(|id| !seen_item_ids.contains(*id))
+            .cloned()
+            .collect::<Vec<_>>();
+        for id in stale_ids {
+            if let Some(handle) = self.object_handles_by_id.remove(&id) {
+                self.renderer.destroy_object(handle)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1138,6 +1393,17 @@ fn u32_as_bytes(values: &[u32]) -> &[u8] {
     }
 }
 
+fn string_array_values(values: &js_sys::Array) -> Result<Vec<String>, JsValue> {
+    values
+        .iter()
+        .map(|value| {
+            value
+                .as_string()
+                .ok_or_else(|| js_error("Rust browser game expected string render IDs."))
+        })
+        .collect()
+}
+
 fn handle_to_js(handle: ResourceHandle) -> f64 {
     handle.raw() as f64
 }
@@ -1155,4 +1421,62 @@ fn handle_from_js(handle: f64) -> Result<ResourceHandle, JsValue> {
 
 fn js_error(error: impl std::fmt::Display) -> JsValue {
     js_sys::Error::new(&error.to_string()).unchecked_into()
+}
+
+fn create_player_marker_mesh() -> (Vec<f32>, Vec<u32>) {
+    create_box_mesh([0.0, 0.9, 0.0], [0.28, 0.9, 0.22], [0.96, 0.7, 0.24])
+}
+
+fn create_box_mesh(center: [f32; 3], half_size: [f32; 3], color: [f32; 3]) -> (Vec<f32>, Vec<u32>) {
+    let corners = [
+        [-1.0, -1.0, -1.0],
+        [1.0, -1.0, -1.0],
+        [1.0, 1.0, -1.0],
+        [-1.0, 1.0, -1.0],
+        [-1.0, -1.0, 1.0],
+        [1.0, -1.0, 1.0],
+        [1.0, 1.0, 1.0],
+        [-1.0, 1.0, 1.0],
+    ];
+    let mut vertices = vec![0.0; corners.len() * TERRAIN_VERTEX_FLOATS as usize];
+    for (index, corner) in corners.iter().enumerate() {
+        let offset = index * TERRAIN_VERTEX_FLOATS as usize;
+        let normal = normalize3(*corner);
+
+        vertices[offset] = center[0] + corner[0] * half_size[0];
+        vertices[offset + 1] = center[1] + corner[1] * half_size[1];
+        vertices[offset + 2] = center[2] + corner[2] * half_size[2];
+        vertices[offset + 3] = color[0];
+        vertices[offset + 4] = color[1];
+        vertices[offset + 5] = color[2];
+        vertices[offset + 6] = normal[0];
+        vertices[offset + 7] = normal[1];
+        vertices[offset + 8] = normal[2];
+        vertices[offset + 9] = (corner[0] + 1.0) * 0.5;
+        vertices[offset + 10] = (corner[2] + 1.0) * 0.5;
+        vertices[offset + TERRAIN_MATERIAL_INDICES_OFFSET] = 0.0;
+        vertices[offset + TERRAIN_MATERIAL_INDICES_OFFSET + 1] = 0.0;
+        vertices[offset + TERRAIN_MATERIAL_INDICES_OFFSET + 2] = 0.0;
+        vertices[offset + TERRAIN_MATERIAL_INDICES_OFFSET + 3] = 0.0;
+        vertices[offset + TERRAIN_MATERIAL_WEIGHTS_OFFSET] = 1.0;
+        vertices[offset + TERRAIN_MATERIAL_WEIGHTS_OFFSET + 1] = 0.0;
+        vertices[offset + TERRAIN_MATERIAL_WEIGHTS_OFFSET + 2] = 0.0;
+        vertices[offset + TERRAIN_MATERIAL_WEIGHTS_OFFSET + 3] = 0.0;
+    }
+
+    let indices = vec![
+        0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6, 0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2, 2, 6, 7, 2, 7, 3,
+        3, 7, 4, 3, 4, 0,
+    ];
+
+    (vertices, indices)
+}
+
+fn normalize3(value: [f32; 3]) -> [f32; 3] {
+    let length = (value[0] * value[0] + value[1] * value[1] + value[2] * value[2]).sqrt();
+    if length <= f32::EPSILON {
+        return [0.0, 1.0, 0.0];
+    }
+
+    [value[0] / length, value[1] / length, value[2] / length]
 }

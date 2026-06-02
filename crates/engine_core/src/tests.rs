@@ -357,7 +357,10 @@ fn render_snapshot_tracks_player_camera_light_and_debug_marker() {
     assert_close(first_person.main_light.intensity, 1.0);
     assert_close(first_person.main_light.ambient, 0.34);
     assert!(!first_person.player_marker.visible);
-    assert_vec3_near(first_person.player_marker.position, Vec3::new(1.0, 2.0, 3.0));
+    assert_vec3_near(
+        first_person.player_marker.position,
+        Vec3::new(1.0, 2.0, 3.0),
+    );
 
     engine.set_player_mode(PlayerMode::DebugFly).unwrap();
     let debug_fly = engine.render_snapshot().unwrap();

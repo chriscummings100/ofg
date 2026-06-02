@@ -140,8 +140,11 @@ Supported:
   into CPU-side `Mesh` objects before renderer upload.
 - The compiled TypeScript scene/component model has been retired. The app
   passes raw Rust engine render snapshots and Rust terrain mesh packets into the
-  Rust/wgpu render facade instead of assembling a compiled TypeScript
-  `RenderWorld`.
+  Rust browser game render facade instead of assembling a compiled TypeScript
+  `RenderWorld`. Rust now owns renderer mesh/texture/object handles, render
+  resource pruning, and the debug player marker mesh/material; TypeScript
+  uploads terrain mesh and texture bytes by ID while that remaining transport is
+  being collapsed into a coarse Rust game facade.
 - Rust/wgpu is now the playable browser renderer through `crates/engine_web` and
   generated `assets/wasm/engine_web/` wasm-bindgen artifacts. Rust owns the
   WebGPU canvas surface, adapter/device/queue, surface configuration, depth
@@ -184,8 +187,9 @@ Partially supported or placeholder-only:
   mesh-upload optimized.
 - TypeScript still owns the browser Worker transport and shared-density payload
   wrapping. It also still has a temporary render adapter that loads Rust terrain
-  mesh packet bytes from `terrain_core.wasm`, registers renderer handles, and
-  packs compact per-item world-matrix and material packets for Rust/wgpu. Rust
+  mesh packet bytes from `terrain_core.wasm`, uploads mesh and texture bytes by
+  ID, and packs compact per-item world-matrix and material packets for
+  Rust/wgpu. Rust owns the renderer handle maps and stale resource pruning,
   builds the frame packet from the raw `engine_core.wasm` render snapshot,
   derives the player-marker transform, validates those packets, computes normal
   matrices, and packs WGSL shader uniforms.
@@ -200,8 +204,8 @@ Partially supported or placeholder-only:
   Terrain chunk packet storage is Rust-owned for the playable path, and the old
   TypeScript `SceneRenderExtractor`/`MeshRenderer`/`RenderWorld` path has been
   deleted. TypeScript still acts as a browser transport for mesh bytes, texture
-  assets, renderer handles, and UI/debug hooks until Rust owns a coarse
-  end-to-end game/render facade.
+  assets, frame item IDs, and UI/debug hooks until Rust owns a coarse end-to-end
+  game/render facade.
 
 Not yet supported:
 
@@ -947,6 +951,7 @@ Progress notes:
 | 2026-06-02 | Rust/wgpu renderer became playable default | Added the `wasm-bindgen`/`wgpu` renderer in `crates/engine_web`, generated `assets/wasm/engine_web/`, deleted the TypeScript `WebGpuRenderer`, raw `engine_web.wasm`, and WebGPU ambient type shim, and routed terrain/player-marker render items through Rust-owned WebGPU resources and draw submission. Browser smoke passed with first-person, refreshed, debug-fly, and streamed terrain screenshots under `artifacts/browser-smoke/2026-06-02T12-27-54-025Z/`. |
 | 2026-06-02 | Rust shader uniform packing | Moved frame/object shader uniform packing into `engine_web`. The TypeScript render adapter now sends compact frame, world-matrix, and material packets, while Rust validates packet shape, computes normal matrices, and writes the WGSL uniform buffers. Deleted the old TypeScript `FrameUniforms` and `ObjectUniforms` modules/tests. |
 | 2026-06-02 | TypeScript RenderWorld retired | Added Rust engine-snapshot packet builders and `renderEngineFrame` in `engine_web`. The playable app now sends the raw `engine_core.wasm` render snapshot plus direct terrain mesh packets, while Rust builds the frame packet and player-marker world matrix. Deleted the compiled TypeScript `RenderWorld`, `CameraFrame`, `Lighting`, and `engineRenderPackets` path, and stopped adapting Rust terrain packets into CPU-side `Mesh` objects. |
+| 2026-06-02 | Rust browser render facade started | Added `RustBrowserGame` in `engine_web` so Rust owns WebGPU renderer handles, object handles, stale render-resource pruning, and the debug player marker mesh/material. The terrain bridge still loads mesh packets from `terrain_core.wasm`, but TypeScript now uploads bytes by ID and submits item IDs instead of registering/passing renderer handles. |
 
 ## Cross-Cutting Validation
 

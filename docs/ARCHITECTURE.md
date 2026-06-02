@@ -12,8 +12,8 @@
 The detailed migration path is tracked in
 [RUST_ENGINE_PLAN.md](RUST_ENGINE_PLAN.md). The TypeScript scene/component model
 has been retired from the compiled source tree, and Rust/wgpu is now the browser
-WebGPU renderer. The remaining TypeScript render code is a temporary packet
-and resource-handle adapter around Rust-owned GPU resources.
+WebGPU renderer. The remaining TypeScript render code is a temporary packet and
+byte-upload adapter around a Rust-owned browser game/render facade.
 
 ## Current Layers
 
@@ -21,7 +21,8 @@ and resource-handle adapter around Rust-owned GPU resources.
 src/app
   Browser lifecycle, canvas setup, frame loop, HUD state, URL terrain
   descriptor parsing, debug hooks, input forwarding, and handoff of raw Rust
-  engine render snapshots plus terrain packet handles to the Rust renderer.
+  engine render snapshots plus terrain packet bytes/IDs to the Rust browser game
+  facade.
 
 src/engine/input
   DOM input tracking with edge-triggered key events and mouse deltas.
@@ -40,14 +41,15 @@ src/engine/render
   temporary Rust/wgpu browser adapter. Runtime terrain chunks enter this path as
   direct mesh byte packets loaded from a Rust-owned terrain packet store. Actual
   browser WebGPU resource creation and draw submission happen in Rust/wgpu
-  through `crates/engine_web`; TypeScript only registers resource handles and
-  packs compact per-item world-matrix/material arrays for the Rust renderer.
+  through `crates/engine_web`; TypeScript only uploads mesh/texture bytes by ID
+  and packs compact per-item world-matrix/material arrays for the Rust browser
+  game facade.
 
 src/engine/web
   Browser-facing WASM loaders for Rust systems that are not pure engine core or
-  terrain. `engineWebWasm.ts` loads the wasm-bindgen `RustWgpuRenderer` facade
-  and applies a narrow browser compatibility shim for the pinned `wgpu` limit
-  name.
+  terrain. `engineWebWasm.ts` loads the wasm-bindgen `RustBrowserGame` facade,
+  keeps the lower-level `RustWgpuRenderer` available for transitional tests, and
+  applies a narrow browser compatibility shim for the pinned `wgpu` limit name.
 
 src/engine/render/shaders
   Shader source inputs. The current `uber.wgsl` is the single shader contract for
@@ -79,9 +81,10 @@ adapter.
 - TypeScript collects DOM input, parses URL seed/preset values, starts WASM,
   hosts browser Workers, wraps shared density buffers, exposes debug hooks,
   loads terrain mesh bytes from Rust packet stores, fetches texture assets, and
-  registers/passes renderer resource handles. It no longer creates WebGPU
-  devices, pipelines, buffers, textures, render passes, shader uniform buffers,
-  camera frames, light packets, player-marker world matrices, or normal matrices.
+  uploads mesh/texture bytes by ID. It no longer creates WebGPU devices,
+  pipelines, buffers, textures, render passes, shader uniform buffers, renderer
+  resource handles, camera frames, light packets, player-marker mesh/material
+  data, player-marker world matrices, or normal matrices.
 
 [SCENE_MODEL_PLAN.md](SCENE_MODEL_PLAN.md) is now historical documentation of the
 deleted TypeScript scene model. Future large-scale world state should move into
@@ -150,12 +153,12 @@ direct, and familiar enough for AI-driven changes.
 The first material model is intentionally pre-PBR: mesh vertex color multiplied by
 an albedo factor and optional albedo texture sample, plus specular color and
 specular factor. The shader uses a simple Lambert diffuse plus Blinn-Phong specular
-model. `Texture` stores CPU-side rgba8 data that the TypeScript shell passes to
-the Rust/wgpu renderer for GPU upload. Rust/wgpu builds compact frame packets from
-the raw Rust engine render snapshot, derives the debug player-marker world matrix,
-validates per-item world-matrix and material packets from the temporary TypeScript
-adapter, computes object normal matrices, and packs the WGSL camera/object
-uniform buffers.
+model. `Texture` stores CPU-side rgba8 data that the TypeScript shell uploads by
+ID to the Rust browser game facade for GPU upload. Rust/wgpu builds compact
+frame packets from the raw Rust engine render snapshot, owns the debug
+player-marker mesh/material and world matrix, validates per-item world-matrix and
+material packets from the temporary TypeScript adapter, computes object normal
+matrices, and packs the WGSL camera/object uniform buffers.
 
 Terrain uses checked-in Poly Haven CC0 materials imported into 16-layer global
 texture arrays. The runtime currently loads albedo, normal, and roughness arrays;

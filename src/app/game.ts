@@ -6,11 +6,9 @@ import { vec3, type Vec3 } from "../engine/math/vec3.js";
 import { vec4 } from "../engine/math/vec4.js";
 import { MATERIAL_FLAG_TRIPLANAR_ALBEDO, Material } from "../engine/render/Material.js";
 import { createTerrainCoreRenderPacketStore } from "../engine/render/TerrainCoreRenderPackets.js";
-import type { RenderMeshPacket } from "../engine/render/RenderPackets.js";
 import { loadTerrainMaterialTextures } from "../engine/render/terrainTextures.js";
 import { RustWgpuRendererAdapter } from "../engine/render/rustWgpuRenderer.js";
 import { TerrainCoreWorkerStreamer } from "../game/components/TerrainCoreWorkerStreamer.js";
-import { createBoxMesh } from "../engine/world/primitiveMesh.js";
 import {
   createSeedWorldDescriptor,
   isTerrainPresetId,
@@ -28,10 +26,6 @@ import {
   type TerrainChunkWorkerClient,
   createTerrainChunkWorkerClient
 } from "../engine/world/terrainChunkWorkerClient.js";
-import {
-  POSITION_COLOR_NORMAL_UV_LAYOUT,
-  type MeshData
-} from "../engine/world/terrainMesh.js";
 import {
   type PlayerMode,
   type PlayerMovementIntent
@@ -92,10 +86,6 @@ export async function startGame(elements: GameElements): Promise<void> {
     maxInFlightJobs: terrainWorker.workerCount
   });
   const terrainDensityChunkStore = createTerrainCoreDensityChunkStore(terrainCore, descriptor);
-  const playerMarker = renderMeshPacketFromData(
-    "mesh:player.marker",
-    createBoxMesh(vec3(0, 0.9, 0), vec3(0.28, 0.9, 0.22), vec3(0.96, 0.7, 0.24))
-  );
   const terrainTextures = await loadTerrainMaterialTextures();
   const terrainMaterial = new Material("material:terrain.seed", {
     albedoTexture: terrainTextures.albedo.id,
@@ -106,11 +96,6 @@ export async function startGame(elements: GameElements): Promise<void> {
     specularFactor: 0.04,
     flags: MATERIAL_FLAG_TRIPLANAR_ALBEDO,
     textureScale: 0.08
-  });
-  const playerMarkerMaterial = new Material("material:player.marker", {
-    albedoFactor: vec4(1, 1, 1, 1),
-    specular: vec3(1, 0.92, 0.65),
-    specularFactor: 0.45
   });
   const terrainRenderPackets = createTerrainCoreRenderPacketStore(terrainCore, {
     material: terrainMaterial,
@@ -201,11 +186,7 @@ export async function startGame(elements: GameElements): Promise<void> {
     }
     renderPacketRuntime = "rust";
     const renderItems = terrainRenderPackets.getRenderItemPackets();
-    renderer.renderEngineFrame(renderSnapshot, renderItems, {
-      id: "player.marker",
-      mesh: playerMarker,
-      material: playerMarkerMaterial
-    });
+    renderer.renderEngineFrame(renderSnapshot, renderItems);
 
     elements.cameraMode.textContent = playerController.mode === "firstPerson" ? "FIRST" : "FLY";
     elements.cameraMode.dataset.mode = playerController.mode;
@@ -309,15 +290,6 @@ function createPlayerController(
     initialDebugPitch: -0.48,
     terrainHeightAt
   });
-}
-
-function renderMeshPacketFromData(id: string, data: MeshData): RenderMeshPacket {
-  return {
-    id,
-    vertices: data.vertices,
-    indices: data.indices,
-    floatsPerVertex: POSITION_COLOR_NORMAL_UV_LAYOUT.floatsPerVertex
-  };
 }
 
 function readMovementIntent(

@@ -68,8 +68,43 @@ export type EngineWebWgpuRenderer = {
   status(): EngineWebRendererStatus;
 };
 
+export type EngineWebBrowserGame = {
+  resize(width: number, height: number): void;
+  upsertMesh(
+    id: string,
+    vertices: Float32Array,
+    indices: Uint32Array,
+    floatsPerVertex: number
+  ): void;
+  destroyMesh(id: string): void;
+  upsertTexture(
+    id: string,
+    width: number,
+    height: number,
+    layers: number,
+    formatCode: number,
+    data: Uint8Array
+  ): void;
+  destroyTexture(id: string): void;
+  renderEngineFrame(
+    engineSnapshot: Float32Array,
+    aspect: number,
+    itemIds: string[],
+    meshIds: string[],
+    albedoTextureIds: string[],
+    normalTextureIds: string[],
+    materialTextureIds: string[],
+    worldMatrices: Float32Array,
+    materialPackets: Float32Array
+  ): void;
+  status(): EngineWebRendererStatus;
+};
+
 export type EngineWebWasmModule = {
   default(input?: unknown): Promise<unknown>;
+  readonly RustBrowserGame: {
+    create(canvas: HTMLCanvasElement): Promise<EngineWebBrowserGame>;
+  };
   readonly RustWgpuRenderer: {
     create(canvas: HTMLCanvasElement): Promise<EngineWebWgpuRenderer>;
   };
@@ -95,6 +130,16 @@ export async function createEngineWebRenderer(
   const module = await loadModule();
 
   return module.RustWgpuRenderer.create(canvas);
+}
+
+export async function createEngineWebBrowserGame(
+  canvas: HTMLCanvasElement,
+  loadModule: () => Promise<EngineWebWasmModule> = loadEngineWebWasmModule
+): Promise<EngineWebBrowserGame> {
+  patchLegacyWgpuRequiredLimits();
+  const module = await loadModule();
+
+  return module.RustBrowserGame.create(canvas);
 }
 
 export function patchLegacyWgpuRequiredLimits(globalObject: typeof globalThis = globalThis): boolean {
