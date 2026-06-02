@@ -1,0 +1,233 @@
+import { identityMat4, multiplyMat4, type Mat4 } from "../math/mat4.js";
+import type { ResourceStore } from "../scene/ResourceStore.js";
+import type { ResourceId } from "../scene/types.js";
+import {
+  parseTerrainChunkKey,
+  terrainChunkCoord,
+  terrainChunkKey,
+  type TerrainChunkCoord,
+  type TerrainChunkKey
+} from "../world/terrainChunk.js";
+import {
+  readTerrainCoreMeshIndexBuffer,
+  readTerrainCoreMeshPacketInputIndexBuffer,
+  readTerrainCoreMeshPacketInputVertexBuffer,
+  readTerrainCoreMeshVertexBuffer,
+  type TerrainCoreWasmInstance
+} from "../world/terrainCoreWasm.js";
+import { POSITION_COLOR_NORMAL_UV_LAYOUT } from "../world/terrainMesh.js";
+import { Mesh } from "./Mesh.js";
+import type { RenderItem } from "./RenderWorld.js";
+import type {
+  TerrainRenderChunkInput,
+  TerrainRenderChunkPacket,
+  TerrainRenderChunkSink
+} from "./TerrainRenderPackets.js";
+
+export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
+  readonly runtime = "rust" as const;
+  readonly itemIdPrefix: string;
+  readonly meshIdPrefix: string;
+  private material?: ResourceId;
+  private cachedVersion = -1;
+  private cachedChunks: TerrainRenderChunkPacket[] = [];
+
+  constructor(
+    private readonly terrainCore: TerrainCoreWasmInstance,
+    options: {
+      readonly material?: ResourceId;
+      readonly itemIdPrefix?: string;
+      readonly meshIdPrefix?: string;
+    } = {}
+  ) {
+    this.material = options.material;
+    this.itemIdPrefix = options.itemIdPrefix ?? "terrain:rust";
+    this.meshIdPrefix = options.meshIdPrefix ?? "mesh:terrain.chunk";
+  }
+
+  get chunks(): readonly TerrainRenderChunkPacket[] {
+    this.syncMeshCache();
+    return this.cachedChunks;
+  }
+
+  addChunk(chunk: TerrainRenderChunkInput): void {
+    const vertices = "mesh" in chunk ? chunk.mesh.vertices : chunk.vertices;
+    const indices = "mesh" in chunk ? chunk.mesh.indices : chunk.indices;
+    const prepared = this.terrainCore.exports.ofg_prepare_terrain_mesh_packet_input(
+      vertices.length,
+      indices.length
+    );
+    if (prepared !== 1) {
+      throw new Error(`Rust terrain mesh packet store rejected chunk '${chunk.key}' buffer shape.`);
+    }
+
+    readTerrainCoreMeshPacketInputVertexBuffer(this.terrainCore.exports).set(vertices);
+    readTerrainCoreMeshPacketInputIndexBuffer(this.terrainCore.exports).set(indices);
+
+    const coord = parseTerrainChunkKey(chunk.key);
+    const stored = this.terrainCore.exports.ofg_store_terrain_mesh_packet_buffer(
+      coord.x,
+      coord.y,
+      coord.z,
+      0
+    );
+    if (stored !== 1) {
+      throw new Error(`Rust terrain mesh packet store rejected chunk '${chunk.key}'.`);
+    }
+
+    if (chunk.material !== undefined) {
+      this.material = chunk.material;
+    }
+  }
+
+  getChunk(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainRenderChunkPacket | undefined {
+    const key = toChunkKey(chunk);
+    this.syncMeshCache();
+    return this.cachedChunks.find((candidate) => candidate.key === key);
+  }
+
+  removeChunk(chunk: TerrainChunkKey | TerrainChunkCoord): boolean {
+    const coord = toCoord(chunk);
+    return this.terrainCore.exports.ofg_remove_terrain_mesh_packet(
+      coord.x,
+      coord.y,
+      coord.z,
+      0
+    ) === 1;
+  }
+
+  clear(): void {
+    this.terrainCore.exports.ofg_reset_terrain_mesh_packet_store();
+  }
+
+  size(): number {
+    return this.terrainCore.exports.ofg_terrain_mesh_packet_store_entry_count();
+  }
+
+  getRenderItems(
+    resources: ResourceStore,
+    worldMatrix: Mat4 = identityMat4()
+  ): RenderItem[] {
+    this.syncMeshCache();
+    return this.cachedChunks.map((chunk) => {
+      const material = this.material === undefined ? undefined : resources.getMaterial(this.material);
+      return {
+        id: `${this.itemIdPrefix}:${chunk.key}`,
+        mesh: chunk.mesh,
+        material,
+        albedoTexture: material?.albedoTexture === undefined
+          ? undefined
+          : resources.getTexture(material.albedoTexture),
+        normalTexture: material?.normalTexture === undefined
+          ? undefined
+          : resources.getTexture(material.normalTexture),
+        materialTexture: material?.materialTexture === undefined
+          ? undefined
+          : resources.getTexture(material.materialTexture),
+        worldMatrix: chunk.worldMatrix === undefined
+          ? worldMatrix
+          : multiplyMat4(worldMatrix, chunk.worldMatrix)
+      };
+    });
+  }
+
+  private syncMeshCache(): void {
+    const version = this.terrainCore.exports.ofg_terrain_mesh_packet_store_version();
+    if (version === this.cachedVersion) {
+      return;
+    }
+
+    const expectedCount = this.terrainCore.exports.ofg_terrain_mesh_packet_store_entry_count();
+    const count = this.terrainCore.exports.ofg_write_terrain_mesh_packet_coords();
+    if (count !== expectedCount) {
+      throw new Error(
+        `Rust terrain mesh packet coord buffer wrote ${count} packets, expected ${expectedCount}.`
+      );
+    }
+
+    const lods = new Uint32Array(this.meshPacketLodBuffer(count));
+    const xs = new Int32Array(this.meshPacketXBuffer(count));
+    const ys = new Int32Array(this.meshPacketYBuffer(count));
+    const zs = new Int32Array(this.meshPacketZBuffer(count));
+    const chunks: TerrainRenderChunkPacket[] = [];
+
+    for (let index = 0; index < count; index += 1) {
+      if (lods[index] !== 0) {
+        throw new Error(`Unsupported Rust terrain mesh packet LOD '${lods[index]}'.`);
+      }
+
+      const coord = terrainChunkCoord(xs[index], ys[index], zs[index]);
+      const loaded = this.terrainCore.exports.ofg_load_terrain_mesh_packet_buffer(
+        coord.x,
+        coord.y,
+        coord.z,
+        lods[index]
+      );
+      if (loaded !== 1) {
+        throw new Error(`Rust terrain mesh packet '${terrainChunkKey(coord)}' could not be loaded.`);
+      }
+
+      const key = terrainChunkKey(coord);
+      chunks.push({
+        key,
+        mesh: new Mesh(
+          `${this.meshIdPrefix}:${key}`,
+          new Float32Array(readTerrainCoreMeshVertexBuffer(this.terrainCore.exports)),
+          new Uint32Array(readTerrainCoreMeshIndexBuffer(this.terrainCore.exports)),
+          POSITION_COLOR_NORMAL_UV_LAYOUT
+        ),
+        material: this.material
+      });
+    }
+
+    this.cachedChunks = chunks;
+    this.cachedVersion = version;
+  }
+
+  private meshPacketLodBuffer(length: number): Uint32Array {
+    return new Uint32Array(
+      this.terrainCore.exports.memory.buffer,
+      this.terrainCore.exports.ofg_terrain_mesh_packet_lod_buffer_ptr(),
+      length
+    );
+  }
+
+  private meshPacketXBuffer(length: number): Int32Array {
+    return new Int32Array(
+      this.terrainCore.exports.memory.buffer,
+      this.terrainCore.exports.ofg_terrain_mesh_packet_x_buffer_ptr(),
+      length
+    );
+  }
+
+  private meshPacketYBuffer(length: number): Int32Array {
+    return new Int32Array(
+      this.terrainCore.exports.memory.buffer,
+      this.terrainCore.exports.ofg_terrain_mesh_packet_y_buffer_ptr(),
+      length
+    );
+  }
+
+  private meshPacketZBuffer(length: number): Int32Array {
+    return new Int32Array(
+      this.terrainCore.exports.memory.buffer,
+      this.terrainCore.exports.ofg_terrain_mesh_packet_z_buffer_ptr(),
+      length
+    );
+  }
+}
+
+export function createTerrainCoreRenderPacketStore(
+  terrainCore: TerrainCoreWasmInstance,
+  options: ConstructorParameters<typeof TerrainCoreRenderPacketStore>[1] = {}
+): TerrainCoreRenderPacketStore {
+  return new TerrainCoreRenderPacketStore(terrainCore, options);
+}
+
+function toChunkKey(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainChunkKey {
+  return typeof chunk === "string" ? chunk : terrainChunkKey(chunk);
+}
+
+function toCoord(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainChunkCoord {
+  return typeof chunk === "string" ? parseTerrainChunkKey(chunk) : chunk;
+}

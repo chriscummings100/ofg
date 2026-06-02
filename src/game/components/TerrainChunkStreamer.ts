@@ -1,4 +1,3 @@
-import { Mesh } from "../../engine/render/Mesh.js";
 import type { TerrainRenderChunkSink } from "../../engine/render/TerrainRenderPackets.js";
 import { Component } from "../../engine/scene/Component.js";
 import type { Entity } from "../../engine/scene/Entity.js";
@@ -428,12 +427,10 @@ export class TerrainChunkStreamer extends Component {
       const key = terrainChunkKey(coord);
       this.terrain.addChunk({
         key,
-        mesh: new Mesh(
-          `${this.meshIdPrefix}:${key}`,
-          meshData.vertices,
-          meshData.indices,
-          POSITION_COLOR_NORMAL_UV_LAYOUT
-        ),
+        meshId: `${this.meshIdPrefix}:${key}`,
+        vertices: meshData.vertices,
+        indices: meshData.indices,
+        layout: POSITION_COLOR_NORMAL_UV_LAYOUT,
         material: this.material
       });
       this.renderChunkKeys.add(key);
@@ -453,12 +450,10 @@ export class TerrainChunkStreamer extends Component {
       const key = terrainChunkKey(coord);
       this.terrain.addChunk({
         key,
-        mesh: new Mesh(
-          `${this.meshIdPrefix}:${key}`,
-          meshData.vertices,
-          meshData.indices,
-          POSITION_COLOR_NORMAL_UV_LAYOUT
-        ),
+        meshId: `${this.meshIdPrefix}:${key}`,
+        vertices: meshData.vertices,
+        indices: meshData.indices,
+        layout: POSITION_COLOR_NORMAL_UV_LAYOUT,
         material: this.material
       });
       this.renderChunkKeys.add(key);
@@ -741,12 +736,10 @@ export class TerrainChunkStreamer extends Component {
     this.emptyRenderChunkKeys.delete(key);
     this.terrain.addChunk({
       key,
-      mesh: new Mesh(
-        `${this.meshIdPrefix}:${key}`,
-        vertices,
-        indices,
-        POSITION_COLOR_NORMAL_UV_LAYOUT
-      ),
+      meshId: `${this.meshIdPrefix}:${key}`,
+      vertices,
+      indices,
+      layout: POSITION_COLOR_NORMAL_UV_LAYOUT,
       material: this.material
     });
     this.renderChunkKeys.add(key);

@@ -19,6 +19,47 @@ export type TerrainCoreWasmExports = {
   readonly ofg_stream_coord_x_buffer_ptr: () => number;
   readonly ofg_stream_coord_y_buffer_ptr: () => number;
   readonly ofg_stream_coord_z_buffer_ptr: () => number;
+  readonly ofg_terrain_mesh_packet_coord_buffer_capacity: () => number;
+  readonly ofg_terrain_mesh_packet_lod_buffer_ptr: () => number;
+  readonly ofg_terrain_mesh_packet_x_buffer_ptr: () => number;
+  readonly ofg_terrain_mesh_packet_y_buffer_ptr: () => number;
+  readonly ofg_terrain_mesh_packet_z_buffer_ptr: () => number;
+  readonly ofg_prepare_terrain_mesh_packet_input: (
+    vertexLen: number,
+    indexLen: number
+  ) => number;
+  readonly ofg_terrain_mesh_packet_input_vertex_buffer_ptr: () => number;
+  readonly ofg_terrain_mesh_packet_input_vertex_buffer_len: () => number;
+  readonly ofg_terrain_mesh_packet_input_index_buffer_ptr: () => number;
+  readonly ofg_terrain_mesh_packet_input_index_buffer_len: () => number;
+  readonly ofg_store_terrain_mesh_packet_buffer: (
+    chunkX: number,
+    chunkY: number,
+    chunkZ: number,
+    lod: number
+  ) => number;
+  readonly ofg_reset_terrain_mesh_packet_store: () => void;
+  readonly ofg_terrain_mesh_packet_store_entry_count: () => number;
+  readonly ofg_terrain_mesh_packet_store_version: () => number;
+  readonly ofg_terrain_mesh_packet_store_contains: (
+    chunkX: number,
+    chunkY: number,
+    chunkZ: number,
+    lod: number
+  ) => number;
+  readonly ofg_remove_terrain_mesh_packet: (
+    chunkX: number,
+    chunkY: number,
+    chunkZ: number,
+    lod: number
+  ) => number;
+  readonly ofg_write_terrain_mesh_packet_coords: () => number;
+  readonly ofg_load_terrain_mesh_packet_buffer: (
+    chunkX: number,
+    chunkY: number,
+    chunkZ: number,
+    lod: number
+  ) => number;
   readonly ofg_stream_configure: (
     horizontalRadius: number,
     verticalOffsetCount: number,
@@ -254,6 +295,26 @@ export function readTerrainCoreMeshIndexBuffer(
   );
 }
 
+export function readTerrainCoreMeshPacketInputVertexBuffer(
+  exports: TerrainCoreWasmExports
+): Float32Array {
+  return new Float32Array(
+    exports.memory.buffer,
+    exports.ofg_terrain_mesh_packet_input_vertex_buffer_ptr(),
+    exports.ofg_terrain_mesh_packet_input_vertex_buffer_len()
+  );
+}
+
+export function readTerrainCoreMeshPacketInputIndexBuffer(
+  exports: TerrainCoreWasmExports
+): Uint32Array {
+  return new Uint32Array(
+    exports.memory.buffer,
+    exports.ofg_terrain_mesh_packet_input_index_buffer_ptr(),
+    exports.ofg_terrain_mesh_packet_input_index_buffer_len()
+  );
+}
+
 function assertTerrainCoreExports(exports: WebAssembly.Exports): asserts exports is TerrainCoreWasmExports {
   if (!(exports.memory instanceof WebAssembly.Memory)) {
     throw new Error("Terrain WASM export is missing: memory");
@@ -276,6 +337,24 @@ function assertTerrainCoreExports(exports: WebAssembly.Exports): asserts exports
     "ofg_stream_coord_x_buffer_ptr",
     "ofg_stream_coord_y_buffer_ptr",
     "ofg_stream_coord_z_buffer_ptr",
+    "ofg_terrain_mesh_packet_coord_buffer_capacity",
+    "ofg_terrain_mesh_packet_lod_buffer_ptr",
+    "ofg_terrain_mesh_packet_x_buffer_ptr",
+    "ofg_terrain_mesh_packet_y_buffer_ptr",
+    "ofg_terrain_mesh_packet_z_buffer_ptr",
+    "ofg_prepare_terrain_mesh_packet_input",
+    "ofg_terrain_mesh_packet_input_vertex_buffer_ptr",
+    "ofg_terrain_mesh_packet_input_vertex_buffer_len",
+    "ofg_terrain_mesh_packet_input_index_buffer_ptr",
+    "ofg_terrain_mesh_packet_input_index_buffer_len",
+    "ofg_store_terrain_mesh_packet_buffer",
+    "ofg_reset_terrain_mesh_packet_store",
+    "ofg_terrain_mesh_packet_store_entry_count",
+    "ofg_terrain_mesh_packet_store_version",
+    "ofg_terrain_mesh_packet_store_contains",
+    "ofg_remove_terrain_mesh_packet",
+    "ofg_write_terrain_mesh_packet_coords",
+    "ofg_load_terrain_mesh_packet_buffer",
     "ofg_stream_configure",
     "ofg_stream_generation",
     "ofg_stream_sync_center",

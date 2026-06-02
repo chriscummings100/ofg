@@ -34,9 +34,9 @@ src/engine/math
 src/engine/render
   CPU-side render resources, scene render components, RenderWorld extraction, and
   WebGPU resource setup/draw submission. Runtime terrain chunks now enter this
-  path through a terrain render-packet store instead of a scene terrain
-  component. This renderer is current runtime infrastructure, but Rust/wgpu is
-  the target renderer.
+  path through a Rust-backed terrain render-packet adapter instead of a scene
+  terrain component. This renderer is current runtime infrastructure, but
+  Rust/wgpu is the target renderer.
 
 src/engine/render/shaders
   Shader source inputs. The current `uber.wgsl` is the single shader contract for
@@ -65,8 +65,8 @@ not a general-purpose ECS.
 The current playable is partly backed by this model:
 
 - A terrain entity owns the compatibility `TerrainChunkStreamer`, but visible
-  terrain chunks are stored in `TerrainRenderPacketStore` outside the scene
-  component render path.
+  terrain chunks are stored in `terrain_core.wasm` through
+  `TerrainCoreRenderPacketStore` outside the scene component render path.
 - A player entity owns `RustPlayerController`, which forwards input into
   `engine_core.wasm` and mirrors the Rust player transform back into the
   TypeScript scene for terrain streaming and the debug marker.
@@ -118,9 +118,10 @@ player crosses chunk boundaries. Loaded density chunk keys remain fully 3D.
 Runtime terrain meshes carry position, color, normal, uv, material layer indices,
 and material weights. A small mesh post-pass expands indexed triangles so each
 triangle has a coherent local four-material palette for interpolation.
-In the playable browser runtime, those chunk meshes are written into
-`TerrainRenderPacketStore` and appended to the `RenderWorld`; `TerrainRenderer`
-remains compatibility/reference infrastructure for tests and older scene paths.
+In the playable browser runtime, those chunk mesh payloads are written into a
+Rust-owned mesh packet store in `terrain_core.wasm` and appended to the
+`RenderWorld` by `TerrainCoreRenderPacketStore`; `TerrainRenderer` remains
+compatibility/reference infrastructure for tests and older scene paths.
 
 The Dual Contouring implementation lives in
 `src/engine/world/dualContouring.ts`. It extracts Hermite edge intersections for

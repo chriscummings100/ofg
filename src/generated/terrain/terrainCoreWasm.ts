@@ -18,6 +18,24 @@ export type TerrainCoreWasmExportName =
   | "ofg_stream_coord_x_buffer_ptr"
   | "ofg_stream_coord_y_buffer_ptr"
   | "ofg_stream_coord_z_buffer_ptr"
+  | "ofg_terrain_mesh_packet_coord_buffer_capacity"
+  | "ofg_terrain_mesh_packet_lod_buffer_ptr"
+  | "ofg_terrain_mesh_packet_x_buffer_ptr"
+  | "ofg_terrain_mesh_packet_y_buffer_ptr"
+  | "ofg_terrain_mesh_packet_z_buffer_ptr"
+  | "ofg_prepare_terrain_mesh_packet_input"
+  | "ofg_terrain_mesh_packet_input_vertex_buffer_ptr"
+  | "ofg_terrain_mesh_packet_input_vertex_buffer_len"
+  | "ofg_terrain_mesh_packet_input_index_buffer_ptr"
+  | "ofg_terrain_mesh_packet_input_index_buffer_len"
+  | "ofg_store_terrain_mesh_packet_buffer"
+  | "ofg_reset_terrain_mesh_packet_store"
+  | "ofg_terrain_mesh_packet_store_entry_count"
+  | "ofg_terrain_mesh_packet_store_version"
+  | "ofg_terrain_mesh_packet_store_contains"
+  | "ofg_remove_terrain_mesh_packet"
+  | "ofg_write_terrain_mesh_packet_coords"
+  | "ofg_load_terrain_mesh_packet_buffer"
   | "ofg_stream_configure"
   | "ofg_stream_generation"
   | "ofg_stream_sync_center"
@@ -76,7 +94,7 @@ export const TERRAIN_CORE_WASM_METADATA = Object.freeze({
   "sourceCrate": "crates/terrain_core",
   "assetPath": "assets/wasm/terrain_core.wasm",
   "target": "wasm32-unknown-unknown",
-  "artifactHash": "sha256-f430cf7a3fbcf3501d7b66d79c2302627324dba14a851832f364b1480b480f4f",
+  "artifactHash": "sha256-a89057cd6bd85d39dabad29cf71c8ea21d82766513c0a3cf5ef03aa5a9e82091",
   "exports": [
     "memory",
     "ofg_terrain_core_version",
@@ -95,6 +113,24 @@ export const TERRAIN_CORE_WASM_METADATA = Object.freeze({
     "ofg_stream_coord_x_buffer_ptr",
     "ofg_stream_coord_y_buffer_ptr",
     "ofg_stream_coord_z_buffer_ptr",
+    "ofg_terrain_mesh_packet_coord_buffer_capacity",
+    "ofg_terrain_mesh_packet_lod_buffer_ptr",
+    "ofg_terrain_mesh_packet_x_buffer_ptr",
+    "ofg_terrain_mesh_packet_y_buffer_ptr",
+    "ofg_terrain_mesh_packet_z_buffer_ptr",
+    "ofg_prepare_terrain_mesh_packet_input",
+    "ofg_terrain_mesh_packet_input_vertex_buffer_ptr",
+    "ofg_terrain_mesh_packet_input_vertex_buffer_len",
+    "ofg_terrain_mesh_packet_input_index_buffer_ptr",
+    "ofg_terrain_mesh_packet_input_index_buffer_len",
+    "ofg_store_terrain_mesh_packet_buffer",
+    "ofg_reset_terrain_mesh_packet_store",
+    "ofg_terrain_mesh_packet_store_entry_count",
+    "ofg_terrain_mesh_packet_store_version",
+    "ofg_terrain_mesh_packet_store_contains",
+    "ofg_remove_terrain_mesh_packet",
+    "ofg_write_terrain_mesh_packet_coords",
+    "ofg_load_terrain_mesh_packet_buffer",
     "ofg_stream_configure",
     "ofg_stream_generation",
     "ofg_stream_sync_center",

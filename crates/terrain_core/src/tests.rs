@@ -101,6 +101,127 @@ fn builds_renderable_chunk_mesh_buffers() {
 }
 
 #[test]
+fn stores_and_loads_terrain_mesh_packets() {
+    let _lock = test_lock();
+    ofg_reset_terrain_mesh_packet_store();
+    let _ = ofg_build_chunk_mesh(0x0F6, 1, 0, 0, 0, 1.0);
+    let vertex_len = ofg_mesh_vertex_buffer_len() as usize;
+    let index_len = ofg_mesh_index_buffer_len() as usize;
+    let expected_vertices =
+        unsafe { std::slice::from_raw_parts(ofg_mesh_vertex_buffer_ptr(), vertex_len) }.to_vec();
+    let expected_indices =
+        unsafe { std::slice::from_raw_parts(ofg_mesh_index_buffer_ptr(), index_len) }.to_vec();
+
+    assert_eq!(
+        ofg_prepare_terrain_mesh_packet_input(vertex_len as u32, index_len as u32),
+        1
+    );
+    let input_vertices = unsafe {
+        std::slice::from_raw_parts_mut(
+            ofg_terrain_mesh_packet_input_vertex_buffer_ptr(),
+            vertex_len,
+        )
+    };
+    let input_indices = unsafe {
+        std::slice::from_raw_parts_mut(ofg_terrain_mesh_packet_input_index_buffer_ptr(), index_len)
+    };
+    input_vertices.copy_from_slice(&expected_vertices);
+    input_indices.copy_from_slice(&expected_indices);
+
+    assert_eq!(ofg_store_terrain_mesh_packet_buffer(0, 0, 0, 0), 1);
+    assert_eq!(ofg_terrain_mesh_packet_store_entry_count(), 1);
+    assert_eq!(ofg_terrain_mesh_packet_store_contains(0, 0, 0, 0), 1);
+    assert_eq!(ofg_write_terrain_mesh_packet_coords(), 1);
+
+    let lods = unsafe { std::slice::from_raw_parts(ofg_terrain_mesh_packet_lod_buffer_ptr(), 1) };
+    let xs = unsafe { std::slice::from_raw_parts(ofg_terrain_mesh_packet_x_buffer_ptr(), 1) };
+    let ys = unsafe { std::slice::from_raw_parts(ofg_terrain_mesh_packet_y_buffer_ptr(), 1) };
+    let zs = unsafe { std::slice::from_raw_parts(ofg_terrain_mesh_packet_z_buffer_ptr(), 1) };
+    assert_eq!((lods[0], xs[0], ys[0], zs[0]), (0, 0, 0, 0));
+
+    assert_eq!(ofg_load_terrain_mesh_packet_buffer(0, 0, 0, 0), 1);
+    let loaded_vertices = unsafe {
+        std::slice::from_raw_parts(
+            ofg_mesh_vertex_buffer_ptr(),
+            ofg_mesh_vertex_buffer_len() as usize,
+        )
+    };
+    let loaded_indices = unsafe {
+        std::slice::from_raw_parts(
+            ofg_mesh_index_buffer_ptr(),
+            ofg_mesh_index_buffer_len() as usize,
+        )
+    };
+    assert_eq!(loaded_vertices, expected_vertices);
+    assert_eq!(loaded_indices, expected_indices);
+
+    assert_eq!(ofg_remove_terrain_mesh_packet(0, 0, 0, 0), 1);
+    assert_eq!(ofg_remove_terrain_mesh_packet(0, 0, 0, 0), 0);
+    assert_eq!(ofg_terrain_mesh_packet_store_entry_count(), 0);
+}
+
+#[test]
+fn terrain_mesh_packet_store_replaces_existing_chunk_and_versions_changes() {
+    let _lock = test_lock();
+    ofg_reset_terrain_mesh_packet_store();
+    let initial_version = ofg_terrain_mesh_packet_store_version();
+    assert_eq!(
+        ofg_prepare_terrain_mesh_packet_input(FLOATS_PER_VERTEX as u32, 3),
+        1
+    );
+    let vertices = unsafe {
+        std::slice::from_raw_parts_mut(
+            ofg_terrain_mesh_packet_input_vertex_buffer_ptr(),
+            FLOATS_PER_VERTEX,
+        )
+    };
+    let indices = unsafe {
+        std::slice::from_raw_parts_mut(ofg_terrain_mesh_packet_input_index_buffer_ptr(), 3)
+    };
+    vertices[0] = 1.0;
+    indices.copy_from_slice(&[0, 0, 0]);
+
+    assert_eq!(ofg_store_terrain_mesh_packet_buffer(1, 2, 3, 0), 1);
+    let inserted_version = ofg_terrain_mesh_packet_store_version();
+    assert!(inserted_version > initial_version);
+    assert_eq!(ofg_terrain_mesh_packet_store_entry_count(), 1);
+
+    vertices[0] = 2.0;
+    assert_eq!(ofg_store_terrain_mesh_packet_buffer(1, 2, 3, 0), 1);
+    assert_eq!(ofg_terrain_mesh_packet_store_entry_count(), 1);
+    assert!(ofg_terrain_mesh_packet_store_version() > inserted_version);
+    assert_eq!(ofg_load_terrain_mesh_packet_buffer(1, 2, 3, 0), 1);
+    assert_eq!(
+        unsafe { *ofg_mesh_vertex_buffer_ptr() }.to_bits(),
+        2.0f32.to_bits()
+    );
+}
+
+#[test]
+fn terrain_mesh_packet_store_rejects_invalid_meshes() {
+    let _lock = test_lock();
+    ofg_reset_terrain_mesh_packet_store();
+
+    assert_eq!(ofg_prepare_terrain_mesh_packet_input(1, 3), 0);
+    assert_eq!(
+        ofg_prepare_terrain_mesh_packet_input(FLOATS_PER_VERTEX as u32, 2),
+        0
+    );
+    assert_eq!(
+        ofg_prepare_terrain_mesh_packet_input(FLOATS_PER_VERTEX as u32, 3),
+        1
+    );
+
+    let indices = unsafe {
+        std::slice::from_raw_parts_mut(ofg_terrain_mesh_packet_input_index_buffer_ptr(), 3)
+    };
+    indices.copy_from_slice(&[0, 1, 0]);
+
+    assert_eq!(ofg_store_terrain_mesh_packet_buffer(0, 0, 0, 0), 0);
+    assert_eq!(ofg_terrain_mesh_packet_store_entry_count(), 0);
+}
+
+#[test]
 fn prepares_density_window_for_mesh_reuse() {
     let _lock = test_lock();
     ofg_reset_density_chunk_store();

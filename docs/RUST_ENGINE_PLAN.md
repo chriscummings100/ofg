@@ -237,11 +237,12 @@ density failures, empty LOD0 tracking, and window pruning. The browser runtime
 now also retains completed density payloads in the main `terrain_core.wasm`
 density store instead of a TypeScript-owned payload map. The playable runtime no
 longer mutates `TerrainRenderer` for streamed chunks; Rust/WASM mesh payloads now
-flow into a TypeScript terrain render-packet store outside the scene terrain
-component path. TypeScript still owns the Web Worker pool, density payload copies
-into mesh workers, mesh upload, and the compatibility packet store; the next
-Phase 3/4 slices should move worker partition ownership, batch/shared-memory
-density transfer, or terrain packet emission farther into Rust.
+flow into a Rust-owned terrain mesh packet store in `terrain_core.wasm` outside
+the scene terrain component path. TypeScript still owns the Web Worker pool,
+density payload copies into mesh workers, and WebGPU upload/cache adaptation; the
+next Phase 3/4 slices should move worker partition ownership,
+batch/shared-memory density transfer, or terrain packet emission farther into
+Rust.
 
 Implementation:
 
@@ -281,10 +282,10 @@ Status: in progress. `engine_core` now has a tested Rust render packet model and
 raw WASM snapshot buffer for the player camera, main light, and debug player
 marker visibility/position. TypeScript decodes that packet and the browser
 runtime uses the Rust camera/light packet. Streamed terrain chunks no longer use
-`TerrainRenderer` in the playable app; Rust/WASM worker mesh payloads are stored
-as terrain render packets and appended to `RenderWorld` outside the scene terrain
-component path. This is still a TypeScript compatibility packet store and
-WebGPU-upload bridge, not full Rust render extraction or Rust/wgpu.
+`TerrainRenderer` in the playable app; Rust/WASM worker mesh payloads are copied
+into a Rust-owned terrain mesh packet store and appended to `RenderWorld` outside
+the scene terrain component path through a TypeScript WebGPU cache adapter. This
+is still a WebGPU-upload bridge, not full Rust render extraction or Rust/wgpu.
 
 Implementation:
 
@@ -513,3 +514,4 @@ streaming, then render packets, then Rust/wgpu.
 | 2026-06-01 | TypeScript player fallback retired | Deleted the TypeScript `PlayerController` and its tests, moved shared player intent/mode types into `playerTypes.ts`, and made the browser runtime require `engine_core.wasm` for player/camera startup. This removes the first old TypeScript gameplay authority rather than keeping parallel movement systems alive. |
 | 2026-06-01 | Playable terrain fallback retired | Made the browser app require `terrain_core.wasm`, the Rust stream scheduler, the Rust density store, and the terrain worker path. TypeScript terrain generation remains as reference/test/debug code and lower-level compatibility hooks, but the playable app no longer falls back to TypeScript terrain chunks when Rust terrain core is unavailable. |
 | 2026-06-02 | Runtime terrain render-packet bridge started | Added a tested `TerrainRenderPacketStore`, retargeted `TerrainChunkStreamer` to a chunk-sink interface, and wired the playable app so Rust/WASM terrain worker mesh payloads render through external terrain packet items instead of a `TerrainRenderer` scene component. Browser smoke now asserts `terrainRenderPacketRuntime: rust`. Remaining bridge work: TypeScript still owns worker dispatch, mesh object creation, packet storage, WebGPU upload, and scene extraction for marker/static meshes. |
+| 2026-06-02 | Terrain mesh packet storage moved to Rust | Added a validated Rust terrain mesh packet store in `terrain_core.wasm`, raw WASM packet input/list/load exports, and a tested TypeScript WebGPU cache adapter. `TerrainChunkStreamer` now passes raw mesh buffers to its sink instead of constructing `Mesh` objects, and the playable app stores streamed terrain mesh payloads in Rust. Remaining bridge work: TypeScript still owns worker dispatch, density payload transfer into workers, renderer cache objects, WebGPU upload, and scene extraction for marker/static meshes. |

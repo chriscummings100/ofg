@@ -10,7 +10,7 @@ import { MATERIAL_FLAG_TRIPLANAR_ALBEDO, Material } from "../engine/render/Mater
 import { Mesh } from "../engine/render/Mesh.js";
 import { MeshRenderer } from "../engine/render/MeshRenderer.js";
 import { SceneRenderExtractor } from "../engine/render/SceneRenderExtractor.js";
-import { TerrainRenderPacketStore } from "../engine/render/TerrainRenderPackets.js";
+import { createTerrainCoreRenderPacketStore } from "../engine/render/TerrainCoreRenderPackets.js";
 import {
   cameraFrameFromEnginePacket,
   directionalLightFromEnginePacket
@@ -151,8 +151,10 @@ export async function startGame(elements: GameElements): Promise<void> {
   scene.resources.addTexture(terrainTextures.material);
   scene.resources.addMaterial(terrainMaterial);
   scene.resources.addMaterial(playerMarkerMaterial);
-  const terrainRenderPackets = new TerrainRenderPacketStore({
-    itemIdPrefix: "terrain:rust"
+  const terrainRenderPackets = createTerrainCoreRenderPacketStore(terrainCore, {
+    material: terrainMaterial.id,
+    itemIdPrefix: "terrain:rust",
+    meshIdPrefix: "mesh:terrain.chunk"
   });
   const terrainStreamer = terrainEntity.addComponent(new TerrainChunkStreamer(
     terrainRenderPackets,

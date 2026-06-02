@@ -13,6 +13,10 @@ import {
 import type { ResourceId } from "../scene/types.js";
 import type { Mesh } from "./Mesh.js";
 import type { RenderItem } from "./RenderWorld.js";
+import {
+  terrainRenderChunkInputToPacket,
+  type TerrainRenderChunkInput
+} from "./TerrainRenderPackets.js";
 
 export type ChunkKey = TerrainChunkKey;
 
@@ -56,14 +60,15 @@ export class TerrainRenderer extends Component {
     return sampleTerrainDensity(this.field, position);
   }
 
-  addChunk(chunk: TerrainChunk): void {
-    const index = this.chunks.findIndex((existing) => existing.key === chunk.key);
+  addChunk(chunk: TerrainRenderChunkInput): void {
+    const packet = terrainRenderChunkInputToPacket(chunk);
+    const index = this.chunks.findIndex((existing) => existing.key === packet.key);
     if (index === -1) {
-      this.chunks.push(chunk);
+      this.chunks.push(packet);
       return;
     }
 
-    this.chunks[index] = chunk;
+    this.chunks[index] = packet;
   }
 
   getChunk(chunk: ChunkKey | TerrainChunkCoord): TerrainChunk | undefined {

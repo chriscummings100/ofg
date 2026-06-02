@@ -6,7 +6,7 @@ import {
   type TerrainChunkCoord,
   type TerrainChunkKey
 } from "../world/terrainChunk.js";
-import type { Mesh } from "./Mesh.js";
+import { Mesh, type VertexLayout } from "./Mesh.js";
 import type { RenderItem } from "./RenderWorld.js";
 
 export type TerrainRenderChunkPacket = {
@@ -16,8 +16,22 @@ export type TerrainRenderChunkPacket = {
   readonly worldMatrix?: Mat4;
 };
 
+export type TerrainRenderChunkMeshPacket = {
+  readonly key: TerrainChunkKey;
+  readonly meshId: ResourceId;
+  readonly vertices: Float32Array;
+  readonly indices: Uint32Array;
+  readonly layout: VertexLayout;
+  readonly material?: ResourceId;
+  readonly worldMatrix?: Mat4;
+};
+
+export type TerrainRenderChunkInput =
+  | TerrainRenderChunkPacket
+  | TerrainRenderChunkMeshPacket;
+
 export type TerrainRenderChunkSink = {
-  addChunk(chunk: TerrainRenderChunkPacket): void;
+  addChunk(chunk: TerrainRenderChunkInput): void;
   getChunk(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainRenderChunkPacket | undefined;
   removeChunk(chunk: TerrainChunkKey | TerrainChunkCoord): boolean;
 };
@@ -40,14 +54,15 @@ export class TerrainRenderPacketStore implements TerrainRenderChunkSink {
     return this.chunkList;
   }
 
-  addChunk(chunk: TerrainRenderChunkPacket): void {
-    const index = this.chunkList.findIndex((existing) => existing.key === chunk.key);
+  addChunk(chunk: TerrainRenderChunkInput): void {
+    const packet = terrainRenderChunkInputToPacket(chunk);
+    const index = this.chunkList.findIndex((existing) => existing.key === packet.key);
     if (index === -1) {
-      this.chunkList.push(chunk);
+      this.chunkList.push(packet);
       return;
     }
 
-    this.chunkList[index] = chunk;
+    this.chunkList[index] = packet;
   }
 
   getChunk(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainRenderChunkPacket | undefined {
@@ -99,6 +114,21 @@ export class TerrainRenderPacketStore implements TerrainRenderChunkSink {
       };
     });
   }
+}
+
+export function terrainRenderChunkInputToPacket(
+  chunk: TerrainRenderChunkInput
+): TerrainRenderChunkPacket {
+  if ("mesh" in chunk) {
+    return chunk;
+  }
+
+  return {
+    key: chunk.key,
+    mesh: new Mesh(chunk.meshId, chunk.vertices, chunk.indices, chunk.layout),
+    material: chunk.material,
+    worldMatrix: chunk.worldMatrix
+  };
 }
 
 function toChunkKey(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainChunkKey {

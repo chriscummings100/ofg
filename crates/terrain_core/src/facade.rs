@@ -4,9 +4,12 @@ pub(crate) static mut DENSITY_CHUNK_BUFFER: [f32; TERRAIN_CHUNK_SAMPLE_COUNT] =
     [0.0; TERRAIN_CHUNK_SAMPLE_COUNT];
 pub(crate) static mut MESH_VERTEX_BUFFER: Vec<f32> = Vec::new();
 pub(crate) static mut MESH_INDEX_BUFFER: Vec<u32> = Vec::new();
+pub(crate) static mut MESH_PACKET_INPUT_VERTEX_BUFFER: Vec<f32> = Vec::new();
+pub(crate) static mut MESH_PACKET_INPUT_INDEX_BUFFER: Vec<u32> = Vec::new();
 pub(crate) const STREAM_VERTICAL_OFFSET_BUFFER_CAPACITY: usize = 64;
 pub(crate) const STREAM_JOB_BUFFER_CAPACITY: usize = 1024;
 pub(crate) const STREAM_COORD_BUFFER_CAPACITY: usize = 16384;
+pub(crate) const MESH_PACKET_COORD_BUFFER_CAPACITY: usize = STREAM_COORD_BUFFER_CAPACITY;
 pub(crate) static mut STREAM_VERTICAL_OFFSET_BUFFER: [i32; STREAM_VERTICAL_OFFSET_BUFFER_CAPACITY] =
     [0; STREAM_VERTICAL_OFFSET_BUFFER_CAPACITY];
 pub(crate) static mut STREAM_JOB_KIND_BUFFER: [u32; STREAM_JOB_BUFFER_CAPACITY] =
@@ -27,6 +30,14 @@ pub(crate) static mut STREAM_COORD_Y_BUFFER: [i32; STREAM_COORD_BUFFER_CAPACITY]
     [0; STREAM_COORD_BUFFER_CAPACITY];
 pub(crate) static mut STREAM_COORD_Z_BUFFER: [i32; STREAM_COORD_BUFFER_CAPACITY] =
     [0; STREAM_COORD_BUFFER_CAPACITY];
+pub(crate) static mut MESH_PACKET_LOD_BUFFER: [u32; MESH_PACKET_COORD_BUFFER_CAPACITY] =
+    [0; MESH_PACKET_COORD_BUFFER_CAPACITY];
+pub(crate) static mut MESH_PACKET_X_BUFFER: [i32; MESH_PACKET_COORD_BUFFER_CAPACITY] =
+    [0; MESH_PACKET_COORD_BUFFER_CAPACITY];
+pub(crate) static mut MESH_PACKET_Y_BUFFER: [i32; MESH_PACKET_COORD_BUFFER_CAPACITY] =
+    [0; MESH_PACKET_COORD_BUFFER_CAPACITY];
+pub(crate) static mut MESH_PACKET_Z_BUFFER: [i32; MESH_PACKET_COORD_BUFFER_CAPACITY] =
+    [0; MESH_PACKET_COORD_BUFFER_CAPACITY];
 
 #[no_mangle]
 pub extern "C" fn ofg_terrain_core_version() -> u32 {
@@ -106,6 +117,237 @@ pub extern "C" fn ofg_stream_coord_y_buffer_ptr() -> *const i32 {
 #[no_mangle]
 pub extern "C" fn ofg_stream_coord_z_buffer_ptr() -> *const i32 {
     unsafe { core::ptr::addr_of!(STREAM_COORD_Z_BUFFER).cast::<i32>() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_terrain_mesh_packet_coord_buffer_capacity() -> u32 {
+    MESH_PACKET_COORD_BUFFER_CAPACITY as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_terrain_mesh_packet_lod_buffer_ptr() -> *const u32 {
+    unsafe { core::ptr::addr_of!(MESH_PACKET_LOD_BUFFER).cast::<u32>() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_terrain_mesh_packet_x_buffer_ptr() -> *const i32 {
+    unsafe { core::ptr::addr_of!(MESH_PACKET_X_BUFFER).cast::<i32>() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_terrain_mesh_packet_y_buffer_ptr() -> *const i32 {
+    unsafe { core::ptr::addr_of!(MESH_PACKET_Y_BUFFER).cast::<i32>() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_terrain_mesh_packet_z_buffer_ptr() -> *const i32 {
+    unsafe { core::ptr::addr_of!(MESH_PACKET_Z_BUFFER).cast::<i32>() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_prepare_terrain_mesh_packet_input(vertex_len: u32, index_len: u32) -> u32 {
+    let vertex_len = vertex_len as usize;
+    let index_len = index_len as usize;
+
+    if vertex_len == 0
+        || index_len == 0
+        || vertex_len % FLOATS_PER_VERTEX != 0
+        || index_len % 3 != 0
+    {
+        return 0;
+    }
+
+    unsafe {
+        MESH_PACKET_INPUT_VERTEX_BUFFER.resize(vertex_len, 0.0);
+        MESH_PACKET_INPUT_INDEX_BUFFER.resize(index_len, 0);
+    }
+
+    1
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_terrain_mesh_packet_input_vertex_buffer_ptr() -> *mut f32 {
+    unsafe { MESH_PACKET_INPUT_VERTEX_BUFFER.as_mut_ptr() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_terrain_mesh_packet_input_vertex_buffer_len() -> u32 {
+    unsafe { MESH_PACKET_INPUT_VERTEX_BUFFER.len() as u32 }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_terrain_mesh_packet_input_index_buffer_ptr() -> *mut u32 {
+    unsafe { MESH_PACKET_INPUT_INDEX_BUFFER.as_mut_ptr() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_terrain_mesh_packet_input_index_buffer_len() -> u32 {
+    unsafe { MESH_PACKET_INPUT_INDEX_BUFFER.len() as u32 }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_store_terrain_mesh_packet_buffer(
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+    lod: u32,
+) -> u32 {
+    let Ok(lod) = u8::try_from(lod) else {
+        return 0;
+    };
+    let key = terrain_mesh_packet_key(
+        TerrainChunkCoord {
+            x: chunk_x,
+            y: chunk_y,
+            z: chunk_z,
+        },
+        lod,
+    );
+    let vertices = unsafe { MESH_PACKET_INPUT_VERTEX_BUFFER.clone() };
+    let indices = unsafe { MESH_PACKET_INPUT_INDEX_BUFFER.clone() };
+
+    terrain_mesh_packet_store()
+        .lock()
+        .expect("terrain mesh packet store lock poisoned")
+        .insert(key, vertices, indices)
+        .is_ok() as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_reset_terrain_mesh_packet_store() {
+    terrain_mesh_packet_store()
+        .lock()
+        .expect("terrain mesh packet store lock poisoned")
+        .reset();
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_terrain_mesh_packet_store_entry_count() -> u32 {
+    terrain_mesh_packet_store()
+        .lock()
+        .expect("terrain mesh packet store lock poisoned")
+        .len() as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_terrain_mesh_packet_store_version() -> f64 {
+    terrain_mesh_packet_store()
+        .lock()
+        .expect("terrain mesh packet store lock poisoned")
+        .version() as f64
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_terrain_mesh_packet_store_contains(
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+    lod: u32,
+) -> u32 {
+    let Ok(lod) = u8::try_from(lod) else {
+        return 0;
+    };
+    let key = terrain_mesh_packet_key(
+        TerrainChunkCoord {
+            x: chunk_x,
+            y: chunk_y,
+            z: chunk_z,
+        },
+        lod,
+    );
+
+    terrain_mesh_packet_store()
+        .lock()
+        .expect("terrain mesh packet store lock poisoned")
+        .contains(key) as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_remove_terrain_mesh_packet(
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+    lod: u32,
+) -> u32 {
+    let Ok(lod) = u8::try_from(lod) else {
+        return 0;
+    };
+    let key = terrain_mesh_packet_key(
+        TerrainChunkCoord {
+            x: chunk_x,
+            y: chunk_y,
+            z: chunk_z,
+        },
+        lod,
+    );
+
+    terrain_mesh_packet_store()
+        .lock()
+        .expect("terrain mesh packet store lock poisoned")
+        .remove(key) as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_write_terrain_mesh_packet_coords() -> u32 {
+    let keys = terrain_mesh_packet_store()
+        .lock()
+        .expect("terrain mesh packet store lock poisoned")
+        .keys();
+    let count = keys.len().min(MESH_PACKET_COORD_BUFFER_CAPACITY);
+
+    for (index, key) in keys.iter().take(count).enumerate() {
+        unsafe {
+            *core::ptr::addr_of_mut!(MESH_PACKET_LOD_BUFFER)
+                .cast::<u32>()
+                .add(index) = u32::from(key.lod);
+            *core::ptr::addr_of_mut!(MESH_PACKET_X_BUFFER)
+                .cast::<i32>()
+                .add(index) = key.chunk_x;
+            *core::ptr::addr_of_mut!(MESH_PACKET_Y_BUFFER)
+                .cast::<i32>()
+                .add(index) = key.chunk_y;
+            *core::ptr::addr_of_mut!(MESH_PACKET_Z_BUFFER)
+                .cast::<i32>()
+                .add(index) = key.chunk_z;
+        }
+    }
+
+    count as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_load_terrain_mesh_packet_buffer(
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+    lod: u32,
+) -> u32 {
+    let Ok(lod) = u8::try_from(lod) else {
+        return 0;
+    };
+    let key = terrain_mesh_packet_key(
+        TerrainChunkCoord {
+            x: chunk_x,
+            y: chunk_y,
+            z: chunk_z,
+        },
+        lod,
+    );
+    let Some((vertices, indices)) = terrain_mesh_packet_store()
+        .lock()
+        .expect("terrain mesh packet store lock poisoned")
+        .get(key)
+        .map(|(vertices, indices)| (vertices.to_vec(), indices.to_vec()))
+    else {
+        return 0;
+    };
+
+    unsafe {
+        MESH_VERTEX_BUFFER = vertices;
+        MESH_INDEX_BUFFER = indices;
+    }
+
+    1
 }
 
 #[no_mangle]

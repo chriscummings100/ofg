@@ -92,7 +92,7 @@ src/engine/scene
 
 src/engine/render
   WebGPU renderer plus scene and packet render data types. Runtime rendering
-  flows through MeshRenderer, TerrainRenderPacketStore for streamed terrain
+  flows through MeshRenderer, TerrainCoreRenderPacketStore for streamed terrain
   chunks, RenderWorld, and SceneRenderExtractor.
   Materials currently support albedo factor, albedo/normal/material texture
   resources, specular, and specular factor; the shader uses Lambert plus
@@ -152,11 +152,12 @@ There is one global active `Scene`.
 
 The playable app is currently partly scene-model backed: the terrain streamer,
 mirrored player entity, and debug player marker are scene entities/components,
-but streamed terrain chunks render through `TerrainRenderPacketStore` rather than
-`TerrainRenderer`. The authoritative player/camera state and first camera/light
-render packet are now Rust-owned. Treat the remaining scene path as transitional
-runtime glue. New high-volume world, terrain streaming, simulation, render
-extraction, and WebGPU ownership should follow `docs/RUST_ENGINE_PLAN.md`.
+but streamed terrain chunks are stored in `terrain_core.wasm` through
+`TerrainCoreRenderPacketStore` rather than `TerrainRenderer`. The authoritative
+player/camera state and first camera/light render packet are now Rust-owned.
+Treat the remaining scene path as transitional runtime glue. New high-volume
+world, terrain streaming, simulation, render extraction, and WebGPU ownership
+should follow `docs/RUST_ENGINE_PLAN.md`.
 
 ## Testing Expectations
 
