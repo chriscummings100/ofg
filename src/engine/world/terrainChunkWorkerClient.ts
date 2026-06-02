@@ -8,6 +8,7 @@ import type {
   TerrainWorkerMessage,
   TerrainWorkerRequestMessage
 } from "./terrainChunkWorkerTypes.js";
+import { terrainDensityChunkTransferList } from "./terrainDensityTransfer.js";
 
 type PendingRequest = {
   readonly resolve: (result: unknown) => void;
@@ -81,7 +82,14 @@ export class TerrainChunkWorkerClient implements TerrainChunkJobGenerator {
         resolve: (result) => resolve(result as TerrainChunkJobResult),
         reject
       });
-      slot.worker.postMessage(message);
+      const transfer = request.densityBufferTransfer === "move"
+        ? terrainDensityChunkTransferList(request.densityChunks)
+        : [];
+      if (transfer.length > 0) {
+        slot.worker.postMessage(message, transfer);
+      } else {
+        slot.worker.postMessage(message);
+      }
     });
   }
 

@@ -211,12 +211,19 @@ async function readTerrainRenderPacketRuntime(page) {
 }
 
 async function readTerrainStreamRuntime(page) {
-  return page.evaluate(() => ({
-    streamerRuntime: window.__ofgDebug?.getTerrainStreamerRuntime?.() ?? "missing",
-    schedulerRuntime: window.__ofgDebug?.getTerrainStreamSchedulerRuntime?.() ?? "missing",
-    densityStoreRuntime: window.__ofgDebug?.getTerrainDensityStoreRuntime?.() ?? "missing",
-    workerCount: window.__ofgDebug?.getTerrainWorkerCount?.() ?? 0
-  }));
+  return page.evaluate(() => {
+    const status = window.__ofgDebug?.getTerrainStreamStatus?.();
+
+    return {
+      streamerRuntime: window.__ofgDebug?.getTerrainStreamerRuntime?.() ?? "missing",
+      schedulerRuntime: window.__ofgDebug?.getTerrainStreamSchedulerRuntime?.() ?? "missing",
+      densityStoreRuntime: window.__ofgDebug?.getTerrainDensityStoreRuntime?.() ?? "missing",
+      densityTransferMode: status?.densityTransferMode ?? "missing",
+      crossOriginIsolated: globalThis.crossOriginIsolated === true,
+      sharedArrayBufferAvailable: typeof SharedArrayBuffer !== "undefined",
+      workerCount: window.__ofgDebug?.getTerrainWorkerCount?.() ?? 0
+    };
+  });
 }
 
 async function readTerrainDebug(page) {
@@ -267,6 +274,20 @@ function assertTerrainStreamRuntime(runtime) {
 
   if (runtime.workerCount <= 0) {
     throw new Error(`Expected terrain workers to be active: ${JSON.stringify(runtime)}`);
+  }
+
+  if (!runtime.crossOriginIsolated) {
+    throw new Error(`Expected browser smoke page to be cross-origin isolated: ${JSON.stringify(runtime)}`);
+  }
+
+  if (!runtime.sharedArrayBufferAvailable) {
+    throw new Error(`Expected SharedArrayBuffer to be available: ${JSON.stringify(runtime)}`);
+  }
+
+  if (runtime.densityTransferMode !== "shared") {
+    throw new Error(
+      `Expected shared density transfer mode, saw '${runtime.densityTransferMode}'.`
+    );
   }
 }
 

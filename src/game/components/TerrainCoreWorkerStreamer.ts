@@ -20,6 +20,12 @@ import {
   type TerrainDensityChunkPayload,
   type TerrainDensityJobStats
 } from "../../engine/world/terrainChunkWorkerTypes.js";
+import {
+  prepareTerrainDensityChunkForWorkerTransfer,
+  resolveTerrainDensityTransferMode,
+  type TerrainDensityTransferMode,
+  type TerrainDensityTransferModeRequest
+} from "../../engine/world/terrainDensityTransfer.js";
 import { POSITION_COLOR_NORMAL_UV_LAYOUT } from "../../engine/world/terrainMesh.js";
 
 export type TerrainCoreWorkerStreamStatus = {
@@ -36,6 +42,7 @@ export type TerrainCoreWorkerStreamStatus = {
   readonly inFlightChunkCount: number;
   readonly missingChunkCount: number;
   readonly maxConcurrentChunkJobs: number;
+  readonly densityTransferMode: TerrainDensityTransferMode;
   readonly lastDensityJobStats?: TerrainDensityJobStats;
   readonly lastChunkJobStats?: TerrainChunkJobStats;
 };
@@ -45,6 +52,7 @@ export type TerrainCoreWorkerStreamerOptions = {
   readonly material?: ResourceId;
   readonly cellSize?: number;
   readonly meshIdPrefix?: string;
+  readonly densityTransferMode?: TerrainDensityTransferModeRequest;
 };
 
 export class TerrainCoreWorkerStreamer extends Component {
@@ -53,6 +61,7 @@ export class TerrainCoreWorkerStreamer extends Component {
   material?: ResourceId;
   cellSize: number;
   meshIdPrefix: string;
+  densityTransferMode: TerrainDensityTransferMode;
 
   private lastCenterCoord?: TerrainChunkCoord;
   private lastDensityJobStats?: TerrainDensityJobStats;
@@ -70,6 +79,7 @@ export class TerrainCoreWorkerStreamer extends Component {
     this.material = options.material;
     this.cellSize = options.cellSize ?? 1;
     this.meshIdPrefix = options.meshIdPrefix ?? "mesh:terrain.chunk";
+    this.densityTransferMode = resolveTerrainDensityTransferMode(options.densityTransferMode);
     validateCellSize(this.cellSize);
   }
 
@@ -139,6 +149,7 @@ export class TerrainCoreWorkerStreamer extends Component {
       inFlightChunkCount: status.inFlightLodCount,
       missingChunkCount: status.missingLod0Count,
       maxConcurrentChunkJobs: status.maxInFlightJobs,
+      densityTransferMode: this.densityTransferMode,
       lastDensityJobStats: this.lastDensityJobStats,
       lastChunkJobStats: this.lastChunkJobStats
     };
@@ -226,6 +237,7 @@ export class TerrainCoreWorkerStreamer extends Component {
       generation,
       coord,
       densityChunks,
+      densityBufferTransfer: this.densityTransferMode === "transfer" ? "move" : "clone",
       cellSize: this.cellSize
     }).then((result) => {
       const key = terrainChunkKey(coord);
@@ -276,7 +288,10 @@ export class TerrainCoreWorkerStreamer extends Component {
         return undefined;
       }
 
-      chunks.push(chunk);
+      chunks.push(prepareTerrainDensityChunkForWorkerTransfer(
+        chunk,
+        this.densityTransferMode
+      ));
     }
 
     return chunks;

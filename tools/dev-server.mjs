@@ -18,8 +18,18 @@ const contentTypes = new Map([
   [".svg", "image/svg+xml; charset=utf-8"]
 ]);
 
+const sharedHeaders = {
+  "cache-control": "no-store",
+  "cross-origin-embedder-policy": "require-corp",
+  "cross-origin-opener-policy": "same-origin",
+  "cross-origin-resource-policy": "same-origin"
+};
+
 function sendText(response, status, text) {
-  response.writeHead(status, { "content-type": "text/plain; charset=utf-8" });
+  response.writeHead(status, {
+    ...sharedHeaders,
+    "content-type": "text/plain; charset=utf-8"
+  });
   response.end(text);
 }
 
@@ -40,7 +50,7 @@ createServer((request, response) => {
   }
 
   response.writeHead(200, {
-    "cache-control": "no-store",
+    ...sharedHeaders,
     "content-type": contentTypes.get(extname(filePath)) ?? "application/octet-stream"
   });
   createReadStream(filePath).pipe(response);

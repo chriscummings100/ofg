@@ -125,6 +125,10 @@ Supported:
   main `terrain_core.wasm` density store instead of a TypeScript-owned payload
   map. Mesh job submission loads the required 2x2x2 apron payloads from that
   Rust store before sending them to a worker.
+- The dev and browser-smoke server now serves the app cross-origin isolated, and
+  the playable Rust scheduler bridge uses `SharedArrayBuffer`-backed density
+  dependency payloads for LOD0 mesh jobs when available. Browser smoke asserts
+  `densityTransferMode: "shared"` so refresh/worker regressions fail loudly.
 
 Partially supported or placeholder-only:
 
@@ -149,12 +153,13 @@ Partially supported or placeholder-only:
   Dual Contouring, same-LOD neighbor seam ownership, and triangle-local material
   palette expansion. It has a first retained density chunk store, and the
   browser scheduler-backed path now uses that Rust/WASM store as the retained
-  density payload owner for mesh submissions. Mesh workers still copy/install
-  those payloads into local Rust/WASM stores; this is not yet
-  `SharedArrayBuffer`, partition-aware worker ownership, multi-resolution
-  streaming, or mesh-upload optimized.
-- TypeScript still owns the browser Worker host, density payload copies into mesh
-  workers, renderer cache objects, and WebGPU upload around the Rust scheduler.
+  density payload owner for mesh submissions. Mesh dependencies are now backed
+  by `SharedArrayBuffer` in the isolated browser runtime, but mesh workers still
+  copy/install those payloads into local Rust/WASM stores; this is not yet
+  Rust-managed wasm threads, partition-aware worker ownership,
+  multi-resolution streaming, or mesh-upload optimized.
+- TypeScript still owns the browser Worker host, shared-density payload
+  submission, renderer cache objects, and WebGPU upload around the Rust scheduler.
   The playable runtime no longer uses `TerrainChunkStreamer` as its terrain
   manager and no longer mutates `TerrainRenderer` or a TypeScript packet store
   for streamed chunks. `TerrainCoreWorkerStreamer` is now a small browser bridge
@@ -183,9 +188,9 @@ Not yet supported:
   placement.
 - Far-field terrain, LOD, LOD transition meshes, or mature view/visibility
   priority scheduling.
-- True shared-memory or partition-aware multi-resolution density/mesh streaming,
-  Rust-managed wasm threads, batch density jobs, fine-grained cancellation queues
-  beyond generation-token invalidation, or mesh upload preparation.
+- Rust-managed wasm threads, partition-aware multi-resolution density/mesh
+  streaming, batch density jobs, fine-grained cancellation queues beyond
+  generation-token invalidation, or mesh upload preparation.
 - Saveable human-facing terrain tuning knobs.
 - Terrain collision/grounding based on the generated mesh. Player grounding still
   uses a compatibility `heightAt(x, z)` query.
@@ -206,10 +211,11 @@ Current believability gap:
   expensive chunk sampling/meshing path behind Rust/WASM, add generation timing
   counters, widen the visible terrain window, then expose saveable tuning knobs.
   The current Rust/WASM worker pipeline now separates density from meshing and
-  retains density payloads in Rust/WASM, but it still copies density payloads
-  into mesh workers and has not yet proven a larger view distance budget. Browser
-  CPU parallelism is still Worker-backed; Rust-managed threading will need a
-  wasm-threads/SharedArrayBuffer/cross-origin-isolation runtime slice.
+  retains density payloads in Rust/WASM. LOD0 mesh dependencies now travel to
+  Workers through shared browser buffers, but each Worker still copies them into
+  local WASM memory before contouring and the system has not yet proven a larger
+  view distance budget. Browser CPU parallelism is still Worker-backed;
+  Rust-managed threading will need a wasm-threads runtime slice.
   Hydrology and better biome composition remain the next believability layer once
   the terrain can regenerate fast enough to tune.
 
@@ -338,9 +344,9 @@ Proposed order:
    - Main thread should stop blocking on expensive terrain rebuilds.
    - Treat density chunks as the lowest current LOD generated over the widest
      active radius, so apron reuse falls out of the streaming model.
-   - Next: reduce density payload copy cost, add batch/partition-aware density
-     work, improve stale-work cancellation, and measure wider view-distance
-     budgets before increasing view distance aggressively.
+   - Next: reduce worker-local WASM install cost, add batch/partition-aware
+     density work, improve stale-work cancellation, and measure wider
+     view-distance budgets before increasing view distance aggressively.
    - Validation: free-flight remains hole-free while visible radius increases.
 6. Add a terrain tuning panel with save/load only after regeneration is responsive.
    - Knobs should cover seed, preset, macro scales, ridge strength, detail
@@ -367,6 +373,7 @@ Progress notes:
 | 2026-06-01 | In progress | Split the scheduler state into explicit stages: not present, density-field ready, and renderable LOD 0/empty. Worker messages now include density jobs as a separate stage, and the streamer only schedules a chunk mesh after its positive-apron density dependencies are marked ready. This matches the intended multi-stage architecture and sets up future LOD N stages. Caveat: Rust density storage is still local to each worker, so the next architecture step is a shared or partition-aware density store rather than just logical readiness in TypeScript. |
 | 2026-06-01 | In progress | Added the first properly shared density payload layer. Density jobs transfer generated 33x33x33 `Float32Array` chunks back to `TerrainChunkStreamer`, the streamer retains them by chunk key, and mesh jobs receive the exact 2x2x2 apron payloads they depend on before installing them into worker-local Rust/WASM storage. This makes the TypeScript scheduler's density-ready state physically meaningful across workers. Caveat: payloads are still copied into mesh workers, not backed by `SharedArrayBuffer` or persistent partition-owned worker stores. |
 | 2026-06-01 | In progress | Moved the scheduler-backed retained density payload owner from the TypeScript streamer map into the main Rust/WASM terrain core. `TerrainChunkStreamer` now writes completed density payloads into the Rust density store, loads mesh apron dependencies from that store, and exposes `densityStoreRuntime: rust` for browser smoke. Caveat: mesh workers still receive copied payloads and install them into worker-local Rust/WASM stores; partition-aware worker ownership and shared-memory transfer remain next. |
+| 2026-06-02 | In progress | Enabled the first browser shared-memory density transfer path. The dev/smoke server now sends COOP/COEP/CORP headers, `TerrainCoreWorkerStreamer` wraps LOD0 apron dependencies from the Rust density store in `SharedArrayBuffer` payloads when available, and browser smoke asserts cross-origin isolation plus `densityTransferMode: "shared"`. Caveat: TypeScript still hosts Workers, and each worker still copies shared payload contents into its own `terrain_core.wasm` density store before meshing; Rust-managed wasm threads and partition-owned worker stores remain next. |
 
 ## Milestone 1: Generator Core
 
@@ -881,7 +888,8 @@ Progress notes:
 | 2026-06-02 | In progress | Added the first playable terrain render-packet bridge. `TerrainChunkStreamer` now targets a chunk-sink interface, the browser runtime streams Rust/WASM worker mesh payloads into `TerrainRenderPacketStore`, and `SceneRenderExtractor` appends those packet items to `RenderWorld` instead of discovering playable terrain through `TerrainRenderer`. Browser smoke asserts `terrainRenderPacketRuntime: rust`. Remaining ownership gap: TypeScript still owns worker dispatch, density payload transfer into workers, mesh object creation, packet storage, and WebGPU upload. |
 | 2026-06-02 | In progress | Moved playable terrain mesh packet storage into Rust. `terrain_core.wasm` now validates and stores completed chunk mesh payloads by chunk coordinate/LOD, exposes packet-list and packet-load buffers, and the browser uses `TerrainCoreRenderPacketStore` as the current WebGPU cache adapter. `TerrainChunkStreamer` passes raw mesh buffers to its sink instead of constructing `Mesh` objects. Remaining ownership gap: TypeScript still owns worker dispatch, density payload transfer into workers, renderer cache objects, WebGPU upload, and scene extraction for marker/static meshes. |
 | 2026-06-02 | In progress | Moved scheduler-backed terrain packet pruning into Rust. The mesh packet store now has a retain operation exposed through `terrain_core.wasm`; the scheduler-backed streamer prunes rendered packets through that Rust store and uses Rust scheduler LOD0 ready/empty counts for status instead of treating TypeScript render/empty sets as the source of truth. |
-| 2026-06-02 | In progress | Moved the playable terrain worker queue to a Rust-owned bridge. `TerrainCoreWorkerStreamer` now replaces `TerrainChunkStreamer` in the browser app; it executes Worker jobs emitted by the Rust scheduler, loads LOD0 density dependencies from Rust-provided coordinates, stores completed density/mesh payloads in Rust, and exposes `streamerRuntime: rust` in browser smoke. Remaining gap: TypeScript still hosts browser Workers and copies payloads until the runtime moves to shared-memory/wasm-threads or Rust-managed worker infrastructure. |
+| 2026-06-02 | In progress | Moved the playable terrain worker queue to a Rust-owned bridge. `TerrainCoreWorkerStreamer` now replaces `TerrainChunkStreamer` in the browser app; it executes Worker jobs emitted by the Rust scheduler, loads LOD0 density dependencies from Rust-provided coordinates, stores completed density/mesh payloads in Rust, and exposes `streamerRuntime: rust` in browser smoke. At that point TypeScript still hosted browser Workers and copied payloads until the later shared-transfer slice. |
+| 2026-06-02 | In progress | Added SharedArrayBuffer-backed density dependency transfer for the playable Rust worker bridge. The dev/smoke server now enables cross-origin isolation, `TerrainCoreWorkerStreamer` reports `densityTransferMode`, and browser smoke asserts the shared path after refresh. Remaining gap: Workers are still hosted from TypeScript, and shared density payloads are still copied into worker-local WASM memory before contouring; Rust-managed wasm threads remain the next threading slice. |
 
 ## Cross-Cutting Validation
 

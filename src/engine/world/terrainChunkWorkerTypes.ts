@@ -5,6 +5,7 @@ export type TerrainChunkJobRequest = {
   readonly generation: number;
   readonly coord: TerrainChunkCoord;
   readonly densityChunks: readonly TerrainDensityChunkPayload[];
+  readonly densityBufferTransfer?: "clone" | "move";
   readonly cellSize: number;
 };
 

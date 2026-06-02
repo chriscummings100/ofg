@@ -1,4 +1,4 @@
-import { equal } from "node:assert/strict";
+import { equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { vec3 } from "../../engine/math/vec3.js";
 import { TerrainCoreRenderPacketStore } from "../../engine/render/TerrainCoreRenderPackets.js";
@@ -18,11 +18,15 @@ import {
 } from "../../engine/world/terrainChunk.js";
 import type {
   TerrainChunkJobGenerator,
+  TerrainDensityChunkPayload,
   TerrainDensityJobResult
 } from "../../engine/world/terrainChunkWorkerTypes.js";
 import { createSeedWorldDescriptor } from "../../engine/world/terrainGenerator.js";
 import { TERRAIN_CORE_WASM_METADATA } from "../../generated/terrain/terrainCoreWasm.js";
-import { TerrainCoreWorkerStreamer } from "./TerrainCoreWorkerStreamer.js";
+import {
+  TerrainCoreWorkerStreamer,
+  type TerrainCoreWorkerStreamerOptions
+} from "./TerrainCoreWorkerStreamer.js";
 
 describe("TerrainCoreWorkerStreamer", () => {
   it("executes worker jobs selected by the Rust stream scheduler", async () => {
@@ -87,11 +91,35 @@ describe("TerrainCoreWorkerStreamer", () => {
     equal(streamer.getLoadedChunkKeys().includes("1,0,0"), true);
     equal(streamer.getLoadedChunkKeys().includes("0,0,0"), false);
   });
+
+  it("can send LOD dependencies through shared density buffers", async () => {
+    if (typeof SharedArrayBuffer === "undefined") {
+      return;
+    }
+
+    const terrainCore = await loadTerrainCore();
+    const worker = createImmediateWorker();
+    const { streamer } = createStreamer(terrainCore, worker, {
+      densityTransferMode: "shared"
+    });
+
+    streamer.syncAround(vec3(0, 0, 0));
+    await flushMicrotasks(8);
+
+    equal(streamer.getStreamStatus().densityTransferMode, "shared");
+    equal(worker.chunkRequests.length, 1);
+    equal(worker.chunkRequests[0].densityChunks.length, 8);
+    for (const chunk of worker.chunkRequests[0].densityChunks) {
+      ok(chunk.densities.buffer instanceof SharedArrayBuffer);
+      equal(chunk.densities[0], densitySampleMarker(chunk.coord));
+    }
+  });
 });
 
 function createStreamer(
   terrainCore: TerrainCoreWasmInstance,
-  worker: TerrainChunkJobGenerator
+  worker: TerrainChunkJobGenerator,
+  options: TerrainCoreWorkerStreamerOptions = {}
 ): {
   readonly streamer: TerrainCoreWorkerStreamer;
   readonly renderPackets: TerrainCoreRenderPacketStore;
@@ -113,7 +141,8 @@ function createStreamer(
     densityStore,
     worker,
     {
-      material: "material:terrain"
+      material: "material:terrain",
+      ...options
     }
   );
 
@@ -122,10 +151,10 @@ function createStreamer(
 
 function createImmediateWorker(): TerrainChunkJobGenerator & {
   readonly densityRequests: TerrainDensityJobResult[];
-  readonly chunkRequests: Array<{ readonly densityChunks: readonly unknown[] }>;
+  readonly chunkRequests: Array<{ readonly densityChunks: readonly TerrainDensityChunkPayload[] }>;
 } {
   const densityRequests: TerrainDensityJobResult[] = [];
-  const chunkRequests: Array<{ readonly densityChunks: readonly unknown[] }> = [];
+  const chunkRequests: Array<{ readonly densityChunks: readonly TerrainDensityChunkPayload[] }> = [];
 
   return {
     workerCount: 8,
