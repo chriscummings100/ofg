@@ -38,7 +38,14 @@ src/engine/render
   CPU-side render resources, Rust packet adapters, RenderWorld data, and WebGPU
   resource setup/draw submission. Runtime terrain chunks enter this path through
   a Rust-backed terrain render-packet adapter. This renderer is current runtime
-  infrastructure, but Rust/wgpu is the target renderer.
+  infrastructure, but Rust/wgpu is the target renderer. The TypeScript renderer
+  now mirrors GPU resource lifetimes into `engine_web.wasm` while it still owns
+  actual WebGPU calls.
+
+src/engine/web
+  Browser-facing WASM loaders for Rust systems that are not pure engine core or
+  terrain. `engineWebWasm.ts` currently loads the first Rust WebGPU renderer
+  bridge.
 
 src/engine/render/shaders
   Shader source inputs. The current `uber.wgsl` is the single shader contract for
@@ -63,9 +70,14 @@ adapter.
 - `terrain_core.wasm` owns terrain height/density sampling, generated chunk mesh
   emission, stream scheduling, density storage, worker-pool request state, and
   terrain mesh packet storage.
+- `engine_web.wasm` owns the first Rust-side WebGPU renderer resource ledger:
+  canvas limits, terrain texture array requirements, live mesh/texture/object
+  handles, frame draw counts, and stale resource destruction validation.
 - TypeScript collects DOM input, parses URL seed/preset values, starts WASM,
   hosts browser Workers, wraps shared density buffers, exposes debug hooks, and
-  assembles `RenderWorld` for the still-TypeScript `WebGpuRenderer`.
+  assembles `RenderWorld` for the still-TypeScript `WebGpuRenderer`. TypeScript
+  still owns the actual WebGPU device, pipelines, texture uploads, and render
+  pass submission until the Rust/wgpu slice lands.
 
 [SCENE_MODEL_PLAN.md](SCENE_MODEL_PLAN.md) is now historical documentation of the
 deleted TypeScript scene model. Future large-scale world state should move into

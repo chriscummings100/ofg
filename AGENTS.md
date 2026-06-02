@@ -18,6 +18,8 @@ The current playable seed is still simple:
 - Rust/WASM terrain core artifact that owns terrain height/density sampling,
   chunk meshing, stream scheduling, density storage, and mesh packet storage.
 - Rust-owned first-person camera/player movement through `engine_core.wasm`.
+- First Rust/WASM WebGPU renderer bridge through `engine_web.wasm`, currently
+  tracking renderer resource lifetimes while TypeScript still submits draws.
 - Debug fly camera toggled with `C` or `F1`.
 - A yellow player marker visible in debug fly mode.
 - WebGPU renderer using generated WGSL shader artifacts.
@@ -89,7 +91,10 @@ src/engine/render
   WebGPU renderer plus packet render data types. Runtime rendering flows through
   `RenderWorld` assembled by the app, `TerrainCoreRenderPacketStore` for streamed
   terrain chunks, Rust engine render packets for camera/light/player marker, and
-  the temporary TypeScript `WebGpuRenderer`.
+  the temporary TypeScript `WebGpuRenderer`. That renderer now mirrors canvas,
+  mesh, texture, object, frame, draw, and pruning lifetimes into
+  `engine_web.wasm`; actual WebGPU calls remain TypeScript-owned until Rust/wgpu
+  lands.
   Materials currently support albedo factor, albedo/normal/material texture
   resources, specular, and specular factor; the shader uses Lambert plus
   Blinn-Phong lighting. Terrain rendering uses global 16-layer albedo, normal, and
@@ -103,7 +108,7 @@ src/engine/render/shaders
 
 src/generated
   Deterministic generated TypeScript artifacts, currently shader source modules
-  and Rust/WASM terrain and engine artifact metadata.
+  and Rust/WASM terrain, engine, and engine-web artifact metadata.
 
 crates/engine_core
   Rust engine core built to wasm32-unknown-unknown. It owns player/camera state,
@@ -117,9 +122,10 @@ crates/terrain_core
   worker-pool state, and terrain mesh packet storage. It is now the browser
   terrain source of truth.
 
-Future crates
-  `docs/RUST_ENGINE_PLAN.md` proposes a browser-facing Rust/WASM renderer crate.
-  New world/simulation/render ownership should generally move in that direction.
+crates/engine_web
+  Browser-facing Rust renderer bridge built to wasm32-unknown-unknown. It owns
+  the first tested WebGPU resource ledger and is the staging crate for the future
+  Rust/wgpu renderer.
 
 src/game/components
   Game-level browser bridge classes such as `RustPlayerController` and
@@ -143,7 +149,8 @@ step.
   through `terrain_core.wasm`.
 - TypeScript currently owns browser startup, DOM input collection, URL parameter
   parsing, debug hooks, browser Worker transport, WebGPU resource upload/cache
-  adaptation, and the temporary `WebGpuRenderer`.
+  adaptation, and actual draw submission through the temporary `WebGpuRenderer`.
+  Rust already tracks the renderer resource ledger through `engine_web.wasm`.
 - New high-volume world, terrain streaming, simulation, render extraction, and
   WebGPU ownership should follow `docs/RUST_ENGINE_PLAN.md`.
 

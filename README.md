@@ -17,10 +17,12 @@ The first playable milestone is intentionally small:
 
 The current seed implements chunk-streamed generated terrain with a Rust/WASM
 runtime terrain path, Poly Haven terrain texture arrays, and Rust-owned
-camera/player state. The forward architecture is Rust-first: Rust should own
-world state, simulation, terrain streaming, render extraction, and WebGPU
-rendering, while TypeScript becomes browser shell, UI, worker transport, and
-temporary renderer glue.
+camera/player state. It also has the first Rust/WASM WebGPU renderer bridge for
+resource-lifetime tracking; actual WebGPU draw submission is still TypeScript for
+now. The forward architecture is Rust-first: Rust should own world state,
+simulation, terrain streaming, render extraction, and WebGPU rendering, while
+TypeScript becomes browser shell, UI, worker transport, and temporary renderer
+glue.
 
 ## Commands
 
@@ -52,6 +54,8 @@ chunk mesh generation, then writes a JSON report under
   WASM terrain metadata.
 - `crates/terrain_core`: Rust terrain code built to WebAssembly for hot terrain
   generation paths.
+- `crates/engine_web`: browser-facing Rust/WASM renderer bridge. It currently
+  owns CPU-side WebGPU resource lifetime tracking before the full Rust/wgpu port.
 - `assets/wasm`: checked-in generated WebAssembly artifacts used by the browser.
 - `docs`: roadmap, architecture notes, and AI workflow guidance.
 - `tools`: small repository scripts with no framework dependency.

@@ -5,6 +5,11 @@ import {
   loadEngineCoreWasm,
   type EngineCoreRenderDebugMarkerPacket
 } from "../engine/core/engineCoreWasm.js";
+import {
+  EngineWebGpuBridge,
+  loadEngineWebWasm,
+  type EngineWebRendererStatus
+} from "../engine/web/engineWebWasm.js";
 import { identityMat4, type Mat4 } from "../engine/math/mat4.js";
 import { vec3, type Vec3 } from "../engine/math/vec3.js";
 import { vec4 } from "../engine/math/vec4.js";
@@ -69,6 +74,9 @@ declare global {
       getTerrainWorkerPoolRuntime: () => "rust" | "typescript";
       getRenderPacketRuntime: () => "rust" | "typescript";
       getTerrainRenderPacketRuntime: () => "rust";
+      getRendererRuntime: () => "typescript";
+      getRendererBridgeRuntime: () => "rust";
+      getRendererBridgeStatus: () => EngineWebRendererStatus | undefined;
       getTerrainWorkerCount: () => number;
       getPlayerControllerRuntime: () => "rust";
       resetTerrainStreaming: () => void;
@@ -81,7 +89,10 @@ declare global {
 }
 
 export async function startGame(elements: GameElements): Promise<void> {
-  const renderer = new WebGpuRenderer(elements.canvas);
+  const engineWeb = await loadRequiredEngineWeb();
+  const rendererBridge = new EngineWebGpuBridge(engineWeb);
+  rendererBridge.reset();
+  const renderer = new WebGpuRenderer(elements.canvas, rendererBridge);
   const input = new InputTracker();
   const descriptor = readWorldDescriptor();
   const terrainCore = await loadRequiredTerrainCore();
@@ -161,6 +172,9 @@ export async function startGame(elements: GameElements): Promise<void> {
     getTerrainWorkerPoolRuntime: () => terrainWorker.workerPoolRuntime,
     getRenderPacketRuntime: () => renderPacketRuntime,
     getTerrainRenderPacketRuntime: () => "rust",
+    getRendererRuntime: () => "typescript",
+    getRendererBridgeRuntime: () => rendererBridge.runtime,
+    getRendererBridgeStatus: () => renderer.getRustBridgeStatus(),
     getTerrainWorkerCount: () => terrainWorker.workerCount,
     getPlayerControllerRuntime: () => "rust",
     resetTerrainStreaming() {
@@ -264,6 +278,10 @@ async function loadRequiredEngineCore(): Promise<EngineCoreWasmHandle> {
   const handle = new EngineCoreWasmHandle(await loadEngineCoreWasm());
   handle.reset();
   return handle;
+}
+
+async function loadRequiredEngineWeb() {
+  return loadEngineWebWasm();
 }
 
 function createTerrainHeightSampler(

@@ -140,6 +140,11 @@ Supported:
 - The compiled TypeScript scene/component model has been retired. The app
   directly assembles `RenderWorld` from Rust camera/light/player-marker packets
   and Rust terrain mesh packets.
+- The Rust WebGPU migration has started with `engine_web.wasm`. It does not draw
+  yet, but it owns the current renderer resource ledger for canvas limits, terrain
+  texture array requirements, live mesh/texture/object handles, frame draw counts,
+  and stale resource destruction validation. Browser smoke asserts this Rust
+  bridge is loaded and tracking live renderer resources.
 
 Partially supported or placeholder-only:
 
@@ -172,12 +177,14 @@ Partially supported or placeholder-only:
   threads, partition-aware worker ownership, multi-resolution streaming, or
   mesh-upload optimized.
 - TypeScript still owns the browser Worker transport, shared-density payload
-  wrapping, current WebGPU mesh/texture cache objects, and WebGPU upload around
-  the Rust scheduler. `TerrainCoreWorkerStreamer` is now a small browser bridge
+  wrapping, current WebGPU mesh/texture cache objects, actual WebGPU upload, and
+  draw submission around the Rust scheduler. `TerrainCoreWorkerStreamer` is now a small browser bridge
   that executes Worker jobs selected by `terrain_core.wasm`, asks Rust for LOD0
   density dependency coordinates, stores density and mesh payloads in Rust, and
   feeds terrain packets to the temporary TypeScript renderer. This is a bridge,
   not full Rust render extraction, Rust-managed browser threading, or Rust/wgpu.
+  The temporary TypeScript renderer now mirrors resource lifetimes into
+  `engine_web.wasm`, but Rust/wgpu has not yet taken over actual GPU calls.
 - The Rust engine migration has started the render-packet bridge for camera,
   main light, debug player marker data, and streamed terrain chunk mesh payloads.
   Terrain chunk packet storage is Rust-owned for the playable path, and the old
@@ -925,6 +932,7 @@ Progress notes:
 | 2026-06-02 | In progress | Moved the terrain worker-pool/request model into Rust. `terrain_core.wasm` now owns worker count, slot assignment, request IDs, in-flight task records, reset generation tokens, stale completion rejection, and mismatch detection. TypeScript still constructs browser Workers, but only through a generic worker transport; browser smoke asserts `workerPoolRuntime: rust`. |
 | 2026-06-02 | Cleanup complete | Deleted compiled legacy TypeScript terrain streaming/rendering code now superseded by the Rust scheduler/mesh packet path: `TerrainChunkStreamer`, `TerrainRenderer`, old TypeScript terrain packet store, highest-surface chunk mesher, and heightfield mesh builder/tests. |
 | 2026-06-02 | Rust terrain source of truth | Deleted the compiled TypeScript terrain generator/noise reference, TypeScript Dual Contouring/debug overlay path, and old terrain debug/variation smoke tools. The app now directly assembles `RenderWorld` from Rust camera/light/player-marker packets and Rust terrain mesh packets; TypeScript still handles browser startup, input, Worker transport, shared-density wrapping, debug hooks, WebGPU upload/cache adaptation, and the temporary `WebGpuRenderer`. |
+| 2026-06-02 | Rust WebGPU bridge started | Added `engine_web.wasm` as the first Phase 5 renderer migration slice. The terrain still renders through the temporary TypeScript `WebGpuRenderer`, but that renderer now registers mesh, texture, object, resize, frame, draw, and pruning events with Rust. Browser smoke asserts the Rust renderer bridge is configured and tracking live draw resources, which gives the next Rust/wgpu slice a tested resource-lifetime boundary. |
 
 ## Cross-Cutting Validation
 

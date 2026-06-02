@@ -1,4 +1,9 @@
 import { UBER_SHADER_METADATA, UBER_SHADER_SOURCE } from "../../generated/render/uberShader.js";
+import {
+  ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM,
+  type EngineWebGpuBridge,
+  type EngineWebRendererStatus
+} from "../web/engineWebWasm.js";
 import { getFloatsPerVertex } from "../world/terrainMesh.js";
 import { FRAME_UNIFORM_BYTES, FRAME_UNIFORM_FLOATS, buildFrameUniformValues } from "./FrameUniforms.js";
 import type { Mesh } from "./Mesh.js";
@@ -10,6 +15,7 @@ type GpuMesh = {
   readonly vertexBuffer: GpuAny;
   readonly indexBuffer: GpuAny;
   readonly indexCount: number;
+  readonly rustHandle?: bigint;
 };
 
 type GpuObject = {
@@ -19,11 +25,13 @@ type GpuObject = {
   readonly albedoTexture: GpuTexture;
   readonly normalTexture: GpuTexture;
   readonly materialTexture: GpuTexture;
+  readonly rustHandle?: bigint;
 };
 
 type GpuTexture = {
   readonly texture: GpuAny;
   readonly view: GpuAny;
+  readonly rustHandle?: bigint;
 };
 
 const FALLBACK_ALBEDO_TEXTURE = new Texture(
@@ -70,7 +78,7 @@ export class WebGpuRenderer {
   private width = 0;
   private height = 0;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, private readonly rustBridge?: EngineWebGpuBridge) {
     this.canvas = canvas;
   }
 
@@ -104,6 +112,17 @@ export class WebGpuRenderer {
 
     this.context = context;
     this.format = gpu.getPreferredCanvasFormat();
+    const displaySize = this.computeDisplaySize();
+    if (
+      this.rustBridge !== undefined &&
+      !this.rustBridge.configure(
+        displaySize.width,
+        displaySize.height,
+        adapter.limits.maxTextureArrayLayers
+      )
+    ) {
+      throw new Error("Rust WebGPU bridge rejected the renderer configuration.");
+    }
     this.cameraUniformBuffer = this.device.createBuffer({
       label: "camera uniforms",
       size: FRAME_UNIFORM_BYTES,
@@ -260,9 +279,7 @@ export class WebGpuRenderer {
   }
 
   resize(): void {
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-    const displayWidth = Math.max(1, Math.floor(this.canvas.clientWidth * pixelRatio));
-    const displayHeight = Math.max(1, Math.floor(this.canvas.clientHeight * pixelRatio));
+    const { width: displayWidth, height: displayHeight } = this.computeDisplaySize();
 
     if (displayWidth === this.width && displayHeight === this.height) {
       return;
@@ -277,6 +294,12 @@ export class WebGpuRenderer {
       format: this.format,
       alphaMode: "opaque"
     });
+    if (
+      this.rustBridge !== undefined &&
+      !this.rustBridge.resize(displayWidth, displayHeight)
+    ) {
+      throw new Error("Rust WebGPU bridge rejected the canvas resize.");
+    }
     this.depthTexture = this.device.createTexture({
       label: "depth texture",
       size: [displayWidth, displayHeight],
@@ -289,8 +312,18 @@ export class WebGpuRenderer {
     return this.width / this.height;
   }
 
+  getRustBridgeStatus(): EngineWebRendererStatus | undefined {
+    return this.rustBridge?.status();
+  }
+
   render(renderWorld: RenderWorld): void {
     this.resize();
+    if (
+      this.rustBridge !== undefined &&
+      !this.rustBridge.beginFrame(this.width, this.height)
+    ) {
+      throw new Error("Rust WebGPU bridge rejected the frame begin.");
+    }
     this.device.queue.writeBuffer(
       this.cameraUniformBuffer,
       0,
@@ -356,11 +389,20 @@ export class WebGpuRenderer {
     const label = mesh.id;
     const vertexBuffer = this.createBuffer(`${label} vertices`, mesh.vertices, GPUBufferUsage.VERTEX);
     const indexBuffer = this.createBuffer(`${label} indices`, mesh.indices, GPUBufferUsage.INDEX);
+    const rustHandle = this.rustBridge?.registerMesh({
+      vertexFloatCount: mesh.vertices.length,
+      indexCount: mesh.indices.length,
+      floatsPerVertex: mesh.layout.floatsPerVertex
+    });
+    if (this.rustBridge !== undefined && rustHandle === undefined) {
+      throw new Error(`Rust WebGPU bridge rejected mesh '${mesh.id}'.`);
+    }
 
     return {
       vertexBuffer,
       indexBuffer,
-      indexCount: mesh.indices.length
+      indexCount: mesh.indices.length,
+      rustHandle
     };
   }
 
@@ -423,12 +465,23 @@ export class WebGpuRenderer {
       );
     }
 
+    const rustHandle = this.rustBridge?.registerTexture({
+      width: texture.width,
+      height: texture.height,
+      layers: texture.layers,
+      formatCode: textureFormatCode(texture.format)
+    });
+    if (this.rustBridge !== undefined && rustHandle === undefined) {
+      throw new Error(`Rust WebGPU bridge rejected texture '${texture.id}'.`);
+    }
+
     return {
       texture: gpuTexture,
       view: gpuTexture.createView({
         dimension: "2d-array",
         arrayLayerCount: texture.layers
-      })
+      }),
+      rustHandle
     };
   }
 
@@ -452,6 +505,10 @@ export class WebGpuRenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     const uniformValues = cached?.uniformValues ?? new Float32Array(OBJECT_UNIFORM_FLOATS);
+    const rustHandle = cached?.rustHandle ?? this.rustBridge?.registerObject();
+    if (this.rustBridge !== undefined && rustHandle === undefined) {
+      throw new Error(`Rust WebGPU bridge rejected render object '${item.id}'.`);
+    }
     const bindGroup = this.device.createBindGroup({
       label: `${item.id} object bind group`,
       layout: this.objectBindGroupLayout,
@@ -484,7 +541,8 @@ export class WebGpuRenderer {
       bindGroup,
       albedoTexture,
       normalTexture,
-      materialTexture
+      materialTexture,
+      rustHandle
     };
     this.objectUniforms.set(item.id, gpuObject);
     return gpuObject;
@@ -512,6 +570,9 @@ export class WebGpuRenderer {
         continue;
       }
 
+      if (object.rustHandle !== undefined && !this.rustBridge?.destroyObject(object.rustHandle)) {
+        throw new Error(`Rust WebGPU bridge rejected stale object '${id}' destruction.`);
+      }
       object.uniformBuffer.destroy?.();
       this.objectUniforms.delete(id);
     }
@@ -523,7 +584,7 @@ export class WebGpuRenderer {
         continue;
       }
 
-      destroyGpuMesh(gpuMesh);
+      destroyGpuMesh(gpuMesh, this.rustBridge);
       this.meshCache.delete(mesh);
     }
   }
@@ -541,12 +602,40 @@ export class WebGpuRenderer {
     pass.setVertexBuffer(0, mesh.vertexBuffer);
     pass.setIndexBuffer(mesh.indexBuffer, "uint32");
     pass.drawIndexed(mesh.indexCount);
+    if (
+      this.rustBridge !== undefined &&
+      (mesh.rustHandle === undefined ||
+        object.rustHandle === undefined ||
+        !this.rustBridge.noteDraw(mesh.rustHandle, object.rustHandle))
+    ) {
+      throw new Error(`Rust WebGPU bridge rejected draw for render item '${item.id}'.`);
+    }
+  }
+
+  private computeDisplaySize(): { readonly width: number; readonly height: number } {
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+
+    return {
+      width: Math.max(1, Math.floor(this.canvas.clientWidth * pixelRatio)),
+      height: Math.max(1, Math.floor(this.canvas.clientHeight * pixelRatio))
+    };
   }
 }
 
-function destroyGpuMesh(mesh: GpuMesh): void {
+function destroyGpuMesh(mesh: GpuMesh, rustBridge?: EngineWebGpuBridge): void {
+  if (mesh.rustHandle !== undefined && !rustBridge?.destroyMesh(mesh.rustHandle)) {
+    throw new Error("Rust WebGPU bridge rejected stale mesh destruction.");
+  }
   mesh.vertexBuffer.destroy?.();
   mesh.indexBuffer.destroy?.();
+}
+
+function textureFormatCode(format: Texture["format"]): number {
+  if (format === "rgba8unorm") {
+    return ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM;
+  }
+
+  throw new Error(`Unsupported WebGPU texture format '${format}'.`);
 }
 
 function createOpaqueWhiteTextureData(width: number, height: number, layers: number): Uint8Array {
