@@ -22,11 +22,6 @@ const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
 const SHADER_SOURCE: &str = include_str!("../../../src/engine/render/shaders/uber.wgsl");
 
 #[wasm_bindgen]
-pub struct RustWgpuRenderer {
-    renderer: BrowserWgpuRenderer,
-}
-
-#[wasm_bindgen]
 pub struct RustBrowserGame {
     renderer: BrowserWgpuRenderer,
     mesh_handles_by_id: HashMap<String, ResourceHandle>,
@@ -39,7 +34,7 @@ pub struct RustBrowserGame {
 
 #[derive(Debug)]
 #[wasm_bindgen]
-pub struct RustWgpuRendererStatus {
+pub struct RustBrowserGameStatus {
     version: u32,
     configured: bool,
     canvas_width: u32,
@@ -99,150 +94,6 @@ const TERRAIN_MATERIAL_INDICES_OFFSET: usize = 11;
 const TERRAIN_MATERIAL_WEIGHTS_OFFSET: usize = 15;
 const PLAYER_MARKER_MATERIAL_PACKET: [f32; MATERIAL_PACKET_FLOATS] =
     [1.0, 1.0, 1.0, 1.0, 1.0, 0.92, 0.65, 0.45, 0.0, 1.0];
-
-#[wasm_bindgen]
-impl RustWgpuRenderer {
-    #[wasm_bindgen(js_name = create)]
-    pub async fn create(canvas: web_sys::HtmlCanvasElement) -> Result<RustWgpuRenderer, JsValue> {
-        console_error_panic_hook::set_once();
-        let renderer = BrowserWgpuRenderer::new(canvas).await?;
-        Ok(Self { renderer })
-    }
-
-    #[wasm_bindgen(js_name = resize)]
-    pub fn resize(&mut self, width: u32, height: u32) -> Result<(), JsValue> {
-        self.renderer.resize(width, height)
-    }
-
-    #[wasm_bindgen(js_name = registerMesh)]
-    pub fn register_mesh(
-        &mut self,
-        vertices: &[f32],
-        indices: &[u32],
-        floats_per_vertex: u32,
-    ) -> Result<f64, JsValue> {
-        self.renderer
-            .register_mesh(vertices, indices, floats_per_vertex)
-            .map(handle_to_js)
-    }
-
-    #[wasm_bindgen(js_name = destroyMesh)]
-    pub fn destroy_mesh(&mut self, handle: f64) -> Result<(), JsValue> {
-        self.renderer.destroy_mesh(handle_from_js(handle)?)
-    }
-
-    #[wasm_bindgen(js_name = registerTexture)]
-    pub fn register_texture(
-        &mut self,
-        width: u32,
-        height: u32,
-        layers: u32,
-        format_code: u32,
-        data: &[u8],
-    ) -> Result<f64, JsValue> {
-        self.renderer
-            .register_texture(width, height, layers, format_code, data)
-            .map(handle_to_js)
-    }
-
-    #[wasm_bindgen(js_name = destroyTexture)]
-    pub fn destroy_texture(&mut self, handle: f64) -> Result<(), JsValue> {
-        self.renderer.destroy_texture(handle_from_js(handle)?)
-    }
-
-    #[wasm_bindgen(js_name = registerObject)]
-    pub fn register_object(&mut self) -> Result<f64, JsValue> {
-        self.renderer.register_object().map(handle_to_js)
-    }
-
-    #[wasm_bindgen(js_name = destroyObject)]
-    pub fn destroy_object(&mut self, handle: f64) -> Result<(), JsValue> {
-        self.renderer.destroy_object(handle_from_js(handle)?)
-    }
-
-    #[wasm_bindgen(js_name = render)]
-    pub fn render(
-        &mut self,
-        frame_packet: &[f32],
-        mesh_handles: &[f64],
-        object_handles: &[f64],
-        albedo_texture_handles: &[f64],
-        normal_texture_handles: &[f64],
-        material_texture_handles: &[f64],
-        world_matrices: &[f32],
-        material_packets: &[f32],
-    ) -> Result<(), JsValue> {
-        self.renderer.render(
-            frame_packet,
-            mesh_handles,
-            object_handles,
-            albedo_texture_handles,
-            normal_texture_handles,
-            material_texture_handles,
-            world_matrices,
-            material_packets,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    #[wasm_bindgen(js_name = renderEngineFrame)]
-    pub fn render_engine_frame(
-        &mut self,
-        engine_snapshot: &[f32],
-        aspect: f32,
-        mesh_handles: &[f64],
-        object_handles: &[f64],
-        albedo_texture_handles: &[f64],
-        normal_texture_handles: &[f64],
-        material_texture_handles: &[f64],
-        world_matrices: &[f32],
-        material_packets: &[f32],
-        player_marker_mesh_handle: f64,
-        player_marker_object_handle: f64,
-        player_marker_albedo_texture_handle: f64,
-        player_marker_normal_texture_handle: f64,
-        player_marker_material_texture_handle: f64,
-        player_marker_material_packet: &[f32],
-    ) -> Result<(), JsValue> {
-        self.renderer.render_engine_frame(
-            engine_snapshot,
-            aspect,
-            mesh_handles,
-            object_handles,
-            albedo_texture_handles,
-            normal_texture_handles,
-            material_texture_handles,
-            world_matrices,
-            material_packets,
-            player_marker_mesh_handle,
-            player_marker_object_handle,
-            player_marker_albedo_texture_handle,
-            player_marker_normal_texture_handle,
-            player_marker_material_texture_handle,
-            player_marker_material_packet,
-        )
-    }
-
-    #[wasm_bindgen(js_name = status)]
-    pub fn status(&self) -> RustWgpuRendererStatus {
-        self.renderer.status()
-    }
-
-    #[wasm_bindgen(js_name = fallbackAlbedoTextureHandle)]
-    pub fn fallback_albedo_texture_handle(&self) -> f64 {
-        handle_to_js(self.renderer.fallback_albedo)
-    }
-
-    #[wasm_bindgen(js_name = fallbackNormalTextureHandle)]
-    pub fn fallback_normal_texture_handle(&self) -> f64 {
-        handle_to_js(self.renderer.fallback_normal)
-    }
-
-    #[wasm_bindgen(js_name = fallbackMaterialTextureHandle)]
-    pub fn fallback_material_texture_handle(&self) -> f64 {
-        handle_to_js(self.renderer.fallback_material)
-    }
-}
 
 #[wasm_bindgen]
 impl RustBrowserGame {
@@ -420,7 +271,7 @@ impl RustBrowserGame {
     }
 
     #[wasm_bindgen(js_name = status)]
-    pub fn status(&self) -> RustWgpuRendererStatus {
+    pub fn status(&self) -> RustBrowserGameStatus {
         self.renderer.status()
     }
 }
@@ -483,7 +334,7 @@ impl RustBrowserGame {
 }
 
 #[wasm_bindgen]
-impl RustWgpuRendererStatus {
+impl RustBrowserGameStatus {
     #[wasm_bindgen(getter)]
     pub fn version(&self) -> u32 {
         self.version
@@ -1208,8 +1059,8 @@ impl BrowserWgpuRenderer {
         Ok(self.textures.insert(GpuTexture { view }))
     }
 
-    fn status(&self) -> RustWgpuRendererStatus {
-        RustWgpuRendererStatus {
+    fn status(&self) -> RustBrowserGameStatus {
+        RustBrowserGameStatus {
             version: ENGINE_WEB_VERSION,
             configured: true,
             canvas_width: self.config.width,

@@ -3,13 +3,11 @@ import { readFileSync } from "node:fs";
 import { ENGINE_WEB_WASM_METADATA } from "../../generated/web/engineWebWasm.js";
 import {
   createEngineWebBrowserGame,
-  createEngineWebRenderer,
   ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM,
   loadEngineWebWasmModule,
   patchLegacyWgpuRequiredLimits,
   type EngineWebBrowserGame,
-  type EngineWebWasmModule,
-  type EngineWebWgpuRenderer
+  type EngineWebWasmModule
 } from "./engineWebWasm.js";
 
 describe("engine web WASM", () => {
@@ -24,8 +22,7 @@ describe("engine web WASM", () => {
     ok(/^sha256-[0-9a-f]{64}$/.test(ENGINE_WEB_WASM_METADATA.moduleHash));
     ok(/^sha256-[0-9a-f]{64}$/.test(ENGINE_WEB_WASM_METADATA.dtsHash));
     ok(ENGINE_WEB_WASM_METADATA.exports.includes("RustBrowserGame"));
-    ok(ENGINE_WEB_WASM_METADATA.exports.includes("RustWgpuRenderer"));
-    ok(ENGINE_WEB_WASM_METADATA.exports.includes("RustWgpuRendererStatus"));
+    ok(ENGINE_WEB_WASM_METADATA.exports.includes("RustBrowserGameStatus"));
   });
 
   it("emits wasm-bindgen glue for the Rust/wgpu renderer facade", () => {
@@ -33,20 +30,16 @@ describe("engine web WASM", () => {
     const dtsText = readFileSync(ENGINE_WEB_WASM_METADATA.dtsPath, "utf8");
 
     ok(moduleText.includes("export class RustBrowserGame"));
-    ok(moduleText.includes("export class RustWgpuRenderer"));
-    ok(moduleText.includes("export class RustWgpuRendererStatus"));
+    ok(moduleText.includes("export class RustBrowserGameStatus"));
     ok(dtsText.includes("static create(canvas: HTMLCanvasElement): Promise<RustBrowserGame>"));
     ok(dtsText.includes("upsertMesh"));
     ok(dtsText.includes("upsertTexture"));
-    ok(dtsText.includes("static create(canvas: HTMLCanvasElement): Promise<RustWgpuRenderer>"));
-    ok(dtsText.includes("render("));
-    ok(dtsText.includes("fallbackAlbedoTextureHandle"));
     ok(dtsText.includes("maxTextureArrayLayers"));
   });
 
   it("loads and initializes the wasm-bindgen module through a dynamic import hook", async () => {
     const calls: string[] = [];
-    const module = fakeModule(fakeRenderer());
+    const module = fakeModule();
     const loaded = await loadEngineWebWasmModule(async (specifier) => {
       calls.push(specifier);
       return module;
@@ -58,23 +51,14 @@ describe("engine web WASM", () => {
     ok(calls[0].endsWith("/assets/wasm/engine_web/engine_web.js"));
   });
 
-  it("creates the Rust/wgpu renderer from the loaded module", async () => {
-    const renderer = fakeRenderer();
-    const created = await createEngineWebRenderer({} as HTMLCanvasElement, async () =>
-      fakeModule(renderer)
-    );
-
-    equal(created, renderer);
-    equal(ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM, 1);
-  });
-
   it("creates the Rust browser game facade from the loaded module", async () => {
     const game = fakeBrowserGame();
     const created = await createEngineWebBrowserGame({} as HTMLCanvasElement, async () =>
-      fakeModule(fakeRenderer(), game)
+      fakeModule(game)
     );
 
     equal(created, game);
+    equal(ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM, 1);
   });
 
   it("patches the legacy wgpu limit name before browser device requests", async () => {
@@ -106,7 +90,6 @@ describe("engine web WASM", () => {
 });
 
 function fakeModule(
-  renderer: EngineWebWgpuRenderer,
   game: EngineWebBrowserGame = fakeBrowserGame()
 ): EngineWebWasmModule & { initialized: boolean } {
   return {
@@ -117,11 +100,6 @@ function fakeModule(
     RustBrowserGame: {
       async create() {
         return game;
-      }
-    },
-    RustWgpuRenderer: {
-      async create() {
-        return renderer;
       }
     }
   };
@@ -147,51 +125,6 @@ function fakeBrowserGame(): EngineWebBrowserGame {
         meshCount: 0,
         textureCount: 3,
         objectCount: 1,
-        frameIndex: 0,
-        frameDrawCount: 0
-      };
-    }
-  };
-}
-
-function fakeRenderer(): EngineWebWgpuRenderer {
-  return {
-    resize() {},
-    registerMesh() {
-      return 1;
-    },
-    destroyMesh() {},
-    registerTexture() {
-      return 2;
-    },
-    destroyTexture() {},
-    registerObject() {
-      return 3;
-    },
-    destroyObject() {},
-    render() {},
-    renderEngineFrame() {},
-    fallbackAlbedoTextureHandle() {
-      return 4;
-    },
-    fallbackNormalTextureHandle() {
-      return 5;
-    },
-    fallbackMaterialTextureHandle() {
-      return 6;
-    },
-    status() {
-      return {
-        version: 1,
-        runtime: "rust-wgpu",
-        configured: true,
-        canvasWidth: 1,
-        canvasHeight: 1,
-        maxTextureArrayLayers: 16,
-        requiredTextureArrayLayers: 16,
-        meshCount: 0,
-        textureCount: 3,
-        objectCount: 0,
         frameIndex: 0,
         frameDrawCount: 0
       };

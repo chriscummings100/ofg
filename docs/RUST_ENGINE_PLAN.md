@@ -351,7 +351,7 @@ Goal: Rust owns GPU resource lifetime and draw submission.
 
 Status: Rust/wgpu browser draw submission is complete for the current runtime as
 of 2026-06-02. `crates/engine_web` builds through `wasm-bindgen` into
-`assets/wasm/engine_web/` and exposes a browser-facing `RustWgpuRenderer`.
+`assets/wasm/engine_web/` and exposes a browser-facing `RustBrowserGame`.
 Rust now owns the browser WebGPU instance/surface, adapter/device/queue,
 surface configuration, depth texture, shader modules, pipeline layouts,
 pipelines, buffers, texture arrays, samplers, bind groups, draw submission,

@@ -2,8 +2,7 @@
 
 export type EngineWebWasmExportName =
   | "RustBrowserGame"
-  | "RustWgpuRenderer"
-  | "RustWgpuRendererStatus";
+  | "RustBrowserGameStatus";
 
 export type EngineWebWasmMetadata = {
   readonly id: string;
@@ -25,12 +24,11 @@ export const ENGINE_WEB_WASM_METADATA = Object.freeze({
   "wasmPath": "assets/wasm/engine_web/engine_web_bg.wasm",
   "dtsPath": "assets/wasm/engine_web/engine_web.d.ts",
   "target": "wasm32-unknown-unknown",
-  "wasmHash": "sha256-e9164b5760234e8b47eade628d4c9d141c0e55650bb748a37368374ab20922b2",
-  "moduleHash": "sha256-517984247c874b1bbab3c2c63cbace6433932eaf536876ac55c867d3e3e32603",
-  "dtsHash": "sha256-bf800c9ef12f51fe9fbe7a9798f44e6450141604914e68eb33016d6d1828e5fe",
+  "wasmHash": "sha256-870ed146a8f07e74ce610f4071412026f97b21678b5e8da6ff4d8c561d96a900",
+  "moduleHash": "sha256-d1551b6993ea1f7b6e531a8499ef4bcf394e2396c9b5333846b277b76e0faced",
+  "dtsHash": "sha256-fb9c0014f8d2c1294996e418750208c3c550c904fa24dac26f52b20a2ebcc6a5",
   "exports": [
     "RustBrowserGame",
-    "RustWgpuRenderer",
-    "RustWgpuRendererStatus"
+    "RustBrowserGameStatus"
   ]
 }) as EngineWebWasmMetadata;

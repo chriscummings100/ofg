@@ -17,57 +17,6 @@ export type EngineWebRendererStatus = {
   readonly frameDrawCount: number;
 };
 
-export type EngineWebWgpuRenderer = {
-  resize(width: number, height: number): void;
-  registerMesh(
-    vertices: Float32Array,
-    indices: Uint32Array,
-    floatsPerVertex: number
-  ): number;
-  destroyMesh(handle: number): void;
-  registerTexture(
-    width: number,
-    height: number,
-    layers: number,
-    formatCode: number,
-    data: Uint8Array
-  ): number;
-  destroyTexture(handle: number): void;
-  registerObject(): number;
-  destroyObject(handle: number): void;
-  render(
-    framePacket: Float32Array,
-    meshHandles: Float64Array,
-    objectHandles: Float64Array,
-    albedoTextureHandles: Float64Array,
-    normalTextureHandles: Float64Array,
-    materialTextureHandles: Float64Array,
-    worldMatrices: Float32Array,
-    materialPackets: Float32Array
-  ): void;
-  renderEngineFrame(
-    engineSnapshot: Float32Array,
-    aspect: number,
-    meshHandles: Float64Array,
-    objectHandles: Float64Array,
-    albedoTextureHandles: Float64Array,
-    normalTextureHandles: Float64Array,
-    materialTextureHandles: Float64Array,
-    worldMatrices: Float32Array,
-    materialPackets: Float32Array,
-    playerMarkerMeshHandle: number,
-    playerMarkerObjectHandle: number,
-    playerMarkerAlbedoTextureHandle: number,
-    playerMarkerNormalTextureHandle: number,
-    playerMarkerMaterialTextureHandle: number,
-    playerMarkerMaterialPacket: Float32Array
-  ): void;
-  fallbackAlbedoTextureHandle(): number;
-  fallbackNormalTextureHandle(): number;
-  fallbackMaterialTextureHandle(): number;
-  status(): EngineWebRendererStatus;
-};
-
 export type EngineWebBrowserGame = {
   resize(width: number, height: number): void;
   upsertMesh(
@@ -105,9 +54,6 @@ export type EngineWebWasmModule = {
   readonly RustBrowserGame: {
     create(canvas: HTMLCanvasElement): Promise<EngineWebBrowserGame>;
   };
-  readonly RustWgpuRenderer: {
-    create(canvas: HTMLCanvasElement): Promise<EngineWebWgpuRenderer>;
-  };
 };
 
 type DynamicImport = (specifier: string) => Promise<unknown>;
@@ -120,16 +66,6 @@ export async function loadEngineWebWasmModule(
   await module.default();
 
   return module;
-}
-
-export async function createEngineWebRenderer(
-  canvas: HTMLCanvasElement,
-  loadModule: () => Promise<EngineWebWasmModule> = loadEngineWebWasmModule
-): Promise<EngineWebWgpuRenderer> {
-  patchLegacyWgpuRequiredLimits();
-  const module = await loadModule();
-
-  return module.RustWgpuRenderer.create(canvas);
 }
 
 export async function createEngineWebBrowserGame(

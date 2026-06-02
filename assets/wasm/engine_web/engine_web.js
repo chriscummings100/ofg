@@ -263,22 +263,6 @@ function passArray8ToWasm0(arg, malloc) {
     WASM_VECTOR_LEN = arg.length;
     return ptr;
 }
-
-let cachedFloat64ArrayMemory0 = null;
-
-function getFloat64ArrayMemory0() {
-    if (cachedFloat64ArrayMemory0 === null || cachedFloat64ArrayMemory0.byteLength === 0) {
-        cachedFloat64ArrayMemory0 = new Float64Array(wasm.memory.buffer);
-    }
-    return cachedFloat64ArrayMemory0;
-}
-
-function passArrayF64ToWasm0(arg, malloc) {
-    const ptr = malloc(arg.length * 8, 8) >>> 0;
-    getFloat64ArrayMemory0().set(arg, ptr / 8);
-    WASM_VECTOR_LEN = arg.length;
-    return ptr;
-}
 function __wbg_adapter_26(arg0, arg1, arg2) {
     wasm._dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h2909d47b96d2b968(arg0, arg1, addHeapObject(arg2));
 }
@@ -287,7 +271,7 @@ function __wbg_adapter_31(arg0, arg1, arg2) {
     wasm._dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h5dc9a98bc8edeb10(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wbg_adapter_398(arg0, arg1, arg2, arg3) {
+function __wbg_adapter_382(arg0, arg1, arg2, arg3) {
     wasm.wasm_bindgen__convert__closures__invoke2_mut__h3ff0595175ed627e(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
@@ -466,327 +450,44 @@ export class RustBrowserGame {
         }
     }
     /**
-     * @returns {RustWgpuRendererStatus}
+     * @returns {RustBrowserGameStatus}
      */
     status() {
         const ret = wasm.rustbrowsergame_status(this.__wbg_ptr);
-        return RustWgpuRendererStatus.__wrap(ret);
+        return RustBrowserGameStatus.__wrap(ret);
     }
 }
 
-const RustWgpuRendererFinalization = (typeof FinalizationRegistry === 'undefined')
+const RustBrowserGameStatusFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_rustwgpurenderer_free(ptr >>> 0, 1));
+    : new FinalizationRegistry(ptr => wasm.__wbg_rustbrowsergamestatus_free(ptr >>> 0, 1));
 
-export class RustWgpuRenderer {
+export class RustBrowserGameStatus {
 
     static __wrap(ptr) {
         ptr = ptr >>> 0;
-        const obj = Object.create(RustWgpuRenderer.prototype);
+        const obj = Object.create(RustBrowserGameStatus.prototype);
         obj.__wbg_ptr = ptr;
-        RustWgpuRendererFinalization.register(obj, obj.__wbg_ptr, obj);
+        RustBrowserGameStatusFinalization.register(obj, obj.__wbg_ptr, obj);
         return obj;
     }
 
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
         this.__wbg_ptr = 0;
-        RustWgpuRendererFinalization.unregister(this);
+        RustBrowserGameStatusFinalization.unregister(this);
         return ptr;
     }
 
     free() {
         const ptr = this.__destroy_into_raw();
-        wasm.__wbg_rustwgpurenderer_free(ptr, 0);
-    }
-    /**
-     * @param {HTMLCanvasElement} canvas
-     * @returns {Promise<RustWgpuRenderer>}
-     */
-    static create(canvas) {
-        const ret = wasm.rustwgpurenderer_create(addHeapObject(canvas));
-        return takeObject(ret);
-    }
-    /**
-     * @param {number} width
-     * @param {number} height
-     */
-    resize(width, height) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.rustwgpurenderer_resize(retptr, this.__wbg_ptr, width, height);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            if (r1) {
-                throw takeObject(r0);
-            }
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * @param {Float32Array} vertices
-     * @param {Uint32Array} indices
-     * @param {number} floats_per_vertex
-     * @returns {number}
-     */
-    registerMesh(vertices, indices, floats_per_vertex) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passArrayF32ToWasm0(vertices, wasm.__wbindgen_malloc);
-            const len0 = WASM_VECTOR_LEN;
-            const ptr1 = passArray32ToWasm0(indices, wasm.__wbindgen_malloc);
-            const len1 = WASM_VECTOR_LEN;
-            wasm.rustwgpurenderer_registerMesh(retptr, this.__wbg_ptr, ptr0, len0, ptr1, len1, floats_per_vertex);
-            var r0 = getDataViewMemory0().getFloat64(retptr + 8 * 0, true);
-            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
-            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
-            if (r3) {
-                throw takeObject(r2);
-            }
-            return r0;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * @param {number} handle
-     */
-    destroyMesh(handle) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.rustwgpurenderer_destroyMesh(retptr, this.__wbg_ptr, handle);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            if (r1) {
-                throw takeObject(r0);
-            }
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * @param {number} width
-     * @param {number} height
-     * @param {number} layers
-     * @param {number} format_code
-     * @param {Uint8Array} data
-     * @returns {number}
-     */
-    registerTexture(width, height, layers, format_code, data) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
-            const len0 = WASM_VECTOR_LEN;
-            wasm.rustwgpurenderer_registerTexture(retptr, this.__wbg_ptr, width, height, layers, format_code, ptr0, len0);
-            var r0 = getDataViewMemory0().getFloat64(retptr + 8 * 0, true);
-            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
-            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
-            if (r3) {
-                throw takeObject(r2);
-            }
-            return r0;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * @param {number} handle
-     */
-    destroyTexture(handle) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.rustwgpurenderer_destroyTexture(retptr, this.__wbg_ptr, handle);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            if (r1) {
-                throw takeObject(r0);
-            }
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * @returns {number}
-     */
-    registerObject() {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.rustwgpurenderer_registerObject(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getFloat64(retptr + 8 * 0, true);
-            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
-            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
-            if (r3) {
-                throw takeObject(r2);
-            }
-            return r0;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * @param {number} handle
-     */
-    destroyObject(handle) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.rustwgpurenderer_destroyObject(retptr, this.__wbg_ptr, handle);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            if (r1) {
-                throw takeObject(r0);
-            }
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * @param {Float32Array} frame_packet
-     * @param {Float64Array} mesh_handles
-     * @param {Float64Array} object_handles
-     * @param {Float64Array} albedo_texture_handles
-     * @param {Float64Array} normal_texture_handles
-     * @param {Float64Array} material_texture_handles
-     * @param {Float32Array} world_matrices
-     * @param {Float32Array} material_packets
-     */
-    render(frame_packet, mesh_handles, object_handles, albedo_texture_handles, normal_texture_handles, material_texture_handles, world_matrices, material_packets) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passArrayF32ToWasm0(frame_packet, wasm.__wbindgen_malloc);
-            const len0 = WASM_VECTOR_LEN;
-            const ptr1 = passArrayF64ToWasm0(mesh_handles, wasm.__wbindgen_malloc);
-            const len1 = WASM_VECTOR_LEN;
-            const ptr2 = passArrayF64ToWasm0(object_handles, wasm.__wbindgen_malloc);
-            const len2 = WASM_VECTOR_LEN;
-            const ptr3 = passArrayF64ToWasm0(albedo_texture_handles, wasm.__wbindgen_malloc);
-            const len3 = WASM_VECTOR_LEN;
-            const ptr4 = passArrayF64ToWasm0(normal_texture_handles, wasm.__wbindgen_malloc);
-            const len4 = WASM_VECTOR_LEN;
-            const ptr5 = passArrayF64ToWasm0(material_texture_handles, wasm.__wbindgen_malloc);
-            const len5 = WASM_VECTOR_LEN;
-            const ptr6 = passArrayF32ToWasm0(world_matrices, wasm.__wbindgen_malloc);
-            const len6 = WASM_VECTOR_LEN;
-            const ptr7 = passArrayF32ToWasm0(material_packets, wasm.__wbindgen_malloc);
-            const len7 = WASM_VECTOR_LEN;
-            wasm.rustwgpurenderer_render(retptr, this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6, ptr7, len7);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            if (r1) {
-                throw takeObject(r0);
-            }
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * @param {Float32Array} engine_snapshot
-     * @param {number} aspect
-     * @param {Float64Array} mesh_handles
-     * @param {Float64Array} object_handles
-     * @param {Float64Array} albedo_texture_handles
-     * @param {Float64Array} normal_texture_handles
-     * @param {Float64Array} material_texture_handles
-     * @param {Float32Array} world_matrices
-     * @param {Float32Array} material_packets
-     * @param {number} player_marker_mesh_handle
-     * @param {number} player_marker_object_handle
-     * @param {number} player_marker_albedo_texture_handle
-     * @param {number} player_marker_normal_texture_handle
-     * @param {number} player_marker_material_texture_handle
-     * @param {Float32Array} player_marker_material_packet
-     */
-    renderEngineFrame(engine_snapshot, aspect, mesh_handles, object_handles, albedo_texture_handles, normal_texture_handles, material_texture_handles, world_matrices, material_packets, player_marker_mesh_handle, player_marker_object_handle, player_marker_albedo_texture_handle, player_marker_normal_texture_handle, player_marker_material_texture_handle, player_marker_material_packet) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passArrayF32ToWasm0(engine_snapshot, wasm.__wbindgen_malloc);
-            const len0 = WASM_VECTOR_LEN;
-            const ptr1 = passArrayF64ToWasm0(mesh_handles, wasm.__wbindgen_malloc);
-            const len1 = WASM_VECTOR_LEN;
-            const ptr2 = passArrayF64ToWasm0(object_handles, wasm.__wbindgen_malloc);
-            const len2 = WASM_VECTOR_LEN;
-            const ptr3 = passArrayF64ToWasm0(albedo_texture_handles, wasm.__wbindgen_malloc);
-            const len3 = WASM_VECTOR_LEN;
-            const ptr4 = passArrayF64ToWasm0(normal_texture_handles, wasm.__wbindgen_malloc);
-            const len4 = WASM_VECTOR_LEN;
-            const ptr5 = passArrayF64ToWasm0(material_texture_handles, wasm.__wbindgen_malloc);
-            const len5 = WASM_VECTOR_LEN;
-            const ptr6 = passArrayF32ToWasm0(world_matrices, wasm.__wbindgen_malloc);
-            const len6 = WASM_VECTOR_LEN;
-            const ptr7 = passArrayF32ToWasm0(material_packets, wasm.__wbindgen_malloc);
-            const len7 = WASM_VECTOR_LEN;
-            const ptr8 = passArrayF32ToWasm0(player_marker_material_packet, wasm.__wbindgen_malloc);
-            const len8 = WASM_VECTOR_LEN;
-            wasm.rustwgpurenderer_renderEngineFrame(retptr, this.__wbg_ptr, ptr0, len0, aspect, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6, ptr7, len7, player_marker_mesh_handle, player_marker_object_handle, player_marker_albedo_texture_handle, player_marker_normal_texture_handle, player_marker_material_texture_handle, ptr8, len8);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            if (r1) {
-                throw takeObject(r0);
-            }
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * @returns {RustWgpuRendererStatus}
-     */
-    status() {
-        const ret = wasm.rustbrowsergame_status(this.__wbg_ptr);
-        return RustWgpuRendererStatus.__wrap(ret);
-    }
-    /**
-     * @returns {number}
-     */
-    fallbackAlbedoTextureHandle() {
-        const ret = wasm.rustwgpurenderer_fallbackAlbedoTextureHandle(this.__wbg_ptr);
-        return ret;
-    }
-    /**
-     * @returns {number}
-     */
-    fallbackNormalTextureHandle() {
-        const ret = wasm.rustwgpurenderer_fallbackNormalTextureHandle(this.__wbg_ptr);
-        return ret;
-    }
-    /**
-     * @returns {number}
-     */
-    fallbackMaterialTextureHandle() {
-        const ret = wasm.rustwgpurenderer_fallbackMaterialTextureHandle(this.__wbg_ptr);
-        return ret;
-    }
-}
-
-const RustWgpuRendererStatusFinalization = (typeof FinalizationRegistry === 'undefined')
-    ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_rustwgpurendererstatus_free(ptr >>> 0, 1));
-
-export class RustWgpuRendererStatus {
-
-    static __wrap(ptr) {
-        ptr = ptr >>> 0;
-        const obj = Object.create(RustWgpuRendererStatus.prototype);
-        obj.__wbg_ptr = ptr;
-        RustWgpuRendererStatusFinalization.register(obj, obj.__wbg_ptr, obj);
-        return obj;
-    }
-
-    __destroy_into_raw() {
-        const ptr = this.__wbg_ptr;
-        this.__wbg_ptr = 0;
-        RustWgpuRendererStatusFinalization.unregister(this);
-        return ptr;
-    }
-
-    free() {
-        const ptr = this.__destroy_into_raw();
-        wasm.__wbg_rustwgpurendererstatus_free(ptr, 0);
+        wasm.__wbg_rustbrowsergamestatus_free(ptr, 0);
     }
     /**
      * @returns {number}
      */
     get version() {
-        const ret = wasm.rustwgpurendererstatus_version(this.__wbg_ptr);
+        const ret = wasm.rustbrowsergamestatus_version(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -797,7 +498,7 @@ export class RustWgpuRendererStatus {
         let deferred1_1;
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.rustwgpurendererstatus_runtime(retptr, this.__wbg_ptr);
+            wasm.rustbrowsergamestatus_runtime(retptr, this.__wbg_ptr);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             deferred1_0 = r0;
@@ -812,70 +513,70 @@ export class RustWgpuRendererStatus {
      * @returns {boolean}
      */
     get configured() {
-        const ret = wasm.rustwgpurendererstatus_configured(this.__wbg_ptr);
+        const ret = wasm.rustbrowsergamestatus_configured(this.__wbg_ptr);
         return ret !== 0;
     }
     /**
      * @returns {number}
      */
     get canvasWidth() {
-        const ret = wasm.rustwgpurendererstatus_canvasWidth(this.__wbg_ptr);
+        const ret = wasm.rustbrowsergamestatus_canvasWidth(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get canvasHeight() {
-        const ret = wasm.rustwgpurendererstatus_canvasHeight(this.__wbg_ptr);
+        const ret = wasm.rustbrowsergamestatus_canvasHeight(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get requiredTextureArrayLayers() {
-        const ret = wasm.rustwgpurendererstatus_requiredTextureArrayLayers(this.__wbg_ptr);
+        const ret = wasm.rustbrowsergamestatus_requiredTextureArrayLayers(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get maxTextureArrayLayers() {
-        const ret = wasm.rustwgpurendererstatus_maxTextureArrayLayers(this.__wbg_ptr);
+        const ret = wasm.rustbrowsergamestatus_maxTextureArrayLayers(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get meshCount() {
-        const ret = wasm.rustwgpurendererstatus_meshCount(this.__wbg_ptr);
+        const ret = wasm.rustbrowsergamestatus_meshCount(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get textureCount() {
-        const ret = wasm.rustwgpurendererstatus_textureCount(this.__wbg_ptr);
+        const ret = wasm.rustbrowsergamestatus_textureCount(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get objectCount() {
-        const ret = wasm.rustwgpurendererstatus_objectCount(this.__wbg_ptr);
+        const ret = wasm.rustbrowsergamestatus_objectCount(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get frameIndex() {
-        const ret = wasm.rustwgpurendererstatus_frameIndex(this.__wbg_ptr);
+        const ret = wasm.rustbrowsergamestatus_frameIndex(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get frameDrawCount() {
-        const ret = wasm.rustwgpurendererstatus_frameDrawCount(this.__wbg_ptr);
+        const ret = wasm.rustbrowsergamestatus_frameDrawCount(this.__wbg_ptr);
         return ret >>> 0;
     }
 }
@@ -1411,7 +1112,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_398(a, state0.b, arg0, arg1);
+                    return __wbg_adapter_382(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -1497,10 +1198,6 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbg_rustbrowsergame_new = function(arg0) {
         const ret = RustBrowserGame.__wrap(arg0);
-        return addHeapObject(ret);
-    };
-    imports.wbg.__wbg_rustwgpurenderer_new = function(arg0) {
-        const ret = RustWgpuRenderer.__wrap(arg0);
         return addHeapObject(ret);
     };
     imports.wbg.__wbg_setBindGroup_2bc3cdb7b5fd543d = function(arg0, arg1, arg2) {
@@ -1656,16 +1353,16 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper1110 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 242, __wbg_adapter_31);
+    imports.wbg.__wbindgen_closure_wrapper1080 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 239, __wbg_adapter_31);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper394 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 37, __wbg_adapter_26);
+    imports.wbg.__wbindgen_closure_wrapper364 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 34, __wbg_adapter_26);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper396 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 37, __wbg_adapter_26);
+    imports.wbg.__wbindgen_closure_wrapper366 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 34, __wbg_adapter_26);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_debug_string = function(arg0, arg1) {
@@ -1731,7 +1428,6 @@ function __wbg_finalize_init(instance, module) {
     __wbg_init.__wbindgen_wasm_module = module;
     cachedDataViewMemory0 = null;
     cachedFloat32ArrayMemory0 = null;
-    cachedFloat64ArrayMemory0 = null;
     cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
 

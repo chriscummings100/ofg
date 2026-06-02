@@ -10,27 +10,9 @@ export class RustBrowserGame {
   upsertTexture(id: string, width: number, height: number, layers: number, format_code: number, data: Uint8Array): void;
   destroyTexture(id: string): void;
   renderEngineFrame(engine_snapshot: Float32Array, aspect: number, item_ids: Array<any>, mesh_ids: Array<any>, albedo_texture_ids: Array<any>, normal_texture_ids: Array<any>, material_texture_ids: Array<any>, world_matrices: Float32Array, material_packets: Float32Array): void;
-  status(): RustWgpuRendererStatus;
+  status(): RustBrowserGameStatus;
 }
-export class RustWgpuRenderer {
-  private constructor();
-  free(): void;
-  static create(canvas: HTMLCanvasElement): Promise<RustWgpuRenderer>;
-  resize(width: number, height: number): void;
-  registerMesh(vertices: Float32Array, indices: Uint32Array, floats_per_vertex: number): number;
-  destroyMesh(handle: number): void;
-  registerTexture(width: number, height: number, layers: number, format_code: number, data: Uint8Array): number;
-  destroyTexture(handle: number): void;
-  registerObject(): number;
-  destroyObject(handle: number): void;
-  render(frame_packet: Float32Array, mesh_handles: Float64Array, object_handles: Float64Array, albedo_texture_handles: Float64Array, normal_texture_handles: Float64Array, material_texture_handles: Float64Array, world_matrices: Float32Array, material_packets: Float32Array): void;
-  renderEngineFrame(engine_snapshot: Float32Array, aspect: number, mesh_handles: Float64Array, object_handles: Float64Array, albedo_texture_handles: Float64Array, normal_texture_handles: Float64Array, material_texture_handles: Float64Array, world_matrices: Float32Array, material_packets: Float32Array, player_marker_mesh_handle: number, player_marker_object_handle: number, player_marker_albedo_texture_handle: number, player_marker_normal_texture_handle: number, player_marker_material_texture_handle: number, player_marker_material_packet: Float32Array): void;
-  status(): RustWgpuRendererStatus;
-  fallbackAlbedoTextureHandle(): number;
-  fallbackNormalTextureHandle(): number;
-  fallbackMaterialTextureHandle(): number;
-}
-export class RustWgpuRendererStatus {
+export class RustBrowserGameStatus {
   private constructor();
   free(): void;
   readonly version: number;
@@ -74,22 +56,8 @@ export interface InitOutput {
   readonly ofg_engine_web_frame_index: () => bigint;
   readonly ofg_engine_web_frame_draw_count: () => number;
   readonly ofg_engine_web_last_error_code: () => number;
-  readonly __wbg_rustwgpurenderer_free: (a: number, b: number) => void;
   readonly __wbg_rustbrowsergame_free: (a: number, b: number) => void;
-  readonly __wbg_rustwgpurendererstatus_free: (a: number, b: number) => void;
-  readonly rustwgpurenderer_create: (a: number) => number;
-  readonly rustwgpurenderer_resize: (a: number, b: number, c: number, d: number) => void;
-  readonly rustwgpurenderer_registerMesh: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-  readonly rustwgpurenderer_destroyMesh: (a: number, b: number, c: number) => void;
-  readonly rustwgpurenderer_registerTexture: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
-  readonly rustwgpurenderer_destroyTexture: (a: number, b: number, c: number) => void;
-  readonly rustwgpurenderer_registerObject: (a: number, b: number) => void;
-  readonly rustwgpurenderer_destroyObject: (a: number, b: number, c: number) => void;
-  readonly rustwgpurenderer_render: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number) => void;
-  readonly rustwgpurenderer_renderEngineFrame: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number, s: number, t: number, u: number, v: number, w: number, x: number, y: number, z: number) => void;
-  readonly rustwgpurenderer_fallbackAlbedoTextureHandle: (a: number) => number;
-  readonly rustwgpurenderer_fallbackNormalTextureHandle: (a: number) => number;
-  readonly rustwgpurenderer_fallbackMaterialTextureHandle: (a: number) => number;
+  readonly __wbg_rustbrowsergamestatus_free: (a: number, b: number) => void;
   readonly rustbrowsergame_create: (a: number) => number;
   readonly rustbrowsergame_resize: (a: number, b: number, c: number, d: number) => void;
   readonly rustbrowsergame_upsertMesh: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => void;
@@ -98,19 +66,18 @@ export interface InitOutput {
   readonly rustbrowsergame_destroyTexture: (a: number, b: number, c: number, d: number) => void;
   readonly rustbrowsergame_renderEngineFrame: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number) => void;
   readonly rustbrowsergame_status: (a: number) => number;
-  readonly rustwgpurendererstatus_version: (a: number) => number;
-  readonly rustwgpurendererstatus_runtime: (a: number, b: number) => void;
-  readonly rustwgpurendererstatus_configured: (a: number) => number;
-  readonly rustwgpurendererstatus_canvasWidth: (a: number) => number;
-  readonly rustwgpurendererstatus_canvasHeight: (a: number) => number;
-  readonly rustwgpurendererstatus_requiredTextureArrayLayers: (a: number) => number;
-  readonly rustwgpurendererstatus_maxTextureArrayLayers: (a: number) => number;
-  readonly rustwgpurendererstatus_meshCount: (a: number) => number;
-  readonly rustwgpurendererstatus_textureCount: (a: number) => number;
-  readonly rustwgpurendererstatus_objectCount: (a: number) => number;
-  readonly rustwgpurendererstatus_frameIndex: (a: number) => number;
-  readonly rustwgpurendererstatus_frameDrawCount: (a: number) => number;
-  readonly rustwgpurenderer_status: (a: number) => number;
+  readonly rustbrowsergamestatus_version: (a: number) => number;
+  readonly rustbrowsergamestatus_runtime: (a: number, b: number) => void;
+  readonly rustbrowsergamestatus_configured: (a: number) => number;
+  readonly rustbrowsergamestatus_canvasWidth: (a: number) => number;
+  readonly rustbrowsergamestatus_canvasHeight: (a: number) => number;
+  readonly rustbrowsergamestatus_requiredTextureArrayLayers: (a: number) => number;
+  readonly rustbrowsergamestatus_maxTextureArrayLayers: (a: number) => number;
+  readonly rustbrowsergamestatus_meshCount: (a: number) => number;
+  readonly rustbrowsergamestatus_textureCount: (a: number) => number;
+  readonly rustbrowsergamestatus_objectCount: (a: number) => number;
+  readonly rustbrowsergamestatus_frameIndex: (a: number) => number;
+  readonly rustbrowsergamestatus_frameDrawCount: (a: number) => number;
   readonly __wbindgen_exn_store: (a: number) => void;
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;

@@ -47,9 +47,9 @@ src/engine/render
 
 src/engine/web
   Browser-facing WASM loaders for Rust systems that are not pure engine core or
-  terrain. `engineWebWasm.ts` loads the wasm-bindgen `RustBrowserGame` facade,
-  keeps the lower-level `RustWgpuRenderer` available for transitional tests, and
-  applies a narrow browser compatibility shim for the pinned `wgpu` limit name.
+  terrain. `engineWebWasm.ts` loads the wasm-bindgen `RustBrowserGame` facade
+  and applies a narrow browser compatibility shim for the pinned `wgpu` limit
+  name.
 
 src/engine/render/shaders
   Shader source inputs. The current `uber.wgsl` is the single shader contract for

@@ -113,7 +113,7 @@ export class RustWgpuRendererAdapter {
   private upsertMeshIfNeeded(mesh: RenderMeshPacket): void {
     if (mesh.floatsPerVertex !== getFloatsPerVertex()) {
       throw new Error(
-        `RustWgpuRenderer only supports ${getFloatsPerVertex()} floats per vertex; ` +
+        `RustBrowserGame renderer only supports ${getFloatsPerVertex()} floats per vertex; ` +
         `mesh '${mesh.id}' uses ${mesh.floatsPerVertex}.`
       );
     }
@@ -132,7 +132,7 @@ export class RustWgpuRendererAdapter {
     }
 
     if (texture.format !== "rgba8unorm") {
-      throw new Error(`RustWgpuRenderer does not support texture format '${texture.format}'.`);
+      throw new Error(`RustBrowserGame renderer does not support texture format '${texture.format}'.`);
     }
 
     const data = texture.data === undefined
