@@ -37,13 +37,13 @@ src/engine/math
   Small vector and matrix primitives.
 
 src/engine/render
-  CPU-side texture/material descriptions, direct render packet types, and the
-  temporary Rust/wgpu browser adapter. Runtime terrain chunks enter this path as
-  direct mesh byte packets loaded from a Rust-owned terrain packet store. Actual
-  browser WebGPU resource creation and draw submission happen in Rust/wgpu
-  through `crates/engine_web`; TypeScript only uploads mesh/texture bytes by ID
-  and material definitions by ID, then passes compact per-item world matrices and
-  material IDs for the Rust browser game facade.
+  CPU-side texture/material descriptions, terrain mesh packet source adapters,
+  and the temporary Rust/wgpu browser adapter. Runtime terrain chunks enter this
+  path as direct mesh byte packets loaded from a Rust-owned terrain packet store.
+  Actual browser WebGPU resource creation and draw submission happen in
+  Rust/wgpu through `crates/engine_web`; TypeScript only uploads mesh/texture
+  bytes by ID and material definitions by ID, then passes compact per-item world
+  matrices and material IDs for the Rust browser game facade.
 
 src/engine/web
   Browser-facing WASM loaders for Rust systems that are not pure engine core or

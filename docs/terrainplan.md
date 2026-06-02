@@ -955,6 +955,7 @@ Progress notes:
 | 2026-06-02 | TypeScript RenderWorld retired | Added Rust engine-snapshot packet builders and `renderEngineFrame` in `engine_web`. The playable app now sends the raw `engine_core.wasm` render snapshot plus direct terrain mesh packets, while Rust builds the frame packet and player-marker world matrix. Deleted the compiled TypeScript `RenderWorld`, `CameraFrame`, `Lighting`, and `engineRenderPackets` path, and stopped adapting Rust terrain packets into CPU-side `Mesh` objects. |
 | 2026-06-02 | Rust browser render facade started | Added `RustBrowserGame` in `engine_web` so Rust owns WebGPU renderer handles, object handles, stale render-resource pruning, and the debug player marker mesh/material. The terrain bridge still loads mesh packets from `terrain_core.wasm`, but TypeScript now uploads bytes by ID and submits item IDs instead of registering/passing renderer handles. |
 | 2026-06-02 | Rust material render facade started | Added Rust-owned material packet construction and a `RustBrowserGame` material registry. The terrain render bridge now submits material IDs and world matrices per frame instead of prepacked material floats or per-item texture arrays. |
+| 2026-06-02 | Generic TypeScript render items retired | Deleted the compiled `RenderItemPacket` abstraction. The app loop now hands the Rust terrain packet source to the temporary render adapter directly, so TypeScript no longer builds a generic render item list before calling `RustBrowserGame`. |
 
 ## Cross-Cutting Validation
 

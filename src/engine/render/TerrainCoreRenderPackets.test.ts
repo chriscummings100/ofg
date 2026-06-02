@@ -11,7 +11,7 @@ import { Material } from "./Material.js";
 import { TerrainCoreRenderPacketStore } from "./TerrainCoreRenderPackets.js";
 
 describe("TerrainCoreRenderPacketStore", () => {
-  it("stores terrain chunk packets in Rust and emits render items", async () => {
+  it("stores terrain chunk packets in Rust and exposes terrain render source data", async () => {
     const terrainCore = await loadTerrainCore();
     const material = new Material("material:terrain", {
       albedoFactor: vec4(0.3, 0.5, 0.7, 1)
@@ -35,12 +35,8 @@ describe("TerrainCoreRenderPacketStore", () => {
     equal(store.chunks[0].key, "0,0,0");
     equal(store.chunks[0].mesh.id, "mesh:terrain.chunk:0,0,0");
 
-    const items = store.getRenderItemPackets();
-
-    equal(items.length, 1);
-    equal(items[0].id, "terrain:rust:0,0,0");
-    equal(items[0].material, material);
-    equal(items[0].mesh, store.chunks[0].mesh);
+    equal(store.itemIdPrefix, "terrain:rust");
+    equal(store.material, material);
   });
 
   it("removes Rust-owned terrain chunk packets by key or coord", async () => {

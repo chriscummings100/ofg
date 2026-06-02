@@ -5,6 +5,7 @@ import type { EngineWebBrowserGame } from "../web/engineWebWasm.js";
 import { Material } from "./Material.js";
 import type { RenderMeshPacket } from "./RenderPackets.js";
 import { RustWgpuRendererAdapter } from "./rustWgpuRenderer.js";
+import type { TerrainRenderSource } from "./TerrainCoreRenderPackets.js";
 import { Texture } from "./Texture.js";
 
 describe("RustWgpuRendererAdapter", () => {
@@ -28,14 +29,7 @@ describe("RustWgpuRendererAdapter", () => {
 
     withFakeWindow(() => adapter.renderEngineFrame(
       snapshot,
-      [
-        {
-          id: "item:test",
-          mesh,
-          material,
-          albedoTexture: texture
-        }
-      ]
+      fakeTerrainRenderSource(mesh, material, texture)
     ));
 
     equal(fake.upsertedMeshes.length, 1);
@@ -51,7 +45,7 @@ describe("RustWgpuRendererAdapter", () => {
     almostEqual(fake.upsertedMaterials[0]?.specularFactor, 0.4);
     equal(fake.lastRender?.engineSnapshot[0], 1);
     equal(fake.lastRender?.aspect, 640 / 480);
-    equal(fake.lastRender?.itemIds[0], "item:test");
+    equal(fake.lastRender?.itemIds[0], "terrain:test:0,0,0");
     equal(fake.lastRender?.meshIds[0], "mesh:test");
     equal(fake.lastRender?.materialIds[0], "material:test");
     almostEqual(fake.lastRender?.worldMatrices[0], 1);
@@ -170,6 +164,24 @@ function fakeBrowserGame(): FakeBrowserGame {
         frameDrawCount: 1
       };
     }
+  };
+}
+
+function fakeTerrainRenderSource(
+  mesh: RenderMeshPacket,
+  material: Material,
+  albedoTexture: Texture
+): TerrainRenderSource {
+  return {
+    itemIdPrefix: "terrain:test",
+    material,
+    albedoTexture,
+    chunks: [
+      {
+        key: "0,0,0",
+        mesh
+      }
+    ]
   };
 }
 

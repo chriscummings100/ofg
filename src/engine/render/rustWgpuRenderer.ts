@@ -8,7 +8,8 @@ import {
 import {
   type Material
 } from "./Material.js";
-import type { RenderItemPacket, RenderMeshPacket } from "./RenderPackets.js";
+import type { RenderMeshPacket } from "./RenderPackets.js";
+import type { TerrainRenderSource } from "./TerrainCoreRenderPackets.js";
 import type { Texture } from "./Texture.js";
 
 const WORLD_MATRIX_FLOATS = 16;
@@ -62,34 +63,35 @@ export class RustWgpuRendererAdapter {
     return this.game.status();
   }
 
-  renderEngineFrame(engineSnapshot: Float32Array, items: readonly RenderItemPacket[]): void {
+  renderEngineFrame(engineSnapshot: Float32Array, terrain: TerrainRenderSource): void {
     this.resize();
-    const itemCount = items.length;
+    const chunks = terrain.chunks;
+    const itemCount = chunks.length;
     const itemIds: string[] = [];
     const meshIds: string[] = [];
     const materialIds: string[] = [];
     const worldMatrices = new Float32Array(itemCount * WORLD_MATRIX_FLOATS);
     const seenMeshes = new Set<RenderMeshPacket>();
 
+    this.upsertTextureIfNeeded(terrain.albedoTexture);
+    this.upsertTextureIfNeeded(terrain.normalTexture);
+    this.upsertTextureIfNeeded(terrain.materialTexture);
+    this.upsertMaterialIfNeeded(
+      terrain.material,
+      terrain.albedoTexture,
+      terrain.normalTexture,
+      terrain.materialTexture
+    );
+
     for (let index = 0; index < itemCount; index += 1) {
-      const item = items[index];
+      const chunk = chunks[index];
 
-      this.upsertMeshIfNeeded(item.mesh);
-      this.upsertTextureIfNeeded(item.albedoTexture);
-      this.upsertTextureIfNeeded(item.normalTexture);
-      this.upsertTextureIfNeeded(item.materialTexture);
-      this.upsertMaterialIfNeeded(
-        item.material,
-        item.albedoTexture,
-        item.normalTexture,
-        item.materialTexture
-      );
-
-      seenMeshes.add(item.mesh);
-      itemIds.push(item.id);
-      meshIds.push(item.mesh.id);
-      materialIds.push(item.material?.id ?? "");
-      worldMatrices.set(item.worldMatrix ?? IDENTITY_WORLD_MATRIX, index * WORLD_MATRIX_FLOATS);
+      this.upsertMeshIfNeeded(chunk.mesh);
+      seenMeshes.add(chunk.mesh);
+      itemIds.push(`${terrain.itemIdPrefix}:${chunk.key}`);
+      meshIds.push(chunk.mesh.id);
+      materialIds.push(terrain.material?.id ?? "");
+      worldMatrices.set(chunk.worldMatrix ?? IDENTITY_WORLD_MATRIX, index * WORLD_MATRIX_FLOATS);
     }
 
     this.game.renderEngineFrame(

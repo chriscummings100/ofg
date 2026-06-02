@@ -185,8 +185,7 @@ export async function startGame(elements: GameElements): Promise<void> {
       throw new Error("Rust engine did not produce a render snapshot.");
     }
     renderPacketRuntime = "rust";
-    const renderItems = terrainRenderPackets.getRenderItemPackets();
-    renderer.renderEngineFrame(renderSnapshot, renderItems);
+    renderer.renderEngineFrame(renderSnapshot, terrainRenderPackets);
 
     elements.cameraMode.textContent = playerController.mode === "firstPerson" ? "FIRST" : "FLY";
     elements.cameraMode.dataset.mode = playerController.mode;

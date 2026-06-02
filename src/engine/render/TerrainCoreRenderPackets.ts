@@ -1,4 +1,4 @@
-import { identityMat4, multiplyMat4, type Mat4 } from "../math/mat4.js";
+import type { Mat4 } from "../math/mat4.js";
 import {
   parseTerrainChunkKey,
   terrainChunkCoord,
@@ -15,7 +15,7 @@ import {
 } from "../world/terrainCoreWasm.js";
 import { POSITION_COLOR_NORMAL_UV_LAYOUT } from "../world/terrainMesh.js";
 import type { Material } from "./Material.js";
-import type { RenderItemPacket, RenderMeshPacket } from "./RenderPackets.js";
+import type { RenderMeshPacket } from "./RenderPackets.js";
 import type { ResourceId } from "./ResourceId.js";
 import type { Texture } from "./Texture.js";
 
@@ -48,14 +48,23 @@ export type TerrainRenderChunkSink = {
   retainChunks(chunks: readonly (TerrainChunkKey | TerrainChunkCoord)[]): void;
 };
 
+export type TerrainRenderSource = {
+  readonly itemIdPrefix: string;
+  readonly material?: Material;
+  readonly albedoTexture?: Texture;
+  readonly normalTexture?: Texture;
+  readonly materialTexture?: Texture;
+  readonly chunks: readonly TerrainRenderChunkPacket[];
+};
+
 export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
   readonly runtime = "rust" as const;
   readonly itemIdPrefix: string;
   readonly meshIdPrefix: string;
-  private material?: Material;
-  private albedoTexture?: Texture;
-  private normalTexture?: Texture;
-  private materialTexture?: Texture;
+  readonly material?: Material;
+  readonly albedoTexture?: Texture;
+  readonly normalTexture?: Texture;
+  readonly materialTexture?: Texture;
   private cachedVersion = -1;
   private cachedChunks: TerrainRenderChunkPacket[] = [];
 
@@ -159,23 +168,6 @@ export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
 
   size(): number {
     return this.terrainCore.exports.ofg_terrain_mesh_packet_store_entry_count();
-  }
-
-  getRenderItemPackets(worldMatrix: Mat4 = identityMat4()): RenderItemPacket[] {
-    this.syncMeshCache();
-    return this.cachedChunks.map((chunk) => {
-      return {
-        id: `${this.itemIdPrefix}:${chunk.key}`,
-        mesh: chunk.mesh,
-        material: this.material,
-        albedoTexture: this.albedoTexture,
-        normalTexture: this.normalTexture,
-        materialTexture: this.materialTexture,
-        worldMatrix: chunk.worldMatrix === undefined
-          ? worldMatrix
-          : multiplyMat4(worldMatrix, chunk.worldMatrix)
-      };
-    });
   }
 
   private syncMeshCache(): void {
