@@ -65,8 +65,11 @@ describe("RustWgpuRendererAdapter", () => {
     equal(fake.lastRender?.albedoTextureHandles[0], 20);
     equal(fake.lastRender?.normalTextureHandles[0], 101);
     equal(fake.lastRender?.materialTextureHandles[0], 102);
-    almostEqual(fake.lastRender?.objectUniforms[32], 0.8);
-    almostEqual(fake.lastRender?.objectUniforms[39], 0.4);
+    almostEqual(fake.lastRender?.framePacket[32], 1);
+    almostEqual(fake.lastRender?.framePacket[41], 2);
+    almostEqual(fake.lastRender?.worldMatrices[0], 1);
+    almostEqual(fake.lastRender?.materialPackets[0], 0.8);
+    almostEqual(fake.lastRender?.materialPackets[7], 0.4);
   });
 
   it("prunes object and mesh handles that disappeared from the render world", () => {
@@ -109,7 +112,9 @@ type FakeRenderer = EngineWebWgpuRenderer & {
     readonly albedoTextureHandles: Float64Array;
     readonly normalTextureHandles: Float64Array;
     readonly materialTextureHandles: Float64Array;
-    readonly objectUniforms: Float32Array;
+    readonly framePacket: Float32Array;
+    readonly worldMatrices: Float32Array;
+    readonly materialPackets: Float32Array;
   };
 };
 
@@ -141,21 +146,24 @@ function fakeRenderer(): FakeRenderer {
       this.destroyedObjects.push(handle);
     },
     render(
-      _frameUniforms,
+      framePacket,
       meshHandles,
       objectHandles,
       albedoTextureHandles,
       normalTextureHandles,
       materialTextureHandles,
-      objectUniforms
+      worldMatrices,
+      materialPackets
     ) {
       this.lastRender = {
+        framePacket: new Float32Array(framePacket),
         meshHandles: new Float64Array(meshHandles),
         objectHandles: new Float64Array(objectHandles),
         albedoTextureHandles: new Float64Array(albedoTextureHandles),
         normalTextureHandles: new Float64Array(normalTextureHandles),
         materialTextureHandles: new Float64Array(materialTextureHandles),
-        objectUniforms: new Float32Array(objectUniforms)
+        worldMatrices: new Float32Array(worldMatrices),
+        materialPackets: new Float32Array(materialPackets)
       };
     },
     fallbackAlbedoTextureHandle() {

@@ -358,12 +358,13 @@ been deleted.
 
 The remaining Phase 5/ownership gap is facade granularity, not GPU ownership:
 TypeScript still assembles the transitional `RenderWorld`, converts existing
-mesh/texture objects into Rust renderer handles, packs frame/object uniform
-arrays, fetches/decodes texture assets, and applies a narrow browser compatibility
-shim for the older `wgpu` limit name used by the pinned Rust toolchain. The next
-renderer/world slices should move render extraction and texture asset ownership
-farther into Rust so TypeScript approaches a coarse `game.tick()` or
-`engine.render()` call.
+mesh/texture objects into Rust renderer handles, packs compact frame, world-matrix,
+and material packets, fetches/decodes texture assets, and applies a narrow browser
+compatibility shim for the older `wgpu` limit name used by the pinned Rust
+toolchain. Rust now validates those packets, computes object normal matrices, and
+packs the actual shader uniform buffers. The next renderer/world slices should
+move render extraction and texture asset ownership farther into Rust so TypeScript
+approaches a coarse `game.tick()` or `engine.render()` call.
 
 Implementation:
 
@@ -576,3 +577,4 @@ streaming, then render packets, then Rust/wgpu.
 | 2026-06-02 | TypeScript terrain and scene owners retired | Deleted the compiled TypeScript terrain generator/noise reference, TypeScript Dual Contouring/debug overlay path, old terrain debug/variation smoke tools, and the TypeScript scene/component/render-extractor model. The app now directly assembles `RenderWorld` from Rust camera/light/player-marker packets and Rust terrain mesh packets. TypeScript still owns browser startup, input, Worker transport, shared-density wrapping, debug hooks, and the temporary render adapter. |
 | 2026-06-02 | Phase 5 Rust renderer bridge started | Added `crates/engine_web`, generated raw `engine_web.wasm`, and a TypeScript `EngineWebGpuBridge` loader. Rust validated and tracked the current WebGPU renderer resource ledger while the temporary TypeScript renderer still owned actual GPU calls. This was a short-lived stepping stone to the Rust/wgpu slice below. |
 | 2026-06-02 | Rust/wgpu browser renderer became default | Added the `wasm-bindgen`/`wgpu` browser renderer in `crates/engine_web`, generated `assets/wasm/engine_web/`, and replaced the TypeScript WebGPU renderer with `RustWgpuRendererAdapter`. Rust now creates the WebGPU canvas surface, device/queue, pipelines, buffers, texture arrays, bind groups, depth resources, and render passes. Browser smoke proves first-person, refresh, debug-fly, and streamed terrain views draw through `rendererRuntime: "rust-wgpu"`. |
+| 2026-06-02 | Shader uniform packing moved to Rust | Added tested Rust frame/object uniform builders in `engine_web`. TypeScript now passes compact frame, world-matrix, and material packets; Rust validates packet shape, computes normal matrices, and packs the actual WGSL uniform buffers before draw submission. The old TypeScript `FrameUniforms` and `ObjectUniforms` modules were deleted. |

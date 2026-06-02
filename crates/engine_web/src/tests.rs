@@ -1,6 +1,8 @@
 use crate::{
-    RendererState, RendererStateError, ResourceHandle, REQUIRED_TEXTURE_ARRAY_LAYERS,
-    TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
+    build_frame_uniform_values, build_object_uniform_values, RenderUniformError, RendererState,
+    RendererStateError, ResourceHandle, FRAME_PACKET_FLOATS, MATERIAL_PACKET_FLOATS,
+    REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
+    WORLD_MATRIX_FLOATS,
 };
 
 #[test]
@@ -136,10 +138,77 @@ fn frame_begin_requires_renderer_configuration() {
     );
 }
 
+#[test]
+fn frame_uniforms_are_packed_from_rust_render_packets() {
+    let mut frame = [0.0; FRAME_PACKET_FLOATS];
+    for (index, value) in frame.iter_mut().enumerate() {
+        *value = index as f32 + 0.25;
+    }
+
+    let uniforms = build_frame_uniform_values(&frame).unwrap();
+
+    assert_eq!(&uniforms[0..16], &frame[0..16]);
+    assert_eq!(&uniforms[16..32], &frame[16..32]);
+    assert_eq!(&uniforms[32..35], &frame[32..35]);
+    assert_eq!(uniforms[35], 1.0);
+    assert_eq!(&uniforms[36..39], &frame[35..38]);
+    assert_eq!(uniforms[39], frame[41]);
+    assert_eq!(&uniforms[40..43], &frame[38..41]);
+    assert_eq!(uniforms[43], frame[42]);
+    assert_eq!(
+        build_frame_uniform_values(&frame[0..FRAME_PACKET_FLOATS - 1]),
+        Err(RenderUniformError::InvalidFramePacket)
+    );
+}
+
+#[test]
+fn object_uniforms_are_packed_with_rust_owned_normal_matrix() {
+    let world = [
+        2.0, 0.0, 0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 0.0, 8.0, 0.0, 3.0, 5.0, 7.0, 1.0,
+    ];
+    let material = [0.8, 0.7, 0.6, 1.0, 0.1, 0.2, 0.3, 0.4, 1.0, 0.08];
+
+    let uniforms = build_object_uniform_values(&world, &material).unwrap();
+
+    assert_eq!(&uniforms[0..WORLD_MATRIX_FLOATS], &world);
+    assert_close(uniforms[16], 0.5);
+    assert_close(uniforms[21], 0.25);
+    assert_close(uniforms[26], 0.125);
+    assert_close(uniforms[32], 0.8);
+    assert_close(uniforms[36], 0.1);
+    assert_close(uniforms[39], 0.4);
+    assert_close(uniforms[40], 1.0);
+    assert_close(uniforms[41], 0.08);
+    assert_eq!(uniforms[42], 0.0);
+    assert_eq!(uniforms[43], 0.0);
+    assert_eq!(
+        build_object_uniform_values(&world, &material[0..MATERIAL_PACKET_FLOATS - 1]),
+        Err(RenderUniformError::InvalidObjectPacket)
+    );
+}
+
+#[test]
+fn object_uniforms_reject_singular_world_matrices() {
+    let singular = [0.0; WORLD_MATRIX_FLOATS];
+    let material = [1.0; MATERIAL_PACKET_FLOATS];
+
+    assert_eq!(
+        build_object_uniform_values(&singular, &material),
+        Err(RenderUniformError::SingularWorldMatrix)
+    );
+}
+
 fn configured_renderer() -> RendererState {
     let mut renderer = RendererState::new();
     renderer
         .configure(1280, 720, REQUIRED_TEXTURE_ARRAY_LAYERS)
         .unwrap();
     renderer
+}
+
+fn assert_close(actual: f32, expected: f32) {
+    assert!(
+        (actual - expected).abs() <= 0.00001,
+        "expected {actual} to be close to {expected}"
+    );
 }

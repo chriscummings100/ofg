@@ -24,9 +24,9 @@ export const ENGINE_WEB_WASM_METADATA = Object.freeze({
   "wasmPath": "assets/wasm/engine_web/engine_web_bg.wasm",
   "dtsPath": "assets/wasm/engine_web/engine_web.d.ts",
   "target": "wasm32-unknown-unknown",
-  "wasmHash": "sha256-4e85b68869394c3839906cce00554cc2706562f11094cff5734ba9f17e72062e",
-  "moduleHash": "sha256-e75c72bb9a64ca7573c83fcb1034aab4dd237d1811a720432a0808373a4be5f0",
-  "dtsHash": "sha256-c513a2bdc46ad28a8d65558d9ba60fcf6e56e5d2a945d780e5cf235b28c5ed06",
+  "wasmHash": "sha256-f363a72f67bca7c6660eeda4e785b0b8147bb0f45372cc9450ea83c2957c3a32",
+  "moduleHash": "sha256-6e20cf100d7206cf52893d8d5c02d13dafb8b93b63ea309ad3b88ee35a0025ab",
+  "dtsHash": "sha256-e47ff23eca7d468d97bbc39b04de85c531712c4bf79667a9278a9455a66c37c9",
   "exports": [
     "RustWgpuRenderer",
     "RustWgpuRendererStatus"

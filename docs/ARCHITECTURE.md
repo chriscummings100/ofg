@@ -40,7 +40,8 @@ src/engine/render
   data. Runtime terrain chunks enter this path through a Rust-backed terrain
   render-packet adapter. Actual browser WebGPU resource creation and draw
   submission now happen in Rust/wgpu through `crates/engine_web`; TypeScript only
-  packs the current render items into coarse arrays for the Rust renderer.
+  packs the current render items into compact frame, world-matrix, material, and
+  resource-handle arrays for the Rust renderer.
 
 src/engine/web
   Browser-facing WASM loaders for Rust systems that are not pure engine core or
@@ -77,9 +78,9 @@ adapter.
   submission, frame/resource counts, and GPU resource pruning.
 - TypeScript collects DOM input, parses URL seed/preset values, starts WASM,
   hosts browser Workers, wraps shared density buffers, exposes debug hooks,
-  assembles the transitional `RenderWorld`, and packs render arrays for Rust/wgpu.
-  It no longer creates WebGPU devices, pipelines, buffers, textures, or render
-  passes.
+  assembles the transitional `RenderWorld`, and packs compact render packets for
+  Rust/wgpu. It no longer creates WebGPU devices, pipelines, buffers, textures,
+  render passes, shader uniform buffers, or normal matrices.
 
 [SCENE_MODEL_PLAN.md](SCENE_MODEL_PLAN.md) is now historical documentation of the
 deleted TypeScript scene model. Future large-scale world state should move into
@@ -149,7 +150,9 @@ The first material model is intentionally pre-PBR: mesh vertex color multiplied 
 an albedo factor and optional albedo texture sample, plus specular color and
 specular factor. The shader uses a simple Lambert diffuse plus Blinn-Phong specular
 model. `Texture` stores CPU-side rgba8 data that the TypeScript shell passes to
-the Rust/wgpu renderer for GPU upload.
+the Rust/wgpu renderer for GPU upload. Rust/wgpu validates compact frame,
+world-matrix, and material packets from the temporary TypeScript adapter, computes
+object normal matrices, and packs the WGSL camera/object uniform buffers.
 
 Terrain uses checked-in Poly Haven CC0 materials imported into 16-layer global
 texture arrays. The runtime currently loads albedo, normal, and roughness arrays;

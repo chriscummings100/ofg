@@ -7,11 +7,13 @@ use wgpu::util::DeviceExt;
 use crate::config::{
     REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
 };
+use crate::render_uniforms::{
+    build_frame_uniform_values, build_object_uniform_values, FRAME_PACKET_FLOATS,
+    FRAME_UNIFORM_FLOATS, MATERIAL_PACKET_FLOATS, OBJECT_UNIFORM_FLOATS, WORLD_MATRIX_FLOATS,
+};
 use crate::resources::{ResourceHandle, ResourceStore};
 use crate::ENGINE_WEB_VERSION;
 
-const FRAME_UNIFORM_FLOATS: usize = 44;
-const OBJECT_UNIFORM_FLOATS: usize = 44;
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
 const SHADER_SOURCE: &str = include_str!("../../../src/engine/render/shaders/uber.wgsl");
 
@@ -141,22 +143,24 @@ impl RustWgpuRenderer {
     #[wasm_bindgen(js_name = render)]
     pub fn render(
         &mut self,
-        frame_uniforms: &[f32],
+        frame_packet: &[f32],
         mesh_handles: &[f64],
         object_handles: &[f64],
         albedo_texture_handles: &[f64],
         normal_texture_handles: &[f64],
         material_texture_handles: &[f64],
-        object_uniforms: &[f32],
+        world_matrices: &[f32],
+        material_packets: &[f32],
     ) -> Result<(), JsValue> {
         self.renderer.render(
-            frame_uniforms,
+            frame_packet,
             mesh_handles,
             object_handles,
             albedo_texture_handles,
             normal_texture_handles,
             material_texture_handles,
-            object_uniforms,
+            world_matrices,
+            material_packets,
         )
     }
 
@@ -273,7 +277,8 @@ impl BrowserWgpuRenderer {
         }
         let max_texture_array_layers = adapter.limits().max_texture_array_layers;
 
-        let mut limits = wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits());
+        let mut limits =
+            wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits());
         limits.max_texture_array_layers = limits
             .max_texture_array_layers
             .max(REQUIRED_TEXTURE_ARRAY_LAYERS);
@@ -421,7 +426,9 @@ impl BrowserWgpuRenderer {
 
     fn resize(&mut self, width: u32, height: u32) -> Result<(), JsValue> {
         if width == 0 || height == 0 {
-            return Err(js_error("Rust WebGPU renderer rejected a zero-sized canvas."));
+            return Err(js_error(
+                "Rust WebGPU renderer rejected a zero-sized canvas.",
+            ));
         }
 
         if self.config.width == width && self.config.height == height {
@@ -452,16 +459,20 @@ impl BrowserWgpuRenderer {
             return Err(js_error("Rust WebGPU renderer rejected an invalid mesh."));
         }
 
-        let vertex_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("mesh vertices"),
-            contents: f32_as_bytes(vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let index_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("mesh indices"),
-            contents: u32_as_bytes(indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        let vertex_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mesh vertices"),
+                contents: f32_as_bytes(vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let index_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mesh indices"),
+                contents: u32_as_bytes(indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
 
         Ok(self.meshes.insert(GpuMesh {
             vertex_buffer,
@@ -489,10 +500,14 @@ impl BrowserWgpuRenderer {
         data: &[u8],
     ) -> Result<ResourceHandle, JsValue> {
         if width == 0 || height == 0 || layers == 0 || layers > REQUIRED_TEXTURE_ARRAY_LAYERS {
-            return Err(js_error("Rust WebGPU renderer rejected an invalid texture shape."));
+            return Err(js_error(
+                "Rust WebGPU renderer rejected an invalid texture shape.",
+            ));
         }
         if format_code != TEXTURE_FORMAT_RGBA8_UNORM {
-            return Err(js_error("Rust WebGPU renderer rejected an unsupported texture format."));
+            return Err(js_error(
+                "Rust WebGPU renderer rejected an unsupported texture format.",
+            ));
         }
 
         let expected_bytes = width as usize * height as usize * layers as usize * 4;
@@ -543,16 +558,19 @@ impl BrowserWgpuRenderer {
     #[allow(clippy::too_many_arguments)]
     fn render(
         &mut self,
-        frame_uniforms: &[f32],
+        frame_packet: &[f32],
         mesh_handles: &[f64],
         object_handles: &[f64],
         albedo_texture_handles: &[f64],
         normal_texture_handles: &[f64],
         material_texture_handles: &[f64],
-        object_uniforms: &[f32],
+        world_matrices: &[f32],
+        material_packets: &[f32],
     ) -> Result<(), JsValue> {
-        if frame_uniforms.len() != FRAME_UNIFORM_FLOATS {
-            return Err(js_error("Rust WebGPU renderer received invalid frame uniforms."));
+        if frame_packet.len() != FRAME_PACKET_FLOATS {
+            return Err(js_error(
+                "Rust WebGPU renderer received an invalid frame packet.",
+            ));
         }
 
         let item_count = mesh_handles.len();
@@ -560,10 +578,14 @@ impl BrowserWgpuRenderer {
             || albedo_texture_handles.len() != item_count
             || normal_texture_handles.len() != item_count
             || material_texture_handles.len() != item_count
-            || object_uniforms.len() != item_count * OBJECT_UNIFORM_FLOATS
+            || world_matrices.len() != item_count * WORLD_MATRIX_FLOATS
+            || material_packets.len() != item_count * MATERIAL_PACKET_FLOATS
         {
-            return Err(js_error("Rust WebGPU renderer received mismatched render packet arrays."));
+            return Err(js_error(
+                "Rust WebGPU renderer received mismatched render packet arrays.",
+            ));
         }
+        let frame_uniforms = build_frame_uniform_values(frame_packet).map_err(js_error)?;
 
         let frame = match self.surface.get_current_texture() {
             Ok(frame) => frame,
@@ -573,13 +595,18 @@ impl BrowserWgpuRenderer {
             }
             Err(error) => return Err(js_error(error)),
         };
-        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
         let depth_view = self
             .depth_texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.queue
-            .write_buffer(&self.camera_uniform_buffer, 0, f32_as_bytes(frame_uniforms));
+        self.queue.write_buffer(
+            &self.camera_uniform_buffer,
+            0,
+            f32_as_bytes(&frame_uniforms),
+        );
         let mut render_items = Vec::with_capacity(item_count);
         for index in 0..item_count {
             let mesh_handle = handle_from_js(mesh_handles[index])?;
@@ -588,15 +615,22 @@ impl BrowserWgpuRenderer {
             let normal_texture = handle_from_js(normal_texture_handles[index])?;
             let material_texture = handle_from_js(material_texture_handles[index])?;
             if self.meshes.get(mesh_handle).is_none() {
-                return Err(js_error("Rust WebGPU renderer received a stale mesh handle."));
+                return Err(js_error(
+                    "Rust WebGPU renderer received a stale mesh handle.",
+                ));
             }
+            let object_uniforms = build_object_uniform_values(
+                &world_matrices[index * WORLD_MATRIX_FLOATS..(index + 1) * WORLD_MATRIX_FLOATS],
+                &material_packets
+                    [index * MATERIAL_PACKET_FLOATS..(index + 1) * MATERIAL_PACKET_FLOATS],
+            )
+            .map_err(js_error)?;
             self.update_object(
                 object_handle,
                 albedo_texture,
                 normal_texture,
                 material_texture,
-                &object_uniforms
-                    [index * OBJECT_UNIFORM_FLOATS..(index + 1) * OBJECT_UNIFORM_FLOATS],
+                &object_uniforms,
             )?;
             render_items.push((mesh_handle, object_handle));
         }
@@ -640,14 +674,12 @@ impl BrowserWgpuRenderer {
 
             pass.set_pipeline(&self.pipeline);
             for (mesh_handle, object_handle) in render_items {
-                let mesh = self
-                    .meshes
-                    .get(mesh_handle)
-                    .ok_or_else(|| js_error("Rust WebGPU renderer received a stale mesh handle."))?;
-                let object = self
-                    .objects
-                    .get(object_handle)
-                    .ok_or_else(|| js_error("Rust WebGPU renderer received a stale object handle."))?;
+                let mesh = self.meshes.get(mesh_handle).ok_or_else(|| {
+                    js_error("Rust WebGPU renderer received a stale mesh handle.")
+                })?;
+                let object = self.objects.get(object_handle).ok_or_else(|| {
+                    js_error("Rust WebGPU renderer received a stale object handle.")
+                })?;
                 let bind_group = object.bind_group.as_ref().ok_or_else(|| {
                     js_error("Rust WebGPU renderer object bind group was not prepared.")
                 })?;
@@ -677,7 +709,9 @@ impl BrowserWgpuRenderer {
             || self.textures.get(normal_texture).is_none()
             || self.textures.get(material_texture).is_none()
         {
-            return Err(js_error("Rust WebGPU renderer received a stale texture handle."));
+            return Err(js_error(
+                "Rust WebGPU renderer received a stale texture handle.",
+            ));
         }
 
         let object = self
@@ -982,19 +1016,13 @@ fn uniform_byte_len(float_count: usize) -> wgpu::BufferAddress {
 
 fn f32_as_bytes(values: &[f32]) -> &[u8] {
     unsafe {
-        std::slice::from_raw_parts(
-            values.as_ptr().cast::<u8>(),
-            std::mem::size_of_val(values),
-        )
+        std::slice::from_raw_parts(values.as_ptr().cast::<u8>(), std::mem::size_of_val(values))
     }
 }
 
 fn u32_as_bytes(values: &[u32]) -> &[u8] {
     unsafe {
-        std::slice::from_raw_parts(
-            values.as_ptr().cast::<u8>(),
-            std::mem::size_of_val(values),
-        )
+        std::slice::from_raw_parts(values.as_ptr().cast::<u8>(), std::mem::size_of_val(values))
     }
 }
 
@@ -1004,7 +1032,9 @@ fn handle_to_js(handle: ResourceHandle) -> f64 {
 
 fn handle_from_js(handle: f64) -> Result<ResourceHandle, JsValue> {
     if !handle.is_finite() || handle < 0.0 || handle > u64::MAX as f64 {
-        return Err(js_error("Rust WebGPU renderer received an invalid resource handle."));
+        return Err(js_error(
+            "Rust WebGPU renderer received an invalid resource handle.",
+        ));
     }
 
     ResourceHandle::from_raw(handle as u64)

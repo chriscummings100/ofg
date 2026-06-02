@@ -5,11 +5,20 @@ import {
   type EngineWebRendererStatus,
   type EngineWebWgpuRenderer
 } from "../web/engineWebWasm.js";
-import { FRAME_UNIFORM_FLOATS, buildFrameUniformValues } from "./FrameUniforms.js";
+import {
+  DEFAULT_ALBEDO_FACTOR,
+  DEFAULT_SPECULAR,
+  DEFAULT_SPECULAR_FACTOR,
+  DEFAULT_TEXTURE_SCALE,
+  type Material
+} from "./Material.js";
 import type { Mesh } from "./Mesh.js";
-import { OBJECT_UNIFORM_FLOATS, buildObjectUniformValues } from "./ObjectUniforms.js";
 import type { RenderItem, RenderWorld } from "./RenderWorld.js";
 import type { Texture } from "./Texture.js";
+
+const FRAME_PACKET_FLOATS = 43;
+const WORLD_MATRIX_FLOATS = 16;
+const MATERIAL_PACKET_FLOATS = 10;
 
 type GpuMeshHandle = {
   readonly handle: number;
@@ -17,7 +26,6 @@ type GpuMeshHandle = {
 
 type GpuObjectHandle = {
   readonly handle: number;
-  readonly uniformValues: Float32Array;
 };
 
 export class RustWgpuRendererAdapter {
@@ -25,7 +33,7 @@ export class RustWgpuRendererAdapter {
   private readonly meshCache = new Map<Mesh, GpuMeshHandle>();
   private readonly textureCache = new WeakMap<Texture, number>();
   private readonly objectHandles = new Map<string, GpuObjectHandle>();
-  private readonly frameUniformValues = new Float32Array(FRAME_UNIFORM_FLOATS);
+  private readonly framePacket = new Float32Array(FRAME_PACKET_FLOATS);
   private readonly fallbackAlbedoTexture: number;
   private readonly fallbackNormalTexture: number;
   private readonly fallbackMaterialTexture: number;
@@ -79,18 +87,15 @@ export class RustWgpuRendererAdapter {
     const albedoTextureHandles = new Float64Array(itemCount);
     const normalTextureHandles = new Float64Array(itemCount);
     const materialTextureHandles = new Float64Array(itemCount);
-    const objectUniforms = new Float32Array(itemCount * OBJECT_UNIFORM_FLOATS);
+    const worldMatrices = new Float32Array(itemCount * WORLD_MATRIX_FLOATS);
+    const materialPackets = new Float32Array(itemCount * MATERIAL_PACKET_FLOATS);
     const seenItemIds = new Set<string>();
     const seenMeshes = new Set<Mesh>();
 
-    buildFrameUniformValues(renderWorld.camera, renderWorld.mainLight, this.frameUniformValues);
+    writeFramePacket(renderWorld, this.framePacket);
     for (let index = 0; index < itemCount; index += 1) {
       const item = renderWorld.items[index];
       const object = this.getGpuObject(item);
-      const objectUniformTarget = objectUniforms.subarray(
-        index * OBJECT_UNIFORM_FLOATS,
-        (index + 1) * OBJECT_UNIFORM_FLOATS
-      );
 
       seenItemIds.add(item.id);
       seenMeshes.add(item.mesh);
@@ -108,18 +113,19 @@ export class RustWgpuRendererAdapter {
         item.materialTexture,
         this.fallbackMaterialTexture
       );
-      buildObjectUniformValues(item.worldMatrix, item.material, object.uniformValues);
-      objectUniformTarget.set(object.uniformValues);
+      worldMatrices.set(item.worldMatrix, index * WORLD_MATRIX_FLOATS);
+      writeMaterialPacket(item.material, materialPackets, index * MATERIAL_PACKET_FLOATS);
     }
 
     this.renderer.render(
-      this.frameUniformValues,
+      this.framePacket,
       meshHandles,
       objectHandles,
       albedoTextureHandles,
       normalTextureHandles,
       materialTextureHandles,
-      objectUniforms
+      worldMatrices,
+      materialPackets
     );
     this.pruneObjectHandles(seenItemIds);
     this.pruneGpuMeshes(seenMeshes);
@@ -182,8 +188,7 @@ export class RustWgpuRendererAdapter {
     }
 
     const object = {
-      handle: this.renderer.registerObject(),
-      uniformValues: new Float32Array(OBJECT_UNIFORM_FLOATS)
+      handle: this.renderer.registerObject()
     };
     this.objectHandles.set(item.id, object);
 
@@ -220,6 +225,42 @@ export class RustWgpuRendererAdapter {
       height: Math.max(1, Math.floor(this.canvas.clientHeight * pixelRatio))
     };
   }
+}
+
+function writeFramePacket(renderWorld: RenderWorld, target: Float32Array): void {
+  target.set(renderWorld.camera.viewProjection, 0);
+  target.set(renderWorld.camera.inverseViewProjection, 16);
+  target[32] = renderWorld.camera.eye.x;
+  target[33] = renderWorld.camera.eye.y;
+  target[34] = renderWorld.camera.eye.z;
+  target[35] = renderWorld.mainLight.direction.x;
+  target[36] = renderWorld.mainLight.direction.y;
+  target[37] = renderWorld.mainLight.direction.z;
+  target[38] = renderWorld.mainLight.color.x;
+  target[39] = renderWorld.mainLight.color.y;
+  target[40] = renderWorld.mainLight.color.z;
+  target[41] = renderWorld.mainLight.intensity;
+  target[42] = renderWorld.mainLight.ambient;
+}
+
+function writeMaterialPacket(
+  material: Material | undefined,
+  target: Float32Array,
+  offset: number
+): void {
+  const albedo = material?.albedoFactor ?? DEFAULT_ALBEDO_FACTOR;
+  const specular = material?.specular ?? DEFAULT_SPECULAR;
+
+  target[offset] = albedo.x;
+  target[offset + 1] = albedo.y;
+  target[offset + 2] = albedo.z;
+  target[offset + 3] = albedo.w;
+  target[offset + 4] = specular.x;
+  target[offset + 5] = specular.y;
+  target[offset + 6] = specular.z;
+  target[offset + 7] = material?.specularFactor ?? DEFAULT_SPECULAR_FACTOR;
+  target[offset + 8] = material?.flags ?? 0;
+  target[offset + 9] = material?.textureScale ?? DEFAULT_TEXTURE_SCALE;
 }
 
 function createOpaqueWhiteTextureData(width: number, height: number, layers: number): Uint8Array {

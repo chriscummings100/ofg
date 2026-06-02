@@ -1,5 +1,6 @@
 mod config;
 mod facade;
+mod render_uniforms;
 mod renderer;
 mod resources;
 #[cfg(target_arch = "wasm32")]
@@ -12,6 +13,11 @@ pub use config::{
     TEXTURE_FORMAT_RGBA8_UNORM,
 };
 pub use facade::*;
+pub use render_uniforms::{
+    build_frame_uniform_values, build_object_uniform_values, RenderUniformError,
+    FRAME_PACKET_FLOATS, FRAME_UNIFORM_FLOATS, MATERIAL_PACKET_FLOATS, OBJECT_UNIFORM_FLOATS,
+    WORLD_MATRIX_FLOATS,
+};
 pub use renderer::{
     MeshResource, RendererResourceCounts, RendererState, RendererStateError, TextureResource,
 };

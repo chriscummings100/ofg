@@ -466,18 +466,19 @@ export class RustWgpuRenderer {
         }
     }
     /**
-     * @param {Float32Array} frame_uniforms
+     * @param {Float32Array} frame_packet
      * @param {Float64Array} mesh_handles
      * @param {Float64Array} object_handles
      * @param {Float64Array} albedo_texture_handles
      * @param {Float64Array} normal_texture_handles
      * @param {Float64Array} material_texture_handles
-     * @param {Float32Array} object_uniforms
+     * @param {Float32Array} world_matrices
+     * @param {Float32Array} material_packets
      */
-    render(frame_uniforms, mesh_handles, object_handles, albedo_texture_handles, normal_texture_handles, material_texture_handles, object_uniforms) {
+    render(frame_packet, mesh_handles, object_handles, albedo_texture_handles, normal_texture_handles, material_texture_handles, world_matrices, material_packets) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passArrayF32ToWasm0(frame_uniforms, wasm.__wbindgen_malloc);
+            const ptr0 = passArrayF32ToWasm0(frame_packet, wasm.__wbindgen_malloc);
             const len0 = WASM_VECTOR_LEN;
             const ptr1 = passArrayF64ToWasm0(mesh_handles, wasm.__wbindgen_malloc);
             const len1 = WASM_VECTOR_LEN;
@@ -489,9 +490,11 @@ export class RustWgpuRenderer {
             const len4 = WASM_VECTOR_LEN;
             const ptr5 = passArrayF64ToWasm0(material_texture_handles, wasm.__wbindgen_malloc);
             const len5 = WASM_VECTOR_LEN;
-            const ptr6 = passArrayF32ToWasm0(object_uniforms, wasm.__wbindgen_malloc);
+            const ptr6 = passArrayF32ToWasm0(world_matrices, wasm.__wbindgen_malloc);
             const len6 = WASM_VECTOR_LEN;
-            wasm.rustwgpurenderer_render(retptr, this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6);
+            const ptr7 = passArrayF32ToWasm0(material_packets, wasm.__wbindgen_malloc);
+            const len7 = WASM_VECTOR_LEN;
+            wasm.rustwgpurenderer_render(retptr, this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6, ptr7, len7);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             if (r1) {
@@ -1418,15 +1421,15 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper1046 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper1048 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 235, __wbg_adapter_31);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper330 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper332 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 30, __wbg_adapter_26);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper332 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper334 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 30, __wbg_adapter_26);
         return addHeapObject(ret);
     };

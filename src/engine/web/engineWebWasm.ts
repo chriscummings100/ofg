@@ -36,13 +36,14 @@ export type EngineWebWgpuRenderer = {
   registerObject(): number;
   destroyObject(handle: number): void;
   render(
-    frameUniforms: Float32Array,
+    framePacket: Float32Array,
     meshHandles: Float64Array,
     objectHandles: Float64Array,
     albedoTextureHandles: Float64Array,
     normalTextureHandles: Float64Array,
     materialTextureHandles: Float64Array,
-    objectUniforms: Float32Array
+    worldMatrices: Float32Array,
+    materialPackets: Float32Array
   ): void;
   fallbackAlbedoTextureHandle(): number;
   fallbackNormalTextureHandle(): number;

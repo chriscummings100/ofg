@@ -146,8 +146,10 @@ Supported:
   WebGPU canvas surface, adapter/device/queue, surface configuration, depth
   texture, shader modules, pipeline layouts, pipelines, buffers, texture arrays,
   samplers, bind groups, render-pass submission, frame/resource counts, and GPU
-  resource pruning. Browser smoke asserts `rendererRuntime: "rust-wgpu"` and
-  captures first-person, refreshed, debug-fly, and streamed terrain screenshots.
+  resource pruning. Rust also owns shader uniform packing for frame and object
+  draw data, including object normal-matrix calculation. Browser smoke asserts
+  `rendererRuntime: "rust-wgpu"` and captures first-person, refreshed, debug-fly,
+  and streamed terrain screenshots.
 
 Partially supported or placeholder-only:
 
@@ -181,13 +183,15 @@ Partially supported or placeholder-only:
   mesh-upload optimized.
 - TypeScript still owns the browser Worker transport and shared-density payload
   wrapping. It also still has a temporary render adapter that converts Rust
-  terrain mesh packets into CPU-side `Mesh` objects and packs frame/object uniform
-  arrays for Rust/wgpu. `TerrainCoreWorkerStreamer` is now a small browser bridge
-  that executes Worker jobs selected by `terrain_core.wasm`, asks Rust for LOD0
-  density dependency coordinates, stores density and mesh payloads in Rust, and
-  feeds terrain packets toward the temporary Rust renderer adapter. This is a
-  bridge, not full Rust render extraction, Rust-managed browser threading, or a
-  coarse `game.tick()` facade.
+  terrain mesh packets into CPU-side `Mesh` objects and packs compact frame,
+  world-matrix, and material packets for Rust/wgpu. Rust validates those packets,
+  computes normal matrices, and packs WGSL shader uniforms.
+  `TerrainCoreWorkerStreamer` is now a small browser bridge that executes Worker
+  jobs selected by `terrain_core.wasm`, asks Rust for LOD0 density dependency
+  coordinates, stores density and mesh payloads in Rust, and feeds terrain
+  packets toward the temporary Rust renderer adapter. This is a bridge, not full
+  Rust render extraction, Rust-managed browser threading, or a coarse
+  `game.tick()` facade.
 - The Rust engine migration has started the render-packet bridge for camera,
   main light, debug player marker data, and streamed terrain chunk mesh payloads.
   Terrain chunk packet storage is Rust-owned for the playable path, and the old
@@ -937,6 +941,7 @@ Progress notes:
 | 2026-06-02 | Rust terrain source of truth | Deleted the compiled TypeScript terrain generator/noise reference, TypeScript Dual Contouring/debug overlay path, and old terrain debug/variation smoke tools. The app now directly assembles `RenderWorld` from Rust camera/light/player-marker packets and Rust terrain mesh packets; TypeScript still handles browser startup, input, Worker transport, shared-density wrapping, debug hooks, and the temporary render adapter. |
 | 2026-06-02 | Rust WebGPU bridge started | Added raw `engine_web.wasm` as the first Phase 5 renderer migration slice. The terrain still rendered through the temporary TypeScript `WebGpuRenderer`, but that renderer registered mesh, texture, object, resize, frame, draw, and pruning events with Rust. This bridge was then retired by the Rust/wgpu renderer slice. |
 | 2026-06-02 | Rust/wgpu renderer became playable default | Added the `wasm-bindgen`/`wgpu` renderer in `crates/engine_web`, generated `assets/wasm/engine_web/`, deleted the TypeScript `WebGpuRenderer`, raw `engine_web.wasm`, and WebGPU ambient type shim, and routed terrain/player-marker render items through Rust-owned WebGPU resources and draw submission. Browser smoke passed with first-person, refreshed, debug-fly, and streamed terrain screenshots under `artifacts/browser-smoke/2026-06-02T12-27-54-025Z/`. |
+| 2026-06-02 | Rust shader uniform packing | Moved frame/object shader uniform packing into `engine_web`. The TypeScript render adapter now sends compact frame, world-matrix, and material packets, while Rust validates packet shape, computes normal matrices, and writes the WGSL uniform buffers. Deleted the old TypeScript `FrameUniforms` and `ObjectUniforms` modules/tests. |
 
 ## Cross-Cutting Validation
 

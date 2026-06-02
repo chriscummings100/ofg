@@ -11,7 +11,7 @@ export class RustWgpuRenderer {
   destroyTexture(handle: number): void;
   registerObject(): number;
   destroyObject(handle: number): void;
-  render(frame_uniforms: Float32Array, mesh_handles: Float64Array, object_handles: Float64Array, albedo_texture_handles: Float64Array, normal_texture_handles: Float64Array, material_texture_handles: Float64Array, object_uniforms: Float32Array): void;
+  render(frame_packet: Float32Array, mesh_handles: Float64Array, object_handles: Float64Array, albedo_texture_handles: Float64Array, normal_texture_handles: Float64Array, material_texture_handles: Float64Array, world_matrices: Float32Array, material_packets: Float32Array): void;
   status(): RustWgpuRendererStatus;
   fallbackAlbedoTextureHandle(): number;
   fallbackNormalTextureHandle(): number;
@@ -71,7 +71,7 @@ export interface InitOutput {
   readonly rustwgpurenderer_destroyTexture: (a: number, b: number, c: number) => void;
   readonly rustwgpurenderer_registerObject: (a: number, b: number) => void;
   readonly rustwgpurenderer_destroyObject: (a: number, b: number, c: number) => void;
-  readonly rustwgpurenderer_render: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number) => void;
+  readonly rustwgpurenderer_render: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number) => void;
   readonly rustwgpurenderer_status: (a: number) => number;
   readonly rustwgpurenderer_fallbackAlbedoTextureHandle: (a: number) => number;
   readonly rustwgpurenderer_fallbackNormalTextureHandle: (a: number) => number;
