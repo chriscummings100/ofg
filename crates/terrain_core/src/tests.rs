@@ -670,6 +670,106 @@ fn stream_scheduler_facade_ticks_and_completes_jobs_through_buffers() {
     assert_eq!(ofg_stream_status_lod0_ready_count(), 1);
 }
 
+#[test]
+fn worker_pool_assigns_slots_and_rejects_work_when_full() {
+    let mut pool = TerrainWorkerPool::default();
+    pool.configure(2)
+        .expect("worker pool config should be valid");
+
+    let first = pool
+        .begin_task(TerrainWorkerTaskKind::Density, 0, 7, coord(0, 0, 0))
+        .expect("first worker task should start");
+    let second = pool
+        .begin_task(TerrainWorkerTaskKind::Lod, 0, 7, coord(1, 0, 0))
+        .expect("second worker task should start");
+
+    assert_eq!(first.request_id, 1);
+    assert_eq!(first.worker_index, 0);
+    assert_eq!(second.request_id, 2);
+    assert_eq!(second.worker_index, 1);
+    assert_eq!(pool.in_flight_count(), 2);
+    assert_eq!(
+        pool.begin_task(TerrainWorkerTaskKind::Density, 0, 7, coord(2, 0, 0))
+            .err(),
+        Some(TerrainWorkerPoolError::NoIdleWorkers)
+    );
+}
+
+#[test]
+fn worker_pool_validates_completion_and_reset_generations() {
+    let mut pool = TerrainWorkerPool::default();
+    pool.configure(1)
+        .expect("worker pool config should be valid");
+    let task = pool
+        .begin_task(TerrainWorkerTaskKind::Density, 0, 3, coord(0, 0, 0))
+        .expect("worker task should start");
+
+    assert_eq!(
+        pool.finish_task(
+            task.request_id,
+            TerrainWorkerTaskKind::Density,
+            0,
+            99,
+            coord(0, 0, 0)
+        ),
+        TerrainWorkerTaskFinish::Mismatched
+    );
+    assert_eq!(pool.in_flight_count(), 0);
+
+    let task = pool
+        .begin_task(TerrainWorkerTaskKind::Lod, 0, 4, coord(1, 0, 0))
+        .expect("replacement worker task should start");
+    pool.reset();
+    assert_eq!(
+        pool.finish_task(
+            task.request_id,
+            TerrainWorkerTaskKind::Lod,
+            0,
+            4,
+            coord(1, 0, 0)
+        ),
+        TerrainWorkerTaskFinish::Stale
+    );
+    assert_eq!(pool.in_flight_count(), 0);
+}
+
+#[test]
+fn worker_pool_facade_records_task_metadata() {
+    let _lock = test_lock();
+
+    assert_eq!(ofg_worker_pool_configure(2), 1);
+    assert_eq!(ofg_worker_pool_worker_count(), 2);
+    let runtime_generation = ofg_worker_pool_runtime_generation();
+
+    assert_eq!(ofg_worker_pool_begin_task(0, 0, 5.0, 2, 0, -1), 1);
+    assert_eq!(ofg_worker_pool_task_request_id(), 1);
+    assert_eq!(ofg_worker_pool_task_worker_index(), 0);
+    assert_eq!(
+        ofg_worker_pool_task_runtime_generation(),
+        runtime_generation
+    );
+    assert_eq!(ofg_worker_pool_in_flight_count(), 1);
+
+    assert_eq!(ofg_worker_pool_begin_task(1, 0, 5.0, 3, 0, -1), 1);
+    assert_eq!(ofg_worker_pool_task_request_id(), 2);
+    assert_eq!(ofg_worker_pool_task_worker_index(), 1);
+    assert_eq!(ofg_worker_pool_in_flight_count(), 2);
+    assert_eq!(ofg_worker_pool_begin_task(0, 0, 5.0, 4, 0, -1), 0);
+
+    assert_eq!(ofg_worker_pool_finish_task(1, 0, 0, 5.0, 2, 0, -1), 1);
+    assert_eq!(ofg_worker_pool_finish_task(2, 1, 0, 6.0, 3, 0, -1), 2);
+    assert_eq!(ofg_worker_pool_finish_task(2, 1, 0, 5.0, 3, 0, -1), 0);
+
+    assert_eq!(ofg_worker_pool_begin_task(0, 0, 7.0, 4, 0, -1), 1);
+    let stale_request_id = ofg_worker_pool_task_request_id();
+    ofg_worker_pool_reset();
+    assert_eq!(ofg_worker_pool_in_flight_count(), 0);
+    assert_eq!(
+        ofg_worker_pool_finish_task(stale_request_id, 0, 0, 7.0, 4, 0, -1),
+        0
+    );
+}
+
 fn test_stream_scheduler(
     horizontal_radius: i32,
     vertical_chunk_offsets: Vec<i32>,

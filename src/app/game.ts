@@ -72,6 +72,7 @@ declare global {
       getTerrainStreamerRuntime: () => "rust";
       getTerrainStreamSchedulerRuntime: () => "rust";
       getTerrainDensityStoreRuntime: () => "rust";
+      getTerrainWorkerPoolRuntime: () => "rust" | "typescript";
       getRenderPacketRuntime: () => "rust" | "typescript";
       getTerrainRenderPacketRuntime: () => "rust";
       getTerrainWorkerCount: () => number;
@@ -96,7 +97,7 @@ export async function startGame(elements: GameElements): Promise<void> {
   const field = createTerrainGenerator(descriptor);
   const terrainCore = await loadRequiredTerrainCore();
   const engineCore = await loadRequiredEngineCore();
-  const terrainWorker = createRequiredTerrainWorker(descriptor);
+  const terrainWorker = createRequiredTerrainWorker(descriptor, terrainCore);
   const terrainStreamConfig = {
     horizontalRadius: 1,
     verticalChunkOffsets: [-2, -1, 0, 1],
@@ -191,6 +192,7 @@ export async function startGame(elements: GameElements): Promise<void> {
     getTerrainStreamerRuntime: () => terrainStreamer.runtime,
     getTerrainStreamSchedulerRuntime: () => "rust",
     getTerrainDensityStoreRuntime: () => terrainDensityChunkStore.runtime,
+    getTerrainWorkerPoolRuntime: () => terrainWorker.workerPoolRuntime,
     getRenderPacketRuntime: () => renderPacketRuntime,
     getTerrainRenderPacketRuntime: () => "rust",
     getTerrainWorkerCount: () => terrainWorker.workerCount,
@@ -287,8 +289,11 @@ async function loadRequiredTerrainCore(): Promise<TerrainCoreWasmInstance> {
   return loadTerrainCoreWasm();
 }
 
-function createRequiredTerrainWorker(descriptor: WorldDescriptor): TerrainChunkWorkerClient {
-  const worker = createTerrainChunkWorkerClient(descriptor);
+function createRequiredTerrainWorker(
+  descriptor: WorldDescriptor,
+  terrainCore: TerrainCoreWasmInstance
+): TerrainChunkWorkerClient {
+  const worker = createTerrainChunkWorkerClient(descriptor, terrainCore);
   if (worker === undefined) {
     throw new Error("Terrain workers are required for the playable Rust terrain runtime.");
   }

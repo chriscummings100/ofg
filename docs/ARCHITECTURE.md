@@ -117,12 +117,14 @@ player grounding can keep working until movement is density/mesh aware.
 `TerrainCoreWorkerStreamer` keeps the playable browser terrain bridge thin:
 `terrain_core.wasm` owns desired density/LOD0 sets, dependency coordinates,
 in-flight work, stale generation rejection, ready/empty state, density storage,
-mesh packet storage, and packet pruning. TypeScript still owns the browser Worker
-host, but the dev/smoke runtime is cross-origin isolated and the playable bridge
-uses `SharedArrayBuffer`-backed density dependency payloads when available.
-Workers still copy those payloads into their local `terrain_core.wasm` density
-stores before contouring; Rust-managed wasm threads are still future work. Loaded
-density chunk keys remain fully 3D.
+mesh packet storage, packet pruning, and the worker-pool/request model. That
+worker model includes slot assignment, request IDs, reset generations, and
+completion validation. TypeScript still constructs browser Workers, but only
+through a generic transport utility; the dev/smoke runtime is cross-origin
+isolated and the playable bridge uses `SharedArrayBuffer`-backed density
+dependency payloads when available. Workers still copy those payloads into their
+local `terrain_core.wasm` density stores before contouring; Rust-managed wasm
+threads are still future work. Loaded density chunk keys remain fully 3D.
 Runtime terrain meshes carry position, color, normal, uv, material layer indices,
 and material weights. A small mesh post-pass expands indexed triangles so each
 triangle has a coherent local four-material palette for interpolation.

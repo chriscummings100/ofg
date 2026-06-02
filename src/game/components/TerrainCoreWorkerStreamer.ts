@@ -43,6 +43,7 @@ export type TerrainCoreWorkerStreamStatus = {
   readonly missingChunkCount: number;
   readonly maxConcurrentChunkJobs: number;
   readonly densityTransferMode: TerrainDensityTransferMode;
+  readonly workerPoolRuntime: "rust" | "typescript" | "unknown";
   readonly lastDensityJobStats?: TerrainDensityJobStats;
   readonly lastChunkJobStats?: TerrainChunkJobStats;
 };
@@ -150,6 +151,7 @@ export class TerrainCoreWorkerStreamer extends Component {
       missingChunkCount: status.missingLod0Count,
       maxConcurrentChunkJobs: status.maxInFlightJobs,
       densityTransferMode: this.densityTransferMode,
+      workerPoolRuntime: this.worker.workerPoolRuntime ?? "unknown",
       lastDensityJobStats: this.lastDensityJobStats,
       lastChunkJobStats: this.lastChunkJobStats
     };

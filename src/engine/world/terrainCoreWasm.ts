@@ -24,6 +24,33 @@ export type TerrainCoreWasmExports = {
   readonly ofg_terrain_mesh_packet_x_buffer_ptr: () => number;
   readonly ofg_terrain_mesh_packet_y_buffer_ptr: () => number;
   readonly ofg_terrain_mesh_packet_z_buffer_ptr: () => number;
+  readonly ofg_worker_pool_max_workers: () => number;
+  readonly ofg_worker_pool_configure: (workerCount: number) => number;
+  readonly ofg_worker_pool_reset: () => void;
+  readonly ofg_worker_pool_worker_count: () => number;
+  readonly ofg_worker_pool_in_flight_count: () => number;
+  readonly ofg_worker_pool_runtime_generation: () => number;
+  readonly ofg_worker_pool_task_request_id: () => number;
+  readonly ofg_worker_pool_task_worker_index: () => number;
+  readonly ofg_worker_pool_task_runtime_generation: () => number;
+  readonly ofg_worker_pool_begin_task: (
+    kind: number,
+    lod: number,
+    generation: number,
+    chunkX: number,
+    chunkY: number,
+    chunkZ: number
+  ) => number;
+  readonly ofg_worker_pool_finish_task: (
+    requestId: number,
+    kind: number,
+    lod: number,
+    generation: number,
+    chunkX: number,
+    chunkY: number,
+    chunkZ: number
+  ) => number;
+  readonly ofg_worker_pool_fail_task: (requestId: number) => number;
   readonly ofg_prepare_terrain_mesh_packet_input: (
     vertexLen: number,
     indexLen: number
@@ -348,6 +375,18 @@ function assertTerrainCoreExports(exports: WebAssembly.Exports): asserts exports
     "ofg_terrain_mesh_packet_x_buffer_ptr",
     "ofg_terrain_mesh_packet_y_buffer_ptr",
     "ofg_terrain_mesh_packet_z_buffer_ptr",
+    "ofg_worker_pool_max_workers",
+    "ofg_worker_pool_configure",
+    "ofg_worker_pool_reset",
+    "ofg_worker_pool_worker_count",
+    "ofg_worker_pool_in_flight_count",
+    "ofg_worker_pool_runtime_generation",
+    "ofg_worker_pool_task_request_id",
+    "ofg_worker_pool_task_worker_index",
+    "ofg_worker_pool_task_runtime_generation",
+    "ofg_worker_pool_begin_task",
+    "ofg_worker_pool_finish_task",
+    "ofg_worker_pool_fail_task",
     "ofg_prepare_terrain_mesh_packet_input",
     "ofg_terrain_mesh_packet_input_vertex_buffer_ptr",
     "ofg_terrain_mesh_packet_input_vertex_buffer_len",

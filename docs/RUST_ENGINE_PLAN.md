@@ -129,7 +129,9 @@ type EngineHandle = {
 
 This is an illustrative contract, not final API. The important rule is that the
 facade is coarse. It should not expose thousands of entities or per-object calls
-to TypeScript every frame.
+to TypeScript every frame. The long-term browser loop should be close to
+`game.tick(frame)` or an equivalent single coarse call after TypeScript has
+collected browser input, resize, and UI events.
 
 ## Migration Phases
 
@@ -247,11 +249,16 @@ manager. The dev/smoke browser runtime is now cross-origin isolated and uses
 `SharedArrayBuffer`-backed LOD0 density dependency payloads when available, so
 the browser no longer structured-clones the 2x2x2 apron fields into each mesh
 worker. Mesh workers still copy/install those shared payloads into their local
-`terrain_core.wasm` density stores before contouring. The remaining Worker host
-is browser substrate: Rust-managed CPU threads in the browser still require a
-wasm-threads runtime slice, or eventual WebGPU compute for GPU-side parallelism.
-The next Phase 3/4 slices should move worker partition ownership, batch density
-work, wasm-thread spawning, or terrain packet emission farther into Rust.
+`terrain_core.wasm` density stores before contouring. Rust now also owns the
+terrain worker-pool model through `terrain_core.wasm`: worker slot assignment,
+request IDs, in-flight task records, reset generations, and completion
+validation. TypeScript provides the browser-only Worker transport and generic
+worker group utility. The remaining browser substrate gap is actual
+Rust-created/wasm-thread worker spawning, or eventual WebGPU compute for
+GPU-side parallelism. The next Phase 3/4 slices should move worker partition
+ownership, batch density work, terrain execution facades, or terrain packet
+emission farther into Rust until the TypeScript app loop can call a coarse
+`game.tick()`-style API.
 
 Implementation:
 
@@ -528,3 +535,4 @@ streaming, then render packets, then Rust/wgpu.
 | 2026-06-02 | Scheduler-backed terrain packet pruning moved to Rust | Added a Rust/WASM retain operation for terrain mesh packets and a sink-level retain contract. In the scheduler-backed playable path, `TerrainChunkStreamer` now prunes packets through the Rust mesh packet store and reports rendered/empty LOD0 counts from the Rust scheduler instead of maintaining TypeScript render/empty chunk mirrors as the status authority. |
 | 2026-06-02 | Playable terrain worker queue moved to Rust-owned bridge | Added `TerrainCoreWorkerStreamer`, a small browser bridge that executes Worker jobs selected by `terrain_core.wasm`, uses Rust-written LOD0 dependency coordinates, stores density and mesh packets in Rust, and reports status from the Rust scheduler. The playable app now uses this bridge instead of `TerrainChunkStreamer`; at that point TypeScript still hosted browser Workers and copied payloads until the later shared-transfer slice. |
 | 2026-06-02 | Shared density transfer enabled for terrain workers | The dev server now serves COOP/COEP/CORP headers so browser smoke runs cross-origin isolated. `TerrainCoreWorkerStreamer` wraps LOD0 density dependencies in `SharedArrayBuffer` payloads when available and reports `densityTransferMode`; browser smoke asserts the shared path. Remaining bridge work: TypeScript still hosts Workers, each worker still installs shared payloads into its local WASM density store, and Rust-owned wasm thread spawning is still ahead. |
+| 2026-06-02 | Terrain worker-pool model moved to Rust | Added a tested `TerrainWorkerPool` in `terrain_core` with WASM exports for worker count, slot assignment, request IDs, in-flight tracking, reset, stale completion rejection, and mismatch detection. The browser terrain worker client now uses a generic `BrowserWorkerGroup` only to construct/post to Web Workers, while Rust owns the terrain threading/request model. Browser smoke asserts `workerPoolRuntime: rust`. |

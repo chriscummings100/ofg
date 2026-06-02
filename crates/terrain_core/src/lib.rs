@@ -11,6 +11,7 @@ mod noise;
 mod presets;
 mod store;
 mod stream;
+mod worker_pool;
 
 pub(crate) use chunk::*;
 pub(crate) use constants::*;
@@ -27,6 +28,7 @@ pub(crate) use presets::*;
 pub(crate) use store::*;
 #[allow(unused_imports)]
 pub(crate) use stream::*;
+pub(crate) use worker_pool::*;
 
 #[cfg(test)]
 mod tests;

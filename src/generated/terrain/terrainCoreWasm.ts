@@ -23,6 +23,18 @@ export type TerrainCoreWasmExportName =
   | "ofg_terrain_mesh_packet_x_buffer_ptr"
   | "ofg_terrain_mesh_packet_y_buffer_ptr"
   | "ofg_terrain_mesh_packet_z_buffer_ptr"
+  | "ofg_worker_pool_max_workers"
+  | "ofg_worker_pool_configure"
+  | "ofg_worker_pool_reset"
+  | "ofg_worker_pool_worker_count"
+  | "ofg_worker_pool_in_flight_count"
+  | "ofg_worker_pool_runtime_generation"
+  | "ofg_worker_pool_task_request_id"
+  | "ofg_worker_pool_task_worker_index"
+  | "ofg_worker_pool_task_runtime_generation"
+  | "ofg_worker_pool_begin_task"
+  | "ofg_worker_pool_finish_task"
+  | "ofg_worker_pool_fail_task"
   | "ofg_prepare_terrain_mesh_packet_input"
   | "ofg_terrain_mesh_packet_input_vertex_buffer_ptr"
   | "ofg_terrain_mesh_packet_input_vertex_buffer_len"
@@ -96,7 +108,7 @@ export const TERRAIN_CORE_WASM_METADATA = Object.freeze({
   "sourceCrate": "crates/terrain_core",
   "assetPath": "assets/wasm/terrain_core.wasm",
   "target": "wasm32-unknown-unknown",
-  "artifactHash": "sha256-1fd143950dd8a083d4247fb2a910beedd7b15b156dd7661ec13146db1238e694",
+  "artifactHash": "sha256-6666666420e4f07b24f289fb386e7ad2361780ba1977a4c6c05a84145a55b8c0",
   "exports": [
     "memory",
     "ofg_terrain_core_version",
@@ -120,6 +132,18 @@ export const TERRAIN_CORE_WASM_METADATA = Object.freeze({
     "ofg_terrain_mesh_packet_x_buffer_ptr",
     "ofg_terrain_mesh_packet_y_buffer_ptr",
     "ofg_terrain_mesh_packet_z_buffer_ptr",
+    "ofg_worker_pool_max_workers",
+    "ofg_worker_pool_configure",
+    "ofg_worker_pool_reset",
+    "ofg_worker_pool_worker_count",
+    "ofg_worker_pool_in_flight_count",
+    "ofg_worker_pool_runtime_generation",
+    "ofg_worker_pool_task_request_id",
+    "ofg_worker_pool_task_worker_index",
+    "ofg_worker_pool_task_runtime_generation",
+    "ofg_worker_pool_begin_task",
+    "ofg_worker_pool_finish_task",
+    "ofg_worker_pool_fail_task",
     "ofg_prepare_terrain_mesh_packet_input",
     "ofg_terrain_mesh_packet_input_vertex_buffer_ptr",
     "ofg_terrain_mesh_packet_input_vertex_buffer_len",

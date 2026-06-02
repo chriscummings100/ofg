@@ -38,6 +38,9 @@ pub(crate) static mut MESH_PACKET_Y_BUFFER: [i32; MESH_PACKET_COORD_BUFFER_CAPAC
     [0; MESH_PACKET_COORD_BUFFER_CAPACITY];
 pub(crate) static mut MESH_PACKET_Z_BUFFER: [i32; MESH_PACKET_COORD_BUFFER_CAPACITY] =
     [0; MESH_PACKET_COORD_BUFFER_CAPACITY];
+pub(crate) static mut WORKER_POOL_TASK_REQUEST_ID: u32 = 0;
+pub(crate) static mut WORKER_POOL_TASK_WORKER_INDEX: u32 = 0;
+pub(crate) static mut WORKER_POOL_TASK_RUNTIME_GENERATION: f64 = 0.0;
 
 #[no_mangle]
 pub extern "C" fn ofg_terrain_core_version() -> u32 {
@@ -142,6 +145,156 @@ pub extern "C" fn ofg_terrain_mesh_packet_y_buffer_ptr() -> *const i32 {
 #[no_mangle]
 pub extern "C" fn ofg_terrain_mesh_packet_z_buffer_ptr() -> *const i32 {
     unsafe { core::ptr::addr_of!(MESH_PACKET_Z_BUFFER).cast::<i32>() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_worker_pool_max_workers() -> u32 {
+    TERRAIN_WORKER_POOL_MAX_WORKERS as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_worker_pool_configure(worker_count: u32) -> u32 {
+    terrain_worker_pool()
+        .lock()
+        .expect("terrain worker pool lock poisoned")
+        .configure(worker_count as usize)
+        .is_ok() as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_worker_pool_reset() {
+    terrain_worker_pool()
+        .lock()
+        .expect("terrain worker pool lock poisoned")
+        .reset();
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_worker_pool_worker_count() -> u32 {
+    terrain_worker_pool()
+        .lock()
+        .expect("terrain worker pool lock poisoned")
+        .worker_count() as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_worker_pool_in_flight_count() -> u32 {
+    terrain_worker_pool()
+        .lock()
+        .expect("terrain worker pool lock poisoned")
+        .in_flight_count() as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_worker_pool_runtime_generation() -> f64 {
+    terrain_worker_pool()
+        .lock()
+        .expect("terrain worker pool lock poisoned")
+        .runtime_generation() as f64
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_worker_pool_task_request_id() -> u32 {
+    unsafe { WORKER_POOL_TASK_REQUEST_ID }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_worker_pool_task_worker_index() -> u32 {
+    unsafe { WORKER_POOL_TASK_WORKER_INDEX }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_worker_pool_task_runtime_generation() -> f64 {
+    unsafe { WORKER_POOL_TASK_RUNTIME_GENERATION }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_worker_pool_begin_task(
+    kind: u32,
+    lod: u32,
+    stream_generation: f64,
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+) -> u32 {
+    let Some(kind) = TerrainWorkerTaskKind::from_code(kind) else {
+        return 0;
+    };
+    let Some(stream_generation) = generation_from_f64(stream_generation) else {
+        return 0;
+    };
+    let task = terrain_worker_pool()
+        .lock()
+        .expect("terrain worker pool lock poisoned")
+        .begin_task(
+            kind,
+            lod,
+            stream_generation,
+            TerrainChunkCoord {
+                x: chunk_x,
+                y: chunk_y,
+                z: chunk_z,
+            },
+        );
+    let Ok(task) = task else {
+        return 0;
+    };
+
+    unsafe {
+        WORKER_POOL_TASK_REQUEST_ID = task.request_id;
+        WORKER_POOL_TASK_WORKER_INDEX = task.worker_index as u32;
+        WORKER_POOL_TASK_RUNTIME_GENERATION = terrain_worker_pool()
+            .lock()
+            .expect("terrain worker pool lock poisoned")
+            .runtime_generation() as f64;
+    }
+
+    1
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_worker_pool_finish_task(
+    request_id: u32,
+    kind: u32,
+    lod: u32,
+    stream_generation: f64,
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+) -> u32 {
+    let Some(kind) = TerrainWorkerTaskKind::from_code(kind) else {
+        return 2;
+    };
+    let Some(stream_generation) = generation_from_f64(stream_generation) else {
+        return 2;
+    };
+
+    match terrain_worker_pool()
+        .lock()
+        .expect("terrain worker pool lock poisoned")
+        .finish_task(
+            request_id,
+            kind,
+            lod,
+            stream_generation,
+            TerrainChunkCoord {
+                x: chunk_x,
+                y: chunk_y,
+                z: chunk_z,
+            },
+        ) {
+        TerrainWorkerTaskFinish::Stale => 0,
+        TerrainWorkerTaskFinish::Matched => 1,
+        TerrainWorkerTaskFinish::Mismatched => 2,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_worker_pool_fail_task(request_id: u32) -> u32 {
+    terrain_worker_pool()
+        .lock()
+        .expect("terrain worker pool lock poisoned")
+        .fail_task(request_id) as u32
 }
 
 #[no_mangle]

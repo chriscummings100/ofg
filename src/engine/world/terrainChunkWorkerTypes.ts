@@ -57,6 +57,7 @@ export type TerrainChunkJobResult = {
 
 export type TerrainChunkJobGenerator = {
   readonly workerCount?: number;
+  readonly workerPoolRuntime?: "rust" | "typescript";
   prepareDensityChunk(request: TerrainDensityJobRequest): Promise<TerrainDensityJobResult>;
   generateChunk(request: TerrainChunkJobRequest): Promise<TerrainChunkJobResult>;
   reset?(): void;

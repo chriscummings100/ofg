@@ -218,6 +218,7 @@ async function readTerrainStreamRuntime(page) {
       streamerRuntime: window.__ofgDebug?.getTerrainStreamerRuntime?.() ?? "missing",
       schedulerRuntime: window.__ofgDebug?.getTerrainStreamSchedulerRuntime?.() ?? "missing",
       densityStoreRuntime: window.__ofgDebug?.getTerrainDensityStoreRuntime?.() ?? "missing",
+      workerPoolRuntime: window.__ofgDebug?.getTerrainWorkerPoolRuntime?.() ?? "missing",
       densityTransferMode: status?.densityTransferMode ?? "missing",
       crossOriginIsolated: globalThis.crossOriginIsolated === true,
       sharedArrayBufferAvailable: typeof SharedArrayBuffer !== "undefined",
@@ -270,6 +271,10 @@ function assertTerrainStreamRuntime(runtime) {
 
   if (runtime.densityStoreRuntime !== "rust") {
     throw new Error(`Expected Rust terrain density store, saw '${runtime.densityStoreRuntime}'.`);
+  }
+
+  if (runtime.workerPoolRuntime !== "rust") {
+    throw new Error(`Expected Rust terrain worker pool, saw '${runtime.workerPoolRuntime}'.`);
   }
 
   if (runtime.workerCount <= 0) {
