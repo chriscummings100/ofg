@@ -1,17 +1,17 @@
 import { equal, ok } from "node:assert/strict";
 import { vec3 } from "../math/vec3.js";
 import { vec4 } from "../math/vec4.js";
-import type { EngineWebBrowserGame } from "../web/engineWebWasm.js";
-import { Material } from "./Material.js";
-import type { RenderMeshPacket } from "./RenderPackets.js";
-import { RustWgpuRendererAdapter } from "./rustWgpuRenderer.js";
-import type { TerrainRenderSource } from "./TerrainCoreRenderPackets.js";
-import { Texture } from "./Texture.js";
+import { Material } from "../render/Material.js";
+import type { RenderMeshPacket } from "../render/RenderPackets.js";
+import type { TerrainRenderSource } from "../render/TerrainCoreRenderPackets.js";
+import { Texture } from "../render/Texture.js";
+import type { EngineWebBrowserGame } from "./engineWebWasm.js";
+import { RustBrowserGameAdapter } from "./rustBrowserGameAdapter.js";
 
-describe("RustWgpuRendererAdapter", () => {
+describe("RustBrowserGameAdapter", () => {
   it("uploads mesh and texture bytes then renders item IDs through the Rust browser game facade", () => {
     const fake = fakeBrowserGame();
-    const adapter = new RustWgpuRendererAdapter(fakeCanvas(), fake);
+    const adapter = new RustBrowserGameAdapter(fakeCanvas(), fake);
     const mesh = fakeMeshPacket("mesh:test");
     const texture = new Texture(
       "texture:test",
@@ -53,7 +53,7 @@ describe("RustWgpuRendererAdapter", () => {
 
   it("destroys uploaded meshes that disappear from render packets", () => {
     const fake = fakeBrowserGame();
-    const adapter = new RustWgpuRendererAdapter(fakeCanvas(), fake) as unknown as {
+    const adapter = new RustBrowserGameAdapter(fakeCanvas(), fake) as unknown as {
       uploadedMeshes: Map<string, RenderMeshPacket>;
       pruneUploadedMeshes(seenMeshes: Set<RenderMeshPacket>): void;
     };

@@ -7,7 +7,7 @@ import { vec4 } from "../engine/math/vec4.js";
 import { MATERIAL_FLAG_TRIPLANAR_ALBEDO, Material } from "../engine/render/Material.js";
 import { createTerrainCoreRenderPacketStore } from "../engine/render/TerrainCoreRenderPackets.js";
 import { loadTerrainMaterialTextures } from "../engine/render/terrainTextures.js";
-import { RustWgpuRendererAdapter } from "../engine/render/rustWgpuRenderer.js";
+import { RustBrowserGameAdapter } from "../engine/web/rustBrowserGameAdapter.js";
 import { TerrainCoreWorkerStreamer } from "../game/components/TerrainCoreWorkerStreamer.js";
 import {
   createSeedWorldDescriptor,
@@ -68,7 +68,7 @@ declare global {
 }
 
 export async function startGame(elements: GameElements): Promise<void> {
-  const renderer = await RustWgpuRendererAdapter.create(elements.canvas);
+  const renderer = await RustBrowserGameAdapter.create(elements.canvas);
   const input = new InputTracker();
   const descriptor = readWorldDescriptor();
   const terrainCore = await loadRequiredTerrainCore();

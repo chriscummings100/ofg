@@ -408,7 +408,7 @@ Deletion path:
 - TypeScript `WebGpuRenderer`, its tests, the raw `EngineWebGpuBridge`, the old
   raw `assets/wasm/engine_web.wasm`, and the TypeScript WebGPU ambient type shim
   were deleted on 2026-06-02 after Rust/wgpu became the default browser renderer.
-- Keep shrinking the remaining `RustWgpuRendererAdapter` until TypeScript is a
+- Keep shrinking the remaining `RustBrowserGameAdapter` until TypeScript is a
   browser/UI shell around coarse Rust engine calls.
 
 ### Phase 6: Move Factory Simulation And Spatial World Data To Rust

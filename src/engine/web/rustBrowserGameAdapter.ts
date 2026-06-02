@@ -4,13 +4,13 @@ import {
   ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM,
   type EngineWebBrowserGame,
   type EngineWebRendererStatus
-} from "../web/engineWebWasm.js";
+} from "./engineWebWasm.js";
 import {
   type Material
-} from "./Material.js";
-import type { RenderMeshPacket } from "./RenderPackets.js";
-import type { TerrainRenderSource } from "./TerrainCoreRenderPackets.js";
-import type { Texture } from "./Texture.js";
+} from "../render/Material.js";
+import type { RenderMeshPacket } from "../render/RenderPackets.js";
+import type { TerrainRenderSource } from "../render/TerrainCoreRenderPackets.js";
+import type { Texture } from "../render/Texture.js";
 
 const WORLD_MATRIX_FLOATS = 16;
 const IDENTITY_WORLD_MATRIX = new Float32Array([
@@ -20,7 +20,7 @@ const IDENTITY_WORLD_MATRIX = new Float32Array([
   0, 0, 0, 1
 ]);
 
-export class RustWgpuRendererAdapter {
+export class RustBrowserGameAdapter {
   readonly runtime = "rust-wgpu" as const;
   private readonly uploadedMeshes = new Map<string, RenderMeshPacket>();
   private readonly uploadedTextures = new Map<string, Texture>();
@@ -33,9 +33,9 @@ export class RustWgpuRendererAdapter {
     private readonly game: EngineWebBrowserGame
   ) {}
 
-  static async create(canvas: HTMLCanvasElement): Promise<RustWgpuRendererAdapter> {
+  static async create(canvas: HTMLCanvasElement): Promise<RustBrowserGameAdapter> {
     const game = await createEngineWebBrowserGame(canvas);
-    const adapter = new RustWgpuRendererAdapter(canvas, game);
+    const adapter = new RustBrowserGameAdapter(canvas, game);
     adapter.resize();
 
     return adapter;
