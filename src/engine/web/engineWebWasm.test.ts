@@ -119,6 +119,7 @@ function fakeRenderer(): EngineWebWgpuRenderer {
     },
     destroyObject() {},
     render() {},
+    renderEngineFrame() {},
     fallbackAlbedoTextureHandle() {
       return 4;
     },

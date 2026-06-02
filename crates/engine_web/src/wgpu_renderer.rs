@@ -7,6 +7,9 @@ use wgpu::util::DeviceExt;
 use crate::config::{
     REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
 };
+use crate::render_packets::{
+    build_frame_packet_from_engine_snapshot, build_player_marker_world_matrix,
+};
 use crate::render_uniforms::{
     build_frame_uniform_values, build_object_uniform_values, FRAME_PACKET_FLOATS,
     FRAME_UNIFORM_FLOATS, MATERIAL_PACKET_FLOATS, OBJECT_UNIFORM_FLOATS, WORLD_MATRIX_FLOATS,
@@ -161,6 +164,45 @@ impl RustWgpuRenderer {
             material_texture_handles,
             world_matrices,
             material_packets,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[wasm_bindgen(js_name = renderEngineFrame)]
+    pub fn render_engine_frame(
+        &mut self,
+        engine_snapshot: &[f32],
+        aspect: f32,
+        mesh_handles: &[f64],
+        object_handles: &[f64],
+        albedo_texture_handles: &[f64],
+        normal_texture_handles: &[f64],
+        material_texture_handles: &[f64],
+        world_matrices: &[f32],
+        material_packets: &[f32],
+        player_marker_mesh_handle: f64,
+        player_marker_object_handle: f64,
+        player_marker_albedo_texture_handle: f64,
+        player_marker_normal_texture_handle: f64,
+        player_marker_material_texture_handle: f64,
+        player_marker_material_packet: &[f32],
+    ) -> Result<(), JsValue> {
+        self.renderer.render_engine_frame(
+            engine_snapshot,
+            aspect,
+            mesh_handles,
+            object_handles,
+            albedo_texture_handles,
+            normal_texture_handles,
+            material_texture_handles,
+            world_matrices,
+            material_packets,
+            player_marker_mesh_handle,
+            player_marker_object_handle,
+            player_marker_albedo_texture_handle,
+            player_marker_normal_texture_handle,
+            player_marker_material_texture_handle,
+            player_marker_material_packet,
         )
     }
 
@@ -695,6 +737,76 @@ impl BrowserWgpuRenderer {
         self.frame_index = self.frame_index.saturating_add(1);
         self.frame_draw_count = item_count as u32;
         Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_engine_frame(
+        &mut self,
+        engine_snapshot: &[f32],
+        aspect: f32,
+        mesh_handles: &[f64],
+        object_handles: &[f64],
+        albedo_texture_handles: &[f64],
+        normal_texture_handles: &[f64],
+        material_texture_handles: &[f64],
+        world_matrices: &[f32],
+        material_packets: &[f32],
+        player_marker_mesh_handle: f64,
+        player_marker_object_handle: f64,
+        player_marker_albedo_texture_handle: f64,
+        player_marker_normal_texture_handle: f64,
+        player_marker_material_texture_handle: f64,
+        player_marker_material_packet: &[f32],
+    ) -> Result<(), JsValue> {
+        let frame_packet =
+            build_frame_packet_from_engine_snapshot(engine_snapshot, aspect).map_err(js_error)?;
+        let Some(player_marker_world_matrix) =
+            build_player_marker_world_matrix(engine_snapshot).map_err(js_error)?
+        else {
+            return self.render(
+                &frame_packet,
+                mesh_handles,
+                object_handles,
+                albedo_texture_handles,
+                normal_texture_handles,
+                material_texture_handles,
+                world_matrices,
+                material_packets,
+            );
+        };
+
+        if player_marker_material_packet.len() != MATERIAL_PACKET_FLOATS {
+            return Err(js_error(
+                "Rust WebGPU renderer received an invalid player marker material packet.",
+            ));
+        }
+
+        let mut mesh_handles = mesh_handles.to_vec();
+        let mut object_handles = object_handles.to_vec();
+        let mut albedo_texture_handles = albedo_texture_handles.to_vec();
+        let mut normal_texture_handles = normal_texture_handles.to_vec();
+        let mut material_texture_handles = material_texture_handles.to_vec();
+        let mut world_matrices = world_matrices.to_vec();
+        let mut material_packets = material_packets.to_vec();
+
+        mesh_handles.push(player_marker_mesh_handle);
+        object_handles.push(player_marker_object_handle);
+        albedo_texture_handles.push(player_marker_albedo_texture_handle);
+        normal_texture_handles.push(player_marker_normal_texture_handle);
+        material_texture_handles.push(player_marker_material_texture_handle);
+        world_matrices.extend_from_slice(&player_marker_world_matrix);
+        material_packets.extend_from_slice(player_marker_material_packet);
+
+        self.render(
+            &frame_packet,
+            &mesh_handles,
+            &object_handles,
+            &albedo_texture_handles,
+            &normal_texture_handles,
+            &material_texture_handles,
+            &world_matrices,
+            &material_packets,
+        )
     }
 
     fn update_object(

@@ -13,15 +13,15 @@ The detailed migration path is tracked in
 [RUST_ENGINE_PLAN.md](RUST_ENGINE_PLAN.md). The TypeScript scene/component model
 has been retired from the compiled source tree, and Rust/wgpu is now the browser
 WebGPU renderer. The remaining TypeScript render code is a temporary packet
-adapter around Rust-owned GPU resources.
+and resource-handle adapter around Rust-owned GPU resources.
 
 ## Current Layers
 
 ```text
 src/app
   Browser lifecycle, canvas setup, frame loop, HUD state, URL terrain
-  descriptor parsing, debug hooks, input forwarding, and direct assembly of the
-  temporary TypeScript RenderWorld.
+  descriptor parsing, debug hooks, input forwarding, and handoff of raw Rust
+  engine render snapshots plus terrain packet handles to the Rust renderer.
 
 src/engine/input
   DOM input tracking with edge-triggered key events and mouse deltas.
@@ -36,12 +36,12 @@ src/engine/math
   Small vector and matrix primitives.
 
 src/engine/render
-  CPU-side render resources, Rust packet adapters, and transitional RenderWorld
-  data. Runtime terrain chunks enter this path through a Rust-backed terrain
-  render-packet adapter. Actual browser WebGPU resource creation and draw
-  submission now happen in Rust/wgpu through `crates/engine_web`; TypeScript only
-  packs the current render items into compact frame, world-matrix, material, and
-  resource-handle arrays for the Rust renderer.
+  CPU-side texture/material descriptions, direct render packet types, and the
+  temporary Rust/wgpu browser adapter. Runtime terrain chunks enter this path as
+  direct mesh byte packets loaded from a Rust-owned terrain packet store. Actual
+  browser WebGPU resource creation and draw submission happen in Rust/wgpu
+  through `crates/engine_web`; TypeScript only registers resource handles and
+  packs compact per-item world-matrix/material arrays for the Rust renderer.
 
 src/engine/web
   Browser-facing WASM loaders for Rust systems that are not pure engine core or
@@ -78,9 +78,10 @@ adapter.
   submission, frame/resource counts, and GPU resource pruning.
 - TypeScript collects DOM input, parses URL seed/preset values, starts WASM,
   hosts browser Workers, wraps shared density buffers, exposes debug hooks,
-  assembles the transitional `RenderWorld`, and packs compact render packets for
-  Rust/wgpu. It no longer creates WebGPU devices, pipelines, buffers, textures,
-  render passes, shader uniform buffers, or normal matrices.
+  loads terrain mesh bytes from Rust packet stores, fetches texture assets, and
+  registers/passes renderer resource handles. It no longer creates WebGPU
+  devices, pipelines, buffers, textures, render passes, shader uniform buffers,
+  camera frames, light packets, player-marker world matrices, or normal matrices.
 
 [SCENE_MODEL_PLAN.md](SCENE_MODEL_PLAN.md) is now historical documentation of the
 deleted TypeScript scene model. Future large-scale world state should move into
@@ -115,11 +116,11 @@ Runtime terrain meshes carry position, color, normal, uv, material layer indices
 and material weights. A small mesh post-pass expands indexed triangles so each
 triangle has a coherent local four-material palette for interpolation.
 In the playable browser runtime, those chunk mesh payloads are written into and
-pruned from a Rust-owned mesh packet store in `terrain_core.wasm`, then appended
-to the `RenderWorld` by `TerrainCoreRenderPacketStore`. The old compiled
+pruned from a Rust-owned mesh packet store in `terrain_core.wasm`, then loaded as
+direct render mesh packets by `TerrainCoreRenderPacketStore`. The old compiled
 TypeScript `TerrainChunkStreamer`, `TerrainRenderer`, `TerrainRenderPacketStore`,
-highest-surface mesher, and heightfield mesh path have been retired rather than
-kept as parallel terrain owners.
+`RenderWorld`, highest-surface mesher, and heightfield mesh path have been
+retired rather than kept as parallel terrain owners.
 
 The Dual Contouring implementation now lives in `crates/terrain_core`. The
 intended boundary is:
@@ -150,9 +151,11 @@ The first material model is intentionally pre-PBR: mesh vertex color multiplied 
 an albedo factor and optional albedo texture sample, plus specular color and
 specular factor. The shader uses a simple Lambert diffuse plus Blinn-Phong specular
 model. `Texture` stores CPU-side rgba8 data that the TypeScript shell passes to
-the Rust/wgpu renderer for GPU upload. Rust/wgpu validates compact frame,
-world-matrix, and material packets from the temporary TypeScript adapter, computes
-object normal matrices, and packs the WGSL camera/object uniform buffers.
+the Rust/wgpu renderer for GPU upload. Rust/wgpu builds compact frame packets from
+the raw Rust engine render snapshot, derives the debug player-marker world matrix,
+validates per-item world-matrix and material packets from the temporary TypeScript
+adapter, computes object normal matrices, and packs the WGSL camera/object
+uniform buffers.
 
 Terrain uses checked-in Poly Haven CC0 materials imported into 16-layer global
 texture arrays. The runtime currently loads albedo, normal, and roughness arrays;
@@ -163,8 +166,7 @@ not yet applied to lighting.
 The sky is also shader-driven. Rust/wgpu draws a full-screen sky pass before
 terrain and marker geometry, reconstructs world rays from the inverse
 view-projection matrix, and renders a blue gradient plus a sun disk in the
-direction of `RenderWorld.mainLight`. The browser runtime sources that light from
-the Rust render packet bridge.
+direction of the Rust engine main-light render packet.
 
 ## Testing Direction
 

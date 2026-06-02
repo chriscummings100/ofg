@@ -1,24 +1,14 @@
 import { InputTracker } from "../engine/input/inputTracker.js";
 import { computeFrameDeltaSeconds } from "./frameTiming.js";
-import {
-  EngineCoreWasmHandle,
-  loadEngineCoreWasm,
-  type EngineCoreRenderDebugMarkerPacket
-} from "../engine/core/engineCoreWasm.js";
+import { EngineCoreWasmHandle, loadEngineCoreWasm } from "../engine/core/engineCoreWasm.js";
 import type { EngineWebRendererStatus } from "../engine/web/engineWebWasm.js";
-import { identityMat4, type Mat4 } from "../engine/math/mat4.js";
 import { vec3, type Vec3 } from "../engine/math/vec3.js";
 import { vec4 } from "../engine/math/vec4.js";
 import { MATERIAL_FLAG_TRIPLANAR_ALBEDO, Material } from "../engine/render/Material.js";
-import { Mesh } from "../engine/render/Mesh.js";
 import { createTerrainCoreRenderPacketStore } from "../engine/render/TerrainCoreRenderPackets.js";
-import {
-  cameraFrameFromEnginePacket,
-  directionalLightFromEnginePacket
-} from "../engine/render/engineRenderPackets.js";
+import type { RenderMeshPacket } from "../engine/render/RenderPackets.js";
 import { loadTerrainMaterialTextures } from "../engine/render/terrainTextures.js";
 import { RustWgpuRendererAdapter } from "../engine/render/rustWgpuRenderer.js";
-import type { RenderItem, RenderWorld } from "../engine/render/RenderWorld.js";
 import { TerrainCoreWorkerStreamer } from "../game/components/TerrainCoreWorkerStreamer.js";
 import { createBoxMesh } from "../engine/world/primitiveMesh.js";
 import {
@@ -102,7 +92,7 @@ export async function startGame(elements: GameElements): Promise<void> {
     maxInFlightJobs: terrainWorker.workerCount
   });
   const terrainDensityChunkStore = createTerrainCoreDensityChunkStore(terrainCore, descriptor);
-  const playerMarker = meshFromData(
+  const playerMarker = renderMeshPacketFromData(
     "mesh:player.marker",
     createBoxMesh(vec3(0, 0.9, 0), vec3(0.28, 0.9, 0.22), vec3(0.96, 0.7, 0.24))
   );
@@ -205,27 +195,17 @@ export async function startGame(elements: GameElements): Promise<void> {
     playerController.update(deltaSeconds);
     terrainStreamer.update();
 
-    const aspect = renderer.getAspectRatio();
-    const renderSnapshot = engineCore.renderSnapshot();
+    const renderSnapshot = engineCore.renderSnapshotPacket();
     if (renderSnapshot === undefined) {
       throw new Error("Rust engine did not produce a render snapshot.");
     }
     renderPacketRuntime = "rust";
-    const renderItems = terrainRenderPackets.getRenderItems();
-    const markerItem = playerMarkerRenderItem(
-      playerMarker,
-      playerMarkerMaterial,
-      renderSnapshot.playerMarker
-    );
-    if (markerItem !== undefined) {
-      renderItems.push(markerItem);
-    }
-    const renderWorld: RenderWorld = {
-      camera: cameraFrameFromEnginePacket(renderSnapshot.camera, aspect),
-      mainLight: directionalLightFromEnginePacket(renderSnapshot.mainLight),
-      items: renderItems
-    };
-    renderer.render(renderWorld);
+    const renderItems = terrainRenderPackets.getRenderItemPackets();
+    renderer.renderEngineFrame(renderSnapshot, renderItems, {
+      id: "player.marker",
+      mesh: playerMarker,
+      material: playerMarkerMaterial
+    });
 
     elements.cameraMode.textContent = playerController.mode === "firstPerson" ? "FIRST" : "FLY";
     elements.cameraMode.dataset.mode = playerController.mode;
@@ -331,34 +311,13 @@ function createPlayerController(
   });
 }
 
-function playerMarkerRenderItem(
-  mesh: Mesh,
-  material: Material,
-  packet: EngineCoreRenderDebugMarkerPacket
-): RenderItem | undefined {
-  if (!packet.visible) {
-    return undefined;
-  }
-
+function renderMeshPacketFromData(id: string, data: MeshData): RenderMeshPacket {
   return {
-    id: "player.marker",
-    mesh,
-    material,
-    worldMatrix: translationMat4(vec3(packet.position.x, packet.position.y, packet.position.z))
+    id,
+    vertices: data.vertices,
+    indices: data.indices,
+    floatsPerVertex: POSITION_COLOR_NORMAL_UV_LAYOUT.floatsPerVertex
   };
-}
-
-function translationMat4(position: Vec3): Mat4 {
-  const matrix = identityMat4();
-  matrix[12] = position.x;
-  matrix[13] = position.y;
-  matrix[14] = position.z;
-
-  return matrix;
-}
-
-function meshFromData(id: string, data: MeshData): Mesh {
-  return new Mesh(id, data.vertices, data.indices, POSITION_COLOR_NORMAL_UV_LAYOUT);
 }
 
 function readMovementIntent(

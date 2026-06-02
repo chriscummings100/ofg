@@ -12,13 +12,21 @@ import {
   DEFAULT_TEXTURE_SCALE,
   type Material
 } from "./Material.js";
-import type { Mesh } from "./Mesh.js";
-import type { RenderItem, RenderWorld } from "./RenderWorld.js";
+import type {
+  PlayerMarkerRenderPacket,
+  RenderItemPacket,
+  RenderMeshPacket
+} from "./RenderPackets.js";
 import type { Texture } from "./Texture.js";
 
-const FRAME_PACKET_FLOATS = 43;
 const WORLD_MATRIX_FLOATS = 16;
 const MATERIAL_PACKET_FLOATS = 10;
+const IDENTITY_WORLD_MATRIX = new Float32Array([
+  1, 0, 0, 0,
+  0, 1, 0, 0,
+  0, 0, 1, 0,
+  0, 0, 0, 1
+]);
 
 type GpuMeshHandle = {
   readonly handle: number;
@@ -30,10 +38,10 @@ type GpuObjectHandle = {
 
 export class RustWgpuRendererAdapter {
   readonly runtime = "rust-wgpu" as const;
-  private readonly meshCache = new Map<Mesh, GpuMeshHandle>();
+  private readonly meshCache = new Map<RenderMeshPacket, GpuMeshHandle>();
   private readonly textureCache = new WeakMap<Texture, number>();
   private readonly objectHandles = new Map<string, GpuObjectHandle>();
-  private readonly framePacket = new Float32Array(FRAME_PACKET_FLOATS);
+  private readonly playerMarkerMaterialPacket = new Float32Array(MATERIAL_PACKET_FLOATS);
   private readonly fallbackAlbedoTexture: number;
   private readonly fallbackNormalTexture: number;
   private readonly fallbackMaterialTexture: number;
@@ -79,9 +87,13 @@ export class RustWgpuRendererAdapter {
     return this.renderer.status();
   }
 
-  render(renderWorld: RenderWorld): void {
+  renderEngineFrame(
+    engineSnapshot: Float32Array,
+    items: readonly RenderItemPacket[],
+    playerMarker: PlayerMarkerRenderPacket
+  ): void {
     this.resize();
-    const itemCount = renderWorld.items.length;
+    const itemCount = items.length;
     const meshHandles = new Float64Array(itemCount);
     const objectHandles = new Float64Array(itemCount);
     const albedoTextureHandles = new Float64Array(itemCount);
@@ -90,12 +102,11 @@ export class RustWgpuRendererAdapter {
     const worldMatrices = new Float32Array(itemCount * WORLD_MATRIX_FLOATS);
     const materialPackets = new Float32Array(itemCount * MATERIAL_PACKET_FLOATS);
     const seenItemIds = new Set<string>();
-    const seenMeshes = new Set<Mesh>();
+    const seenMeshes = new Set<RenderMeshPacket>();
 
-    writeFramePacket(renderWorld, this.framePacket);
     for (let index = 0; index < itemCount; index += 1) {
-      const item = renderWorld.items[index];
-      const object = this.getGpuObject(item);
+      const item = items[index];
+      const object = this.getGpuObject(item.id);
 
       seenItemIds.add(item.id);
       seenMeshes.add(item.mesh);
@@ -113,39 +124,51 @@ export class RustWgpuRendererAdapter {
         item.materialTexture,
         this.fallbackMaterialTexture
       );
-      worldMatrices.set(item.worldMatrix, index * WORLD_MATRIX_FLOATS);
+      worldMatrices.set(item.worldMatrix ?? IDENTITY_WORLD_MATRIX, index * WORLD_MATRIX_FLOATS);
       writeMaterialPacket(item.material, materialPackets, index * MATERIAL_PACKET_FLOATS);
     }
 
-    this.renderer.render(
-      this.framePacket,
+    const playerMarkerObject = this.getGpuObject(playerMarker.id);
+    seenItemIds.add(playerMarker.id);
+    seenMeshes.add(playerMarker.mesh);
+    writeMaterialPacket(playerMarker.material, this.playerMarkerMaterialPacket, 0);
+
+    this.renderer.renderEngineFrame(
+      engineSnapshot,
+      this.getAspectRatio(),
       meshHandles,
       objectHandles,
       albedoTextureHandles,
       normalTextureHandles,
       materialTextureHandles,
       worldMatrices,
-      materialPackets
+      materialPackets,
+      this.getGpuMesh(playerMarker.mesh).handle,
+      playerMarkerObject.handle,
+      this.getTextureHandle(playerMarker.albedoTexture, this.fallbackAlbedoTexture),
+      this.getTextureHandle(playerMarker.normalTexture, this.fallbackNormalTexture),
+      this.getTextureHandle(playerMarker.materialTexture, this.fallbackMaterialTexture),
+      this.playerMarkerMaterialPacket
     );
     this.pruneObjectHandles(seenItemIds);
     this.pruneGpuMeshes(seenMeshes);
   }
 
-  private getGpuMesh(mesh: Mesh): GpuMeshHandle {
+  private getGpuMesh(mesh: RenderMeshPacket): GpuMeshHandle {
     const cached = this.meshCache.get(mesh);
     if (cached !== undefined) {
       return cached;
     }
 
-    if (mesh.layout.floatsPerVertex !== getFloatsPerVertex()) {
+    if (mesh.floatsPerVertex !== getFloatsPerVertex()) {
       throw new Error(
         `RustWgpuRenderer only supports ${getFloatsPerVertex()} floats per vertex; ` +
-        `mesh '${mesh.id}' uses ${mesh.layout.floatsPerVertex}.`
+        `mesh '${mesh.id}' uses ${mesh.floatsPerVertex}.`
       );
     }
 
     const gpuMesh = {
-      handle: this.renderer.registerMesh(mesh.vertices, mesh.indices, mesh.layout.floatsPerVertex)
+      handle: this.renderer.registerMesh(mesh.vertices, mesh.indices, mesh.floatsPerVertex)
     };
     this.meshCache.set(mesh, gpuMesh);
 
@@ -181,8 +204,8 @@ export class RustWgpuRendererAdapter {
     return handle;
   }
 
-  private getGpuObject(item: RenderItem): GpuObjectHandle {
-    const cached = this.objectHandles.get(item.id);
+  private getGpuObject(id: string): GpuObjectHandle {
+    const cached = this.objectHandles.get(id);
     if (cached !== undefined) {
       return cached;
     }
@@ -190,7 +213,7 @@ export class RustWgpuRendererAdapter {
     const object = {
       handle: this.renderer.registerObject()
     };
-    this.objectHandles.set(item.id, object);
+    this.objectHandles.set(id, object);
 
     return object;
   }
@@ -206,7 +229,7 @@ export class RustWgpuRendererAdapter {
     }
   }
 
-  private pruneGpuMeshes(seenMeshes: Set<Mesh>): void {
+  private pruneGpuMeshes(seenMeshes: Set<RenderMeshPacket>): void {
     for (const [mesh, gpuMesh] of this.meshCache) {
       if (seenMeshes.has(mesh)) {
         continue;
@@ -225,22 +248,6 @@ export class RustWgpuRendererAdapter {
       height: Math.max(1, Math.floor(this.canvas.clientHeight * pixelRatio))
     };
   }
-}
-
-function writeFramePacket(renderWorld: RenderWorld, target: Float32Array): void {
-  target.set(renderWorld.camera.viewProjection, 0);
-  target.set(renderWorld.camera.inverseViewProjection, 16);
-  target[32] = renderWorld.camera.eye.x;
-  target[33] = renderWorld.camera.eye.y;
-  target[34] = renderWorld.camera.eye.z;
-  target[35] = renderWorld.mainLight.direction.x;
-  target[36] = renderWorld.mainLight.direction.y;
-  target[37] = renderWorld.mainLight.direction.z;
-  target[38] = renderWorld.mainLight.color.x;
-  target[39] = renderWorld.mainLight.color.y;
-  target[40] = renderWorld.mainLight.color.z;
-  target[41] = renderWorld.mainLight.intensity;
-  target[42] = renderWorld.mainLight.ambient;
 }
 
 function writeMaterialPacket(

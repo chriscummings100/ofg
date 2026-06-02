@@ -1,24 +1,18 @@
 import { equal, ok } from "node:assert/strict";
-import { identityMat4 } from "../math/mat4.js";
 import { vec3 } from "../math/vec3.js";
 import { vec4 } from "../math/vec4.js";
 import type { EngineWebWgpuRenderer } from "../web/engineWebWasm.js";
 import { Material } from "./Material.js";
-import { Mesh } from "./Mesh.js";
-import type { RenderWorld } from "./RenderWorld.js";
+import type { RenderMeshPacket } from "./RenderPackets.js";
 import { RustWgpuRendererAdapter } from "./rustWgpuRenderer.js";
 import { Texture } from "./Texture.js";
 
 describe("RustWgpuRendererAdapter", () => {
-  it("packs render items into coarse Rust/wgpu render arrays", () => {
+  it("packs direct render item packets into coarse Rust/wgpu render arrays", () => {
     const fake = fakeRenderer();
     const adapter = new RustWgpuRendererAdapter(fakeCanvas(), fake);
-    const mesh = new Mesh(
-      "mesh:test",
-      new Float32Array(19 * 3),
-      new Uint32Array([0, 1, 2]),
-      { floatsPerVertex: 19, attributes: [] }
-    );
+    const mesh = fakeMeshPacket("mesh:test");
+    const markerMesh = fakeMeshPacket("mesh:marker");
     const texture = new Texture(
       "texture:test",
       1,
@@ -31,57 +25,53 @@ describe("RustWgpuRendererAdapter", () => {
       specular: vec3(0.1, 0.2, 0.3),
       specularFactor: 0.4
     });
-    const renderWorld: RenderWorld = {
-      camera: {
-        viewProjection: identityMat4(),
-        inverseViewProjection: identityMat4(),
-        eye: vec3(1, 2, 3),
-        target: vec3(0, 0, 0)
-      },
-      mainLight: {
-        direction: vec3(0, 1, 0),
-        color: vec3(1, 1, 1),
-        intensity: 2,
-        ambient: 0.2
-      },
-      items: [
+    const snapshot = sampleEngineRenderSnapshot();
+
+    withFakeWindow(() => adapter.renderEngineFrame(
+      snapshot,
+      [
         {
           id: "item:test",
           mesh,
           material,
-          albedoTexture: texture,
-          worldMatrix: identityMat4()
+          albedoTexture: texture
         }
-      ]
-    };
+      ],
+      {
+        id: "player.marker",
+        mesh: markerMesh,
+        material
+      }
+    ));
 
-    withFakeWindow(() => adapter.render(renderWorld));
-
-    equal(fake.registeredMeshes, 1);
+    equal(fake.registeredMeshes, 2);
     equal(fake.registeredTextures, 1);
-    equal(fake.registeredObjects, 1);
+    equal(fake.registeredObjects, 2);
+    equal(fake.lastRender?.engineSnapshot[0], 1);
+    equal(fake.lastRender?.aspect, 640 / 480);
     equal(fake.lastRender?.meshHandles[0], 10);
     equal(fake.lastRender?.objectHandles[0], 30);
     equal(fake.lastRender?.albedoTextureHandles[0], 20);
     equal(fake.lastRender?.normalTextureHandles[0], 101);
     equal(fake.lastRender?.materialTextureHandles[0], 102);
-    almostEqual(fake.lastRender?.framePacket[32], 1);
-    almostEqual(fake.lastRender?.framePacket[41], 2);
     almostEqual(fake.lastRender?.worldMatrices[0], 1);
     almostEqual(fake.lastRender?.materialPackets[0], 0.8);
     almostEqual(fake.lastRender?.materialPackets[7], 0.4);
+    equal(fake.lastRender?.playerMarkerMeshHandle, 11);
+    equal(fake.lastRender?.playerMarkerObjectHandle, 31);
+    almostEqual(fake.lastRender?.playerMarkerMaterialPacket[0], 0.8);
   });
 
-  it("prunes object and mesh handles that disappeared from the render world", () => {
+  it("prunes object and mesh handles that disappeared from the render packets", () => {
     const fake = fakeRenderer();
     const adapter = new RustWgpuRendererAdapter(fakeCanvas(), fake) as unknown as {
       objectHandles: Map<string, { handle: number }>;
-      meshCache: Map<object, { handle: number }>;
+      meshCache: Map<RenderMeshPacket, { handle: number }>;
       pruneObjectHandles(seenItemIds: Set<string>): void;
-      pruneGpuMeshes(seenMeshes: Set<object>): void;
+      pruneGpuMeshes(seenMeshes: Set<RenderMeshPacket>): void;
     };
-    const keptMesh = {};
-    const goneMesh = {};
+    const keptMesh = fakeMeshPacket("mesh:kept");
+    const goneMesh = fakeMeshPacket("mesh:gone");
 
     adapter.objectHandles.set("kept", { handle: 7 });
     adapter.objectHandles.set("gone", { handle: 8 });
@@ -107,14 +97,18 @@ type FakeRenderer = EngineWebWgpuRenderer & {
   destroyedMeshes: number[];
   destroyedObjects: number[];
   lastRender?: {
+    readonly engineSnapshot: Float32Array;
+    readonly aspect: number;
     readonly meshHandles: Float64Array;
     readonly objectHandles: Float64Array;
     readonly albedoTextureHandles: Float64Array;
     readonly normalTextureHandles: Float64Array;
     readonly materialTextureHandles: Float64Array;
-    readonly framePacket: Float32Array;
     readonly worldMatrices: Float32Array;
     readonly materialPackets: Float32Array;
+    readonly playerMarkerMeshHandle: number;
+    readonly playerMarkerObjectHandle: number;
+    readonly playerMarkerMaterialPacket: Float32Array;
   };
 };
 
@@ -128,42 +122,54 @@ function fakeRenderer(): FakeRenderer {
     resize() {},
     registerMesh() {
       this.registeredMeshes += 1;
-      return 10;
+      return 9 + this.registeredMeshes;
     },
     destroyMesh(handle) {
       this.destroyedMeshes.push(handle);
     },
     registerTexture() {
       this.registeredTextures += 1;
-      return 20;
+      return 19 + this.registeredTextures;
     },
     destroyTexture() {},
     registerObject() {
       this.registeredObjects += 1;
-      return 30;
+      return 29 + this.registeredObjects;
     },
     destroyObject(handle) {
       this.destroyedObjects.push(handle);
     },
-    render(
-      framePacket,
+    render() {},
+    renderEngineFrame(
+      engineSnapshot,
+      aspect,
       meshHandles,
       objectHandles,
       albedoTextureHandles,
       normalTextureHandles,
       materialTextureHandles,
       worldMatrices,
-      materialPackets
+      materialPackets,
+      playerMarkerMeshHandle,
+      playerMarkerObjectHandle,
+      _playerMarkerAlbedoTextureHandle,
+      _playerMarkerNormalTextureHandle,
+      _playerMarkerMaterialTextureHandle,
+      playerMarkerMaterialPacket
     ) {
       this.lastRender = {
-        framePacket: new Float32Array(framePacket),
+        engineSnapshot: new Float32Array(engineSnapshot),
+        aspect,
         meshHandles: new Float64Array(meshHandles),
         objectHandles: new Float64Array(objectHandles),
         albedoTextureHandles: new Float64Array(albedoTextureHandles),
         normalTextureHandles: new Float64Array(normalTextureHandles),
         materialTextureHandles: new Float64Array(materialTextureHandles),
         worldMatrices: new Float32Array(worldMatrices),
-        materialPackets: new Float32Array(materialPackets)
+        materialPackets: new Float32Array(materialPackets),
+        playerMarkerMeshHandle,
+        playerMarkerObjectHandle,
+        playerMarkerMaterialPacket: new Float32Array(playerMarkerMaterialPacket)
       };
     },
     fallbackAlbedoTextureHandle() {
@@ -192,6 +198,33 @@ function fakeRenderer(): FakeRenderer {
       };
     }
   };
+}
+
+function fakeMeshPacket(id: string): RenderMeshPacket {
+  return {
+    id,
+    vertices: new Float32Array(19 * 3),
+    indices: new Uint32Array([0, 1, 2]),
+    floatsPerVertex: 19
+  };
+}
+
+function sampleEngineRenderSnapshot(): Float32Array {
+  return new Float32Array([
+    1, 2, 3,
+    1, 2, 2,
+    0, 0,
+    70 * Math.PI / 180,
+    0.05,
+    500,
+    0, 1, 0,
+    1, 1, 1,
+    2,
+    0.2,
+    1,
+    1, 2, 3,
+    0
+  ]);
 }
 
 function fakeCanvas(): HTMLCanvasElement {

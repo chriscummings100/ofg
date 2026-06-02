@@ -175,6 +175,16 @@ describe("engine core WASM", () => {
     handle.createPlayer({ x: 1, y: 2, z: 3 });
     equal(handle.setPlayerView(0.5, -0.25), true);
 
+    const packet = handle.renderSnapshotPacket();
+    if (packet === undefined) {
+      ok(false, "Expected a raw render snapshot packet after creating a player.");
+      return;
+    }
+    equal(packet.length, ENGINE_CORE_RENDER_SNAPSHOT_FLOAT_COUNT);
+    equal(packet[0], 1);
+    assertClose(packet[1], 3.65);
+    equal(packet[19], 0);
+
     const firstPerson = handle.renderSnapshot();
     if (firstPerson === undefined) {
       ok(false, "Expected a render snapshot after creating a player.");

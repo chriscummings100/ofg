@@ -72,7 +72,7 @@ fn transpose_mat4(matrix: [f32; WORLD_MATRIX_FLOATS]) -> [f32; WORLD_MATRIX_FLOA
     ]
 }
 
-fn inverse_mat4(matrix: &[f32]) -> Option<[f32; WORLD_MATRIX_FLOATS]> {
+pub(crate) fn inverse_mat4(matrix: &[f32]) -> Option<[f32; WORLD_MATRIX_FLOATS]> {
     let a00 = matrix[0];
     let a01 = matrix[1];
     let a02 = matrix[2];

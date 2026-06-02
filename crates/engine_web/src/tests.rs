@@ -1,6 +1,8 @@
 use crate::{
-    build_frame_uniform_values, build_object_uniform_values, RenderUniformError, RendererState,
-    RendererStateError, ResourceHandle, FRAME_PACKET_FLOATS, MATERIAL_PACKET_FLOATS,
+    build_frame_packet_from_engine_snapshot, build_frame_uniform_values,
+    build_object_uniform_values, build_player_marker_world_matrix, RenderPacketError,
+    RenderUniformError, RendererState, RendererStateError, ResourceHandle,
+    ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS, MATERIAL_PACKET_FLOATS,
     REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
     WORLD_MATRIX_FLOATS,
 };
@@ -162,6 +164,63 @@ fn frame_uniforms_are_packed_from_rust_render_packets() {
 }
 
 #[test]
+fn engine_render_snapshot_builds_frame_packet_in_rust() {
+    let snapshot = sample_engine_render_snapshot(true);
+    let frame = build_frame_packet_from_engine_snapshot(&snapshot, 16.0 / 9.0).unwrap();
+
+    assert_close(frame[0], 0.80333316);
+    assert_close(frame[5], 1.428148);
+    assert_close(frame[32], 1.0);
+    assert_close(frame[33], 2.0);
+    assert_close(frame[34], 3.0);
+    assert_close(frame[35], 0.89);
+    assert_close(frame[38], 1.0);
+    assert_close(frame[41], 1.25);
+    assert_close(frame[42], 0.4);
+    assert!(frame[16..32].iter().all(|value| value.is_finite()));
+}
+
+#[test]
+fn engine_render_snapshot_builds_player_marker_world_matrix_in_rust() {
+    let visible = sample_engine_render_snapshot(true);
+    let hidden = sample_engine_render_snapshot(false);
+
+    let world = build_player_marker_world_matrix(&visible).unwrap().unwrap();
+    assert_close(world[0], 1.0);
+    assert_close(world[5], 1.0);
+    assert_close(world[10], 1.0);
+    assert_close(world[12], 4.0);
+    assert_close(world[13], 5.0);
+    assert_close(world[14], 6.0);
+    assert_eq!(build_player_marker_world_matrix(&hidden).unwrap(), None);
+}
+
+#[test]
+fn engine_render_snapshot_packet_builders_validate_shape_and_camera() {
+    let mut snapshot = sample_engine_render_snapshot(true);
+
+    assert_eq!(
+        build_frame_packet_from_engine_snapshot(
+            &snapshot[0..ENGINE_RENDER_SNAPSHOT_FLOATS - 1],
+            1.0
+        ),
+        Err(RenderPacketError::InvalidEngineSnapshot)
+    );
+    assert_eq!(
+        build_frame_packet_from_engine_snapshot(&snapshot, 0.0),
+        Err(RenderPacketError::InvalidAspect)
+    );
+
+    snapshot[3] = snapshot[0];
+    snapshot[4] = snapshot[1];
+    snapshot[5] = snapshot[2];
+    assert_eq!(
+        build_frame_packet_from_engine_snapshot(&snapshot, 1.0),
+        Err(RenderPacketError::InvalidCamera)
+    );
+}
+
+#[test]
 fn object_uniforms_are_packed_with_rust_owned_normal_matrix() {
     let world = [
         2.0, 0.0, 0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 0.0, 8.0, 0.0, 3.0, 5.0, 7.0, 1.0,
@@ -196,6 +255,35 @@ fn object_uniforms_reject_singular_world_matrices() {
         build_object_uniform_values(&singular, &material),
         Err(RenderUniformError::SingularWorldMatrix)
     );
+}
+
+fn sample_engine_render_snapshot(marker_visible: bool) -> [f32; ENGINE_RENDER_SNAPSHOT_FLOATS] {
+    [
+        1.0,
+        2.0,
+        3.0,
+        1.0,
+        2.0,
+        2.0,
+        0.0,
+        0.0,
+        70.0_f32.to_radians(),
+        0.05,
+        500.0,
+        0.89,
+        0.25,
+        0.38,
+        1.0,
+        0.96,
+        0.88,
+        1.25,
+        0.4,
+        if marker_visible { 1.0 } else { 0.0 },
+        4.0,
+        5.0,
+        6.0,
+        0.0,
+    ]
 }
 
 fn configured_renderer() -> RendererState {

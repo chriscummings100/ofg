@@ -14,15 +14,14 @@ import {
   type TerrainCoreWasmInstance
 } from "../world/terrainCoreWasm.js";
 import { POSITION_COLOR_NORMAL_UV_LAYOUT } from "../world/terrainMesh.js";
-import { Mesh, type VertexLayout } from "./Mesh.js";
 import type { Material } from "./Material.js";
+import type { RenderItemPacket, RenderMeshPacket } from "./RenderPackets.js";
 import type { ResourceId } from "./ResourceId.js";
-import type { RenderItem } from "./RenderWorld.js";
 import type { Texture } from "./Texture.js";
 
 export type TerrainRenderChunkPacket = {
   readonly key: TerrainChunkKey;
-  readonly mesh: Mesh;
+  readonly mesh: RenderMeshPacket;
   readonly material?: ResourceId;
   readonly worldMatrix?: Mat4;
 };
@@ -32,7 +31,7 @@ export type TerrainRenderChunkMeshPacket = {
   readonly meshId: ResourceId;
   readonly vertices: Float32Array;
   readonly indices: Uint32Array;
-  readonly layout: VertexLayout;
+  readonly floatsPerVertex?: number;
   readonly material?: ResourceId;
   readonly worldMatrix?: Mat4;
 };
@@ -162,7 +161,7 @@ export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
     return this.terrainCore.exports.ofg_terrain_mesh_packet_store_entry_count();
   }
 
-  getRenderItems(worldMatrix: Mat4 = identityMat4()): RenderItem[] {
+  getRenderItemPackets(worldMatrix: Mat4 = identityMat4()): RenderItemPacket[] {
     this.syncMeshCache();
     return this.cachedChunks.map((chunk) => {
       return {
@@ -218,12 +217,12 @@ export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
       const key = terrainChunkKey(coord);
       chunks.push({
         key,
-        mesh: new Mesh(
-          `${this.meshIdPrefix}:${key}`,
-          new Float32Array(readTerrainCoreMeshVertexBuffer(this.terrainCore.exports)),
-          new Uint32Array(readTerrainCoreMeshIndexBuffer(this.terrainCore.exports)),
-          POSITION_COLOR_NORMAL_UV_LAYOUT
-        )
+        mesh: {
+          id: `${this.meshIdPrefix}:${key}`,
+          vertices: new Float32Array(readTerrainCoreMeshVertexBuffer(this.terrainCore.exports)),
+          indices: new Uint32Array(readTerrainCoreMeshIndexBuffer(this.terrainCore.exports)),
+          floatsPerVertex: POSITION_COLOR_NORMAL_UV_LAYOUT.floatsPerVertex
+        }
       });
     }
 

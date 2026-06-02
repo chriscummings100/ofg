@@ -253,20 +253,10 @@ export class EngineCoreWasmHandle {
   }
 
   renderSnapshot(): EngineCoreRenderSnapshot | undefined {
-    if (this.#exports.ofg_engine_write_render_snapshot() !== 1) {
+    const values = this.renderSnapshotPacket();
+    if (values === undefined) {
       return undefined;
     }
-
-    const count = this.#exports.ofg_engine_render_snapshot_f32_count();
-    if (count !== ENGINE_CORE_RENDER_SNAPSHOT_FLOAT_COUNT) {
-      throw new Error(
-        `Engine render snapshot layout changed: expected ` +
-        `${ENGINE_CORE_RENDER_SNAPSHOT_FLOAT_COUNT} floats, saw ${count}.`
-      );
-    }
-
-    const ptr = this.#exports.ofg_engine_render_snapshot_f32_ptr();
-    const values = Array.from(new Float32Array(this.#exports.memory.buffer, ptr, count));
 
     return Object.freeze({
       camera: Object.freeze({
@@ -289,6 +279,23 @@ export class EngineCoreWasmHandle {
         position: freezeVec3(values[20], values[21], values[22])
       })
     });
+  }
+
+  renderSnapshotPacket(): Float32Array | undefined {
+    if (this.#exports.ofg_engine_write_render_snapshot() !== 1) {
+      return undefined;
+    }
+
+    const count = this.#exports.ofg_engine_render_snapshot_f32_count();
+    if (count !== ENGINE_CORE_RENDER_SNAPSHOT_FLOAT_COUNT) {
+      throw new Error(
+        `Engine render snapshot layout changed: expected ` +
+        `${ENGINE_CORE_RENDER_SNAPSHOT_FLOAT_COUNT} floats, saw ${count}.`
+      );
+    }
+
+    const ptr = this.#exports.ofg_engine_render_snapshot_f32_ptr();
+    return new Float32Array(new Float32Array(this.#exports.memory.buffer, ptr, count));
   }
 }
 

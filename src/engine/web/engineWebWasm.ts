@@ -45,6 +45,23 @@ export type EngineWebWgpuRenderer = {
     worldMatrices: Float32Array,
     materialPackets: Float32Array
   ): void;
+  renderEngineFrame(
+    engineSnapshot: Float32Array,
+    aspect: number,
+    meshHandles: Float64Array,
+    objectHandles: Float64Array,
+    albedoTextureHandles: Float64Array,
+    normalTextureHandles: Float64Array,
+    materialTextureHandles: Float64Array,
+    worldMatrices: Float32Array,
+    materialPackets: Float32Array,
+    playerMarkerMeshHandle: number,
+    playerMarkerObjectHandle: number,
+    playerMarkerAlbedoTextureHandle: number,
+    playerMarkerNormalTextureHandle: number,
+    playerMarkerMaterialTextureHandle: number,
+    playerMarkerMaterialPacket: Float32Array
+  ): void;
   fallbackAlbedoTextureHandle(): number;
   fallbackNormalTextureHandle(): number;
   fallbackMaterialTextureHandle(): number;

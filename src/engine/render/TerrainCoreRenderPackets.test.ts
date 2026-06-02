@@ -6,7 +6,6 @@ import {
   instantiateTerrainCoreWasm,
   type TerrainCoreWasmInstance
 } from "../world/terrainCoreWasm.js";
-import { POSITION_COLOR_NORMAL_UV_LAYOUT } from "../world/terrainMesh.js";
 import { TERRAIN_CORE_WASM_METADATA } from "../../generated/terrain/terrainCoreWasm.js";
 import { Material } from "./Material.js";
 import { TerrainCoreRenderPacketStore } from "./TerrainCoreRenderPackets.js";
@@ -27,7 +26,7 @@ describe("TerrainCoreRenderPacketStore", () => {
       key: "0,0,0",
       meshId: "mesh:ignored",
       ...createTriangleMeshData(),
-      layout: POSITION_COLOR_NORMAL_UV_LAYOUT
+      floatsPerVertex: 19
     });
 
     equal(store.runtime, "rust");
@@ -36,7 +35,7 @@ describe("TerrainCoreRenderPacketStore", () => {
     equal(store.chunks[0].key, "0,0,0");
     equal(store.chunks[0].mesh.id, "mesh:terrain.chunk:0,0,0");
 
-    const items = store.getRenderItems();
+    const items = store.getRenderItemPackets();
 
     equal(items.length, 1);
     equal(items[0].id, "terrain:rust:0,0,0");
@@ -51,7 +50,7 @@ describe("TerrainCoreRenderPacketStore", () => {
       key: "2,-1,3",
       meshId: "mesh:terrain.chunk:2,-1,3",
       ...createTriangleMeshData(),
-      layout: POSITION_COLOR_NORMAL_UV_LAYOUT
+      floatsPerVertex: 19
     });
 
     equal(store.removeChunk(terrainChunkCoord(2, -1, 3)), true);
@@ -67,19 +66,19 @@ describe("TerrainCoreRenderPacketStore", () => {
       key: "0,0,0",
       meshId: "mesh:terrain.chunk:0,0,0",
       ...createTriangleMeshData(0),
-      layout: POSITION_COLOR_NORMAL_UV_LAYOUT
+      floatsPerVertex: 19
     });
     store.addChunk({
       key: "1,0,0",
       meshId: "mesh:terrain.chunk:1,0,0",
       ...createTriangleMeshData(1),
-      layout: POSITION_COLOR_NORMAL_UV_LAYOUT
+      floatsPerVertex: 19
     });
     store.addChunk({
       key: "2,0,0",
       meshId: "mesh:terrain.chunk:2,0,0",
       ...createTriangleMeshData(2),
-      layout: POSITION_COLOR_NORMAL_UV_LAYOUT
+      floatsPerVertex: 19
     });
 
     store.retainChunks(["1,0,0", terrainChunkCoord(2, 0, 0)]);
@@ -90,14 +89,14 @@ describe("TerrainCoreRenderPacketStore", () => {
     equal(store.chunks[1].key, "2,0,0");
   });
 
-  it("keeps cached mesh objects stable until the Rust store version changes", async () => {
+  it("keeps cached render mesh packets stable until the Rust store version changes", async () => {
     const terrainCore = await loadTerrainCore();
     const store = new TerrainCoreRenderPacketStore(terrainCore);
     store.addChunk({
       key: "0,0,0",
       meshId: "mesh:terrain.chunk:0,0,0",
       ...createTriangleMeshData(1),
-      layout: POSITION_COLOR_NORMAL_UV_LAYOUT
+      floatsPerVertex: 19
     });
     const firstMesh = store.chunks[0].mesh;
 
@@ -107,7 +106,7 @@ describe("TerrainCoreRenderPacketStore", () => {
       key: "0,0,0",
       meshId: "mesh:terrain.chunk:0,0,0",
       ...createTriangleMeshData(2),
-      layout: POSITION_COLOR_NORMAL_UV_LAYOUT
+      floatsPerVertex: 19
     });
 
     notEqual(store.chunks[0].mesh, firstMesh);
@@ -121,13 +120,13 @@ describe("TerrainCoreRenderPacketStore", () => {
       key: "0,0,0",
       meshId: "mesh:terrain.chunk:0,0,0",
       ...createTriangleMeshData(0),
-      layout: POSITION_COLOR_NORMAL_UV_LAYOUT
+      floatsPerVertex: 19
     });
     store.addChunk({
       key: "1,0,0",
       meshId: "mesh:terrain.chunk:1,0,0",
       ...createTriangleMeshData(1),
-      layout: POSITION_COLOR_NORMAL_UV_LAYOUT
+      floatsPerVertex: 19
     });
 
     equal(store.chunks.length, 2);
@@ -143,9 +142,9 @@ describe("TerrainCoreRenderPacketStore", () => {
     throws(() => store.addChunk({
       key: "0,0,0",
       meshId: "mesh:invalid",
-      vertices: mesh.vertices.slice(0, POSITION_COLOR_NORMAL_UV_LAYOUT.floatsPerVertex),
+      vertices: mesh.vertices.slice(0, 19),
       indices: new Uint32Array([0, 1, 0]),
-      layout: POSITION_COLOR_NORMAL_UV_LAYOUT
+      floatsPerVertex: 19
     }), /rejected chunk/);
     equal(store.size(), 0);
   });

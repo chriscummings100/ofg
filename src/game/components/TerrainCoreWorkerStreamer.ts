@@ -267,7 +267,7 @@ export class TerrainCoreWorkerStreamer {
           meshId: `${this.meshIdPrefix}:${key}`,
           vertices: result.vertices,
           indices: result.indices,
-          layout: POSITION_COLOR_NORMAL_UV_LAYOUT,
+          floatsPerVertex: POSITION_COLOR_NORMAL_UV_LAYOUT.floatsPerVertex,
           material: this.material
         });
       }

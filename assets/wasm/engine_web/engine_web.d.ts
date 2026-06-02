@@ -12,6 +12,7 @@ export class RustWgpuRenderer {
   registerObject(): number;
   destroyObject(handle: number): void;
   render(frame_packet: Float32Array, mesh_handles: Float64Array, object_handles: Float64Array, albedo_texture_handles: Float64Array, normal_texture_handles: Float64Array, material_texture_handles: Float64Array, world_matrices: Float32Array, material_packets: Float32Array): void;
+  renderEngineFrame(engine_snapshot: Float32Array, aspect: number, mesh_handles: Float64Array, object_handles: Float64Array, albedo_texture_handles: Float64Array, normal_texture_handles: Float64Array, material_texture_handles: Float64Array, world_matrices: Float32Array, material_packets: Float32Array, player_marker_mesh_handle: number, player_marker_object_handle: number, player_marker_albedo_texture_handle: number, player_marker_normal_texture_handle: number, player_marker_material_texture_handle: number, player_marker_material_packet: Float32Array): void;
   status(): RustWgpuRendererStatus;
   fallbackAlbedoTextureHandle(): number;
   fallbackNormalTextureHandle(): number;
@@ -72,6 +73,7 @@ export interface InitOutput {
   readonly rustwgpurenderer_registerObject: (a: number, b: number) => void;
   readonly rustwgpurenderer_destroyObject: (a: number, b: number, c: number) => void;
   readonly rustwgpurenderer_render: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number) => void;
+  readonly rustwgpurenderer_renderEngineFrame: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number, s: number, t: number, u: number, v: number, w: number, x: number, y: number, z: number) => void;
   readonly rustwgpurenderer_status: (a: number) => number;
   readonly rustwgpurenderer_fallbackAlbedoTextureHandle: (a: number) => number;
   readonly rustwgpurenderer_fallbackNormalTextureHandle: (a: number) => number;
