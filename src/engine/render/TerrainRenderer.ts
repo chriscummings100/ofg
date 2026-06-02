@@ -87,6 +87,15 @@ export class TerrainRenderer extends Component {
     return true;
   }
 
+  clear(): void {
+    this.chunks = [];
+  }
+
+  retainChunks(chunks: readonly (ChunkKey | TerrainChunkCoord)[]): void {
+    const keep = new Set(chunks.map(toChunkKey));
+    this.chunks = this.chunks.filter((chunk) => keep.has(chunk.key));
+  }
+
   setChunks(chunks: TerrainChunk[]): void {
     this.chunks = [...chunks];
   }

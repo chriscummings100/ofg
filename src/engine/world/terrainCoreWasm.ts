@@ -53,6 +53,7 @@ export type TerrainCoreWasmExports = {
     chunkZ: number,
     lod: number
   ) => number;
+  readonly ofg_retain_terrain_mesh_packets: (count: number) => number;
   readonly ofg_write_terrain_mesh_packet_coords: () => number;
   readonly ofg_load_terrain_mesh_packet_buffer: (
     chunkX: number,
@@ -353,6 +354,7 @@ function assertTerrainCoreExports(exports: WebAssembly.Exports): asserts exports
     "ofg_terrain_mesh_packet_store_version",
     "ofg_terrain_mesh_packet_store_contains",
     "ofg_remove_terrain_mesh_packet",
+    "ofg_retain_terrain_mesh_packets",
     "ofg_write_terrain_mesh_packet_coords",
     "ofg_load_terrain_mesh_packet_buffer",
     "ofg_stream_configure",

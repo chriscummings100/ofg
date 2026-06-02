@@ -118,10 +118,10 @@ player crosses chunk boundaries. Loaded density chunk keys remain fully 3D.
 Runtime terrain meshes carry position, color, normal, uv, material layer indices,
 and material weights. A small mesh post-pass expands indexed triangles so each
 triangle has a coherent local four-material palette for interpolation.
-In the playable browser runtime, those chunk mesh payloads are written into a
-Rust-owned mesh packet store in `terrain_core.wasm` and appended to the
-`RenderWorld` by `TerrainCoreRenderPacketStore`; `TerrainRenderer` remains
-compatibility/reference infrastructure for tests and older scene paths.
+In the playable browser runtime, those chunk mesh payloads are written into and
+pruned from a Rust-owned mesh packet store in `terrain_core.wasm`, then appended
+to the `RenderWorld` by `TerrainCoreRenderPacketStore`; `TerrainRenderer`
+remains compatibility/reference infrastructure for tests and older scene paths.
 
 The Dual Contouring implementation lives in
 `src/engine/world/dualContouring.ts`. It extracts Hermite edge intersections for

@@ -35,6 +35,22 @@ describe("TerrainRenderPacketStore", () => {
     equal(store.chunks.length, 0);
   });
 
+  it("retains only requested chunk packets", () => {
+    const store = new TerrainRenderPacketStore({
+      chunks: [
+        { key: "0,0,0", mesh: createMesh("mesh:first") },
+        { key: "1,0,0", mesh: createMesh("mesh:second") },
+        { key: "2,0,0", mesh: createMesh("mesh:third") }
+      ]
+    });
+
+    store.retainChunks(["1,0,0", terrainChunkCoord(2, 0, 0)]);
+
+    equal(store.chunks.length, 2);
+    equal(store.chunks[0].key, "1,0,0");
+    equal(store.chunks[1].key, "2,0,0");
+  });
+
   it("does not retain ownership of constructor chunk arrays", () => {
     const chunks = [{ key: "0,0,0", mesh: createMesh("mesh:first") }];
     const store = new TerrainRenderPacketStore({ chunks });

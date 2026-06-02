@@ -100,6 +100,33 @@ export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
     this.terrainCore.exports.ofg_reset_terrain_mesh_packet_store();
   }
 
+  retainChunks(chunks: readonly (TerrainChunkKey | TerrainChunkCoord)[]): void {
+    const exports = this.terrainCore.exports;
+    const count = chunks.length;
+    const capacity = exports.ofg_terrain_mesh_packet_coord_buffer_capacity();
+    if (count > capacity) {
+      throw new Error(
+        `Terrain mesh packet retain count ${count} exceeds WASM capacity ${capacity}.`
+      );
+    }
+
+    const lods = this.meshPacketLodBuffer(count);
+    const xs = this.meshPacketXBuffer(count);
+    const ys = this.meshPacketYBuffer(count);
+    const zs = this.meshPacketZBuffer(count);
+    for (let index = 0; index < count; index += 1) {
+      const coord = toCoord(chunks[index]);
+      lods[index] = 0;
+      xs[index] = coord.x;
+      ys[index] = coord.y;
+      zs[index] = coord.z;
+    }
+
+    if (exports.ofg_retain_terrain_mesh_packets(count) !== 1) {
+      throw new Error("Rust terrain mesh packet store rejected the retain set.");
+    }
+  }
+
   size(): number {
     return this.terrainCore.exports.ofg_terrain_mesh_packet_store_entry_count();
   }

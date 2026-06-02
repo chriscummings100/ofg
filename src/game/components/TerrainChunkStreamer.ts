@@ -333,7 +333,7 @@ export class TerrainChunkStreamer extends Component {
         inFlightDensityCount: status.inFlightDensityCount,
         missingDensityCount: status.missingDensityCount,
         desiredRenderChunkCount: status.desiredLod0Count,
-        renderedChunkCount: this.renderChunkKeys.size,
+        renderedChunkCount: status.lod0ReadyCount,
         emptyChunkCount: status.lod0EmptyCount,
         inFlightChunkCount: status.inFlightLodCount,
         missingChunkCount: status.missingLod0Count,
@@ -727,13 +727,19 @@ export class TerrainChunkStreamer extends Component {
     indices: Uint32Array
   ): void {
     if (indices.length === 0) {
-      this.emptyRenderChunkKeys.add(key);
+      if (!this.usesStreamScheduler()) {
+        this.emptyRenderChunkKeys.add(key);
+      }
       this.terrain.removeChunk(key);
-      this.renderChunkKeys.delete(key);
+      if (!this.usesStreamScheduler()) {
+        this.renderChunkKeys.delete(key);
+      }
       return;
     }
 
-    this.emptyRenderChunkKeys.delete(key);
+    if (!this.usesStreamScheduler()) {
+      this.emptyRenderChunkKeys.delete(key);
+    }
     this.terrain.addChunk({
       key,
       meshId: `${this.meshIdPrefix}:${key}`,
@@ -742,7 +748,9 @@ export class TerrainChunkStreamer extends Component {
       layout: POSITION_COLOR_NORMAL_UV_LAYOUT,
       material: this.material
     });
-    this.renderChunkKeys.add(key);
+    if (!this.usesStreamScheduler()) {
+      this.renderChunkKeys.add(key);
+    }
   }
 
   private countMissingChunkJobs(): number {
@@ -844,6 +852,12 @@ export class TerrainChunkStreamer extends Component {
   }
 
   private clearRenderedChunks(): void {
+    if (this.usesStreamScheduler()) {
+      this.terrain.clear();
+      this.renderChunkKeys.clear();
+      return;
+    }
+
     for (const key of this.renderChunkKeys) {
       this.terrain.removeChunk(key);
     }
@@ -875,6 +889,12 @@ export class TerrainChunkStreamer extends Component {
   }
 
   private removeRenderChunksOutsideDesiredWindow(): void {
+    if (this.usesStreamScheduler()) {
+      this.terrain.retainChunks([...this.desiredRenderChunkKeys]);
+      this.renderChunkKeys.clear();
+      return;
+    }
+
     for (const key of [...this.renderChunkKeys]) {
       if (!this.desiredRenderChunkKeys.has(key)) {
         this.terrain.removeChunk(key);

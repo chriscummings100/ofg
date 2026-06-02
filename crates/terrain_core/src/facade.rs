@@ -288,6 +288,55 @@ pub extern "C" fn ofg_remove_terrain_mesh_packet(
 }
 
 #[no_mangle]
+pub extern "C" fn ofg_retain_terrain_mesh_packets(count: u32) -> u32 {
+    let count = count as usize;
+    if count > MESH_PACKET_COORD_BUFFER_CAPACITY {
+        return 0;
+    }
+
+    let mut keys = Vec::with_capacity(count);
+    for index in 0..count {
+        let lod = unsafe {
+            *core::ptr::addr_of!(MESH_PACKET_LOD_BUFFER)
+                .cast::<u32>()
+                .add(index)
+        };
+        let Ok(lod) = u8::try_from(lod) else {
+            return 0;
+        };
+        let chunk_x = unsafe {
+            *core::ptr::addr_of!(MESH_PACKET_X_BUFFER)
+                .cast::<i32>()
+                .add(index)
+        };
+        let chunk_y = unsafe {
+            *core::ptr::addr_of!(MESH_PACKET_Y_BUFFER)
+                .cast::<i32>()
+                .add(index)
+        };
+        let chunk_z = unsafe {
+            *core::ptr::addr_of!(MESH_PACKET_Z_BUFFER)
+                .cast::<i32>()
+                .add(index)
+        };
+        keys.push(terrain_mesh_packet_key(
+            TerrainChunkCoord {
+                x: chunk_x,
+                y: chunk_y,
+                z: chunk_z,
+            },
+            lod,
+        ));
+    }
+
+    terrain_mesh_packet_store()
+        .lock()
+        .expect("terrain mesh packet store lock poisoned")
+        .retain_keys(&keys);
+    1
+}
+
+#[no_mangle]
 pub extern "C" fn ofg_write_terrain_mesh_packet_coords() -> u32 {
     let keys = terrain_mesh_packet_store()
         .lock()

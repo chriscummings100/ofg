@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::{Mutex, OnceLock};
 
 use crate::*;
@@ -107,6 +108,18 @@ impl TerrainMeshPacketStore {
         };
 
         self.entries.remove(index);
+        self.bump_version();
+        true
+    }
+
+    pub(crate) fn retain_keys(&mut self, keys: &[TerrainMeshPacketKey]) -> bool {
+        let keep = keys.iter().copied().collect::<BTreeSet<_>>();
+        let previous_len = self.entries.len();
+        self.entries.retain(|entry| keep.contains(&entry.key));
+        if self.entries.len() == previous_len {
+            return false;
+        }
+
         self.bump_version();
         true
     }

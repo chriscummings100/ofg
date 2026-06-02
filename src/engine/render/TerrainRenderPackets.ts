@@ -34,6 +34,8 @@ export type TerrainRenderChunkSink = {
   addChunk(chunk: TerrainRenderChunkInput): void;
   getChunk(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainRenderChunkPacket | undefined;
   removeChunk(chunk: TerrainChunkKey | TerrainChunkCoord): boolean;
+  clear(): void;
+  retainChunks(chunks: readonly (TerrainChunkKey | TerrainChunkCoord)[]): void;
 };
 
 export class TerrainRenderPacketStore implements TerrainRenderChunkSink {
@@ -83,6 +85,11 @@ export class TerrainRenderPacketStore implements TerrainRenderChunkSink {
 
   clear(): void {
     this.chunkList = [];
+  }
+
+  retainChunks(chunks: readonly (TerrainChunkKey | TerrainChunkCoord)[]): void {
+    const keep = new Set(chunks.map(toChunkKey));
+    this.chunkList = this.chunkList.filter((chunk) => keep.has(chunk.key));
   }
 
   setChunks(chunks: readonly TerrainRenderChunkPacket[]): void {

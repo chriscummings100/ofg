@@ -34,6 +34,7 @@ export type TerrainCoreWasmExportName =
   | "ofg_terrain_mesh_packet_store_version"
   | "ofg_terrain_mesh_packet_store_contains"
   | "ofg_remove_terrain_mesh_packet"
+  | "ofg_retain_terrain_mesh_packets"
   | "ofg_write_terrain_mesh_packet_coords"
   | "ofg_load_terrain_mesh_packet_buffer"
   | "ofg_stream_configure"
@@ -94,7 +95,7 @@ export const TERRAIN_CORE_WASM_METADATA = Object.freeze({
   "sourceCrate": "crates/terrain_core",
   "assetPath": "assets/wasm/terrain_core.wasm",
   "target": "wasm32-unknown-unknown",
-  "artifactHash": "sha256-a89057cd6bd85d39dabad29cf71c8ea21d82766513c0a3cf5ef03aa5a9e82091",
+  "artifactHash": "sha256-4af4ecb9a2416ddbfe745d0f2c478b2a3e34a8294fb628502d4c32edd9dfb2dc",
   "exports": [
     "memory",
     "ofg_terrain_core_version",
@@ -129,6 +130,7 @@ export const TERRAIN_CORE_WASM_METADATA = Object.freeze({
     "ofg_terrain_mesh_packet_store_version",
     "ofg_terrain_mesh_packet_store_contains",
     "ofg_remove_terrain_mesh_packet",
+    "ofg_retain_terrain_mesh_packets",
     "ofg_write_terrain_mesh_packet_coords",
     "ofg_load_terrain_mesh_packet_buffer",
     "ofg_stream_configure",

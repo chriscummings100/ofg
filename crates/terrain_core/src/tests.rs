@@ -198,6 +198,49 @@ fn terrain_mesh_packet_store_replaces_existing_chunk_and_versions_changes() {
 }
 
 #[test]
+fn terrain_mesh_packet_store_retains_requested_chunks() {
+    let _lock = test_lock();
+    ofg_reset_terrain_mesh_packet_store();
+    assert_eq!(
+        ofg_prepare_terrain_mesh_packet_input(FLOATS_PER_VERTEX as u32, 3),
+        1
+    );
+    let indices = unsafe {
+        std::slice::from_raw_parts_mut(ofg_terrain_mesh_packet_input_index_buffer_ptr(), 3)
+    };
+    indices.copy_from_slice(&[0, 0, 0]);
+
+    assert_eq!(ofg_store_terrain_mesh_packet_buffer(0, 0, 0, 0), 1);
+    assert_eq!(ofg_store_terrain_mesh_packet_buffer(1, 0, 0, 0), 1);
+    assert_eq!(ofg_terrain_mesh_packet_store_entry_count(), 2);
+
+    let lods = unsafe {
+        std::slice::from_raw_parts_mut(ofg_terrain_mesh_packet_lod_buffer_ptr() as *mut u32, 1)
+    };
+    let xs = unsafe {
+        std::slice::from_raw_parts_mut(ofg_terrain_mesh_packet_x_buffer_ptr() as *mut i32, 1)
+    };
+    let ys = unsafe {
+        std::slice::from_raw_parts_mut(ofg_terrain_mesh_packet_y_buffer_ptr() as *mut i32, 1)
+    };
+    let zs = unsafe {
+        std::slice::from_raw_parts_mut(ofg_terrain_mesh_packet_z_buffer_ptr() as *mut i32, 1)
+    };
+    lods[0] = 0;
+    xs[0] = 1;
+    ys[0] = 0;
+    zs[0] = 0;
+
+    assert_eq!(ofg_retain_terrain_mesh_packets(1), 1);
+    assert_eq!(ofg_terrain_mesh_packet_store_entry_count(), 1);
+    assert_eq!(ofg_terrain_mesh_packet_store_contains(0, 0, 0, 0), 0);
+    assert_eq!(ofg_terrain_mesh_packet_store_contains(1, 0, 0, 0), 1);
+
+    assert_eq!(ofg_retain_terrain_mesh_packets(0), 1);
+    assert_eq!(ofg_terrain_mesh_packet_store_entry_count(), 0);
+}
+
+#[test]
 fn terrain_mesh_packet_store_rejects_invalid_meshes() {
     let _lock = test_lock();
     ofg_reset_terrain_mesh_packet_store();

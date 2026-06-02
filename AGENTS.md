@@ -152,7 +152,7 @@ There is one global active `Scene`.
 
 The playable app is currently partly scene-model backed: the terrain streamer,
 mirrored player entity, and debug player marker are scene entities/components,
-but streamed terrain chunks are stored in `terrain_core.wasm` through
+but streamed terrain chunks are stored and pruned in `terrain_core.wasm` through
 `TerrainCoreRenderPacketStore` rather than `TerrainRenderer`. The authoritative
 player/camera state and first camera/light render packet are now Rust-owned.
 Treat the remaining scene path as transitional runtime glue. New high-volume

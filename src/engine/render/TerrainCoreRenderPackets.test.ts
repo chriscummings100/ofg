@@ -63,6 +63,36 @@ describe("TerrainCoreRenderPacketStore", () => {
     equal(store.chunks.length, 0);
   });
 
+  it("retains only requested Rust-owned terrain chunk packets", async () => {
+    const terrainCore = await loadTerrainCore();
+    const store = new TerrainCoreRenderPacketStore(terrainCore);
+    store.addChunk({
+      key: "0,0,0",
+      meshId: "mesh:terrain.chunk:0,0,0",
+      ...createTriangleMeshData(0),
+      layout: POSITION_COLOR_NORMAL_UV_LAYOUT
+    });
+    store.addChunk({
+      key: "1,0,0",
+      meshId: "mesh:terrain.chunk:1,0,0",
+      ...createTriangleMeshData(1),
+      layout: POSITION_COLOR_NORMAL_UV_LAYOUT
+    });
+    store.addChunk({
+      key: "2,0,0",
+      meshId: "mesh:terrain.chunk:2,0,0",
+      ...createTriangleMeshData(2),
+      layout: POSITION_COLOR_NORMAL_UV_LAYOUT
+    });
+
+    store.retainChunks(["1,0,0", terrainChunkCoord(2, 0, 0)]);
+
+    equal(store.size(), 2);
+    equal(store.chunks.length, 2);
+    equal(store.chunks[0].key, "1,0,0");
+    equal(store.chunks[1].key, "2,0,0");
+  });
+
   it("keeps cached mesh objects stable until the Rust store version changes", async () => {
     const terrainCore = await loadTerrainCore();
     const store = new TerrainCoreRenderPacketStore(terrainCore);
