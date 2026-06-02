@@ -150,10 +150,11 @@ Supported:
   WebGPU canvas surface, adapter/device/queue, surface configuration, depth
   texture, shader modules, pipeline layouts, pipelines, buffers, texture arrays,
   samplers, bind groups, render-pass submission, frame/resource counts, and GPU
-  resource pruning. Rust also owns shader uniform packing for frame and object
-  draw data, including object normal-matrix calculation. Browser smoke asserts
-  `rendererRuntime: "rust-wgpu"` and captures first-person, refreshed, debug-fly,
-  and streamed terrain screenshots.
+  resource pruning. Rust also owns material packet construction,
+  material-to-texture selection, shader uniform packing for frame and object draw
+  data, and object normal-matrix calculation. Browser smoke asserts
+  `rendererRuntime: "rust-wgpu"` and captures first-person, refreshed,
+  debug-fly, and streamed terrain screenshots.
 
 Partially supported or placeholder-only:
 
@@ -188,8 +189,9 @@ Partially supported or placeholder-only:
 - TypeScript still owns the browser Worker transport and shared-density payload
   wrapping. It also still has a temporary render adapter that loads Rust terrain
   mesh packet bytes from `terrain_core.wasm`, uploads mesh and texture bytes by
-  ID, and packs compact per-item world-matrix and material packets for
-  Rust/wgpu. Rust owns the renderer handle maps and stale resource pruning,
+  ID, uploads material definitions by ID, and passes per-item world matrices and
+  material IDs for Rust/wgpu. Rust owns the renderer handle maps, material
+  packet construction, material-to-texture selection, stale resource pruning,
   builds the frame packet from the raw `engine_core.wasm` render snapshot,
   derives the player-marker transform, validates those packets, computes normal
   matrices, and packs WGSL shader uniforms.
@@ -949,9 +951,10 @@ Progress notes:
 | 2026-06-02 | Rust terrain source of truth | Deleted the compiled TypeScript terrain generator/noise reference, TypeScript Dual Contouring/debug overlay path, and old terrain debug/variation smoke tools. At that point the app directly assembled `RenderWorld` from Rust camera/light/player-marker packets and Rust terrain mesh packets; the later `renderEngineFrame` slice retired that bridge. TypeScript still handled browser startup, input, Worker transport, shared-density wrapping, debug hooks, and the temporary render adapter. |
 | 2026-06-02 | Rust WebGPU bridge started | Added raw `engine_web.wasm` as the first Phase 5 renderer migration slice. The terrain still rendered through the temporary TypeScript `WebGpuRenderer`, but that renderer registered mesh, texture, object, resize, frame, draw, and pruning events with Rust. This bridge was then retired by the Rust/wgpu renderer slice. |
 | 2026-06-02 | Rust/wgpu renderer became playable default | Added the `wasm-bindgen`/`wgpu` renderer in `crates/engine_web`, generated `assets/wasm/engine_web/`, deleted the TypeScript `WebGpuRenderer`, raw `engine_web.wasm`, and WebGPU ambient type shim, and routed terrain/player-marker render items through Rust-owned WebGPU resources and draw submission. Browser smoke passed with first-person, refreshed, debug-fly, and streamed terrain screenshots under `artifacts/browser-smoke/2026-06-02T12-27-54-025Z/`. |
-| 2026-06-02 | Rust shader uniform packing | Moved frame/object shader uniform packing into `engine_web`. The TypeScript render adapter now sends compact frame, world-matrix, and material packets, while Rust validates packet shape, computes normal matrices, and writes the WGSL uniform buffers. Deleted the old TypeScript `FrameUniforms` and `ObjectUniforms` modules/tests. |
+| 2026-06-02 | Rust shader uniform packing | Moved frame/object shader uniform packing into `engine_web`. The TypeScript render adapter then sent compact frame, world-matrix, and material packets, while Rust validated packet shape, computed normal matrices, and wrote the WGSL uniform buffers. Later slices moved material packets into `RustBrowserGame`. Deleted the old TypeScript `FrameUniforms` and `ObjectUniforms` modules/tests. |
 | 2026-06-02 | TypeScript RenderWorld retired | Added Rust engine-snapshot packet builders and `renderEngineFrame` in `engine_web`. The playable app now sends the raw `engine_core.wasm` render snapshot plus direct terrain mesh packets, while Rust builds the frame packet and player-marker world matrix. Deleted the compiled TypeScript `RenderWorld`, `CameraFrame`, `Lighting`, and `engineRenderPackets` path, and stopped adapting Rust terrain packets into CPU-side `Mesh` objects. |
 | 2026-06-02 | Rust browser render facade started | Added `RustBrowserGame` in `engine_web` so Rust owns WebGPU renderer handles, object handles, stale render-resource pruning, and the debug player marker mesh/material. The terrain bridge still loads mesh packets from `terrain_core.wasm`, but TypeScript now uploads bytes by ID and submits item IDs instead of registering/passing renderer handles. |
+| 2026-06-02 | Rust material render facade started | Added Rust-owned material packet construction and a `RustBrowserGame` material registry. The terrain render bridge now submits material IDs and world matrices per frame instead of prepacked material floats or per-item texture arrays. |
 
 ## Cross-Cutting Validation
 

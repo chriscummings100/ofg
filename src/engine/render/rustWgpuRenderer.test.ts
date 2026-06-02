@@ -44,16 +44,17 @@ describe("RustWgpuRendererAdapter", () => {
     equal(fake.upsertedTextures.length, 1);
     equal(fake.upsertedTextures[0]?.id, "texture:test");
     equal(fake.upsertedTextures[0]?.formatCode, 1);
+    equal(fake.upsertedMaterials.length, 1);
+    equal(fake.upsertedMaterials[0]?.id, "material:test");
+    equal(fake.upsertedMaterials[0]?.albedoTextureId, "texture:test");
+    almostEqual(fake.upsertedMaterials[0]?.albedoR, 0.8);
+    almostEqual(fake.upsertedMaterials[0]?.specularFactor, 0.4);
     equal(fake.lastRender?.engineSnapshot[0], 1);
     equal(fake.lastRender?.aspect, 640 / 480);
     equal(fake.lastRender?.itemIds[0], "item:test");
     equal(fake.lastRender?.meshIds[0], "mesh:test");
-    equal(fake.lastRender?.albedoTextureIds[0], "texture:test");
-    equal(fake.lastRender?.normalTextureIds[0], "");
-    equal(fake.lastRender?.materialTextureIds[0], "");
+    equal(fake.lastRender?.materialIds[0], "material:test");
     almostEqual(fake.lastRender?.worldMatrices[0], 1);
-    almostEqual(fake.lastRender?.materialPackets[0], 0.8);
-    almostEqual(fake.lastRender?.materialPackets[7], 0.4);
   });
 
   it("destroys uploaded meshes that disappear from render packets", () => {
@@ -85,17 +86,20 @@ type FakeBrowserGame = EngineWebBrowserGame & {
     readonly id: string;
     readonly formatCode: number;
   }[];
+  upsertedMaterials: {
+    readonly id: string;
+    readonly albedoR: number;
+    readonly specularFactor: number;
+    readonly albedoTextureId: string;
+  }[];
   destroyedMeshes: string[];
   lastRender?: {
     readonly engineSnapshot: Float32Array;
     readonly aspect: number;
     readonly itemIds: string[];
     readonly meshIds: string[];
-    readonly albedoTextureIds: string[];
-    readonly normalTextureIds: string[];
-    readonly materialTextureIds: string[];
+    readonly materialIds: string[];
     readonly worldMatrices: Float32Array;
-    readonly materialPackets: Float32Array;
   };
 };
 
@@ -103,6 +107,7 @@ function fakeBrowserGame(): FakeBrowserGame {
   return {
     upsertedMeshes: [],
     upsertedTextures: [],
+    upsertedMaterials: [],
     destroyedMeshes: [],
     resize() {},
     upsertMesh(id, _vertices, _indices, floatsPerVertex) {
@@ -115,27 +120,38 @@ function fakeBrowserGame(): FakeBrowserGame {
       this.upsertedTextures.push({ id, formatCode });
     },
     destroyTexture() {},
+    upsertMaterial(
+      id,
+      albedoR,
+      _albedoG,
+      _albedoB,
+      _albedoA,
+      _specularR,
+      _specularG,
+      _specularB,
+      specularFactor,
+      _flags,
+      _textureScale,
+      albedoTextureId
+    ) {
+      this.upsertedMaterials.push({ id, albedoR, specularFactor, albedoTextureId });
+    },
+    destroyMaterial() {},
     renderEngineFrame(
       engineSnapshot,
       aspect,
       itemIds,
       meshIds,
-      albedoTextureIds,
-      normalTextureIds,
-      materialTextureIds,
-      worldMatrices,
-      materialPackets
+      materialIds,
+      worldMatrices
     ) {
       this.lastRender = {
         engineSnapshot: new Float32Array(engineSnapshot),
         aspect,
         itemIds: [...itemIds],
         meshIds: [...meshIds],
-        albedoTextureIds: [...albedoTextureIds],
-        normalTextureIds: [...normalTextureIds],
-        materialTextureIds: [...materialTextureIds],
-        worldMatrices: new Float32Array(worldMatrices),
-        materialPackets: new Float32Array(materialPackets)
+        materialIds: [...materialIds],
+        worldMatrices: new Float32Array(worldMatrices)
       };
     },
     status() {

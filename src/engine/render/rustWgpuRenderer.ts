@@ -6,17 +6,12 @@ import {
   type EngineWebRendererStatus
 } from "../web/engineWebWasm.js";
 import {
-  DEFAULT_ALBEDO_FACTOR,
-  DEFAULT_SPECULAR,
-  DEFAULT_SPECULAR_FACTOR,
-  DEFAULT_TEXTURE_SCALE,
   type Material
 } from "./Material.js";
 import type { RenderItemPacket, RenderMeshPacket } from "./RenderPackets.js";
 import type { Texture } from "./Texture.js";
 
 const WORLD_MATRIX_FLOATS = 16;
-const MATERIAL_PACKET_FLOATS = 10;
 const IDENTITY_WORLD_MATRIX = new Float32Array([
   1, 0, 0, 0,
   0, 1, 0, 0,
@@ -28,6 +23,7 @@ export class RustWgpuRendererAdapter {
   readonly runtime = "rust-wgpu" as const;
   private readonly uploadedMeshes = new Map<string, RenderMeshPacket>();
   private readonly uploadedTextures = new Map<string, Texture>();
+  private readonly uploadedMaterials = new Map<string, UploadedMaterial>();
   private width = 1;
   private height = 1;
 
@@ -71,11 +67,8 @@ export class RustWgpuRendererAdapter {
     const itemCount = items.length;
     const itemIds: string[] = [];
     const meshIds: string[] = [];
-    const albedoTextureIds: string[] = [];
-    const normalTextureIds: string[] = [];
-    const materialTextureIds: string[] = [];
+    const materialIds: string[] = [];
     const worldMatrices = new Float32Array(itemCount * WORLD_MATRIX_FLOATS);
-    const materialPackets = new Float32Array(itemCount * MATERIAL_PACKET_FLOATS);
     const seenMeshes = new Set<RenderMeshPacket>();
 
     for (let index = 0; index < itemCount; index += 1) {
@@ -85,15 +78,18 @@ export class RustWgpuRendererAdapter {
       this.upsertTextureIfNeeded(item.albedoTexture);
       this.upsertTextureIfNeeded(item.normalTexture);
       this.upsertTextureIfNeeded(item.materialTexture);
+      this.upsertMaterialIfNeeded(
+        item.material,
+        item.albedoTexture,
+        item.normalTexture,
+        item.materialTexture
+      );
 
       seenMeshes.add(item.mesh);
       itemIds.push(item.id);
       meshIds.push(item.mesh.id);
-      albedoTextureIds.push(item.albedoTexture?.id ?? "");
-      normalTextureIds.push(item.normalTexture?.id ?? "");
-      materialTextureIds.push(item.materialTexture?.id ?? "");
+      materialIds.push(item.material?.id ?? "");
       worldMatrices.set(item.worldMatrix ?? IDENTITY_WORLD_MATRIX, index * WORLD_MATRIX_FLOATS);
-      writeMaterialPacket(item.material, materialPackets, index * MATERIAL_PACKET_FLOATS);
     }
 
     this.game.renderEngineFrame(
@@ -101,11 +97,8 @@ export class RustWgpuRendererAdapter {
       this.getAspectRatio(),
       itemIds,
       meshIds,
-      albedoTextureIds,
-      normalTextureIds,
-      materialTextureIds,
-      worldMatrices,
-      materialPackets
+      materialIds,
+      worldMatrices
     );
     this.pruneUploadedMeshes(seenMeshes);
   }
@@ -149,6 +142,51 @@ export class RustWgpuRendererAdapter {
     this.uploadedTextures.set(texture.id, texture);
   }
 
+  private upsertMaterialIfNeeded(
+    material: Material | undefined,
+    albedoTexture: Texture | undefined,
+    normalTexture: Texture | undefined,
+    materialTexture: Texture | undefined
+  ): void {
+    if (material === undefined) {
+      return;
+    }
+
+    const uploaded = {
+      material,
+      albedoTextureId: material.albedoTexture ?? albedoTexture?.id ?? "",
+      normalTextureId: material.normalTexture ?? normalTexture?.id ?? "",
+      materialTextureId: material.materialTexture ?? materialTexture?.id ?? ""
+    };
+    const cached = this.uploadedMaterials.get(material.id);
+    if (
+      cached?.material === uploaded.material &&
+      cached.albedoTextureId === uploaded.albedoTextureId &&
+      cached.normalTextureId === uploaded.normalTextureId &&
+      cached.materialTextureId === uploaded.materialTextureId
+    ) {
+      return;
+    }
+
+    this.game.upsertMaterial(
+      material.id,
+      material.albedoFactor.x,
+      material.albedoFactor.y,
+      material.albedoFactor.z,
+      material.albedoFactor.w,
+      material.specular.x,
+      material.specular.y,
+      material.specular.z,
+      material.specularFactor,
+      material.flags,
+      material.textureScale,
+      uploaded.albedoTextureId,
+      uploaded.normalTextureId,
+      uploaded.materialTextureId
+    );
+    this.uploadedMaterials.set(material.id, uploaded);
+  }
+
   private pruneUploadedMeshes(seenMeshes: Set<RenderMeshPacket>): void {
     for (const [id, mesh] of this.uploadedMeshes) {
       if (seenMeshes.has(mesh)) {
@@ -170,26 +208,6 @@ export class RustWgpuRendererAdapter {
   }
 }
 
-function writeMaterialPacket(
-  material: Material | undefined,
-  target: Float32Array,
-  offset: number
-): void {
-  const albedo = material?.albedoFactor ?? DEFAULT_ALBEDO_FACTOR;
-  const specular = material?.specular ?? DEFAULT_SPECULAR;
-
-  target[offset] = albedo.x;
-  target[offset + 1] = albedo.y;
-  target[offset + 2] = albedo.z;
-  target[offset + 3] = albedo.w;
-  target[offset + 4] = specular.x;
-  target[offset + 5] = specular.y;
-  target[offset + 6] = specular.z;
-  target[offset + 7] = material?.specularFactor ?? DEFAULT_SPECULAR_FACTOR;
-  target[offset + 8] = material?.flags ?? 0;
-  target[offset + 9] = material?.textureScale ?? DEFAULT_TEXTURE_SCALE;
-}
-
 function createOpaqueWhiteTextureData(width: number, height: number, layers: number): Uint8Array {
   const data = new Uint8Array(width * height * layers * 4);
   for (let offset = 0; offset < data.length; offset += 4) {
@@ -201,3 +219,10 @@ function createOpaqueWhiteTextureData(width: number, height: number, layers: num
 
   return data;
 }
+
+type UploadedMaterial = {
+  readonly material: Material;
+  readonly albedoTextureId: string;
+  readonly normalTextureId: string;
+  readonly materialTextureId: string;
+};

@@ -1,7 +1,7 @@
 use crate::{
-    build_frame_packet_from_engine_snapshot, build_frame_uniform_values,
-    build_object_uniform_values, build_player_marker_world_matrix, RenderPacketError,
-    RenderUniformError, RendererState, RendererStateError, ResourceHandle,
+    build_frame_packet_from_engine_snapshot, build_frame_uniform_values, build_material_packet,
+    build_object_uniform_values, build_player_marker_world_matrix, MaterialPacketError,
+    RenderPacketError, RenderUniformError, RendererState, RendererStateError, ResourceHandle,
     ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS, MATERIAL_PACKET_FLOATS,
     REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
     WORLD_MATRIX_FLOATS,
@@ -254,6 +254,31 @@ fn object_uniforms_reject_singular_world_matrices() {
     assert_eq!(
         build_object_uniform_values(&singular, &material),
         Err(RenderUniformError::SingularWorldMatrix)
+    );
+}
+
+#[test]
+fn material_packets_are_built_in_rust() {
+    let packet =
+        build_material_packet([0.8, 0.7, 0.6, 1.0], [0.1, 0.2, 0.3], 0.4, 1.0, 0.08).unwrap();
+
+    assert_close(packet[0], 0.8);
+    assert_close(packet[3], 1.0);
+    assert_close(packet[4], 0.1);
+    assert_close(packet[7], 0.4);
+    assert_close(packet[8], 1.0);
+    assert_close(packet[9], 0.08);
+}
+
+#[test]
+fn material_packets_reject_invalid_values() {
+    assert_eq!(
+        build_material_packet([f32::NAN, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0], 0.18, 0.0, 1.0,),
+        Err(MaterialPacketError::InvalidValue)
+    );
+    assert_eq!(
+        build_material_packet([1.0; 4], [1.0; 3], 0.18, 0.0, 0.0),
+        Err(MaterialPacketError::InvalidTextureScale)
     );
 }
 

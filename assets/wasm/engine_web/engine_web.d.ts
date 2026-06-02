@@ -9,7 +9,9 @@ export class RustBrowserGame {
   destroyMesh(id: string): void;
   upsertTexture(id: string, width: number, height: number, layers: number, format_code: number, data: Uint8Array): void;
   destroyTexture(id: string): void;
-  renderEngineFrame(engine_snapshot: Float32Array, aspect: number, item_ids: Array<any>, mesh_ids: Array<any>, albedo_texture_ids: Array<any>, normal_texture_ids: Array<any>, material_texture_ids: Array<any>, world_matrices: Float32Array, material_packets: Float32Array): void;
+  upsertMaterial(id: string, albedo_r: number, albedo_g: number, albedo_b: number, albedo_a: number, specular_r: number, specular_g: number, specular_b: number, specular_factor: number, flags: number, texture_scale: number, albedo_texture_id: string, normal_texture_id: string, material_texture_id: string): void;
+  destroyMaterial(id: string): void;
+  renderEngineFrame(engine_snapshot: Float32Array, aspect: number, item_ids: Array<any>, mesh_ids: Array<any>, material_ids: Array<any>, world_matrices: Float32Array): void;
   status(): RustBrowserGameStatus;
 }
 export class RustBrowserGameStatus {
@@ -64,7 +66,9 @@ export interface InitOutput {
   readonly rustbrowsergame_destroyMesh: (a: number, b: number, c: number, d: number) => void;
   readonly rustbrowsergame_upsertTexture: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => void;
   readonly rustbrowsergame_destroyTexture: (a: number, b: number, c: number, d: number) => void;
-  readonly rustbrowsergame_renderEngineFrame: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number) => void;
+  readonly rustbrowsergame_upsertMaterial: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number, s: number, t: number) => void;
+  readonly rustbrowsergame_destroyMaterial: (a: number, b: number, c: number) => void;
+  readonly rustbrowsergame_renderEngineFrame: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => void;
   readonly rustbrowsergame_status: (a: number) => number;
   readonly rustbrowsergamestatus_version: (a: number) => number;
   readonly rustbrowsergamestatus_runtime: (a: number, b: number) => void;

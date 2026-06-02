@@ -1,5 +1,6 @@
 mod config;
 mod facade;
+mod materials;
 mod render_packets;
 mod render_uniforms;
 mod renderer;
@@ -14,6 +15,7 @@ pub use config::{
     TEXTURE_FORMAT_RGBA8_UNORM,
 };
 pub use facade::*;
+pub use materials::{build_material_packet, MaterialPacketError, DEFAULT_MATERIAL_PACKET};
 pub use render_packets::{
     build_frame_packet_from_engine_snapshot, build_player_marker_world_matrix, RenderPacketError,
     ENGINE_RENDER_SNAPSHOT_FLOATS,

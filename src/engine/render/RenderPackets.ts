@@ -19,12 +19,3 @@ export type RenderItemPacket = {
   readonly materialTexture?: Texture;
   readonly worldMatrix?: Mat4;
 };
-
-export type PlayerMarkerRenderPacket = {
-  readonly id: ResourceId;
-  readonly mesh: RenderMeshPacket;
-  readonly material?: Material;
-  readonly albedoTexture?: Texture;
-  readonly normalTexture?: Texture;
-  readonly materialTexture?: Texture;
-};
