@@ -4,18 +4,23 @@
 
 Add a tiny scene graph and component model that the game can stick to while it grows.
 
-Current status note: this document now describes the implemented TypeScript
-prototype scene model and its test coverage. It is not the long-term ownership
-plan for high-volume world state. The current architecture direction is
-Rust-first and is tracked in [RUST_ENGINE_PLAN.md](RUST_ENGINE_PLAN.md).
-The TypeScript `PlayerController` described in older sections has been retired;
-runtime player/camera authority now lives in `engine_core.wasm`, with
-`RustPlayerController` acting as a scene compatibility mirror while render and
-terrain ownership migrate.
-The originally planned TypeScript terrain scene pieces have also been retired
-from the compiled source tree: `TerrainRenderer`, `TerrainChunkStreamer`,
-`terrainChunkMesher`, and the old TypeScript terrain packet store no longer
-exist as live runtime/test modules.
+Current status note: this document is historical. The TypeScript scene/component
+model described here has been removed from the compiled source tree. It should
+not be used as a current implementation plan.
+
+The current architecture direction is Rust-first and is tracked in
+[RUST_ENGINE_PLAN.md](RUST_ENGINE_PLAN.md). Runtime player/camera authority lives
+in `engine_core.wasm`; runtime terrain generation, streaming, density stores,
+worker-pool state, Dual Contouring mesh emission, and terrain mesh packet storage
+live in `terrain_core.wasm`. `RustPlayerController` and
+`TerrainCoreWorkerStreamer` are now plain browser bridge classes, not scene
+components.
+
+The TypeScript `PlayerController`, `Scene`, `Entity`, `Component`, `Transform`,
+`ResourceStore`, `MeshRenderer`, `SceneRenderExtractor`, `TerrainRenderer`,
+`TerrainChunkStreamer`, `terrainChunkMesher`, TypeScript Dual Contouring module,
+and TypeScript terrain generator/noise reference have all been retired from live
+compiled `src`.
 This is not a full ECS and should not become one by accident. The model is:
 
 - One global active `Scene`.

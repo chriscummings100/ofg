@@ -2,38 +2,32 @@ import { equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { EngineCoreWasmHandle, instantiateEngineCoreWasm } from "../../engine/core/engineCoreWasm.js";
 import { vec3 } from "../../engine/math/vec3.js";
-import { resetScene } from "../../engine/scene/activeScene.js";
 import { ENGINE_CORE_WASM_METADATA } from "../../generated/engine/engineCoreWasm.js";
 import { RustPlayerController } from "./RustPlayerController.js";
 
 describe("RustPlayerController", () => {
-  it("creates a Rust player on attach and mirrors the initial scene transform", async () => {
-    const scene = resetScene();
+  it("creates a Rust player during construction", async () => {
     const engine = await loadEngineHandle();
-    const player = scene.createEntity("Player");
-
-    const controller = player.addComponent(new RustPlayerController(engine, {
+    const controller = new RustPlayerController(engine, {
       initialPosition: vec3(1, 2, 3),
       initialYaw: 0.75,
       initialPitch: -0.25
-    }));
+    });
 
     equal(engine.hasPlayer(), true);
-    assertClose(player.transform.position.x, 1);
-    assertClose(player.transform.position.y, 2);
-    assertClose(player.transform.position.z, 3);
+    assertClose(controller.getPlayerPosition().x, 1);
+    assertClose(controller.getPlayerPosition().y, 2);
+    assertClose(controller.getPlayerPosition().z, 3);
     assertClose(controller.getEyeTransform().position.y, 3.65);
     assertClose(controller.getEyeTransform().yaw, 0.75);
   });
 
   it("updates first-person movement using the Rust preview position for terrain grounding", async () => {
-    const scene = resetScene();
     const engine = await loadEngineHandle();
-    const player = scene.createEntity("Player");
-    const controller = player.addComponent(new RustPlayerController(engine, {
+    const controller = new RustPlayerController(engine, {
       initialPosition: vec3(0, 3, 0),
       terrainHeightAt: (_x, z) => z + 10
-    }));
+    });
 
     controller.setMovementIntent({
       forward: 1,
@@ -44,24 +38,22 @@ describe("RustPlayerController", () => {
       lookDeltaY: 0
     });
 
-    scene.update(1);
+    controller.update(1);
 
-    assertClose(player.transform.position.x, 0);
-    assertClose(player.transform.position.y, 15.5);
-    assertClose(player.transform.position.z, 5.5);
+    assertClose(controller.getPlayerPosition().x, 0);
+    assertClose(controller.getPlayerPosition().y, 15.5);
+    assertClose(controller.getPlayerPosition().z, 5.5);
     assertClose(controller.getEyeTransform().position.y, 17.15);
   });
 
-  it("moves the debug-fly camera without moving the mirrored player entity", async () => {
-    const scene = resetScene();
+  it("moves the debug-fly camera without moving the Rust player position", async () => {
     const engine = await loadEngineHandle();
-    const player = scene.createEntity("Player");
-    const controller = player.addComponent(new RustPlayerController(engine, {
+    const controller = new RustPlayerController(engine, {
       initialPosition: vec3(0, 2, 0),
       initialDebugPosition: vec3(0, 10, 0),
       initialMode: "debugFly",
       terrainHeightAt: () => 100
-    }));
+    });
 
     controller.setMovementIntent({
       forward: 0,
@@ -72,22 +64,20 @@ describe("RustPlayerController", () => {
       lookDeltaY: 0
     });
 
-    scene.update(1);
+    controller.update(1);
 
-    assertClose(player.transform.position.y, 2);
+    assertClose(controller.getPlayerPosition().y, 2);
     assertClose(controller.getEyeTransform().position.y, 21);
     equal(controller.mode, "debugFly");
   });
 
   it("supports debug camera and player position commands for browser debug hooks", async () => {
-    const scene = resetScene();
     const engine = await loadEngineHandle();
-    const player = scene.createEntity("Player");
-    const controller = player.addComponent(new RustPlayerController(engine));
+    const controller = new RustPlayerController(engine);
 
     controller.setPlayerPosition(vec3(4, 5, 6));
     controller.setPlayerView(0.25, -0.5);
-    assertClose(player.transform.position.x, 4);
+    assertClose(controller.getPlayerPosition().x, 4);
     assertClose(controller.getEyeTransform().yaw, 0.25);
 
     controller.setDebugCamera(vec3(7, 8, 9), 0.75, -0.25);
@@ -98,12 +88,10 @@ describe("RustPlayerController", () => {
   });
 
   it("does not update the Rust player when disabled", async () => {
-    const scene = resetScene();
     const engine = await loadEngineHandle();
-    const player = scene.createEntity("Player");
-    const controller = player.addComponent(new RustPlayerController(engine, {
+    const controller = new RustPlayerController(engine, {
       initialPosition: vec3(0, 0, 0)
-    }));
+    });
     controller.enabled = false;
     controller.setMovementIntent({
       forward: 1,
@@ -114,19 +102,17 @@ describe("RustPlayerController", () => {
       lookDeltaY: 0
     });
 
-    scene.update(1);
+    controller.update(1);
 
-    assertClose(player.transform.position.z, 0);
+    assertClose(controller.getPlayerPosition().z, 0);
     ok(engine.hasPlayer());
   });
 
   it("recovers if the Rust engine loses its player between browser frames", async () => {
-    const scene = resetScene();
     const engine = await loadEngineHandle();
-    const player = scene.createEntity("Player");
-    const controller = player.addComponent(new RustPlayerController(engine, {
+    const controller = new RustPlayerController(engine, {
       initialPosition: vec3(0, 0, 0)
-    }));
+    });
     controller.setMovementIntent({
       forward: 1,
       right: 0,
@@ -137,10 +123,10 @@ describe("RustPlayerController", () => {
     });
 
     engine.reset();
-    scene.update(1);
+    controller.update(1);
 
     ok(engine.hasPlayer());
-    assertClose(player.transform.position.z, 5.5);
+    assertClose(controller.getPlayerPosition().z, 5.5);
   });
 });
 

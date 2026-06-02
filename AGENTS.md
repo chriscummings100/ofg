@@ -15,8 +15,8 @@ The current playable seed is still simple:
 - Chunk-streamed generated terrain from 3D density chunks.
 - Runtime terrain meshed as per-chunk neighbor-aware Dual Contouring chunks.
 - Poly Haven terrain materials rendered from global WebGPU texture arrays.
-- First Rust/WASM terrain core artifact with golden tests against the TypeScript
-  terrain generator.
+- Rust/WASM terrain core artifact that owns terrain height/density sampling,
+  chunk meshing, stream scheduling, density storage, and mesh packet storage.
 - Rust-owned first-person camera/player movement through `engine_core.wasm`.
 - Debug fly camera toggled with `C` or `F1`.
 - A yellow player marker visible in debug fly mode.
@@ -68,8 +68,9 @@ saves screenshots in `artifacts/browser-smoke/`, samples pixels, and verifies th
 
 ```text
 src/app
-  Browser setup, game loop, HUD, and current scene bootstrapping. Long term this
-  becomes the TypeScript shell around the Rust engine.
+  Browser setup, game loop, HUD, input forwarding, debug hooks, and direct
+  assembly of the temporary TypeScript `RenderWorld`. Long term this becomes a
+  thinner TypeScript shell around the Rust engine.
 
 src/engine/math
   Vec3, Vec4, Quat, Mat4 primitives.
@@ -78,21 +79,17 @@ src/engine/input
   DOM input tracker for keys, edge-triggered presses, pointer-lock mouse deltas.
 
 src/engine/world
-  Seed terrain scalar field backed by low-frequency x/z noise plus octave 3D
-  simplex density detail with gradients, 3D density chunk model, runtime Dual
-  Contouring Hermite extraction and guarded QEF placement, terrain material
-  classification and packed material weights, primitive box mesh. Runtime terrain
-  meshes use position/color/normal/uv/material-index/material-weight vertex data.
-
-src/engine/scene
-  Global Scene, Entity tree, Component lifecycle, Transform hierarchy,
-  ResourceStore, and related tests. This is current prototype infrastructure and
-  should not become the high-volume world authority.
+  Browser-side terrain descriptor/config types, 3D density chunk data contracts,
+  Rust/WASM terrain adapters, generic browser worker transport, density transfer
+  helpers, terrain material metadata, terrain mesh vertex layout helpers, and
+  primitive box mesh. Compiled TypeScript no longer owns terrain generation,
+  noise, Dual Contouring, or a terrain manager.
 
 src/engine/render
-  WebGPU renderer plus scene and packet render data types. Runtime rendering
-  flows through MeshRenderer, TerrainCoreRenderPacketStore for streamed terrain
-  chunks, RenderWorld, and SceneRenderExtractor.
+  WebGPU renderer plus packet render data types. Runtime rendering flows through
+  `RenderWorld` assembled by the app, `TerrainCoreRenderPacketStore` for streamed
+  terrain chunks, Rust engine render packets for camera/light/player marker, and
+  the temporary TypeScript `WebGpuRenderer`.
   Materials currently support albedo factor, albedo/normal/material texture
   resources, specular, and specular factor; the shader uses Lambert plus
   Blinn-Phong lighting. Terrain rendering uses global 16-layer albedo, normal, and
@@ -114,51 +111,41 @@ crates/engine_core
   bridge for camera/light/player-marker data.
 
 crates/terrain_core
-  Rust terrain core built to wasm32-unknown-unknown. It mirrors TypeScript macro
-  base elevation, density, compatibility height sampling, density chunk filling,
-  and the browser runtime chunk mesh path. Keep migrated terrain slices
-  golden-tested against TypeScript until a Rust path is intentionally promoted as
-  source of truth.
+  Rust terrain core built to wasm32-unknown-unknown. It owns macro base
+  elevation, density, compatibility height sampling, density chunk filling,
+  browser runtime chunk mesh generation, stream scheduling, density storage,
+  worker-pool state, and terrain mesh packet storage. It is now the browser
+  terrain source of truth.
 
 Future crates
   `docs/RUST_ENGINE_PLAN.md` proposes a browser-facing Rust/WASM renderer crate.
   New world/simulation/render ownership should generally move in that direction.
 
 src/game/components
-  Game-level compatibility/browser bridge components such as RustPlayerController,
-  and TerrainCoreWorkerStreamer.
+  Game-level browser bridge classes such as `RustPlayerController` and
+  `TerrainCoreWorkerStreamer`. These are plain TypeScript wrappers around Rust
+  engine/terrain state, not scene components.
 
 tools
   Local scripts, including shader generation, Poly Haven terrain texture import,
   the static dev server, and browser smoke tests.
 ```
 
-## Scene Model Rules
+## Runtime Ownership Rules
 
-There is one global active `Scene`.
+The compiled TypeScript scene/component model has been retired. Do not recreate a
+new TypeScript scene graph, ECS, terrain generator, or terrain manager as the next
+step.
 
-- Use `createScene()`, `getScene()`, `setScene()`, and `resetScene()` from
-  `src/engine/scene/activeScene.ts`.
-- Tests should call `resetScene()` to isolate global scene state.
-- Entities form a tree and always have a `Transform`.
-- Components attach to one entity at a time.
-- Components may call `getScene()` when they need global context.
-- Scene resources are CPU-side descriptions. Do not put WebGPU handles in
-  `ResourceStore`.
-- Render extraction produces plain `RenderWorld` data. The WebGPU renderer should
-  not know about entities.
-- `scene.mainLight` is the sun: use it for world lighting and sky placement.
-
-The playable app is currently partly scene-model backed: a terrain entity hosts
-the `TerrainCoreWorkerStreamer` browser bridge, and the mirrored player entity
-and debug player marker are scene entities/components. Streamed terrain chunks
-are stored and pruned in `terrain_core.wasm` through
-`TerrainCoreRenderPacketStore` rather than `TerrainRenderer`, and worker job
-selection/state transitions are Rust-owned. The authoritative player/camera
-state and first camera/light render packet are now Rust-owned. Treat the
-remaining scene path as transitional runtime glue. New high-volume world,
-terrain streaming, simulation, render extraction, and WebGPU ownership should
-follow `docs/RUST_ENGINE_PLAN.md`.
+- Rust owns player/camera state through `engine_core.wasm`.
+- Rust owns generated terrain sampling, Dual Contouring mesh emission, stream
+  scheduling, density stores, worker-pool state, and terrain mesh packet stores
+  through `terrain_core.wasm`.
+- TypeScript currently owns browser startup, DOM input collection, URL parameter
+  parsing, debug hooks, browser Worker transport, WebGPU resource upload/cache
+  adaptation, and the temporary `WebGpuRenderer`.
+- New high-volume world, terrain streaming, simulation, render extraction, and
+  WebGPU ownership should follow `docs/RUST_ENGINE_PLAN.md`.
 
 ## Testing Expectations
 
@@ -166,22 +153,20 @@ This project should be test-heavy because it is intended to be heavily AI-built.
 
 Current test areas include:
 
-- Math: vectors, quaternions, matrices through transform behavior.
-- Scene core: active scene lifecycle, entity hierarchy, component lifecycle,
-  transform propagation, resource storage.
-- Render data: mesh/material/texture metadata, mesh renderer, Rust-backed terrain
-  render packet store, render extraction.
+- Math: vectors, quaternions, and matrices.
+- Render data: mesh/material/texture metadata and Rust-backed terrain render
+  packet store.
 - Shader boundary: generated shader source artifact metadata and vertex layout
   contract.
-- World terrain: simplex noise generation, 3D density chunks, baseline field
-  sampling, terrain edits, Dual Contouring meshing, Rust-owned chunk streaming,
-  primitive meshes, Rust/WASM terrain core golden fixtures.
+- World terrain: 3D density chunks, terrain edits, primitive meshes, terrain
+  material packing, Rust-owned chunk streaming, and Rust/WASM terrain core
+  sampling/mesh/stream fixtures.
 - Gameplay/input: Rust player controller adapter and input tracker.
 - Browser smoke: actual Chrome/Edge WebGPU render, screenshots, pixel checks, HUD
   camera toggle verification, and a basic player-position chunk streaming check.
 
-When adding behavior, add tests near the behavior first or in the same change. Prefer
-behavior names such as `reparenting removes the child from its previous parent`.
+When adding behavior, add tests near the behavior first or in the same change.
+Prefer behavior names such as `rejects stale worker completions after reset`.
 
 ## Browser Verification Workflow
 

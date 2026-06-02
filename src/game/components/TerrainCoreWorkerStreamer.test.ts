@@ -21,7 +21,7 @@ import type {
   TerrainDensityChunkPayload,
   TerrainDensityJobResult
 } from "../../engine/world/terrainChunkWorkerTypes.js";
-import { createSeedWorldDescriptor } from "../../engine/world/terrainGenerator.js";
+import { createSeedWorldDescriptor } from "../../engine/world/terrainDescriptor.js";
 import { TERRAIN_CORE_WASM_METADATA } from "../../generated/terrain/terrainCoreWasm.js";
 import {
   TerrainCoreWorkerStreamer,
@@ -132,9 +132,7 @@ function createStreamer(
     maxInFlightJobs: 8
   });
   const densityStore = new TerrainCoreDensityChunkStore(terrainCore, descriptor);
-  const renderPackets = new TerrainCoreRenderPacketStore(terrainCore, {
-    material: "material:terrain"
-  });
+  const renderPackets = new TerrainCoreRenderPacketStore(terrainCore);
   const streamer = new TerrainCoreWorkerStreamer(
     renderPackets,
     scheduler,

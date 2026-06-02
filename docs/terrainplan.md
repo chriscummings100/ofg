@@ -45,10 +45,12 @@ Supported:
 
 - Deterministic 3D terrain density chunks with 32x32x32 cells and 33x33x33
   samples.
-- Deterministic simplex, ridged, domain-warp, and cellular macro noise helpers.
-- A `TerrainGenerator` behind `WorldDescriptor`, with `seed`, `rollingHills`,
-  `mountainValley`, and `rockyHighland` terrain presets. `rollingHills` is the
-  default.
+- Rust-owned deterministic simplex, ridged, domain-warp, and cellular macro noise
+  helpers inside `crates/terrain_core`.
+- A browser-facing `WorldDescriptor`/terrain descriptor contract for seed and
+  preset selection. Runtime generation itself is Rust-owned.
+- `seed`, `rollingHills`, `mountainValley`, and `rockyHighland` terrain presets.
+  `rollingHills` is the default.
 - URL-selectable terrain presets and seeds through `?terrainPreset=...` and
   `?terrainSeed=...`, primarily for repeatable verification captures.
 - Macro channels for base elevation, large feature value, mountainness,
@@ -59,8 +61,9 @@ Supported:
   still fundamentally a height-biased field, but Dual Contouring can represent
   local non-heightfield detail where the density field creates it.
 - Editable terrain source with subtract-sphere edit support.
-- Dual Contouring Hermite extraction, guarded QEF placement, QEF diagnostics, and
-  per-chunk neighbor-aware meshing with deterministic same-LOD seam ownership.
+- Rust-owned Dual Contouring chunk mesh emission, material/biome classification,
+  triangle-local material palette expansion, and per-chunk neighbor-aware meshing
+  with deterministic same-LOD seam ownership.
 - Runtime streaming of per-chunk terrain render meshes inside the loaded density
   window.
 - A 16-material Poly Haven CC0 terrain library imported under
@@ -72,25 +75,22 @@ Supported:
   palettes, preventing interpolated weights from referring to different texture
   layers at each triangle corner.
 - WGSL triplanar blending of terrain albedo and roughness from the texture arrays.
-- Browser and debug smoke coverage for regular gameplay render, terrain presets,
-  terrain debug overlays, seam/corner views, and surveyed material-variation
-  screenshots.
-- Debug overlays for macro elevation, mountainness, slope, normal, density slice,
-  material weights, QEF error, and chunk borders.
-- A first Rust terrain core crate at `crates/terrain_core`, built to
+- Browser smoke coverage for regular gameplay render, refresh/blank-frame
+  regression, terrain streaming after player movement, terrain presets, and
+  seam/corner views.
+- A Rust terrain core crate at `crates/terrain_core`, built to
   `wasm32-unknown-unknown` and emitted as `assets/wasm/terrain_core.wasm`.
 - Deterministic generated TypeScript metadata for the terrain WASM artifact.
 - Rust/WASM exports for terrain core versioning, preset count, macro base
   elevation, density, compatibility height sampling, and 33x33x33 density chunk
   filling, plus neighbor-aware runtime chunk mesh generation.
-- Cross-language golden tests that instantiate the WASM artifact in Node and
-  compare Rust density/height/chunk samples and validate emitted mesh buffers
-  with the current TypeScript
-  generator.
+- Node/WASM tests that instantiate the WASM artifact and validate deterministic
+  height/density samples, density chunk filling, emitted mesh buffers, retained
+  density stores, stream scheduling, and worker-pool behavior.
 - Runtime terrain streaming requires the generated WASM artifact in the browser
-  and uses it to build renderable terrain chunk meshes. TypeScript terrain
-  generation remains a reference/golden-test implementation, not the playable
-  browser fallback.
+  and uses it to build renderable terrain chunk meshes. The compiled TypeScript
+  terrain generator/noise reference has been deleted; Rust is now the browser
+  terrain source of truth.
 - Runtime streaming treats density chunks as a retained lowest-detail streaming
   layer. The Rust scheduler computes the density window, including positive
   apron chunks, before render meshing; the Rust/WASM core prepares and retains
@@ -134,6 +134,12 @@ Supported:
   generations, stale completion rejection, and completion mismatch detection.
   TypeScript uses a generic browser Worker group as transport, and browser smoke
   asserts `workerPoolRuntime: "rust"`.
+- Runtime terrain mesh packets are stored, listed, loaded, retained, and pruned
+  in `terrain_core.wasm`. TypeScript adapts those packets into current WebGPU
+  `Mesh` objects until Rust/wgpu replaces the renderer.
+- The compiled TypeScript scene/component model has been retired. The app
+  directly assembles `RenderWorld` from Rust camera/light/player-marker packets
+  and Rust terrain mesh packets.
 
 Partially supported or placeholder-only:
 
@@ -151,8 +157,9 @@ Partially supported or placeholder-only:
 - Normal and roughness texture arrays are loaded; roughness is sampled for
   lighting, but normal maps are not yet applied to perturb terrain normals.
 - Terrain variation screenshots now prove several material and biome-weight
-  regions exist, but the result is still early and needs better regional
-  composition.
+  regions existed during the TypeScript-generator era. That survey tool was
+  retired with the TypeScript generator; comparable Rust debug/survey snapshots
+  need to be rebuilt from Rust debug APIs.
 - The Rust core now owns the browser runtime density-to-render-mesh path for
   generated terrain chunks, including material/biome classification, centroid
   Dual Contouring, same-LOD neighbor seam ownership, and triangle-local material
@@ -165,21 +172,18 @@ Partially supported or placeholder-only:
   threads, partition-aware worker ownership, multi-resolution streaming, or
   mesh-upload optimized.
 - TypeScript still owns the browser Worker transport, shared-density payload
-  wrapping, renderer cache objects, and WebGPU upload around the Rust scheduler.
-  The compiled legacy `TerrainChunkStreamer`, `TerrainRenderer`, TypeScript
-  terrain packet store, highest-surface mesher, and heightfield mesh path have
-  been deleted from `src` rather than kept as parallel terrain owners.
-  `TerrainCoreWorkerStreamer` is now a small browser bridge
+  wrapping, current WebGPU mesh/texture cache objects, and WebGPU upload around
+  the Rust scheduler. `TerrainCoreWorkerStreamer` is now a small browser bridge
   that executes Worker jobs selected by `terrain_core.wasm`, asks Rust for LOD0
   density dependency coordinates, stores density and mesh payloads in Rust, and
-  appends terrain packets to `RenderWorld` through a TypeScript WebGPU cache
-  adapter. This is a bridge, not full Rust render extraction or Rust-managed
-  browser threading.
+  feeds terrain packets to the temporary TypeScript renderer. This is a bridge,
+  not full Rust render extraction, Rust-managed browser threading, or Rust/wgpu.
 - The Rust engine migration has started the render-packet bridge for camera,
   main light, debug player marker data, and streamed terrain chunk mesh payloads.
-  Terrain chunk packet storage is now Rust-owned for the playable path, but
-  TypeScript still adapts Rust packets into current WebGPU `Mesh` objects until
-  Rust/wgpu takes over.
+  Terrain chunk packet storage is Rust-owned for the playable path, and the old
+  TypeScript `SceneRenderExtractor`/`MeshRenderer` path has been deleted, but
+  TypeScript still assembles `RenderWorld` and adapts Rust packets into current
+  WebGPU `Mesh` objects until Rust/wgpu takes over.
 
 Not yet supported:
 
@@ -198,11 +202,14 @@ Not yet supported:
 - Rust-managed wasm threads, partition-aware multi-resolution density/mesh
   streaming, batch density jobs, fine-grained cancellation queues beyond
   generation-token invalidation, or mesh upload preparation.
+- Rust debug snapshots for macro/biome/material/QEF/stream overlays. The old
+  TypeScript debug overlay was deleted with the TypeScript generator.
 - Saveable human-facing terrain tuning knobs.
 - Terrain collision/grounding based on the generated mesh. Player grounding still
   uses a compatibility `heightAt(x, z)` query.
-- High-quality sharp-feature Dual Contouring. QEF placement is guarded and
-  diagnosable, but not feature-preserving at production quality.
+- High-quality sharp-feature Dual Contouring. The current Rust runtime path is
+  good enough for same-LOD chunk terrain, but not feature-preserving at
+  production quality.
 
 Current believability gap:
 
@@ -217,7 +224,8 @@ Current believability gap:
 - The next visible win should therefore be realtime terrain iteration: move the
   expensive chunk sampling/meshing path behind Rust/WASM, add generation timing
   counters, widen the visible terrain window, then expose saveable tuning knobs.
-  The current Rust/WASM worker pipeline now separates density from meshing and
+  The chunk sampling/meshing path is now Rust/WASM-owned; the current Rust/WASM
+  worker pipeline separates density from meshing and
   retains density payloads in Rust/WASM. LOD0 mesh dependencies now travel to
   Workers through shared browser buffers, and Rust owns worker-pool task
   assignment/completion bookkeeping, but each Worker still copies density into
@@ -257,8 +265,9 @@ flowchart TD
 
 ## Core Interfaces
 
-These are proposed direction-setting contracts. Names can change during
-implementation, but the responsibilities should stay stable.
+These are direction-setting contracts, not literal current TypeScript APIs. Names
+can change during implementation, but the responsibilities should stay stable and
+Rust-owned.
 
 ```ts
 type WorldDescriptor = {
@@ -269,13 +278,15 @@ type WorldDescriptor = {
   materialPalette: TerrainMaterialPaletteId;
 };
 
-type TerrainGenerator = TerrainDensitySource & {
-  readonly descriptor: WorldDescriptor;
-  macroAt(position: Vec3): MacroSample;
-  biomeAt(position: Vec3): BiomeSample;
-  hydrologyAt(position: Vec3): HydrologySample;
-  surfaceAt(position: Vec3): TerrainSurfaceSample;
+type RustTerrainFacade = {
+  configure(descriptor: WorldDescriptor): void;
   heightAt(x: number, z: number): number;
+  densityAt(position: Vec3): number;
+  fillDensityChunk(coord: TerrainChunkCoord, cellSize: number): DensityChunkPacket;
+  buildChunkMesh(coord: TerrainChunkCoord, lod: number): TerrainMeshPacket;
+  resetStreaming(center: TerrainChunkCoord): void;
+  tickStreaming(center: TerrainChunkCoord): TerrainStreamWorkSummary;
+  debugSnapshot(): TerrainDebugSnapshot;
 };
 
 type TerrainSurfaceSample = {
@@ -289,13 +300,14 @@ type TerrainSurfaceSample = {
 
 Implementation rule: runtime generation should be deterministic from descriptor
 and position. Persistent storage should be reserved for edits and authored
-landmarks, not for every generated sample.
+landmarks, not for every generated sample. TypeScript should consume coarse Rust
+facade calls and debug snapshots rather than owning sampling or meshing logic.
 
 ## Milestone Summary
 
 | # | Milestone | Main Deliverable | Validation Gate |
 |---:|---|---|---|
-| 1 | Generator core | `WorldDescriptor` and `TerrainGenerator` replacing seed field | Same seed gives same samples/chunks |
+| 1 | Generator core | `WorldDescriptor` and Rust terrain facade replacing seed field | Same seed gives same samples/chunks |
 | 2 | Macro landforms | Ridged, warped, cellular-enhanced terrain presets | Better silhouettes, no obvious periodic grid |
 | 3 | Debug terrain lab | Browser overlays and screenshot scripts for generation layers | Every field can be inspected in isolation |
 | 4 | Dual Contouring hardening | Per-chunk neighbor-aware meshing and seam ownership | No same-LOD chunk cracks or QEF spikes |
@@ -385,36 +397,41 @@ Progress notes:
 | 2026-06-01 | In progress | Moved the scheduler-backed retained density payload owner from the TypeScript streamer map into the main Rust/WASM terrain core. `TerrainChunkStreamer` now writes completed density payloads into the Rust density store, loads mesh apron dependencies from that store, and exposes `densityStoreRuntime: rust` for browser smoke. Caveat: mesh workers still receive copied payloads and install them into worker-local Rust/WASM stores; partition-aware worker ownership and shared-memory transfer remain next. |
 | 2026-06-02 | In progress | Enabled the first browser shared-memory density transfer path. The dev/smoke server now sends COOP/COEP/CORP headers, `TerrainCoreWorkerStreamer` wraps LOD0 apron dependencies from the Rust density store in `SharedArrayBuffer` payloads when available, and browser smoke asserts cross-origin isolation plus `densityTransferMode: "shared"`. Caveat: TypeScript still hosts Workers, and each worker still copies shared payload contents into its own `terrain_core.wasm` density store before meshing; Rust-managed wasm threads and partition-owned worker stores remain next. |
 | 2026-06-02 | In progress | Moved the terrain worker-pool/request model into Rust. `terrain_core.wasm` now assigns worker slots and request IDs, tracks in-flight density/LOD tasks, bumps reset generations, rejects stale completions, and detects mismatched completions. TypeScript now uses a generic browser Worker group for transport; the intended end state remains a coarse Rust facade close to `game.tick()`. |
-| 2026-06-02 | Cleanup complete | Deleted the compiled legacy TypeScript terrain manager/renderer path: `TerrainChunkStreamer`, `TerrainRenderer`, the old TypeScript terrain packet store, the highest-surface chunk mesher, and the heightfield mesh builder/tests. No reference copy was kept in `src`; remaining TypeScript terrain is live bridge/debug/parity code. |
+| 2026-06-02 | Cleanup complete | Deleted the compiled legacy TypeScript terrain manager/renderer path: `TerrainChunkStreamer`, `TerrainRenderer`, the old TypeScript terrain packet store, the highest-surface chunk mesher, and the heightfield mesh builder/tests. No reference copy was kept in `src`; remaining TypeScript terrain was narrowed to browser bridge/debug/parity code at that point. |
+| 2026-06-02 | Rust source of truth promoted | Deleted the compiled TypeScript terrain generator/noise reference, TypeScript Dual Contouring/debug overlay path, and old terrain debug/variation smoke tools. `terrain_core.wasm` is now the browser terrain source of truth for height, density, chunk fill, mesh emission, stream scheduling, density storage, worker-pool state, and terrain mesh packet storage. The remaining TypeScript terrain code is descriptor parsing, worker transport, density transfer wrapping, mesh layout/material metadata, and WebGPU adapter glue. |
 
 ## Milestone 1: Generator Core
 
-Goal: introduce a deterministic terrain generator above `TerrainDensitySource`
-without breaking the current runtime.
+Goal: introduce deterministic terrain generation behind a descriptor without
+breaking the runtime.
+
+Current status: the original TypeScript implementation for this milestone was
+retired on 2026-06-02. The live generator behavior now belongs to
+`crates/terrain_core`; TypeScript keeps only `terrainDescriptor.ts` for seed and
+preset configuration.
 
 Implementation:
 
-- Add `src/engine/world/terrainGenerator.ts`.
-- Add `WorldDescriptor`, terrain preset IDs, climate preset IDs, and seed handling.
-- Move current seed field behavior behind `TerrainGenerator`.
-- Keep `heightAt(x, z)` for player grounding, implemented by surface search.
-- Expose `densityAt`, `sampleAt`, `macroAt`, and placeholder `biomeAt` methods.
-- Keep old `createSeedTerrainField()` as a compatibility wrapper if needed, but
-  mark it as legacy in docs once callers migrate.
+- Maintain `WorldDescriptor`, terrain preset IDs, climate preset IDs, and seed
+  handling as a browser-facing config contract.
+- Keep Rust `heightAt(x, z)` for player grounding until movement becomes
+  density/mesh aware.
+- Expose Rust density, macro, biome/material, surface, and debug snapshot APIs
+  through coarse WASM facades as needed.
 
 Tests:
 
-- `terrainGenerator.test.ts`: same descriptor returns identical samples.
-- `terrainGenerator.test.ts`: different seeds produce different macro samples.
-- `terrainGenerator.test.ts`: `densityAt` and `sampleAt().density` agree.
-- `terrainGenerator.test.ts`: `heightAt` lands near the zero-density surface.
-- Existing `TerrainChunkStreamer` tests pass without behavioral regression.
+- Rust/WASM tests verify same descriptor returns deterministic samples.
+- Different seeds and presets produce meaningfully different macro samples.
+- Rust `heightAt` lands near the zero-density surface.
+- Browser smoke passes without a TypeScript generation fallback.
 
 Progress notes:
 
 | Date | Status | Notes |
 |---|---|---|
 | 2026-05-31 | Initial implementation complete | Added `TerrainGenerator`/`WorldDescriptor`, moved the existing seed field behind it, kept `createSeedTerrainField()` as a compatibility wrapper, and added generator determinism/sampling/surface tests. `npm test` passes. |
+| 2026-06-02 | Retired from TypeScript | Deleted the compiled TypeScript `TerrainGenerator` and promoted `terrain_core.wasm` as the browser terrain source of truth. |
 
 ## Milestone 2: Macro Landforms
 
@@ -464,6 +481,7 @@ Progress notes:
 | Date | Status | Notes |
 |---|---|---|
 | 2026-05-31 | Initial implementation complete | Added tested ridged fractal, domain warp, and cellular noise helpers; wired `seed`, `rollingHills`, `mountainValley`, and `rockyHighland` presets into `TerrainGenerator`; made `rollingHills` the default. Added `?terrainPreset=` app selection and `npm run smoke:terrain-presets` to capture every preset. `npm test`, `npm run smoke:terrain-presets`, and browser smoke pass. Visual tuning remains iterative. |
+| 2026-06-02 | Promoted to Rust | Deleted the compiled TypeScript noise helpers. The live macro landform helpers and presets now live in `crates/terrain_core`; `npm run smoke:terrain-presets` remains the browser preset validation path. |
 
 ## Milestone 3: Debug Terrain Lab
 
@@ -489,8 +507,8 @@ Implementation:
   - wetness/flow
   - cave occupancy
 - Add keyboard-controlled overlay cycling or a compact debug panel.
-- Extend browser smoke or add `tools/terrain-debug-smoke.mjs` to capture fixed
-  overlay screenshots.
+- Rebuild debug snapshots from Rust terrain data. The old TypeScript overlay
+  smoke was retired with the TypeScript generator.
 
 Tests:
 
@@ -504,6 +522,7 @@ Progress notes:
 | Date | Status | Notes |
 |---|---|---|
 | 2026-05-31 | In progress | Added a CPU-built debug overlay pipeline with browser canvas display, `F2` cycling, `?terrainDebug=` startup selection, and debug API controls. Current overlay modes: macro elevation, mountainness, slope, normal, density slice, material weights, QEF error, and chunk borders. Added unit coverage and `npm run smoke:terrain-debug`; `npm test`, terrain debug smoke, and browser smoke pass. Remaining work: biome-specific overlays once biome solver exists, hydrology/wetness/cave overlays once those systems exist, and fuller in-app controls. |
+| 2026-06-02 | Retired pending Rust replacement | Deleted the TypeScript debug overlay and `smoke:terrain-debug` script. Future terrain lab work should use Rust debug snapshots/packets rather than TypeScript sampling/QEF diagnostics. |
 
 ## Milestone 4: Dual Contouring Hardening
 
@@ -873,37 +892,39 @@ Tests:
 
 - Benchmark scripts produce machine-readable JSON.
 - Performance budgets are explicit and versioned.
-- Rust/WASM output must match TypeScript golden fixtures until the Rust path is
-  intentionally promoted as the source of truth.
+- Rust/WASM output is now the browser terrain source of truth; fixture tests
+  should validate deterministic Rust samples, chunks, meshes, stores, and
+  scheduler behavior.
 - `npm run check:wasm` verifies generated WASM metadata and asset freshness.
 - `npm run bench:terrain:wasm` records release WASM density chunk timing.
 - `cargo test -p terrain_core` validates Rust-side deterministic terrain logic.
-- Cross-language tests instantiate the generated WASM artifact and compare golden
-  density, height, and later chunk/mesh fixtures.
+- WASM tests instantiate the generated artifact and validate density, height,
+  chunk, mesh, retained-store, scheduler, and worker-pool fixtures.
 - Browser smoke remains the final integration gate.
 
 Progress notes:
 
 | Date | Status | Notes |
 |---|---|---|
-| 2026-06-01 | Started | Realtime-first pivot accepted. Added `crates/terrain_core`, `tools/build-terrain-wasm.mjs`, generated `assets/wasm/terrain_core.wasm`, and TypeScript WASM metadata/loader tests. The first Rust slice mirrors macro base elevation, density, and compatibility height sampling and is golden-tested against the TypeScript terrain generator. |
+| 2026-06-01 | Started | Realtime-first pivot accepted. Added `crates/terrain_core`, `tools/build-terrain-wasm.mjs`, generated `assets/wasm/terrain_core.wasm`, and TypeScript WASM metadata/loader tests. The first Rust slice mirrored macro base elevation, density, and compatibility height sampling against the then-current TypeScript terrain generator. |
 | 2026-06-01 | In progress | Added density chunk filling to the Rust/WASM core and wired the browser runtime through a narrow `TerrainChunkStreamer` density chunk generator hook. This moved the first real streaming hot path onto WASM while preserving TypeScript golden chunk tests. The playable browser path later stopped using the TypeScript terrain fallback. |
 | 2026-06-01 | In progress | Added a retained Rust/WASM density chunk store and a density-window preparation API. `TerrainChunkStreamer` now treats `loadedChunkKeys` as the density window, not just render chunks, so positive apron chunks are generated once at the streaming layer and reused by mesh builds. `npm run bench:terrain:wasm` now reports retained density-window preparation and shows prepared mesh build plus copy at about 9.7 ms median versus about 61.8 ms cold. |
 | 2026-06-01 | In progress | Added a browser module-worker pool and scheduler-style streaming loop. Each tick prioritizes nearest missing render chunks, keeps in-flight work bounded by worker count, and uses stream generations plus worker reset so tuning changes can invalidate old work immediately. This is intentionally a first worker slice; density reuse is still local to each worker's Rust store rather than a shared multi-resolution density layer. |
 | 2026-06-01 | In progress | Added explicit density-stage scheduling before render mesh jobs. The scheduler now tracks density-ready chunks and requires the 2x2x2 apron dependency before submitting a chunk mesh job, which is the first concrete shape of the future density -> LOD N -> LOD 0 state machine. |
 | 2026-06-01 | Prep complete | Split `crates/terrain_core` out of its single epic `lib.rs` into focused Rust modules for facade, field sampling, chunks, density generation, store, meshing, materials, noise, presets, and tests before starting the Rust-owned terrain streaming migration. No behavior change intended. |
 | 2026-06-01 | Started | Added the first Rust-owned terrain stream scheduler core in `terrain_core`. It models desired density and LOD0 sets, treats 2x2x2 positive-apron density chunks as LOD0 dependencies, prioritizes nearby jobs, tracks bounded in-flight density/LOD work, rejects stale completions after reset generations, prunes moved-out windows, and has Rust tests for each behavior. Browser runtime still uses the TypeScript scheduler until the next adapter slice. |
-| 2026-06-01 | In progress | Wired the Rust stream scheduler into the browser runtime through a `terrain_core.wasm` facade and TypeScript adapter. The worker-backed `TerrainChunkStreamer` now asks Rust for desired density/LOD0 sets and ticked jobs, reports density and LOD completions back to Rust, and reads Rust status for debug/smoke. Browser smoke asserts `schedulerRuntime: rust` with active workers. Remaining Phase 3 ownership gap at this point: TypeScript still dispatched workers and owned transferred density payload maps/render uploads. |
-| 2026-06-01 | In progress | Moved the scheduler-backed retained density payload store into Rust/WASM. Completed density jobs are now copied into the main `terrain_core.wasm` density store, mesh dependency reads load the required apron chunks from that Rust store, and browser smoke asserts `densityStoreRuntime: rust`. Remaining Phase 3 ownership gap: TypeScript still dispatches workers, copies apron payloads into worker-local WASM stores, uploads meshes, and mutates `TerrainRenderer`. |
-| 2026-06-01 | In progress | Started the Rust render-packet bridge in `engine_core` for camera/light/player-marker snapshots and wired the browser render loop to consume the Rust camera/light packet. Terrain chunks still flow through `TerrainRenderer`; the next terrain-facing render step is chunk render packets so terrain draw-item assembly can leave the TypeScript scene. |
-| 2026-06-01 | In progress | Retired the playable app's optional TypeScript terrain fallback. Browser startup now requires `terrain_core.wasm`, the Rust stream scheduler, the Rust density store, and terrain workers; TypeScript terrain code remains for reference fixtures, tests, debug helpers, and lower-level compatibility hooks until those contracts are fully retired. |
-| 2026-06-02 | In progress | Added the first playable terrain render-packet bridge. `TerrainChunkStreamer` now targets a chunk-sink interface, the browser runtime streams Rust/WASM worker mesh payloads into `TerrainRenderPacketStore`, and `SceneRenderExtractor` appends those packet items to `RenderWorld` instead of discovering playable terrain through `TerrainRenderer`. Browser smoke asserts `terrainRenderPacketRuntime: rust`. Remaining ownership gap: TypeScript still owns worker dispatch, density payload transfer into workers, mesh object creation, packet storage, and WebGPU upload. |
-| 2026-06-02 | In progress | Moved playable terrain mesh packet storage into Rust. `terrain_core.wasm` now validates and stores completed chunk mesh payloads by chunk coordinate/LOD, exposes packet-list and packet-load buffers, and the browser uses `TerrainCoreRenderPacketStore` as the current WebGPU cache adapter. `TerrainChunkStreamer` passes raw mesh buffers to its sink instead of constructing `Mesh` objects. Remaining ownership gap: TypeScript still owns worker dispatch, density payload transfer into workers, renderer cache objects, WebGPU upload, and scene extraction for marker/static meshes. |
+| 2026-06-01 | In progress | Wired the Rust stream scheduler into the browser runtime through a `terrain_core.wasm` facade and TypeScript adapter. The worker-backed `TerrainChunkStreamer` asked Rust for desired density/LOD0 sets and ticked jobs, reported density and LOD completions back to Rust, and read Rust status for debug/smoke. Browser smoke asserted `schedulerRuntime: rust` with active workers. Remaining Phase 3 ownership gap at that point: TypeScript still dispatched workers and owned transferred density payload maps/render uploads. |
+| 2026-06-01 | In progress | Moved the scheduler-backed retained density payload store into Rust/WASM. Completed density jobs were copied into the main `terrain_core.wasm` density store, mesh dependency reads loaded the required apron chunks from that Rust store, and browser smoke asserted `densityStoreRuntime: rust`. Remaining Phase 3 ownership gap at that point: TypeScript still dispatched workers, copied apron payloads into worker-local WASM stores, uploaded meshes, and mutated `TerrainRenderer`. |
+| 2026-06-01 | In progress | Started the Rust render-packet bridge in `engine_core` for camera/light/player-marker snapshots and wired the browser render loop to consume the Rust camera/light packet. Terrain chunks still flowed through `TerrainRenderer` at that point; later slices moved chunk packets to Rust and deleted scene extraction. |
+| 2026-06-01 | In progress | Retired the playable app's optional TypeScript terrain fallback. Browser startup now requires `terrain_core.wasm`, the Rust stream scheduler, the Rust density store, and terrain workers. The TypeScript reference/debug code was later deleted when Rust was promoted as source of truth. |
+| 2026-06-02 | In progress | Added the first playable terrain render-packet bridge. `TerrainChunkStreamer` targeted a chunk-sink interface, the browser runtime streamed Rust/WASM worker mesh payloads into `TerrainRenderPacketStore`, and `SceneRenderExtractor` appended those packet items to `RenderWorld` instead of discovering playable terrain through `TerrainRenderer`. Browser smoke asserted `terrainRenderPacketRuntime: rust`. Later slices moved packet storage to Rust and deleted scene extraction. |
+| 2026-06-02 | In progress | Moved playable terrain mesh packet storage into Rust. `terrain_core.wasm` now validates and stores completed chunk mesh payloads by chunk coordinate/LOD, exposes packet-list and packet-load buffers, and the browser uses `TerrainCoreRenderPacketStore` as the current WebGPU cache adapter. `TerrainChunkStreamer` passed raw mesh buffers to its sink instead of constructing `Mesh` objects. Remaining ownership gap at that point: TypeScript still owned worker dispatch, density payload transfer into workers, renderer cache objects, WebGPU upload, and scene extraction for marker/static meshes. |
 | 2026-06-02 | In progress | Moved scheduler-backed terrain packet pruning into Rust. The mesh packet store now has a retain operation exposed through `terrain_core.wasm`; the scheduler-backed streamer prunes rendered packets through that Rust store and uses Rust scheduler LOD0 ready/empty counts for status instead of treating TypeScript render/empty sets as the source of truth. |
 | 2026-06-02 | In progress | Moved the playable terrain worker queue to a Rust-owned bridge. `TerrainCoreWorkerStreamer` now replaces `TerrainChunkStreamer` in the browser app; it executes Worker jobs emitted by the Rust scheduler, loads LOD0 density dependencies from Rust-provided coordinates, stores completed density/mesh payloads in Rust, and exposes `streamerRuntime: rust` in browser smoke. At that point TypeScript still hosted browser Workers and copied payloads until the later shared-transfer slice. |
 | 2026-06-02 | In progress | Added SharedArrayBuffer-backed density dependency transfer for the playable Rust worker bridge. The dev/smoke server now enables cross-origin isolation, `TerrainCoreWorkerStreamer` reports `densityTransferMode`, and browser smoke asserts the shared path after refresh. Remaining gap: Workers are still hosted from TypeScript, and shared density payloads are still copied into worker-local WASM memory before contouring; Rust-managed wasm threads remain the next threading slice. |
 | 2026-06-02 | In progress | Moved the terrain worker-pool/request model into Rust. `terrain_core.wasm` now owns worker count, slot assignment, request IDs, in-flight task records, reset generation tokens, stale completion rejection, and mismatch detection. TypeScript still constructs browser Workers, but only through a generic worker transport; browser smoke asserts `workerPoolRuntime: rust`. |
 | 2026-06-02 | Cleanup complete | Deleted compiled legacy TypeScript terrain streaming/rendering code now superseded by the Rust scheduler/mesh packet path: `TerrainChunkStreamer`, `TerrainRenderer`, old TypeScript terrain packet store, highest-surface chunk mesher, and heightfield mesh builder/tests. |
+| 2026-06-02 | Rust terrain source of truth | Deleted the compiled TypeScript terrain generator/noise reference, TypeScript Dual Contouring/debug overlay path, and old terrain debug/variation smoke tools. The app now directly assembles `RenderWorld` from Rust camera/light/player-marker packets and Rust terrain mesh packets; TypeScript still handles browser startup, input, Worker transport, shared-density wrapping, debug hooks, WebGPU upload/cache adaptation, and the temporary `WebGpuRenderer`. |
 
 ## Cross-Cutting Validation
 

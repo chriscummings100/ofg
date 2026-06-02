@@ -1,7 +1,6 @@
 import { equal, notEqual, throws } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { vec4 } from "../math/vec4.js";
-import { ResourceStore } from "../scene/ResourceStore.js";
 import { terrainChunkCoord } from "../world/terrainChunk.js";
 import {
   instantiateTerrainCoreWasm,
@@ -15,13 +14,11 @@ import { TerrainCoreRenderPacketStore } from "./TerrainCoreRenderPackets.js";
 describe("TerrainCoreRenderPacketStore", () => {
   it("stores terrain chunk packets in Rust and emits render items", async () => {
     const terrainCore = await loadTerrainCore();
-    const resources = new ResourceStore();
     const material = new Material("material:terrain", {
       albedoFactor: vec4(0.3, 0.5, 0.7, 1)
     });
-    resources.addMaterial(material);
     const store = new TerrainCoreRenderPacketStore(terrainCore, {
-      material: material.id,
+      material,
       itemIdPrefix: "terrain:rust",
       meshIdPrefix: "mesh:terrain.chunk"
     });
@@ -39,7 +36,7 @@ describe("TerrainCoreRenderPacketStore", () => {
     equal(store.chunks[0].key, "0,0,0");
     equal(store.chunks[0].mesh.id, "mesh:terrain.chunk:0,0,0");
 
-    const items = store.getRenderItems(resources);
+    const items = store.getRenderItems();
 
     equal(items.length, 1);
     equal(items[0].id, "terrain:rust:0,0,0");

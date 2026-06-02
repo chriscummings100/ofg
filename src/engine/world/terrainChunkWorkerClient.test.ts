@@ -17,7 +17,7 @@ import type {
   TerrainWorkerMessage,
   TerrainWorkerRequestMessage
 } from "./terrainChunkWorkerTypes.js";
-import { createSeedWorldDescriptor } from "./terrainGenerator.js";
+import { createSeedWorldDescriptor } from "./terrainDescriptor.js";
 import { TERRAIN_CORE_WASM_METADATA } from "../../generated/terrain/terrainCoreWasm.js";
 
 describe("TerrainChunkWorkerClient", () => {

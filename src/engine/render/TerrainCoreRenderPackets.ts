@@ -1,6 +1,4 @@
 import { identityMat4, multiplyMat4, type Mat4 } from "../math/mat4.js";
-import type { ResourceStore } from "../scene/ResourceStore.js";
-import type { ResourceId } from "../scene/types.js";
 import {
   parseTerrainChunkKey,
   terrainChunkCoord,
@@ -17,7 +15,10 @@ import {
 } from "../world/terrainCoreWasm.js";
 import { POSITION_COLOR_NORMAL_UV_LAYOUT } from "../world/terrainMesh.js";
 import { Mesh, type VertexLayout } from "./Mesh.js";
+import type { Material } from "./Material.js";
+import type { ResourceId } from "./ResourceId.js";
 import type { RenderItem } from "./RenderWorld.js";
+import type { Texture } from "./Texture.js";
 
 export type TerrainRenderChunkPacket = {
   readonly key: TerrainChunkKey;
@@ -52,19 +53,28 @@ export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
   readonly runtime = "rust" as const;
   readonly itemIdPrefix: string;
   readonly meshIdPrefix: string;
-  private material?: ResourceId;
+  private material?: Material;
+  private albedoTexture?: Texture;
+  private normalTexture?: Texture;
+  private materialTexture?: Texture;
   private cachedVersion = -1;
   private cachedChunks: TerrainRenderChunkPacket[] = [];
 
   constructor(
     private readonly terrainCore: TerrainCoreWasmInstance,
     options: {
-      readonly material?: ResourceId;
+      readonly material?: Material;
+      readonly albedoTexture?: Texture;
+      readonly normalTexture?: Texture;
+      readonly materialTexture?: Texture;
       readonly itemIdPrefix?: string;
       readonly meshIdPrefix?: string;
     } = {}
   ) {
     this.material = options.material;
+    this.albedoTexture = options.albedoTexture;
+    this.normalTexture = options.normalTexture;
+    this.materialTexture = options.materialTexture;
     this.itemIdPrefix = options.itemIdPrefix ?? "terrain:rust";
     this.meshIdPrefix = options.meshIdPrefix ?? "mesh:terrain.chunk";
   }
@@ -99,9 +109,6 @@ export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
       throw new Error(`Rust terrain mesh packet store rejected chunk '${chunk.key}'.`);
     }
 
-    if (chunk.material !== undefined) {
-      this.material = chunk.material;
-    }
   }
 
   getChunk(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainRenderChunkPacket | undefined {
@@ -155,26 +162,16 @@ export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
     return this.terrainCore.exports.ofg_terrain_mesh_packet_store_entry_count();
   }
 
-  getRenderItems(
-    resources: ResourceStore,
-    worldMatrix: Mat4 = identityMat4()
-  ): RenderItem[] {
+  getRenderItems(worldMatrix: Mat4 = identityMat4()): RenderItem[] {
     this.syncMeshCache();
     return this.cachedChunks.map((chunk) => {
-      const material = this.material === undefined ? undefined : resources.getMaterial(this.material);
       return {
         id: `${this.itemIdPrefix}:${chunk.key}`,
         mesh: chunk.mesh,
-        material,
-        albedoTexture: material?.albedoTexture === undefined
-          ? undefined
-          : resources.getTexture(material.albedoTexture),
-        normalTexture: material?.normalTexture === undefined
-          ? undefined
-          : resources.getTexture(material.normalTexture),
-        materialTexture: material?.materialTexture === undefined
-          ? undefined
-          : resources.getTexture(material.materialTexture),
+        material: this.material,
+        albedoTexture: this.albedoTexture,
+        normalTexture: this.normalTexture,
+        materialTexture: this.materialTexture,
         worldMatrix: chunk.worldMatrix === undefined
           ? worldMatrix
           : multiplyMat4(worldMatrix, chunk.worldMatrix)
@@ -226,8 +223,7 @@ export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
           new Float32Array(readTerrainCoreMeshVertexBuffer(this.terrainCore.exports)),
           new Uint32Array(readTerrainCoreMeshIndexBuffer(this.terrainCore.exports)),
           POSITION_COLOR_NORMAL_UV_LAYOUT
-        ),
-        material: this.material
+        )
       });
     }
 

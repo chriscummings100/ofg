@@ -1,4 +1,4 @@
-import type { ResourceId } from "../scene/types.js";
+import type { ResourceId } from "./ResourceId.js";
 
 export type TextureFormat = "rgba8unorm";
 

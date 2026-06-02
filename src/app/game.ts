@@ -2,14 +2,14 @@ import { InputTracker } from "../engine/input/inputTracker.js";
 import { computeFrameDeltaSeconds } from "./frameTiming.js";
 import {
   EngineCoreWasmHandle,
-  loadEngineCoreWasm
+  loadEngineCoreWasm,
+  type EngineCoreRenderDebugMarkerPacket
 } from "../engine/core/engineCoreWasm.js";
+import { identityMat4, type Mat4 } from "../engine/math/mat4.js";
 import { vec3, type Vec3 } from "../engine/math/vec3.js";
 import { vec4 } from "../engine/math/vec4.js";
 import { MATERIAL_FLAG_TRIPLANAR_ALBEDO, Material } from "../engine/render/Material.js";
 import { Mesh } from "../engine/render/Mesh.js";
-import { MeshRenderer } from "../engine/render/MeshRenderer.js";
-import { SceneRenderExtractor } from "../engine/render/SceneRenderExtractor.js";
 import { createTerrainCoreRenderPacketStore } from "../engine/render/TerrainCoreRenderPackets.js";
 import {
   cameraFrameFromEnginePacket,
@@ -17,25 +17,19 @@ import {
 } from "../engine/render/engineRenderPackets.js";
 import { loadTerrainMaterialTextures } from "../engine/render/terrainTextures.js";
 import { WebGpuRenderer } from "../engine/render/webgpuRenderer.js";
-import { createDirectionalLight } from "../engine/render/Lighting.js";
-import { createScene } from "../engine/scene/activeScene.js";
-import type { Entity } from "../engine/scene/Entity.js";
-import {
-  isTerrainDebugOverlayMode,
-  type TerrainDebugOverlayState
-} from "../engine/world/terrainDebugOverlay.js";
+import type { RenderItem, RenderWorld } from "../engine/render/RenderWorld.js";
 import { TerrainCoreWorkerStreamer } from "../game/components/TerrainCoreWorkerStreamer.js";
 import { createBoxMesh } from "../engine/world/primitiveMesh.js";
 import {
   createSeedWorldDescriptor,
-  createTerrainGenerator,
-  TERRAIN_PRESET_IDS,
+  isTerrainPresetId,
   type TerrainPresetId,
   type WorldDescriptor
-} from "../engine/world/terrainGenerator.js";
+} from "../engine/world/terrainDescriptor.js";
 import { createTerrainCoreDensityChunkStore } from "../engine/world/terrainCoreDensityChunkStore.js";
 import {
   loadTerrainCoreWasm,
+  terrainPresetToWasmCode,
   type TerrainCoreWasmInstance
 } from "../engine/world/terrainCoreWasm.js";
 import { createTerrainCoreStreamScheduler } from "../engine/world/terrainCoreStreamScheduler.js";
@@ -52,14 +46,14 @@ import {
   type PlayerMovementIntent
 } from "../game/components/playerTypes.js";
 import { RustPlayerController } from "../game/components/RustPlayerController.js";
-import { TerrainDebugOverlayView } from "./terrainDebugOverlayView.js";
 
 type GameElements = {
   readonly canvas: HTMLCanvasElement;
-  readonly terrainDebugOverlay: HTMLCanvasElement;
   readonly cameraMode: HTMLElement;
   readonly frameTime: HTMLElement;
 };
+
+type TerrainHeightSampler = (x: number, z: number) => number;
 
 declare global {
   interface Window {
@@ -76,10 +70,7 @@ declare global {
       getRenderPacketRuntime: () => "rust" | "typescript";
       getTerrainRenderPacketRuntime: () => "rust";
       getTerrainWorkerCount: () => number;
-      getTerrainDebugOverlayMode: () => TerrainDebugOverlayState;
       getPlayerControllerRuntime: () => "rust";
-      setTerrainDebugOverlayMode: (mode: TerrainDebugOverlayState) => void;
-      cycleTerrainDebugOverlayMode: () => TerrainDebugOverlayState;
       resetTerrainStreaming: () => void;
       getTerrainHeight: (x: number, z: number) => number;
       setCameraMode: (mode: PlayerMode) => void;
@@ -90,12 +81,11 @@ declare global {
 }
 
 export async function startGame(elements: GameElements): Promise<void> {
-  const scene = createScene();
   const renderer = new WebGpuRenderer(elements.canvas);
   const input = new InputTracker();
   const descriptor = readWorldDescriptor();
-  const field = createTerrainGenerator(descriptor);
   const terrainCore = await loadRequiredTerrainCore();
+  const terrainHeightAt = createTerrainHeightSampler(terrainCore, descriptor);
   const engineCore = await loadRequiredEngineCore();
   const terrainWorker = createRequiredTerrainWorker(descriptor, terrainCore);
   const terrainStreamConfig = {
@@ -109,16 +99,6 @@ export async function startGame(elements: GameElements): Promise<void> {
     maxInFlightJobs: terrainWorker.workerCount
   });
   const terrainDensityChunkStore = createTerrainCoreDensityChunkStore(terrainCore, descriptor);
-  const terrainDebugOverlay = new TerrainDebugOverlayView(
-    elements.terrainDebugOverlay,
-    readTerrainDebugOverlayState()
-  );
-  scene.mainLight = createDirectionalLight({
-    direction: vec3(0.89, 0.25, 0.38),
-    color: vec3(1, 0.96, 0.88),
-    intensity: 1,
-    ambient: 0.34
-  });
   const playerMarker = meshFromData(
     "mesh:player.marker",
     createBoxMesh(vec3(0, 0.9, 0), vec3(0.28, 0.9, 0.22), vec3(0.96, 0.7, 0.24))
@@ -139,49 +119,35 @@ export async function startGame(elements: GameElements): Promise<void> {
     specular: vec3(1, 0.92, 0.65),
     specularFactor: 0.45
   });
-  const playerEntity = scene.createEntity("Player");
-  const terrainEntity = scene.createEntity("Terrain");
-  const playerMarkerEntity = scene.createEntity("Player marker");
-  const initialPlayerPosition = vec3(0, field.heightAt(0, 0), 0);
-  const initialDebugPosition = vec3(14, field.heightAt(0, 0) + 12, 18);
-
-  scene.resources.addMesh(playerMarker);
-  scene.resources.addTexture(terrainTextures.albedo);
-  scene.resources.addTexture(terrainTextures.normal);
-  scene.resources.addTexture(terrainTextures.material);
-  scene.resources.addMaterial(terrainMaterial);
-  scene.resources.addMaterial(playerMarkerMaterial);
   const terrainRenderPackets = createTerrainCoreRenderPacketStore(terrainCore, {
-    material: terrainMaterial.id,
+    material: terrainMaterial,
+    albedoTexture: terrainTextures.albedo,
+    normalTexture: terrainTextures.normal,
+    materialTexture: terrainTextures.material,
     itemIdPrefix: "terrain:rust",
     meshIdPrefix: "mesh:terrain.chunk"
   });
-  const terrainStreamer = terrainEntity.addComponent(new TerrainCoreWorkerStreamer(
+  const initialPlayerPosition = vec3(0, terrainHeightAt(0, 0), 0);
+  const initialDebugPosition = vec3(14, terrainHeightAt(0, 0) + 12, 18);
+  const playerController = createPlayerController(
+    engineCore,
+    initialPlayerPosition,
+    initialDebugPosition,
+    terrainHeightAt
+  );
+  const terrainStreamer = new TerrainCoreWorkerStreamer(
     terrainRenderPackets,
     terrainStreamScheduler,
     terrainDensityChunkStore,
     terrainWorker,
     {
-      target: playerEntity,
+      getTargetPosition: () => playerController.getPlayerPosition(),
       material: terrainMaterial.id,
       cellSize: terrainStreamConfig.cellSize
     }
-  ));
-  playerEntity.transform.setPosition(initialPlayerPosition);
-  const playerController = createPlayerController(
-    playerEntity,
-    engineCore,
-    initialPlayerPosition,
-    initialDebugPosition,
-    (x, z) => field.heightAt(x, z)
   );
 
-  const markerRenderer = playerMarkerEntity.addComponent(
-    new MeshRenderer(playerMarker.id, playerMarkerMaterial.id)
-  );
-  markerRenderer.visible = false;
-  playerEntity.addChild(playerMarkerEntity);
-  terrainStreamer.syncAround(playerEntity.transform.getWorldPosition());
+  terrainStreamer.syncAround(playerController.getPlayerPosition());
   let renderPacketRuntime: "rust" | "typescript" = "typescript";
   window.__ofgDebug = {
     getLoadedTerrainChunkKeys: () => terrainStreamer.getLoadedChunkKeys(),
@@ -196,22 +162,12 @@ export async function startGame(elements: GameElements): Promise<void> {
     getRenderPacketRuntime: () => renderPacketRuntime,
     getTerrainRenderPacketRuntime: () => "rust",
     getTerrainWorkerCount: () => terrainWorker.workerCount,
-    getTerrainDebugOverlayMode: () => terrainDebugOverlay.getState(),
     getPlayerControllerRuntime: () => "rust",
-    setTerrainDebugOverlayMode(mode) {
-      terrainDebugOverlay.setState(validateTerrainDebugOverlayState(mode));
-      terrainDebugOverlay.render(field, playerEntity.transform.getWorldPosition());
-    },
-    cycleTerrainDebugOverlayMode() {
-      const mode = terrainDebugOverlay.cycleState();
-      terrainDebugOverlay.render(field, playerEntity.transform.getWorldPosition());
-      return mode;
-    },
     resetTerrainStreaming() {
-      terrainStreamer.resetStreaming(playerEntity.transform.getWorldPosition());
+      terrainStreamer.resetStreaming(playerController.getPlayerPosition());
     },
     getTerrainHeight(x, z) {
-      return field.heightAt(x, z);
+      return terrainHeightAt(x, z);
     },
     setCameraMode(mode) {
       playerController.mode = validatePlayerMode(mode);
@@ -220,9 +176,8 @@ export async function startGame(elements: GameElements): Promise<void> {
       playerController.setDebugCamera(vec3(x, y, z), yaw, pitch);
     },
     setPlayerPosition(x, z) {
-      playerController.setPlayerPosition(vec3(x, field.heightAt(x, z), z));
-      terrainStreamer.syncAround(playerEntity.transform.getWorldPosition());
-      terrainDebugOverlay.render(field, playerEntity.transform.getWorldPosition());
+      playerController.setPlayerPosition(vec3(x, terrainHeightAt(x, z), z));
+      terrainStreamer.syncAround(playerController.getPlayerPosition());
     }
   };
 
@@ -239,30 +194,34 @@ export async function startGame(elements: GameElements): Promise<void> {
       playerController.toggleCameraMode();
     }
 
-    if (input.consumePress("F2")) {
-      terrainDebugOverlay.cycleState();
-    }
-
     const snapshot = input.consumeFrameSnapshot();
     const intent = readMovementIntent(input, snapshot.mouseDeltaX, snapshot.mouseDeltaY);
 
     playerController.setMovementIntent(intent);
-    scene.update(deltaSeconds);
-    terrainStreamer.syncAround(playerEntity.transform.getWorldPosition());
-    terrainDebugOverlay.update(deltaSeconds, field, playerEntity.transform.getWorldPosition());
+    playerController.update(deltaSeconds);
+    terrainStreamer.update();
 
     const aspect = renderer.getAspectRatio();
     const renderSnapshot = engineCore.renderSnapshot();
     if (renderSnapshot === undefined) {
       throw new Error("Rust engine did not produce a render snapshot.");
     }
-    markerRenderer.visible = renderSnapshot.playerMarker.visible;
     renderPacketRuntime = "rust";
-    renderer.render(SceneRenderExtractor.buildRenderWorld(aspect, {
+    const renderItems = terrainRenderPackets.getRenderItems();
+    const markerItem = playerMarkerRenderItem(
+      playerMarker,
+      playerMarkerMaterial,
+      renderSnapshot.playerMarker
+    );
+    if (markerItem !== undefined) {
+      renderItems.push(markerItem);
+    }
+    const renderWorld: RenderWorld = {
       camera: cameraFrameFromEnginePacket(renderSnapshot.camera, aspect),
       mainLight: directionalLightFromEnginePacket(renderSnapshot.mainLight),
-      additionalItems: terrainRenderPackets.getRenderItems(scene.resources)
-    }));
+      items: renderItems
+    };
+    renderer.render(renderWorld);
 
     elements.cameraMode.textContent = playerController.mode === "firstPerson" ? "FIRST" : "FLY";
     elements.cameraMode.dataset.mode = playerController.mode;
@@ -307,13 +266,22 @@ async function loadRequiredEngineCore(): Promise<EngineCoreWasmHandle> {
   return handle;
 }
 
+function createTerrainHeightSampler(
+  terrainCore: TerrainCoreWasmInstance,
+  descriptor: WorldDescriptor
+): TerrainHeightSampler {
+  const preset = terrainPresetToWasmCode(descriptor.terrainPreset);
+
+  return (x, z) => terrainCore.exports.ofg_height_at(descriptor.seed, preset, x, z);
+}
+
 function readTerrainPreset(value: string | null): TerrainPresetId | undefined {
   if (value === null || value.trim() === "") {
     return undefined;
   }
 
-  if (TERRAIN_PRESET_IDS.some((terrainPreset) => terrainPreset === value)) {
-    return value as TerrainPresetId;
+  if (isTerrainPresetId(value)) {
+    return value;
   }
 
   console.warn(`Unknown terrain preset '${value}', using the default preset.`);
@@ -334,30 +302,6 @@ function readTerrainSeed(value: string | null): number | undefined {
   return undefined;
 }
 
-function readTerrainDebugOverlayState(): TerrainDebugOverlayState {
-  const params = new URLSearchParams(window.location.search);
-  const value = params.get("terrainDebug");
-
-  if (value === null || value.trim() === "" || value === "off") {
-    return "off";
-  }
-
-  if (isTerrainDebugOverlayMode(value)) {
-    return value;
-  }
-
-  console.warn(`Unknown terrain debug overlay '${value}', hiding the debug overlay.`);
-  return "off";
-}
-
-function validateTerrainDebugOverlayState(mode: string): TerrainDebugOverlayState {
-  if (mode === "off" || isTerrainDebugOverlayMode(mode)) {
-    return mode;
-  }
-
-  throw new Error(`Unknown terrain debug overlay '${mode}'.`);
-}
-
 function validatePlayerMode(mode: string): PlayerMode {
   if (mode === "firstPerson" || mode === "debugFly") {
     return mode;
@@ -367,13 +311,12 @@ function validatePlayerMode(mode: string): PlayerMode {
 }
 
 function createPlayerController(
-  playerEntity: Entity,
   engineCore: EngineCoreWasmHandle,
   initialPlayerPosition: Vec3,
   initialDebugPosition: Vec3,
-  terrainHeightAt: (x: number, z: number) => number | undefined
+  terrainHeightAt: TerrainHeightSampler
 ): RustPlayerController {
-  return playerEntity.addComponent(new RustPlayerController(engineCore, {
+  return new RustPlayerController(engineCore, {
     initialPosition: initialPlayerPosition,
     initialYaw: Math.PI * 0.18,
     initialPitch: -0.08,
@@ -381,7 +324,33 @@ function createPlayerController(
     initialDebugYaw: Math.PI * 1.24,
     initialDebugPitch: -0.48,
     terrainHeightAt
-  }));
+  });
+}
+
+function playerMarkerRenderItem(
+  mesh: Mesh,
+  material: Material,
+  packet: EngineCoreRenderDebugMarkerPacket
+): RenderItem | undefined {
+  if (!packet.visible) {
+    return undefined;
+  }
+
+  return {
+    id: "player.marker",
+    mesh,
+    material,
+    worldMatrix: translationMat4(vec3(packet.position.x, packet.position.y, packet.position.z))
+  };
+}
+
+function translationMat4(position: Vec3): Mat4 {
+  const matrix = identityMat4();
+  matrix[12] = position.x;
+  matrix[13] = position.y;
+  matrix[14] = position.z;
+
+  return matrix;
 }
 
 function meshFromData(id: string, data: MeshData): Mesh {

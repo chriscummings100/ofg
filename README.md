@@ -16,10 +16,11 @@ The first playable milestone is intentionally small:
 - Deterministic engine code with tests.
 
 The current seed implements chunk-streamed generated terrain with a Rust/WASM
-runtime chunk mesh path, Poly Haven terrain texture arrays, and the camera/player
-loop in TypeScript. The forward architecture is Rust-first: Rust should become
-the owner of world state, simulation, terrain streaming, render extraction, and
-WebGPU rendering, while TypeScript becomes browser shell and UI glue.
+runtime terrain path, Poly Haven terrain texture arrays, and Rust-owned
+camera/player state. The forward architecture is Rust-first: Rust should own
+world state, simulation, terrain streaming, render extraction, and WebGPU
+rendering, while TypeScript becomes browser shell, UI, worker transport, and
+temporary renderer glue.
 
 ## Commands
 

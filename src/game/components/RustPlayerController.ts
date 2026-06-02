@@ -2,9 +2,7 @@ import {
   EngineCoreWasmHandle,
   type EngineCorePlayerMode
 } from "../../engine/core/engineCoreWasm.js";
-import { quatFromYaw } from "../../engine/math/quat.js";
 import { vec3, type Vec3 } from "../../engine/math/vec3.js";
-import { Component } from "../../engine/scene/Component.js";
 import type {
   PlayerMode,
   PlayerMovementIntent,
@@ -31,30 +29,32 @@ const ZERO_INTENT: PlayerMovementIntent = Object.freeze({
   lookDeltaY: 0
 });
 
-export class RustPlayerController extends Component {
+export class RustPlayerController {
+  enabled = true;
   private movementIntent: PlayerMovementIntent = ZERO_INTENT;
   private readonly terrainHeightAt?: (x: number, z: number) => number | undefined;
-  private readonly initialPosition?: Vec3;
   private readonly initialYaw: number;
   private readonly initialPitch: number;
   private readonly initialDebugPosition?: Vec3;
   private readonly initialDebugYaw: number;
   private readonly initialDebugPitch: number;
   private readonly initialMode: PlayerMode;
+  private lastPlayerPosition: Vec3;
 
   constructor(
     private readonly engine: EngineCoreWasmHandle,
     options: RustPlayerControllerOptions = {}
   ) {
-    super();
     this.terrainHeightAt = options.terrainHeightAt;
-    this.initialPosition = options.initialPosition;
+    const initialPosition = options.initialPosition ?? vec3(0, 0, 0);
     this.initialYaw = options.initialYaw ?? 0;
     this.initialPitch = options.initialPitch ?? 0;
     this.initialDebugPosition = options.initialDebugPosition;
     this.initialDebugYaw = options.initialDebugYaw ?? 0;
     this.initialDebugPitch = options.initialDebugPitch ?? -0.35;
     this.initialMode = options.initialMode ?? "firstPerson";
+    this.lastPlayerPosition = initialPosition;
+    this.ensurePlayer();
   }
 
   get mode(): PlayerMode {
@@ -66,20 +66,14 @@ export class RustPlayerController extends Component {
     if (!this.withPlayerRecovery(() => this.engine.setPlayerMode(toEngineMode(mode)))) {
       throw new Error("Rust engine rejected player camera mode update.");
     }
-    this.syncEntityFromRust();
-  }
-
-  override onAttach(): void {
-    this.ensurePlayer();
-    this.syncEntityFromRust();
   }
 
   setMovementIntent(intent: PlayerMovementIntent): void {
     this.movementIntent = intent;
   }
 
-  override update(deltaSeconds: number): void {
-    if (!this.enabled || this.entity === undefined) {
+  update(deltaSeconds: number): void {
+    if (!this.enabled) {
       return;
     }
 
@@ -90,7 +84,7 @@ export class RustPlayerController extends Component {
 
     let preview = this.engine.previewPlayerPosition(deltaSeconds);
     if (!isFiniteVec3(preview)) {
-      this.recreatePlayerFromEntity();
+      this.recreatePlayer();
       if (!this.setPlayerIntentWithRecovery()) {
         throw new Error("Rust engine rejected player movement intent after recovery.");
       }
@@ -107,20 +101,19 @@ export class RustPlayerController extends Component {
       throw new Error("Rust engine rejected player update.");
     }
 
-    this.syncEntityFromRust();
+    this.syncPlayerPositionFromRust();
   }
 
   toggleCameraMode(): void {
     this.ensurePlayer();
     let nextMode = this.engine.togglePlayerMode();
     if (nextMode === undefined) {
-      this.recreatePlayerFromEntity();
+      this.recreatePlayer();
       nextMode = this.engine.togglePlayerMode();
     }
     if (nextMode === undefined) {
       throw new Error("Rust engine rejected player camera mode toggle.");
     }
-    this.syncEntityFromRust();
   }
 
   setPlayerPosition(position: Vec3): void {
@@ -128,7 +121,7 @@ export class RustPlayerController extends Component {
     if (!this.withPlayerRecovery(() => this.engine.setPlayerPosition(position))) {
       throw new Error("Rust engine rejected player position update.");
     }
-    this.syncEntityFromRust();
+    this.syncPlayerPositionFromRust();
   }
 
   setPlayerView(yaw: number, pitch: number): void {
@@ -136,7 +129,6 @@ export class RustPlayerController extends Component {
     if (!this.withPlayerRecovery(() => this.engine.setPlayerView(yaw, pitch))) {
       throw new Error("Rust engine rejected player view update.");
     }
-    this.syncEntityFromRust();
   }
 
   setDebugCamera(position: Vec3, yaw: number, pitch: number): void {
@@ -144,7 +136,6 @@ export class RustPlayerController extends Component {
     if (!this.withPlayerRecovery(() => this.engine.setDebugCamera(position, yaw, pitch))) {
       throw new Error("Rust engine rejected debug camera update.");
     }
-    this.syncEntityFromRust();
   }
 
   getEyeTransform(): TransformSnapshot {
@@ -158,13 +149,19 @@ export class RustPlayerController extends Component {
     };
   }
 
+  getPlayerPosition(): Vec3 {
+    this.ensurePlayer();
+    this.syncPlayerPositionFromRust();
+
+    return vec3(this.lastPlayerPosition.x, this.lastPlayerPosition.y, this.lastPlayerPosition.z);
+  }
+
   private ensurePlayer(): void {
     if (this.engine.hasPlayer()) {
       return;
     }
 
-    const initialPosition = this.initialPosition ?? this.entity?.transform.position ?? vec3(0, 0, 0);
-    this.createPlayer(initialPosition);
+    this.createPlayer(this.lastPlayerPosition);
   }
 
   private createPlayer(position: Vec3): void {
@@ -194,12 +191,13 @@ export class RustPlayerController extends Component {
     if (!this.engine.setPlayerMode(toEngineMode(this.initialMode))) {
       throw new Error("Rust engine rejected player mode during initialization.");
     }
+
+    this.syncPlayerPositionFromRust();
   }
 
-  private recreatePlayerFromEntity(): void {
-    const position = this.entity?.transform.position ?? this.initialPosition ?? vec3(0, 0, 0);
+  private recreatePlayer(): void {
     this.engine.reset();
-    this.createPlayer(position);
+    this.createPlayer(this.lastPlayerPosition);
   }
 
   private withPlayerRecovery(action: () => boolean): boolean {
@@ -207,7 +205,7 @@ export class RustPlayerController extends Component {
       return true;
     }
 
-    this.recreatePlayerFromEntity();
+    this.recreatePlayer();
     return action();
   }
 
@@ -220,7 +218,7 @@ export class RustPlayerController extends Component {
       return true;
     }
 
-    this.recreatePlayerFromEntity();
+    this.recreatePlayer();
     if (!this.engine.setPlayerIntent(this.movementIntent)) {
       return false;
     }
@@ -228,15 +226,13 @@ export class RustPlayerController extends Component {
     return this.engine.updatePlayer(deltaSeconds, terrainHeight);
   }
 
-  private syncEntityFromRust(): void {
-    if (this.entity === undefined || !this.engine.hasPlayer()) {
+  private syncPlayerPositionFromRust(): void {
+    if (!this.engine.hasPlayer()) {
       return;
     }
 
     const position = this.engine.playerPosition();
-    const eye = this.engine.playerEyeTransform();
-    this.entity.transform.setPosition(vec3(position.x, position.y, position.z));
-    this.entity.transform.setRotation(quatFromYaw(eye.yaw));
+    this.lastPlayerPosition = vec3(position.x, position.y, position.z);
   }
 }
 

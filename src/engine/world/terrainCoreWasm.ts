@@ -1,4 +1,4 @@
-import type { TerrainPresetId } from "./terrainGenerator.js";
+import type { TerrainPresetId } from "./terrainDescriptor.js";
 import { TERRAIN_CORE_WASM_METADATA } from "../../generated/terrain/terrainCoreWasm.js";
 
 export type TerrainCoreWasmExports = {

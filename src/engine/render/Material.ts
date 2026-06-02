@@ -1,6 +1,6 @@
 import { vec3, type Vec3 } from "../math/vec3.js";
 import { vec4, type Vec4 } from "../math/vec4.js";
-import type { ResourceId } from "../scene/types.js";
+import type { ResourceId } from "./ResourceId.js";
 
 export type MaterialOptions = {
   readonly albedoFactor?: Vec4;

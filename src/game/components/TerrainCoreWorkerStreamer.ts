@@ -1,7 +1,5 @@
 import type { TerrainCoreRenderPacketStore } from "../../engine/render/TerrainCoreRenderPackets.js";
-import type { ResourceId } from "../../engine/scene/types.js";
-import { Component } from "../../engine/scene/Component.js";
-import type { Entity } from "../../engine/scene/Entity.js";
+import type { ResourceId } from "../../engine/render/ResourceId.js";
 import type { Vec3 } from "../../engine/math/vec3.js";
 import {
   terrainChunkCoordContainingPosition,
@@ -49,16 +47,17 @@ export type TerrainCoreWorkerStreamStatus = {
 };
 
 export type TerrainCoreWorkerStreamerOptions = {
-  readonly target?: Entity;
+  readonly getTargetPosition?: () => Vec3 | undefined;
   readonly material?: ResourceId;
   readonly cellSize?: number;
   readonly meshIdPrefix?: string;
   readonly densityTransferMode?: TerrainDensityTransferModeRequest;
 };
 
-export class TerrainCoreWorkerStreamer extends Component {
+export class TerrainCoreWorkerStreamer {
   readonly runtime = "rust" as const;
-  target?: Entity;
+  enabled = true;
+  getTargetPosition?: () => Vec3 | undefined;
   material?: ResourceId;
   cellSize: number;
   meshIdPrefix: string;
@@ -75,8 +74,7 @@ export class TerrainCoreWorkerStreamer extends Component {
     private readonly worker: TerrainChunkJobGenerator,
     options: TerrainCoreWorkerStreamerOptions = {}
   ) {
-    super();
-    this.target = options.target;
+    this.getTargetPosition = options.getTargetPosition;
     this.material = options.material;
     this.cellSize = options.cellSize ?? 1;
     this.meshIdPrefix = options.meshIdPrefix ?? "mesh:terrain.chunk";
@@ -84,8 +82,12 @@ export class TerrainCoreWorkerStreamer extends Component {
     validateCellSize(this.cellSize);
   }
 
-  override update(): void {
-    const center = this.target?.transform.getWorldPosition() ?? this.entity?.transform.getWorldPosition();
+  update(): void {
+    if (!this.enabled) {
+      return;
+    }
+
+    const center = this.getTargetPosition?.();
     if (center !== undefined) {
       this.syncAround(center);
     }
@@ -106,8 +108,7 @@ export class TerrainCoreWorkerStreamer extends Component {
 
     const nextCenter =
       center ??
-      this.target?.transform.getWorldPosition() ??
-      this.entity?.transform.getWorldPosition();
+      this.getTargetPosition?.();
     if (nextCenter === undefined) {
       return;
     }

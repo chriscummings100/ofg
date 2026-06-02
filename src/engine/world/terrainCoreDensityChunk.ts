@@ -9,7 +9,7 @@ import {
   terrainPresetToWasmCode,
   type TerrainCoreWasmInstance
 } from "./terrainCoreWasm.js";
-import type { WorldDescriptor } from "./terrainGenerator.js";
+import type { WorldDescriptor } from "./terrainDescriptor.js";
 
 export function generateTerrainDensityChunkWithWasm(
   terrainCore: TerrainCoreWasmInstance,

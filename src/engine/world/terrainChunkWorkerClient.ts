@@ -1,5 +1,5 @@
 import { BrowserWorkerGroup } from "../browser/browserWorkerGroup.js";
-import type { WorldDescriptor } from "./terrainGenerator.js";
+import type { WorldDescriptor } from "./terrainDescriptor.js";
 import type {
   TerrainChunkJobGenerator,
   TerrainChunkJobRequest,

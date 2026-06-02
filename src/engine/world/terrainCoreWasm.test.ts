@@ -1,15 +1,15 @@
-import { equal, ok } from "node:assert/strict";
+import { equal, notEqual, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { TERRAIN_CORE_WASM_METADATA } from "../../generated/terrain/terrainCoreWasm.js";
-import { generateTerrainDensityChunk, terrainChunkKey } from "./terrainChunk.js";
+import { terrainChunkKey } from "./terrainChunk.js";
 import { generateTerrainChunkMeshWithWasm } from "./terrainCoreChunkMesh.js";
 import { createTerrainCoreDensityChunkStore } from "./terrainCoreDensityChunkStore.js";
 import { generateTerrainDensityChunkWithWasm } from "./terrainCoreDensityChunk.js";
 import {
   createSeedWorldDescriptor,
-  createTerrainGenerator,
+  TERRAIN_PRESET_IDS,
   type TerrainPresetId
-} from "./terrainGenerator.js";
+} from "./terrainDescriptor.js";
 import {
   instantiateTerrainCoreWasm,
   readTerrainCoreDensityChunkStoreStats,
@@ -21,12 +21,7 @@ import {
 import { createTerrainCoreStreamScheduler } from "./terrainCoreStreamScheduler.js";
 import { getFloatsPerVertex } from "./terrainMesh.js";
 
-const PRESETS: readonly TerrainPresetId[] = [
-  "seed",
-  "rollingHills",
-  "mountainValley",
-  "rockyHighland"
-];
+const PRESETS: readonly TerrainPresetId[] = TERRAIN_PRESET_IDS;
 
 describe("terrain core WASM", () => {
   it("exposes deterministic terrain core artifact metadata", () => {
@@ -58,7 +53,7 @@ describe("terrain core WASM", () => {
     ok(wasm.exports.ofg_density_chunk_store_max_entries() >= 8);
   });
 
-  it("matches TypeScript terrain height and density golden samples", async () => {
+  it("returns deterministic finite height and density samples for every preset", async () => {
     const wasm = await loadTerrainCore();
     const points = [
       { x: 0, z: 0 },
@@ -66,50 +61,81 @@ describe("terrain core WASM", () => {
       { x: -47.75, z: 31.5 },
       { x: 96.125, z: -64.875 }
     ] as const;
+    const presetHeights: number[] = [];
 
     for (const terrainPreset of PRESETS) {
       const descriptor = createSeedWorldDescriptor(0x0F6, { terrainPreset });
-      const terrain = createTerrainGenerator(descriptor);
       const presetCode = terrainPresetToWasmCode(terrainPreset);
 
       for (const point of points) {
-        const expectedHeight = terrain.heightAt(point.x, point.z);
-        const actualHeight = wasm.exports.ofg_height_at(
+        const firstHeight = wasm.exports.ofg_height_at(
           descriptor.seed,
           presetCode,
           point.x,
           point.z
         );
-        const sampleY = Math.round(expectedHeight * 2) / 2;
-        const expectedDensity = terrain.densityAt({ x: point.x, y: sampleY, z: point.z });
-        const actualDensity = wasm.exports.ofg_density_at(
+        const secondHeight = wasm.exports.ofg_height_at(
           descriptor.seed,
           presetCode,
           point.x,
-          sampleY,
+          point.z
+        );
+        const densityAtSurface = wasm.exports.ofg_density_at(
+          descriptor.seed,
+          presetCode,
+          point.x,
+          firstHeight,
+          point.z
+        );
+        const densityBelow = wasm.exports.ofg_density_at(
+          descriptor.seed,
+          presetCode,
+          point.x,
+          firstHeight - 4,
+          point.z
+        );
+        const densityAbove = wasm.exports.ofg_density_at(
+          descriptor.seed,
+          presetCode,
+          point.x,
+          firstHeight + 4,
           point.z
         );
 
-        assertClose(actualHeight, expectedHeight, 0.000001);
-        assertClose(actualDensity, expectedDensity, 0.000001);
+        ok(Number.isFinite(firstHeight));
+        equal(firstHeight, secondHeight);
+        ok(Number.isFinite(densityAtSurface));
+        ok(Math.abs(densityAtSurface) < 0.05);
+        ok(densityBelow < densityAbove);
       }
+
+      presetHeights.push(wasm.exports.ofg_height_at(descriptor.seed, presetCode, 64, -96));
     }
+
+    notEqual(new Set(presetHeights.map((height) => height.toFixed(3))).size, 1);
   });
 
-  it("fills density chunks matching the TypeScript terrain generator", async () => {
+  it("fills deterministic finite density chunks in WASM", async () => {
     const wasm = await loadTerrainCore();
     const descriptor = createSeedWorldDescriptor(0x0F6, { terrainPreset: "rockyHighland" });
-    const terrain = createTerrainGenerator(descriptor);
     const coord = { x: -1, y: 0, z: 2 };
-    const expected = generateTerrainDensityChunk(terrain, coord, { cellSize: 1 });
-    const actual = generateTerrainDensityChunkWithWasm(wasm, descriptor, coord, { cellSize: 1 });
+    const first = generateTerrainDensityChunkWithWasm(wasm, descriptor, coord, { cellSize: 1 });
+    const second = generateTerrainDensityChunkWithWasm(wasm, descriptor, coord, { cellSize: 1 });
 
-    equal(actual.densities.length, expected.densities.length);
-    equal(readTerrainCoreDensityChunkBuffer(wasm.exports).length, expected.densities.length);
+    equal(first.densities.length, 33 * 33 * 33);
+    equal(readTerrainCoreDensityChunkBuffer(wasm.exports).length, first.densities.length);
+    equal(first.densities[0], second.densities[0]);
+    equal(
+      first.densities[first.densities.length - 1],
+      second.densities[second.densities.length - 1]
+    );
 
-    for (let index = 0; index < expected.densities.length; index += 1) {
-      assertClose(actual.densities[index], expected.densities[index], 0.00002);
+    let finiteSamples = 0;
+    for (let index = 0; index < first.densities.length; index += 1024) {
+      ok(Number.isFinite(first.densities[index]));
+      finiteSamples += 1;
     }
+    ok(finiteSamples > 20);
   });
 
   it("builds renderable terrain chunk meshes in WASM", async () => {
