@@ -24,9 +24,8 @@ import {
   isTerrainDebugOverlayMode,
   type TerrainDebugOverlayState
 } from "../engine/world/terrainDebugOverlay.js";
-import { TerrainChunkStreamer } from "../game/components/TerrainChunkStreamer.js";
+import { TerrainCoreWorkerStreamer } from "../game/components/TerrainCoreWorkerStreamer.js";
 import { createBoxMesh } from "../engine/world/primitiveMesh.js";
-import { EditableTerrainDensitySource } from "../engine/world/terrainChunk.js";
 import {
   createSeedWorldDescriptor,
   createTerrainGenerator,
@@ -69,7 +68,8 @@ declare global {
       getTerrainChunkKeys: () => string[];
       getTerrainPreset: () => TerrainPresetId;
       getTerrainSeed: () => number;
-      getTerrainStreamStatus: () => ReturnType<TerrainChunkStreamer["getStreamStatus"]>;
+      getTerrainStreamStatus: () => ReturnType<TerrainCoreWorkerStreamer["getStreamStatus"]>;
+      getTerrainStreamerRuntime: () => "rust";
       getTerrainStreamSchedulerRuntime: () => "rust";
       getTerrainDensityStoreRuntime: () => "rust";
       getRenderPacketRuntime: () => "rust" | "typescript";
@@ -112,7 +112,6 @@ export async function startGame(elements: GameElements): Promise<void> {
     elements.terrainDebugOverlay,
     readTerrainDebugOverlayState()
   );
-  const terrainSource = new EditableTerrainDensitySource(field);
   scene.mainLight = createDirectionalLight({
     direction: vec3(0.89, 0.25, 0.38),
     color: vec3(1, 0.96, 0.88),
@@ -156,18 +155,15 @@ export async function startGame(elements: GameElements): Promise<void> {
     itemIdPrefix: "terrain:rust",
     meshIdPrefix: "mesh:terrain.chunk"
   });
-  const terrainStreamer = terrainEntity.addComponent(new TerrainChunkStreamer(
+  const terrainStreamer = terrainEntity.addComponent(new TerrainCoreWorkerStreamer(
     terrainRenderPackets,
-    terrainSource,
+    terrainStreamScheduler,
+    terrainDensityChunkStore,
+    terrainWorker,
     {
       target: playerEntity,
       material: terrainMaterial.id,
-      horizontalRadius: terrainStreamConfig.horizontalRadius,
-      verticalChunkOffsets: terrainStreamConfig.verticalChunkOffsets,
-      cellSize: terrainStreamConfig.cellSize,
-      chunkJobGenerator: terrainWorker,
-      streamScheduler: terrainStreamScheduler,
-      densityChunkStore: terrainDensityChunkStore
+      cellSize: terrainStreamConfig.cellSize
     }
   ));
   playerEntity.transform.setPosition(initialPlayerPosition);
@@ -192,6 +188,7 @@ export async function startGame(elements: GameElements): Promise<void> {
     getTerrainPreset: () => descriptor.terrainPreset,
     getTerrainSeed: () => descriptor.seed,
     getTerrainStreamStatus: () => terrainStreamer.getStreamStatus(),
+    getTerrainStreamerRuntime: () => terrainStreamer.runtime,
     getTerrainStreamSchedulerRuntime: () => "rust",
     getTerrainDensityStoreRuntime: () => terrainDensityChunkStore.runtime,
     getRenderPacketRuntime: () => renderPacketRuntime,

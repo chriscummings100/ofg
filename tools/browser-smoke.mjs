@@ -212,6 +212,7 @@ async function readTerrainRenderPacketRuntime(page) {
 
 async function readTerrainStreamRuntime(page) {
   return page.evaluate(() => ({
+    streamerRuntime: window.__ofgDebug?.getTerrainStreamerRuntime?.() ?? "missing",
     schedulerRuntime: window.__ofgDebug?.getTerrainStreamSchedulerRuntime?.() ?? "missing",
     densityStoreRuntime: window.__ofgDebug?.getTerrainDensityStoreRuntime?.() ?? "missing",
     workerCount: window.__ofgDebug?.getTerrainWorkerCount?.() ?? 0
@@ -252,6 +253,10 @@ function assertTerrainRenderPacketRuntime(runtime) {
 }
 
 function assertTerrainStreamRuntime(runtime) {
+  if (runtime.streamerRuntime !== "rust") {
+    throw new Error(`Expected Rust terrain streamer, saw '${runtime.streamerRuntime}'.`);
+  }
+
   if (runtime.schedulerRuntime !== "rust") {
     throw new Error(`Expected Rust terrain stream scheduler, saw '${runtime.schedulerRuntime}'.`);
   }

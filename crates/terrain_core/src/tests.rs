@@ -588,6 +588,19 @@ fn stream_scheduler_facade_ticks_and_completes_jobs_through_buffers() {
     assert_eq!((desired_xs[0], desired_ys[0], desired_zs[0]), (0, 0, 0));
     assert_eq!((desired_xs[7], desired_ys[7], desired_zs[7]), (1, 1, 1));
 
+    assert_eq!(ofg_stream_write_lod0_dependency_coords(3, -2, 5), 8);
+    let dependency_xs = unsafe { std::slice::from_raw_parts(ofg_stream_coord_x_buffer_ptr(), 8) };
+    let dependency_ys = unsafe { std::slice::from_raw_parts(ofg_stream_coord_y_buffer_ptr(), 8) };
+    let dependency_zs = unsafe { std::slice::from_raw_parts(ofg_stream_coord_z_buffer_ptr(), 8) };
+    assert_eq!(
+        (dependency_xs[0], dependency_ys[0], dependency_zs[0]),
+        (3, -2, 5)
+    );
+    assert_eq!(
+        (dependency_xs[7], dependency_ys[7], dependency_zs[7]),
+        (4, -1, 6)
+    );
+
     let density_job_count = ofg_stream_tick();
     assert_eq!(density_job_count, 8);
     assert_eq!(ofg_stream_status_in_flight_density_count(), 8);

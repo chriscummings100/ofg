@@ -126,8 +126,8 @@ Future crates
   New world/simulation/render ownership should generally move in that direction.
 
 src/game/components
-  Game-level compatibility components such as RustPlayerController and
-  TerrainChunkStreamer.
+  Game-level compatibility/browser bridge components such as RustPlayerController,
+  TerrainCoreWorkerStreamer, and legacy TerrainChunkStreamer.
 
 tools
   Local scripts, including shader generation, Poly Haven terrain texture import,
@@ -150,14 +150,16 @@ There is one global active `Scene`.
   not know about entities.
 - `scene.mainLight` is the sun: use it for world lighting and sky placement.
 
-The playable app is currently partly scene-model backed: the terrain streamer,
-mirrored player entity, and debug player marker are scene entities/components,
-but streamed terrain chunks are stored and pruned in `terrain_core.wasm` through
-`TerrainCoreRenderPacketStore` rather than `TerrainRenderer`. The authoritative
-player/camera state and first camera/light render packet are now Rust-owned.
-Treat the remaining scene path as transitional runtime glue. New high-volume
-world, terrain streaming, simulation, render extraction, and WebGPU ownership
-should follow `docs/RUST_ENGINE_PLAN.md`.
+The playable app is currently partly scene-model backed: a terrain entity hosts
+the `TerrainCoreWorkerStreamer` browser bridge, and the mirrored player entity
+and debug player marker are scene entities/components. Streamed terrain chunks
+are stored and pruned in `terrain_core.wasm` through
+`TerrainCoreRenderPacketStore` rather than `TerrainRenderer`, and worker job
+selection/state transitions are Rust-owned. The authoritative player/camera
+state and first camera/light render packet are now Rust-owned. Treat the
+remaining scene path as transitional runtime glue. New high-volume world,
+terrain streaming, simulation, render extraction, and WebGPU ownership should
+follow `docs/RUST_ENGINE_PLAN.md`.
 
 ## Testing Expectations
 

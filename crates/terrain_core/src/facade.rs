@@ -604,6 +604,24 @@ pub extern "C" fn ofg_stream_write_desired_lod0_coords() -> u32 {
 }
 
 #[no_mangle]
+pub extern "C" fn ofg_stream_write_lod0_dependency_coords(
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+) -> u32 {
+    let coords = terrain_stream_scheduler()
+        .lock()
+        .expect("terrain stream scheduler lock poisoned")
+        .density_dependencies(TerrainChunkCoord {
+            x: chunk_x,
+            y: chunk_y,
+            z: chunk_z,
+        });
+
+    write_stream_coords(&coords)
+}
+
+#[no_mangle]
 pub extern "C" fn ofg_stream_status_desired_density_count() -> u32 {
     terrain_stream_status().desired_density_count as u32
 }

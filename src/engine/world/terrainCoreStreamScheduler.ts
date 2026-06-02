@@ -48,6 +48,7 @@ export type TerrainStreamScheduler = {
   failLod0(generation: number, coord: TerrainChunkCoord): boolean;
   desiredDensityCoords(): TerrainChunkCoord[];
   desiredLod0Coords(): TerrainChunkCoord[];
+  lod0DependencyCoords(coord: TerrainChunkCoord): TerrainChunkCoord[];
   status(): TerrainStreamStatus;
 };
 
@@ -170,6 +171,16 @@ export class TerrainCoreStreamScheduler implements TerrainStreamScheduler {
   desiredLod0Coords(): TerrainChunkCoord[] {
     const count = this.terrainCore.exports.ofg_stream_write_desired_lod0_coords();
     this.assertCoordBufferCanRepresent(count, this.status().desiredLod0Count);
+
+    return this.readCoordBuffer(count);
+  }
+
+  lod0DependencyCoords(coord: TerrainChunkCoord): TerrainChunkCoord[] {
+    const count = this.terrainCore.exports.ofg_stream_write_lod0_dependency_coords(
+      coord.x,
+      coord.y,
+      coord.z
+    );
 
     return this.readCoordBuffer(count);
   }

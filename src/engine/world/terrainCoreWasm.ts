@@ -106,6 +106,11 @@ export type TerrainCoreWasmExports = {
   ) => number;
   readonly ofg_stream_write_desired_density_coords: () => number;
   readonly ofg_stream_write_desired_lod0_coords: () => number;
+  readonly ofg_stream_write_lod0_dependency_coords: (
+    chunkX: number,
+    chunkY: number,
+    chunkZ: number
+  ) => number;
   readonly ofg_stream_status_desired_density_count: () => number;
   readonly ofg_stream_status_desired_lod0_count: () => number;
   readonly ofg_stream_status_density_ready_count: () => number;
@@ -369,6 +374,7 @@ function assertTerrainCoreExports(exports: WebAssembly.Exports): asserts exports
     "ofg_stream_fail_lod0",
     "ofg_stream_write_desired_density_coords",
     "ofg_stream_write_desired_lod0_coords",
+    "ofg_stream_write_lod0_dependency_coords",
     "ofg_stream_status_desired_density_count",
     "ofg_stream_status_desired_lod0_count",
     "ofg_stream_status_density_ready_count",

@@ -51,7 +51,8 @@ src/engine/scene
   should not receive new high-volume world ownership.
 
 src/game/components
-  Game-specific compatibility components, currently RustPlayerController and
+  Game-specific compatibility/browser bridge components, currently
+  RustPlayerController, TerrainCoreWorkerStreamer, and legacy
   TerrainChunkStreamer.
 ```
 
@@ -64,9 +65,11 @@ not a general-purpose ECS.
 
 The current playable is partly backed by this model:
 
-- A terrain entity owns the compatibility `TerrainChunkStreamer`, but visible
-  terrain chunks are stored in `terrain_core.wasm` through
-  `TerrainCoreRenderPacketStore` outside the scene component render path.
+- A terrain entity owns `TerrainCoreWorkerStreamer`, a browser bridge that
+  executes Worker jobs selected by `terrain_core.wasm`. Visible terrain chunks
+  are stored in `terrain_core.wasm` through `TerrainCoreRenderPacketStore`
+  outside the scene component render path. Legacy `TerrainChunkStreamer` remains
+  reference/compatibility infrastructure.
 - A player entity owns `RustPlayerController`, which forwards input into
   `engine_core.wasm` and mirrors the Rust player transform back into the
   TypeScript scene for terrain streaming and the debug marker.
@@ -111,10 +114,13 @@ weights, and material weights at any world-space position. `heightAt(x, z)` is n
 a compatibility query that scans a density column for the highest zero crossing so
 player grounding can keep working until movement is density/mesh aware.
 
-`TerrainChunkStreamer` keeps a square x/z neighborhood of density chunks around a
-target entity, centers its vertical chunk-offset stack on the target chunk y
-coordinate, and rebuilds the visible per-chunk Dual Contouring meshes as the
-player crosses chunk boundaries. Loaded density chunk keys remain fully 3D.
+`TerrainCoreWorkerStreamer` keeps the playable browser terrain bridge thin:
+`terrain_core.wasm` owns desired density/LOD0 sets, dependency coordinates,
+in-flight work, stale generation rejection, ready/empty state, density storage,
+mesh packet storage, and packet pruning. TypeScript still owns the browser Worker
+host and copies density payloads into mesh workers, because browser CPU
+parallelism is Worker-backed until a Rust wasm-threads/SharedArrayBuffer runtime
+slice is introduced. Loaded density chunk keys remain fully 3D.
 Runtime terrain meshes carry position, color, normal, uv, material layer indices,
 and material weights. A small mesh post-pass expands indexed triangles so each
 triangle has a coherent local four-material palette for interpolation.

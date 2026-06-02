@@ -153,14 +153,16 @@ Partially supported or placeholder-only:
   those payloads into local Rust/WASM stores; this is not yet
   `SharedArrayBuffer`, partition-aware worker ownership, multi-resolution
   streaming, or mesh-upload optimized.
-- TypeScript still owns the Web Worker pool, density payload copies into mesh
+- TypeScript still owns the browser Worker host, density payload copies into mesh
   workers, renderer cache objects, and WebGPU upload around the Rust scheduler.
-  The playable runtime no longer mutates `TerrainRenderer` or a TypeScript
-  packet store for streamed chunks: Rust/WASM worker mesh payloads are now copied
-  into a Rust-owned terrain mesh packet store in `terrain_core.wasm`, pruned
-  there on streaming-window changes, and appended to `RenderWorld` through a
-  TypeScript WebGPU cache adapter. This is a bridge, not full Rust render
-  extraction.
+  The playable runtime no longer uses `TerrainChunkStreamer` as its terrain
+  manager and no longer mutates `TerrainRenderer` or a TypeScript packet store
+  for streamed chunks. `TerrainCoreWorkerStreamer` is now a small browser bridge
+  that executes Worker jobs selected by `terrain_core.wasm`, asks Rust for LOD0
+  density dependency coordinates, stores density and mesh payloads in Rust, and
+  appends terrain packets to `RenderWorld` through a TypeScript WebGPU cache
+  adapter. This is a bridge, not full Rust render extraction or Rust-managed
+  browser threading.
 - The Rust engine migration has started the render-packet bridge for camera,
   main light, debug player marker data, and streamed terrain chunk mesh payloads.
   Terrain chunk packet storage is now Rust-owned for the playable path, but
@@ -182,8 +184,8 @@ Not yet supported:
 - Far-field terrain, LOD, LOD transition meshes, or mature view/visibility
   priority scheduling.
 - True shared-memory or partition-aware multi-resolution density/mesh streaming,
-  batch density jobs, fine-grained cancellation queues beyond generation-token
-  invalidation, or mesh upload preparation.
+  Rust-managed wasm threads, batch density jobs, fine-grained cancellation queues
+  beyond generation-token invalidation, or mesh upload preparation.
 - Saveable human-facing terrain tuning knobs.
 - Terrain collision/grounding based on the generated mesh. Player grounding still
   uses a compatibility `heightAt(x, z)` query.
@@ -205,7 +207,9 @@ Current believability gap:
   counters, widen the visible terrain window, then expose saveable tuning knobs.
   The current Rust/WASM worker pipeline now separates density from meshing and
   retains density payloads in Rust/WASM, but it still copies density payloads
-  into mesh workers and has not yet proven a larger view distance budget.
+  into mesh workers and has not yet proven a larger view distance budget. Browser
+  CPU parallelism is still Worker-backed; Rust-managed threading will need a
+  wasm-threads/SharedArrayBuffer/cross-origin-isolation runtime slice.
   Hydrology and better biome composition remain the next believability layer once
   the terrain can regenerate fast enough to tune.
 
@@ -877,6 +881,7 @@ Progress notes:
 | 2026-06-02 | In progress | Added the first playable terrain render-packet bridge. `TerrainChunkStreamer` now targets a chunk-sink interface, the browser runtime streams Rust/WASM worker mesh payloads into `TerrainRenderPacketStore`, and `SceneRenderExtractor` appends those packet items to `RenderWorld` instead of discovering playable terrain through `TerrainRenderer`. Browser smoke asserts `terrainRenderPacketRuntime: rust`. Remaining ownership gap: TypeScript still owns worker dispatch, density payload transfer into workers, mesh object creation, packet storage, and WebGPU upload. |
 | 2026-06-02 | In progress | Moved playable terrain mesh packet storage into Rust. `terrain_core.wasm` now validates and stores completed chunk mesh payloads by chunk coordinate/LOD, exposes packet-list and packet-load buffers, and the browser uses `TerrainCoreRenderPacketStore` as the current WebGPU cache adapter. `TerrainChunkStreamer` passes raw mesh buffers to its sink instead of constructing `Mesh` objects. Remaining ownership gap: TypeScript still owns worker dispatch, density payload transfer into workers, renderer cache objects, WebGPU upload, and scene extraction for marker/static meshes. |
 | 2026-06-02 | In progress | Moved scheduler-backed terrain packet pruning into Rust. The mesh packet store now has a retain operation exposed through `terrain_core.wasm`; the scheduler-backed streamer prunes rendered packets through that Rust store and uses Rust scheduler LOD0 ready/empty counts for status instead of treating TypeScript render/empty sets as the source of truth. |
+| 2026-06-02 | In progress | Moved the playable terrain worker queue to a Rust-owned bridge. `TerrainCoreWorkerStreamer` now replaces `TerrainChunkStreamer` in the browser app; it executes Worker jobs emitted by the Rust scheduler, loads LOD0 density dependencies from Rust-provided coordinates, stores completed density/mesh payloads in Rust, and exposes `streamerRuntime: rust` in browser smoke. Remaining gap: TypeScript still hosts browser Workers and copies payloads until the runtime moves to shared-memory/wasm-threads or Rust-managed worker infrastructure. |
 
 ## Cross-Cutting Validation
 

@@ -61,6 +61,7 @@ const expectedExports = [
   "ofg_stream_fail_lod0",
   "ofg_stream_write_desired_density_coords",
   "ofg_stream_write_desired_lod0_coords",
+  "ofg_stream_write_lod0_dependency_coords",
   "ofg_stream_status_desired_density_count",
   "ofg_stream_status_desired_lod0_count",
   "ofg_stream_status_density_ready_count",

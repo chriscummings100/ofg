@@ -49,6 +49,7 @@ export type TerrainCoreWasmExportName =
   | "ofg_stream_fail_lod0"
   | "ofg_stream_write_desired_density_coords"
   | "ofg_stream_write_desired_lod0_coords"
+  | "ofg_stream_write_lod0_dependency_coords"
   | "ofg_stream_status_desired_density_count"
   | "ofg_stream_status_desired_lod0_count"
   | "ofg_stream_status_density_ready_count"
@@ -95,7 +96,7 @@ export const TERRAIN_CORE_WASM_METADATA = Object.freeze({
   "sourceCrate": "crates/terrain_core",
   "assetPath": "assets/wasm/terrain_core.wasm",
   "target": "wasm32-unknown-unknown",
-  "artifactHash": "sha256-4af4ecb9a2416ddbfe745d0f2c478b2a3e34a8294fb628502d4c32edd9dfb2dc",
+  "artifactHash": "sha256-1fd143950dd8a083d4247fb2a910beedd7b15b156dd7661ec13146db1238e694",
   "exports": [
     "memory",
     "ofg_terrain_core_version",
@@ -145,6 +146,7 @@ export const TERRAIN_CORE_WASM_METADATA = Object.freeze({
     "ofg_stream_fail_lod0",
     "ofg_stream_write_desired_density_coords",
     "ofg_stream_write_desired_lod0_coords",
+    "ofg_stream_write_lod0_dependency_coords",
     "ofg_stream_status_desired_density_count",
     "ofg_stream_status_desired_lod0_count",
     "ofg_stream_status_density_ready_count",
