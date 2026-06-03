@@ -23,7 +23,6 @@ import {
   type TerrainDensityTransferMode,
   type TerrainDensityTransferModeRequest
 } from "../../engine/world/terrainDensityTransfer.js";
-import { POSITION_COLOR_NORMAL_UV_LAYOUT } from "../../engine/world/terrainMesh.js";
 
 export type TerrainCoreWorkerStreamStatus = {
   readonly generation: number;
@@ -258,8 +257,7 @@ export class TerrainCoreWorkerStreamer {
         this.terrain.addChunk({
           key,
           vertices: result.vertices,
-          indices: result.indices,
-          floatsPerVertex: POSITION_COLOR_NORMAL_UV_LAYOUT.floatsPerVertex
+          indices: result.indices
         });
       }
       this.lastChunkJobStats = result.stats;

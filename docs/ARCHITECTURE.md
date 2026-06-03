@@ -83,10 +83,11 @@ adapter.
   hosts browser Workers, wraps shared density buffers, exposes debug hooks,
   loads terrain mesh bytes from Rust packet stores, fetches texture assets, and
   passes terrain mesh bytes by chunk key plus texture arrays into Rust-owned
-  renderer facades. It no longer creates WebGPU devices, pipelines, buffers,
-  textures, render passes, shader uniform buffers, renderer resource handles,
-  shader material packets, camera frames, light packets, player-marker
-  mesh/material data, player-marker world matrices, or normal matrices.
+  renderer facades. Rust owns the terrain renderer vertex stride at that facade.
+  TypeScript no longer creates WebGPU devices, pipelines, buffers, textures,
+  render passes, shader uniform buffers, renderer resource handles, shader
+  material packets, camera frames, light packets, player-marker mesh/material
+  data, player-marker world matrices, or normal matrices.
 
 [SCENE_MODEL_PLAN.md](SCENE_MODEL_PLAN.md) is now historical documentation of the
 deleted TypeScript scene model. Future large-scale world state should move into

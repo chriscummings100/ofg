@@ -12,13 +12,11 @@ import {
   readTerrainCoreMeshVertexBuffer,
   type TerrainCoreWasmInstance
 } from "../world/terrainCoreWasm.js";
-import { POSITION_COLOR_NORMAL_UV_LAYOUT } from "../world/terrainMesh.js";
 import type { TerrainMaterialTextures } from "./terrainTextures.js";
 
 export type TerrainRenderMeshPacket = {
   readonly vertices: Float32Array;
   readonly indices: Uint32Array;
-  readonly floatsPerVertex: number;
 };
 
 export type TerrainRenderChunkPacket = {
@@ -30,7 +28,6 @@ export type TerrainRenderChunkMeshPacket = {
   readonly key: TerrainChunkKey;
   readonly vertices: Float32Array;
   readonly indices: Uint32Array;
-  readonly floatsPerVertex?: number;
 };
 
 export type TerrainRenderChunkInput =
@@ -189,8 +186,7 @@ export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
         key,
         mesh: {
           vertices: new Float32Array(readTerrainCoreMeshVertexBuffer(this.terrainCore.exports)),
-          indices: new Uint32Array(readTerrainCoreMeshIndexBuffer(this.terrainCore.exports)),
-          floatsPerVertex: POSITION_COLOR_NORMAL_UV_LAYOUT.floatsPerVertex
+          indices: new Uint32Array(readTerrainCoreMeshIndexBuffer(this.terrainCore.exports))
         }
       });
     }

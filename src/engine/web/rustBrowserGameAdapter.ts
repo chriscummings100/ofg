@@ -1,4 +1,3 @@
-import { getFloatsPerVertex } from "../world/terrainMesh.js";
 import type { TerrainChunkKey } from "../world/terrainChunk.js";
 import {
   createEngineWebBrowserGame,
@@ -83,18 +82,11 @@ export class RustBrowserGameAdapter {
     chunkKey: TerrainChunkKey,
     mesh: TerrainRenderMeshPacket
   ): void {
-    if (mesh.floatsPerVertex !== getFloatsPerVertex()) {
-      throw new Error(
-        `RustBrowserGame renderer only supports ${getFloatsPerVertex()} floats per vertex; ` +
-        `terrain chunk '${chunkKey}' uses ${mesh.floatsPerVertex}.`
-      );
-    }
-
     if (this.uploadedTerrainMeshes.get(chunkKey) === mesh) {
       return;
     }
 
-    this.game.upsertTerrainMesh(chunkKey, mesh.vertices, mesh.indices, mesh.floatsPerVertex);
+    this.game.upsertTerrainMesh(chunkKey, mesh.vertices, mesh.indices);
     this.uploadedTerrainMeshes.set(chunkKey, mesh);
   }
 

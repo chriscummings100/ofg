@@ -142,7 +142,6 @@ impl RustBrowserGame {
         chunk_key: &str,
         vertices: &[f32],
         indices: &[u32],
-        floats_per_vertex: u32,
     ) -> Result<(), JsValue> {
         if let Some(handle) = self.terrain_mesh_handles_by_key.remove(chunk_key) {
             self.renderer.destroy_mesh(handle)?;
@@ -150,7 +149,7 @@ impl RustBrowserGame {
 
         let handle = self
             .renderer
-            .register_mesh(vertices, indices, floats_per_vertex)?;
+            .register_mesh(vertices, indices, TERRAIN_VERTEX_FLOATS)?;
         self.terrain_mesh_handles_by_key
             .insert(chunk_key.to_string(), handle);
         Ok(())

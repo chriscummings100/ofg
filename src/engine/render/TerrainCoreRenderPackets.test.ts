@@ -15,15 +15,13 @@ describe("TerrainCoreRenderPacketStore", () => {
 
     store.addChunk({
       key: "0,0,0",
-      ...createTriangleMeshData(),
-      floatsPerVertex: 19
+      ...createTriangleMeshData()
     });
 
     equal(store.runtime, "rust");
     equal(store.size(), 1);
     equal(store.chunks.length, 1);
     equal(store.chunks[0].key, "0,0,0");
-    equal(store.chunks[0].mesh.floatsPerVertex, 19);
     equal(store.chunks[0].mesh.indices.length, 3);
   });
 
@@ -32,8 +30,7 @@ describe("TerrainCoreRenderPacketStore", () => {
     const store = new TerrainCoreRenderPacketStore(terrainCore);
     store.addChunk({
       key: "2,-1,3",
-      ...createTriangleMeshData(),
-      floatsPerVertex: 19
+      ...createTriangleMeshData()
     });
 
     equal(store.removeChunk(terrainChunkCoord(2, -1, 3)), true);
@@ -47,18 +44,15 @@ describe("TerrainCoreRenderPacketStore", () => {
     const store = new TerrainCoreRenderPacketStore(terrainCore);
     store.addChunk({
       key: "0,0,0",
-      ...createTriangleMeshData(0),
-      floatsPerVertex: 19
+      ...createTriangleMeshData(0)
     });
     store.addChunk({
       key: "1,0,0",
-      ...createTriangleMeshData(1),
-      floatsPerVertex: 19
+      ...createTriangleMeshData(1)
     });
     store.addChunk({
       key: "2,0,0",
-      ...createTriangleMeshData(2),
-      floatsPerVertex: 19
+      ...createTriangleMeshData(2)
     });
 
     store.retainChunks(["1,0,0", terrainChunkCoord(2, 0, 0)]);
@@ -74,8 +68,7 @@ describe("TerrainCoreRenderPacketStore", () => {
     const store = new TerrainCoreRenderPacketStore(terrainCore);
     store.addChunk({
       key: "0,0,0",
-      ...createTriangleMeshData(1),
-      floatsPerVertex: 19
+      ...createTriangleMeshData(1)
     });
     const firstMesh = store.chunks[0].mesh;
 
@@ -83,8 +76,7 @@ describe("TerrainCoreRenderPacketStore", () => {
 
     store.addChunk({
       key: "0,0,0",
-      ...createTriangleMeshData(2),
-      floatsPerVertex: 19
+      ...createTriangleMeshData(2)
     });
 
     notEqual(store.chunks[0].mesh, firstMesh);
@@ -96,13 +88,11 @@ describe("TerrainCoreRenderPacketStore", () => {
     const store = new TerrainCoreRenderPacketStore(terrainCore);
     store.addChunk({
       key: "0,0,0",
-      ...createTriangleMeshData(0),
-      floatsPerVertex: 19
+      ...createTriangleMeshData(0)
     });
     store.addChunk({
       key: "1,0,0",
-      ...createTriangleMeshData(1),
-      floatsPerVertex: 19
+      ...createTriangleMeshData(1)
     });
 
     equal(store.chunks.length, 2);
@@ -118,8 +108,7 @@ describe("TerrainCoreRenderPacketStore", () => {
     throws(() => store.addChunk({
       key: "0,0,0",
       vertices: mesh.vertices.slice(0, 19),
-      indices: new Uint32Array([0, 1, 0]),
-      floatsPerVertex: 19
+      indices: new Uint32Array([0, 1, 0])
     }), /rejected chunk/);
     equal(store.size(), 0);
   });

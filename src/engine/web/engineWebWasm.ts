@@ -22,8 +22,7 @@ export type EngineWebBrowserGame = {
   upsertTerrainMesh(
     chunkKey: string,
     vertices: Float32Array,
-    indices: Uint32Array,
-    floatsPerVertex: number
+    indices: Uint32Array
   ): void;
   destroyTerrainMesh(chunkKey: string): void;
   upsertTerrainTextures(

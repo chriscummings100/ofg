@@ -5,7 +5,7 @@ export class RustBrowserGame {
   free(): void;
   static create(canvas: HTMLCanvasElement): Promise<RustBrowserGame>;
   resize(width: number, height: number): void;
-  upsertTerrainMesh(chunk_key: string, vertices: Float32Array, indices: Uint32Array, floats_per_vertex: number): void;
+  upsertTerrainMesh(chunk_key: string, vertices: Float32Array, indices: Uint32Array): void;
   destroyTerrainMesh(chunk_key: string): void;
   upsertTerrainTextures(width: number, height: number, layers: number, format_code: number, albedo_data: Uint8Array, normal_data: Uint8Array, material_data: Uint8Array): void;
   renderEngineFrame(engine_snapshot: Float32Array, aspect: number, chunk_keys: Array<any>): void;
@@ -59,7 +59,7 @@ export interface InitOutput {
   readonly __wbg_rustbrowsergamestatus_free: (a: number, b: number) => void;
   readonly rustbrowsergame_create: (a: number) => number;
   readonly rustbrowsergame_resize: (a: number, b: number, c: number, d: number) => void;
-  readonly rustbrowsergame_upsertTerrainMesh: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => void;
+  readonly rustbrowsergame_upsertTerrainMesh: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
   readonly rustbrowsergame_destroyTerrainMesh: (a: number, b: number, c: number, d: number) => void;
   readonly rustbrowsergame_upsertTerrainTextures: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => void;
   readonly rustbrowsergame_renderEngineFrame: (a: number, b: number, c: number, d: number, e: number, f: number) => void;

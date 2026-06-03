@@ -24,7 +24,6 @@ describe("RustBrowserGameAdapter", () => {
 
     equal(fake.upsertedTerrainMeshes.length, 1);
     equal(fake.upsertedTerrainMeshes[0]?.chunkKey, "0,0,0");
-    equal(fake.upsertedTerrainMeshes[0]?.floatsPerVertex, 19);
     equal(fake.upsertedTerrainTextures.length, 1);
     equal(fake.upsertedTerrainTextures[0]?.width, 1);
     equal(fake.upsertedTerrainTextures[0]?.layers, 1);
@@ -60,7 +59,6 @@ describe("RustBrowserGameAdapter", () => {
 type FakeBrowserGame = EngineWebBrowserGame & {
   upsertedTerrainMeshes: {
     readonly chunkKey: string;
-    readonly floatsPerVertex: number;
   }[];
   upsertedTerrainTextures: {
     readonly width: number;
@@ -84,8 +82,8 @@ function fakeBrowserGame(): FakeBrowserGame {
     upsertedTerrainTextures: [],
     destroyedTerrainMeshes: [],
     resize() {},
-    upsertTerrainMesh(chunkKey, _vertices, _indices, floatsPerVertex) {
-      this.upsertedTerrainMeshes.push({ chunkKey, floatsPerVertex });
+    upsertTerrainMesh(chunkKey) {
+      this.upsertedTerrainMeshes.push({ chunkKey });
     },
     destroyTerrainMesh(chunkKey) {
       this.destroyedTerrainMeshes.push(chunkKey);
@@ -165,8 +163,7 @@ function fakeTextureArray(bytes: readonly number[]): RgbaTextureArray {
 function fakeMeshPacket(): TerrainRenderMeshPacket {
   return {
     vertices: new Float32Array(19 * 3),
-    indices: new Uint32Array([0, 1, 2]),
-    floatsPerVertex: 19
+    indices: new Uint32Array([0, 1, 2])
   };
 }
 

@@ -337,9 +337,8 @@ export class RustBrowserGame {
      * @param {string} chunk_key
      * @param {Float32Array} vertices
      * @param {Uint32Array} indices
-     * @param {number} floats_per_vertex
      */
-    upsertTerrainMesh(chunk_key, vertices, indices, floats_per_vertex) {
+    upsertTerrainMesh(chunk_key, vertices, indices) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
             const ptr0 = passStringToWasm0(chunk_key, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
@@ -348,7 +347,7 @@ export class RustBrowserGame {
             const len1 = WASM_VECTOR_LEN;
             const ptr2 = passArray32ToWasm0(indices, wasm.__wbindgen_malloc);
             const len2 = WASM_VECTOR_LEN;
-            wasm.rustbrowsergame_upsertTerrainMesh(retptr, this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2, floats_per_vertex);
+            wasm.rustbrowsergame_upsertTerrainMesh(retptr, this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             if (r1) {
