@@ -34,8 +34,10 @@ describe("engine web WASM", () => {
     ok(dtsText.includes("static create(canvas: HTMLCanvasElement): Promise<RustBrowserGame>"));
     ok(dtsText.includes("upsertTerrainMesh(chunk_key: string, vertices: Float32Array, indices: Uint32Array): void"));
     ok(dtsText.includes("destroyTerrainMesh"));
+    ok(dtsText.includes("retainTerrainMeshes(chunk_keys: Array<any>): void"));
+    ok(dtsText.includes("clearTerrainMeshes(): void"));
     ok(dtsText.includes("upsertTerrainTextures"));
-    ok(dtsText.includes("renderEngineFrame(engine_snapshot: Float32Array, aspect: number, chunk_keys: Array<any>): void"));
+    ok(dtsText.includes("renderEngineFrame(engine_snapshot: Float32Array, aspect: number): void"));
     equal(dtsText.includes("upsertMesh"), false);
     equal(dtsText.includes("destroyMesh"), false);
     equal(dtsText.includes("floats_per_vertex"), false);
@@ -119,6 +121,8 @@ function fakeBrowserGame(): EngineWebBrowserGame {
     resize() {},
     upsertTerrainMesh() {},
     destroyTerrainMesh() {},
+    retainTerrainMeshes() {},
+    clearTerrainMeshes() {},
     upsertTerrainTextures() {},
     renderEngineFrame() {},
     status() {

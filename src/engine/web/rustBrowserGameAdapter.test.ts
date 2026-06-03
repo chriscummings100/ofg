@@ -1,29 +1,20 @@
 import { equal } from "node:assert/strict";
-import type {
-  TerrainRenderMeshPacket,
-  TerrainRenderSource
-} from "../render/TerrainCoreRenderPackets.js";
+import type { TerrainRenderMeshPacket } from "../render/TerrainCoreRenderPackets.js";
 import type { RgbaTextureArray } from "../render/textureLoader.js";
 import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
-import type { TerrainChunkKey } from "../world/terrainChunk.js";
 import type { EngineWebBrowserGame } from "./engineWebWasm.js";
 import { RustBrowserGameAdapter } from "./rustBrowserGameAdapter.js";
 
 describe("RustBrowserGameAdapter", () => {
-  it("uploads terrain chunk mesh and texture bytes then renders chunk keys through the Rust browser game facade", () => {
+  it("uploads terrain texture bytes and renders through the Rust browser game facade", () => {
     const fake = fakeBrowserGame();
     const adapter = new RustBrowserGameAdapter(fakeCanvas(), fake);
-    const mesh = fakeMeshPacket();
     const terrainTextures = fakeTerrainTextures();
     const snapshot = sampleEngineRenderSnapshot();
 
-    withFakeWindow(() => adapter.renderEngineFrame(
-      snapshot,
-      fakeTerrainRenderSource(mesh, terrainTextures)
-    ));
+    adapter.setTerrainTextures(terrainTextures);
+    withFakeWindow(() => adapter.renderEngineFrame(snapshot));
 
-    equal(fake.upsertedTerrainMeshes.length, 1);
-    equal(fake.upsertedTerrainMeshes[0]?.chunkKey, "0,0,0");
     equal(fake.upsertedTerrainTextures.length, 1);
     equal(fake.upsertedTerrainTextures[0]?.width, 1);
     equal(fake.upsertedTerrainTextures[0]?.layers, 1);
@@ -33,26 +24,27 @@ describe("RustBrowserGameAdapter", () => {
     equal(fake.upsertedTerrainTextures[0]?.materialData[2], 255);
     equal(fake.lastRender?.engineSnapshot[0], 1);
     equal(fake.lastRender?.aspect, 640 / 480);
-    equal(fake.lastRender?.chunkKeys[0], "0,0,0");
   });
 
-  it("destroys uploaded terrain meshes that disappear from render packets", () => {
+  it("acts as a terrain chunk sink over the Rust browser game facade", () => {
     const fake = fakeBrowserGame();
-    const adapter = new RustBrowserGameAdapter(fakeCanvas(), fake) as unknown as {
-      uploadedTerrainMeshes: Map<TerrainChunkKey, TerrainRenderMeshPacket>;
-      pruneUploadedTerrainMeshes(seenChunkKeys: Set<TerrainChunkKey>): void;
-    };
+    const adapter = new RustBrowserGameAdapter(fakeCanvas(), fake);
     const keptMesh = fakeMeshPacket();
     const goneMesh = fakeMeshPacket();
 
-    adapter.uploadedTerrainMeshes.set("kept", keptMesh);
-    adapter.uploadedTerrainMeshes.set("gone", goneMesh);
+    adapter.addChunk({ key: "kept", mesh: keptMesh });
+    adapter.addChunk({ key: "gone", ...goneMesh });
+    adapter.retainChunks(["kept"]);
+    adapter.removeChunk("gone");
+    adapter.clear();
 
-    adapter.pruneUploadedTerrainMeshes(new Set(["kept"]));
-
-    equal(adapter.uploadedTerrainMeshes.has("kept"), true);
-    equal(adapter.uploadedTerrainMeshes.has("gone"), false);
+    equal(fake.upsertedTerrainMeshes.length, 2);
+    equal(fake.upsertedTerrainMeshes[0]?.chunkKey, "kept");
+    equal(fake.upsertedTerrainMeshes[1]?.chunkKey, "gone");
+    equal(fake.retainedTerrainMeshSets.length, 1);
+    equal(fake.retainedTerrainMeshSets[0]?.join(","), "kept");
     equal(fake.destroyedTerrainMeshes.join(","), "gone");
+    equal(fake.clearedTerrainMeshes, 1);
   });
 });
 
@@ -69,10 +61,11 @@ type FakeBrowserGame = EngineWebBrowserGame & {
     readonly materialData: Uint8Array;
   }[];
   destroyedTerrainMeshes: string[];
+  retainedTerrainMeshSets: string[][];
+  clearedTerrainMeshes: number;
   lastRender?: {
     readonly engineSnapshot: Float32Array;
     readonly aspect: number;
-    readonly chunkKeys: string[];
   };
 };
 
@@ -81,12 +74,20 @@ function fakeBrowserGame(): FakeBrowserGame {
     upsertedTerrainMeshes: [],
     upsertedTerrainTextures: [],
     destroyedTerrainMeshes: [],
+    retainedTerrainMeshSets: [],
+    clearedTerrainMeshes: 0,
     resize() {},
     upsertTerrainMesh(chunkKey) {
       this.upsertedTerrainMeshes.push({ chunkKey });
     },
     destroyTerrainMesh(chunkKey) {
       this.destroyedTerrainMeshes.push(chunkKey);
+    },
+    retainTerrainMeshes(chunkKeys) {
+      this.retainedTerrainMeshSets.push([...chunkKeys]);
+    },
+    clearTerrainMeshes() {
+      this.clearedTerrainMeshes += 1;
     },
     upsertTerrainTextures(width, _height, layers, formatCode, albedoData, normalData, materialData) {
       this.upsertedTerrainTextures.push({
@@ -100,13 +101,11 @@ function fakeBrowserGame(): FakeBrowserGame {
     },
     renderEngineFrame(
       engineSnapshot,
-      aspect,
-      chunkKeys
+      aspect
     ) {
       this.lastRender = {
         engineSnapshot: new Float32Array(engineSnapshot),
-        aspect,
-        chunkKeys: [...chunkKeys]
+        aspect
       };
     },
     status() {
@@ -125,21 +124,6 @@ function fakeBrowserGame(): FakeBrowserGame {
         frameDrawCount: 1
       };
     }
-  };
-}
-
-function fakeTerrainRenderSource(
-  mesh: TerrainRenderMeshPacket,
-  terrainTextures: TerrainMaterialTextures
-): TerrainRenderSource {
-  return {
-    terrainTextures,
-    chunks: [
-      {
-        key: "0,0,0",
-        mesh
-      }
-    ]
   };
 }
 

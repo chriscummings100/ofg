@@ -271,7 +271,7 @@ function __wbg_adapter_31(arg0, arg1, arg2) {
     wasm._dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h5dc9a98bc8edeb10(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wbg_adapter_381(arg0, arg1, arg2, arg3) {
+function __wbg_adapter_383(arg0, arg1, arg2, arg3) {
     wasm.wasm_bindgen__convert__closures__invoke2_mut__h3ff0595175ed627e(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
@@ -376,6 +376,35 @@ export class RustBrowserGame {
         }
     }
     /**
+     * @param {Array<any>} chunk_keys
+     */
+    retainTerrainMeshes(chunk_keys) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.rustbrowsergame_retainTerrainMeshes(retptr, this.__wbg_ptr, addHeapObject(chunk_keys));
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    clearTerrainMeshes() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.rustbrowsergame_clearTerrainMeshes(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * @param {number} width
      * @param {number} height
      * @param {number} layers
@@ -406,14 +435,13 @@ export class RustBrowserGame {
     /**
      * @param {Float32Array} engine_snapshot
      * @param {number} aspect
-     * @param {Array<any>} chunk_keys
      */
-    renderEngineFrame(engine_snapshot, aspect, chunk_keys) {
+    renderEngineFrame(engine_snapshot, aspect) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
             const ptr0 = passArrayF32ToWasm0(engine_snapshot, wasm.__wbindgen_malloc);
             const len0 = WASM_VECTOR_LEN;
-            wasm.rustbrowsergame_renderEngineFrame(retptr, this.__wbg_ptr, ptr0, len0, aspect, addHeapObject(chunk_keys));
+            wasm.rustbrowsergame_renderEngineFrame(retptr, this.__wbg_ptr, ptr0, len0, aspect);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             if (r1) {
@@ -1086,7 +1114,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_381(a, state0.b, arg0, arg1);
+                    return __wbg_adapter_383(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -1327,15 +1355,15 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper1068 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper1077 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 238, __wbg_adapter_31);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper352 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper361 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 33, __wbg_adapter_26);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper354 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper363 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 33, __wbg_adapter_26);
         return addHeapObject(ret);
     };

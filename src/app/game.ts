@@ -3,7 +3,10 @@ import { computeFrameDeltaSeconds } from "./frameTiming.js";
 import { EngineCoreWasmHandle, loadEngineCoreWasm } from "../engine/core/engineCoreWasm.js";
 import type { EngineWebRendererStatus } from "../engine/web/engineWebWasm.js";
 import { vec3, type Vec3 } from "../engine/math/vec3.js";
-import { createTerrainCoreRenderPacketStore } from "../engine/render/TerrainCoreRenderPackets.js";
+import {
+  createMirroredTerrainRenderChunkSink,
+  createTerrainCoreRenderPacketStore
+} from "../engine/render/TerrainCoreRenderPackets.js";
 import { loadTerrainMaterialTextures } from "../engine/render/terrainTextures.js";
 import { RustBrowserGameAdapter } from "../engine/web/rustBrowserGameAdapter.js";
 import { TerrainCoreWorkerStreamer } from "../game/components/TerrainCoreWorkerStreamer.js";
@@ -85,9 +88,12 @@ export async function startGame(elements: GameElements): Promise<void> {
   });
   const terrainDensityChunkStore = createTerrainCoreDensityChunkStore(terrainCore, descriptor);
   const terrainTextures = await loadTerrainMaterialTextures();
-  const terrainRenderPackets = createTerrainCoreRenderPacketStore(terrainCore, {
-    terrainTextures
-  });
+  renderer.setTerrainTextures(terrainTextures);
+  const terrainRenderPackets = createTerrainCoreRenderPacketStore(terrainCore);
+  const terrainRenderSink = createMirroredTerrainRenderChunkSink([
+    terrainRenderPackets,
+    renderer
+  ]);
   const initialPlayerPosition = vec3(0, terrainHeightAt(0, 0), 0);
   const initialDebugPosition = vec3(14, terrainHeightAt(0, 0) + 12, 18);
   const playerController = createPlayerController(
@@ -97,7 +103,7 @@ export async function startGame(elements: GameElements): Promise<void> {
     terrainHeightAt
   );
   const terrainStreamer = new TerrainCoreWorkerStreamer(
-    terrainRenderPackets,
+    terrainRenderSink,
     terrainStreamScheduler,
     terrainDensityChunkStore,
     terrainWorker,
@@ -111,7 +117,7 @@ export async function startGame(elements: GameElements): Promise<void> {
   let renderPacketRuntime: "rust" | "typescript" = "typescript";
   window.__ofgDebug = {
     getLoadedTerrainChunkKeys: () => terrainStreamer.getLoadedChunkKeys(),
-    getTerrainChunkKeys: () => terrainRenderPackets.chunks.map((chunk) => chunk.key).sort(),
+    getTerrainChunkKeys: () => terrainRenderPackets.chunkKeys(),
     getTerrainPreset: () => descriptor.terrainPreset,
     getTerrainSeed: () => descriptor.seed,
     getTerrainStreamStatus: () => terrainStreamer.getStreamStatus(),
@@ -167,7 +173,7 @@ export async function startGame(elements: GameElements): Promise<void> {
       throw new Error("Rust engine did not produce a render snapshot.");
     }
     renderPacketRuntime = "rust";
-    renderer.renderEngineFrame(renderSnapshot, terrainRenderPackets);
+    renderer.renderEngineFrame(renderSnapshot);
 
     elements.cameraMode.textContent = playerController.mode === "firstPerson" ? "FIRST" : "FLY";
     elements.cameraMode.dataset.mode = playerController.mode;

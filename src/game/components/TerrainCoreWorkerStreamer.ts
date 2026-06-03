@@ -1,4 +1,4 @@
-import type { TerrainCoreRenderPacketStore } from "../../engine/render/TerrainCoreRenderPackets.js";
+import type { TerrainRenderChunkSink } from "../../engine/render/TerrainCoreRenderPackets.js";
 import type { Vec3 } from "../../engine/math/vec3.js";
 import {
   terrainChunkCoordContainingPosition,
@@ -62,7 +62,7 @@ export class TerrainCoreWorkerStreamer {
   private lastChunkJobStats?: TerrainChunkJobStats;
 
   constructor(
-    private readonly terrain: TerrainCoreRenderPacketStore,
+    private readonly terrain: TerrainRenderChunkSink,
     private readonly streamScheduler: TerrainStreamScheduler,
     private readonly densityChunkStore: TerrainDensityChunkStore,
     private readonly worker: TerrainChunkJobGenerator,

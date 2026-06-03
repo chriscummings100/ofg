@@ -143,9 +143,9 @@ Supported:
   Rust browser game render facade instead of assembling a compiled TypeScript
   `RenderWorld`. Rust now owns renderer mesh/texture/object handles, render
   resource pruning, and the debug player marker mesh/material; TypeScript
-  uploads terrain mesh bytes by terrain chunk key and the three terrain texture
-  arrays through a terrain-specific facade call while that remaining transport is
-  being collapsed into a coarse Rust game facade.
+  uploads terrain mesh bytes by terrain chunk key when worker jobs complete and
+  the three terrain texture arrays through a terrain-specific facade call while
+  that remaining transport is being collapsed into a coarse Rust game facade.
 - Rust/wgpu is now the playable browser renderer through `crates/engine_web` and
   generated `assets/wasm/engine_web/` wasm-bindgen artifacts. Rust owns the
   WebGPU canvas surface, adapter/device/queue, surface configuration, depth
@@ -192,13 +192,15 @@ Partially supported or placeholder-only:
   wrapping. It also still has a temporary render adapter that loads Rust terrain
   mesh packet bytes from `terrain_core.wasm`, uploads mesh bytes by terrain chunk
   key, uploads the three terrain texture arrays through a terrain-specific Rust
-  facade call, and passes chunk keys for Rust/wgpu draw submission. Rust owns the
+  facade call, and mirrors chunk retention/removal into Rust at stream-event
+  time. Rust owns the
   renderer handle maps, terrain mesh handles, terrain texture handles, terrain
   identity world matrices, fixed terrain renderer vertex stride, fixed terrain
   material recipe, material packet construction, material-to-texture selection,
-  stale resource pruning, builds the frame packet from the raw `engine_core.wasm`
-  render snapshot, derives the player-marker transform, validates those packets,
-  computes normal matrices, and packs WGSL shader uniforms.
+  live terrain draw-set retention, stale resource pruning, builds the frame
+  packet from the raw `engine_core.wasm` render snapshot, derives the
+  player-marker transform, validates those packets, computes normal matrices,
+  and packs WGSL shader uniforms.
   `TerrainCoreWorkerStreamer` is now a small browser bridge that executes Worker
   jobs selected by `terrain_core.wasm`, asks Rust for LOD0 density dependency
   coordinates, stores density and mesh payloads in Rust, and feeds terrain
@@ -210,7 +212,7 @@ Partially supported or placeholder-only:
   Terrain chunk packet storage is Rust-owned for the playable path, and the old
   TypeScript `SceneRenderExtractor`/`MeshRenderer`/`RenderWorld` path has been
   deleted. TypeScript still acts as a browser transport for mesh bytes, texture
-  assets, terrain chunk keys, and UI/debug hooks until Rust owns a coarse
+  assets, worker messages, and UI/debug hooks until Rust owns a coarse
   end-to-end game/render facade.
 
 Not yet supported:
@@ -962,9 +964,10 @@ Progress notes:
 | 2026-06-02 | Generic TypeScript render items retired | Deleted the compiled `RenderItemPacket` abstraction. The app loop now hands the Rust terrain packet source to the temporary render adapter directly, so TypeScript no longer builds a generic render item list before calling `RustBrowserGame`. |
 | 2026-06-03 | Terrain material definition moved to Rust | Deleted the compiled TypeScript `Material` model and removed material fields from the terrain packet store and worker streamer. At that point the remaining TypeScript terrain render bridge uploaded texture bytes and called Rust's terrain-specific material configuration API; Rust owned the terrain material recipe and no per-chunk material IDs were submitted from TypeScript. |
 | 2026-06-03 | Terrain texture handles moved to Rust | Deleted the compiled TypeScript `Texture` model and replaced generic texture registration with a single `upsertTerrainTextures` facade call. TypeScript still fetches and decodes checked-in JPEGs with browser APIs, but Rust owns the resulting terrain texture handles and streamed chunks no longer reference texture IDs. |
-| 2026-06-03 | Terrain mesh handles moved to Rust | Replaced generic mesh IDs with terrain chunk keys at the `RustBrowserGame` boundary. TypeScript still loads terrain mesh packet bytes from `terrain_core.wasm`, but Rust now owns the terrain GPU mesh handle map, per-chunk object handles, and stale chunk resource pruning through `upsertTerrainMesh`, `destroyTerrainMesh`, and chunk-keyed `renderEngineFrame` calls. |
+| 2026-06-03 | Terrain mesh handles moved to Rust | Replaced generic mesh IDs with terrain chunk keys at the `RustBrowserGame` boundary. TypeScript still loads terrain mesh packet bytes from `terrain_core.wasm`, but Rust now owns the terrain GPU mesh handle map, per-chunk object handles, and stale chunk resource pruning through `upsertTerrainMesh`, `destroyTerrainMesh`, and the then-temporary chunk-keyed `renderEngineFrame` call. The later per-frame terrain source slice removed chunk keys from `renderEngineFrame`. |
 | 2026-06-03 | Terrain draw transforms moved to Rust | Deleted the temporary TypeScript terrain `worldMatrix` packet fields and stopped passing `worldMatrices` to `RustBrowserGame.renderEngineFrame`. Terrain chunks are emitted in world space today, so Rust now supplies identity terrain world matrices internally before uniform packing. |
 | 2026-06-03 | Terrain renderer vertex stride moved to Rust | Stopped carrying `floatsPerVertex` through TypeScript terrain render packets and the browser game facade. Rust/wgpu now supplies the fixed terrain vertex stride when registering chunk meshes, leaving TypeScript to transport only chunk keys plus raw vertex/index arrays. |
+| 2026-06-03 | Per-frame terrain render source retired | The playable frame loop no longer walks `terrain_core.wasm` mesh packets or passes terrain chunk keys into `RustBrowserGame.renderEngineFrame`. The streamer mirrors completed/removed chunks into the Rust terrain packet store and Rust/wgpu facade as stream events, and Rust now owns the live terrain draw set used each frame. TypeScript still transports worker mesh bytes and texture assets. |
 
 ## Cross-Cutting Validation
 

@@ -1,4 +1,8 @@
-import type { TerrainChunkKey } from "../world/terrainChunk.js";
+import {
+  terrainChunkKey,
+  type TerrainChunkCoord,
+  type TerrainChunkKey
+} from "../world/terrainChunk.js";
 import {
   createEngineWebBrowserGame,
   ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM,
@@ -6,14 +10,14 @@ import {
   type EngineWebRendererStatus
 } from "./engineWebWasm.js";
 import type {
-  TerrainRenderMeshPacket,
-  TerrainRenderSource
+  TerrainRenderChunkInput,
+  TerrainRenderChunkPacket,
+  TerrainRenderChunkSink
 } from "../render/TerrainCoreRenderPackets.js";
 import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
 
-export class RustBrowserGameAdapter {
+export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
   readonly runtime = "rust-wgpu" as const;
-  private readonly uploadedTerrainMeshes = new Map<TerrainChunkKey, TerrainRenderMeshPacket>();
   private uploadedTerrainTextures?: TerrainMaterialTextures;
   private width = 1;
   private height = 1;
@@ -53,41 +57,39 @@ export class RustBrowserGameAdapter {
     return this.game.status();
   }
 
-  renderEngineFrame(engineSnapshot: Float32Array, terrain: TerrainRenderSource): void {
+  setTerrainTextures(textures: TerrainMaterialTextures): void {
+    this.upsertTerrainTexturesIfNeeded(textures);
+  }
+
+  addChunk(chunk: TerrainRenderChunkInput): void {
+    const mesh = "mesh" in chunk ? chunk.mesh : chunk;
+    this.game.upsertTerrainMesh(chunk.key, mesh.vertices, mesh.indices);
+  }
+
+  getChunk(_chunk: TerrainChunkKey | TerrainChunkCoord): TerrainRenderChunkPacket | undefined {
+    return undefined;
+  }
+
+  removeChunk(chunk: TerrainChunkKey | TerrainChunkCoord): boolean {
+    this.game.destroyTerrainMesh(toChunkKey(chunk));
+    return true;
+  }
+
+  clear(): void {
+    this.game.clearTerrainMeshes();
+  }
+
+  retainChunks(chunks: readonly (TerrainChunkKey | TerrainChunkCoord)[]): void {
+    this.game.retainTerrainMeshes(chunks.map(toChunkKey));
+  }
+
+  renderEngineFrame(engineSnapshot: Float32Array): void {
     this.resize();
-    const chunks = terrain.chunks;
-    const chunkCount = chunks.length;
-    const chunkKeys: string[] = [];
-    const seenChunkKeys = new Set<TerrainChunkKey>();
-
-    this.upsertTerrainTexturesIfNeeded(terrain.terrainTextures);
-
-    for (let index = 0; index < chunkCount; index += 1) {
-      const chunk = chunks[index];
-
-      this.upsertTerrainMeshIfNeeded(chunk.key, chunk.mesh);
-      seenChunkKeys.add(chunk.key);
-      chunkKeys.push(chunk.key);
-    }
 
     this.game.renderEngineFrame(
       engineSnapshot,
-      this.getAspectRatio(),
-      chunkKeys
+      this.getAspectRatio()
     );
-    this.pruneUploadedTerrainMeshes(seenChunkKeys);
-  }
-
-  private upsertTerrainMeshIfNeeded(
-    chunkKey: TerrainChunkKey,
-    mesh: TerrainRenderMeshPacket
-  ): void {
-    if (this.uploadedTerrainMeshes.get(chunkKey) === mesh) {
-      return;
-    }
-
-    this.game.upsertTerrainMesh(chunkKey, mesh.vertices, mesh.indices);
-    this.uploadedTerrainMeshes.set(chunkKey, mesh);
   }
 
   private upsertTerrainTexturesIfNeeded(textures: TerrainMaterialTextures | undefined): void {
@@ -108,17 +110,6 @@ export class RustBrowserGameAdapter {
     this.uploadedTerrainTextures = textures;
   }
 
-  private pruneUploadedTerrainMeshes(seenChunkKeys: Set<TerrainChunkKey>): void {
-    for (const key of this.uploadedTerrainMeshes.keys()) {
-      if (seenChunkKeys.has(key)) {
-        continue;
-      }
-
-      this.game.destroyTerrainMesh(key);
-      this.uploadedTerrainMeshes.delete(key);
-    }
-  }
-
   private computeDisplaySize(): { readonly width: number; readonly height: number } {
     const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
 
@@ -127,6 +118,10 @@ export class RustBrowserGameAdapter {
       height: Math.max(1, Math.floor(this.canvas.clientHeight * pixelRatio))
     };
   }
+}
+
+function toChunkKey(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainChunkKey {
+  return typeof chunk === "string" ? chunk : terrainChunkKey(chunk);
 }
 
 function validateTerrainTextureArrays(textures: TerrainMaterialTextures): void {

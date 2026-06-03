@@ -363,19 +363,21 @@ The remaining Phase 5/ownership gap is facade granularity, not GPU ownership:
 TypeScript still loads terrain mesh packet bytes from `terrain_core.wasm`,
 fetches/decodes texture assets, uploads terrain mesh bytes by terrain chunk key,
 uploads the three terrain texture arrays through one terrain-specific facade
-call, passes terrain chunk keys for drawing, and applies a narrow browser
+call, and applies a narrow browser
 compatibility shim for the older `wgpu` limit name used by the pinned Rust
 toolchain. `engine_web` now exposes `RustBrowserGame`, which owns renderer
 resource handles, terrain mesh handles keyed by chunk, terrain texture handles,
 terrain identity world matrices, the fixed terrain renderer vertex stride, the
 fixed terrain material recipe, material-to-texture selection, object handles
-keyed by chunk, render-resource pruning, and the debug player marker
-mesh/material internally. Rust builds frame packets from raw engine snapshots,
-derives player-marker transforms, validates render packets, computes object
-normal matrices, and packs the actual shader uniform buffers. The next
-renderer/world slices should move render extraction, terrain packet loading,
-texture asset ownership, and the frame loop farther into Rust so TypeScript
-approaches a coarse `game.tick()` or `engine.render()` call.
+keyed by chunk, active terrain draw-set retention, render-resource pruning, and
+the debug player marker mesh/material internally. `renderEngineFrame` no longer
+receives terrain chunk keys from TypeScript; Rust renders the live terrain mesh
+set it owns. Rust builds frame packets from raw engine snapshots, derives
+player-marker transforms, validates render packets, computes object normal
+matrices, and packs the actual shader uniform buffers. The next renderer/world
+slices should move terrain packet loading, texture asset ownership,
+input/update/render ticking, and broader render extraction behind a coarse Rust
+game facade so TypeScript approaches a `game.tick()` or `engine.render()` call.
 
 Implementation:
 
@@ -595,6 +597,7 @@ streaming, then render packets, then Rust/wgpu.
 | 2026-06-02 | TypeScript render item packets retired | Deleted the generic compiled `RenderItemPacket` path. The temporary renderer adapter consumed the Rust terrain packet source directly and submitted terrain chunk IDs, mesh IDs, material IDs, and world matrices to `RustBrowserGame`; the app loop no longer assembled a TypeScript render item list. |
 | 2026-06-03 | Terrain material definition moved to Rust browser facade | Deleted the compiled TypeScript `Material` model, removed material fields from the terrain packet store and worker streamer, and replaced the generic `upsertMaterial`/`destroyMaterial` browser API with a terrain-specific `upsertTerrainMaterial` call. At that point TypeScript supplied terrain texture IDs only; Rust owned the terrain material recipe and per-frame material selection for streamed terrain chunks. |
 | 2026-06-03 | Terrain texture handles moved to Rust browser facade | Deleted the compiled TypeScript `Texture` model and replaced the generic `upsertTexture`/`destroyTexture` browser API plus terrain material texture-ID configuration with one `upsertTerrainTextures` call. TypeScript still performs browser-only fetch/decode, but Rust now owns the terrain texture resource handles and streamed chunks no longer reference texture IDs. |
-| 2026-06-03 | Terrain mesh handles moved to Rust browser facade | Replaced the generic `upsertMesh`/`destroyMesh` browser API and per-frame item/mesh ID arrays with chunk-keyed `upsertTerrainMesh`/`destroyTerrainMesh` calls and `renderEngineFrame(..., chunkKeys, worldMatrices)`. Deleted the compiled TypeScript `RenderMeshPacket`/`ResourceId` surface; TypeScript still transports terrain mesh bytes from `terrain_core.wasm`, but Rust now owns terrain GPU mesh handles and per-chunk object handles. |
+| 2026-06-03 | Terrain mesh handles moved to Rust browser facade | Replaced the generic `upsertMesh`/`destroyMesh` browser API and per-frame item/mesh ID arrays with chunk-keyed `upsertTerrainMesh`/`destroyTerrainMesh` calls and a temporary chunk-keyed `renderEngineFrame` call. Deleted the compiled TypeScript `RenderMeshPacket`/`ResourceId` surface; TypeScript still transports terrain mesh bytes from `terrain_core.wasm`, but Rust now owns terrain GPU mesh handles and per-chunk object handles. The later per-frame terrain source slice removed chunk keys from `renderEngineFrame`. |
 | 2026-06-03 | Terrain draw transforms moved to Rust browser facade | Removed the temporary TypeScript terrain `worldMatrix` packet fields and the `worldMatrices` parameter from `RustBrowserGame.renderEngineFrame`. Terrain chunks are currently emitted in world space, so Rust now supplies identity terrain world matrices internally before packing object uniforms. |
 | 2026-06-03 | Terrain renderer vertex stride moved to Rust browser facade | Removed `floatsPerVertex` from terrain render packets, `TerrainCoreWorkerStreamer`, `RustBrowserGameAdapter`, and the wasm-bindgen `upsertTerrainMesh` API. Rust/wgpu now supplies and validates the fixed terrain vertex stride internally when registering terrain chunk meshes. |
+| 2026-06-03 | Per-frame terrain render source retired | Changed `RustBrowserGame.renderEngineFrame` so TypeScript no longer passes terrain chunk keys every frame. The terrain streamer now mirrors chunk completion/removal into the Rust terrain packet store and the Rust browser game facade at event time; Rust owns the live terrain draw set and resource pruning through `retainTerrainMeshes`, `destroyTerrainMesh`, and `clearTerrainMeshes`. |

@@ -160,7 +160,34 @@ impl RustBrowserGame {
         let Some(handle) = self.terrain_mesh_handles_by_key.remove(chunk_key) else {
             return Ok(());
         };
-        self.renderer.destroy_mesh(handle)
+        self.renderer.destroy_mesh(handle)?;
+
+        if let Some(object_handle) = self.object_handles_by_id.remove(chunk_key) {
+            self.renderer.destroy_object(object_handle)?;
+        }
+
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = retainTerrainMeshes)]
+    pub fn retain_terrain_meshes(&mut self, chunk_keys: js_sys::Array) -> Result<(), JsValue> {
+        let seen_chunk_keys = string_array_values(&chunk_keys)?
+            .into_iter()
+            .collect::<HashSet<_>>();
+
+        self.retain_terrain_mesh_keys(&seen_chunk_keys)?;
+        self.retain_object_keys(&seen_chunk_keys)?;
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = clearTerrainMeshes)]
+    pub fn clear_terrain_meshes(&mut self) -> Result<(), JsValue> {
+        let chunk_keys = sorted_terrain_chunk_keys(&self.terrain_mesh_handles_by_key);
+        for chunk_key in chunk_keys {
+            self.destroy_terrain_mesh(&chunk_key)?;
+        }
+
+        Ok(())
     }
 
     #[wasm_bindgen(js_name = upsertTerrainTextures)]
@@ -219,9 +246,8 @@ impl RustBrowserGame {
         &mut self,
         engine_snapshot: &[f32],
         aspect: f32,
-        chunk_keys: js_sys::Array,
     ) -> Result<(), JsValue> {
-        let chunk_keys = string_array_values(&chunk_keys)?;
+        let chunk_keys = sorted_terrain_chunk_keys(&self.terrain_mesh_handles_by_key);
         let chunk_count = chunk_keys.len();
 
         let mut mesh_handles = Vec::with_capacity(chunk_count);
@@ -231,7 +257,6 @@ impl RustBrowserGame {
         let mut material_texture_handles = Vec::with_capacity(chunk_count);
         let mut world_matrices = Vec::with_capacity(chunk_count * WORLD_MATRIX_FLOATS);
         let mut material_packets = Vec::with_capacity(chunk_count * MATERIAL_PACKET_FLOATS);
-        let mut seen_chunk_keys = HashSet::with_capacity(chunk_count);
         let terrain_textures = self.terrain_textures.unwrap_or(TerrainTextureHandles {
             albedo: self.renderer.fallback_albedo,
             normal: self.renderer.fallback_normal,
@@ -251,7 +276,6 @@ impl RustBrowserGame {
                     })?;
             let object_handle = self.object_handle_for_id(chunk_key)?;
 
-            seen_chunk_keys.insert(chunk_key.clone());
             mesh_handles.push(handle_to_js(mesh_handle));
             object_handles.push(handle_to_js(object_handle));
             albedo_texture_handles.push(handle_to_js(terrain_textures.albedo));
@@ -278,9 +302,6 @@ impl RustBrowserGame {
             handle_to_js(self.renderer.fallback_material),
             &self.player_marker_material_packet,
         )?;
-
-        self.retain_terrain_mesh_keys(&seen_chunk_keys)?;
-        self.retain_object_keys(&seen_chunk_keys)?;
         Ok(())
     }
 
@@ -1262,6 +1283,12 @@ fn string_array_values(values: &js_sys::Array) -> Result<Vec<String>, JsValue> {
                 .ok_or_else(|| js_error("Rust browser game expected terrain chunk keys."))
         })
         .collect()
+}
+
+fn sorted_terrain_chunk_keys(handles: &HashMap<String, ResourceHandle>) -> Vec<String> {
+    let mut keys = handles.keys().cloned().collect::<Vec<_>>();
+    keys.sort();
+    keys
 }
 
 fn handle_to_js(handle: ResourceHandle) -> f64 {

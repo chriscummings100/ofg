@@ -25,6 +25,8 @@ export type EngineWebBrowserGame = {
     indices: Uint32Array
   ): void;
   destroyTerrainMesh(chunkKey: string): void;
+  retainTerrainMeshes(chunkKeys: string[]): void;
+  clearTerrainMeshes(): void;
   upsertTerrainTextures(
     width: number,
     height: number,
@@ -36,8 +38,7 @@ export type EngineWebBrowserGame = {
   ): void;
   renderEngineFrame(
     engineSnapshot: Float32Array,
-    aspect: number,
-    chunkKeys: string[]
+    aspect: number
   ): void;
   status(): EngineWebRendererStatus;
 };

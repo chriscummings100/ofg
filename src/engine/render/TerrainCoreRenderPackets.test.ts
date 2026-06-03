@@ -6,10 +6,15 @@ import {
   type TerrainCoreWasmInstance
 } from "../world/terrainCoreWasm.js";
 import { TERRAIN_CORE_WASM_METADATA } from "../../generated/terrain/terrainCoreWasm.js";
-import { TerrainCoreRenderPacketStore } from "./TerrainCoreRenderPackets.js";
+import {
+  TerrainCoreRenderPacketStore,
+  createMirroredTerrainRenderChunkSink,
+  type TerrainRenderChunkSink,
+  type TerrainRenderChunkInput
+} from "./TerrainCoreRenderPackets.js";
 
 describe("TerrainCoreRenderPacketStore", () => {
-  it("stores terrain chunk packets in Rust and exposes terrain render source data", async () => {
+  it("stores terrain chunk packets in Rust and exposes packet data", async () => {
     const terrainCore = await loadTerrainCore();
     const store = new TerrainCoreRenderPacketStore(terrainCore);
 
@@ -23,6 +28,7 @@ describe("TerrainCoreRenderPacketStore", () => {
     equal(store.chunks.length, 1);
     equal(store.chunks[0].key, "0,0,0");
     equal(store.chunks[0].mesh.indices.length, 3);
+    equal(store.chunkKeys().join(","), "0,0,0");
   });
 
   it("removes Rust-owned terrain chunk packets by key or coord", async () => {
@@ -58,6 +64,7 @@ describe("TerrainCoreRenderPacketStore", () => {
     store.retainChunks(["1,0,0", terrainChunkCoord(2, 0, 0)]);
 
     equal(store.size(), 2);
+    equal(store.chunkKeys().join(","), "1,0,0,2,0,0");
     equal(store.chunks.length, 2);
     equal(store.chunks[0].key, "1,0,0");
     equal(store.chunks[1].key, "2,0,0");
@@ -112,6 +119,26 @@ describe("TerrainCoreRenderPacketStore", () => {
     }), /rejected chunk/);
     equal(store.size(), 0);
   });
+
+  it("mirrors terrain chunk sink operations to multiple targets", () => {
+    const first = createRecordingSink();
+    const second = createRecordingSink();
+    const sink = createMirroredTerrainRenderChunkSink([first, second]);
+    const mesh = createTriangleMeshData();
+
+    sink.addChunk({ key: "0,0,0", ...mesh });
+    sink.retainChunks(["0,0,0", terrainChunkCoord(1, 0, 0)]);
+    sink.removeChunk("0,0,0");
+    sink.clear();
+
+    equal(first.events.join("|"), second.events.join("|"));
+    equal(first.events.join("|"), [
+      "add:0,0,0",
+      "retain:0,0,0;1,0,0",
+      "remove:0,0,0",
+      "clear"
+    ].join("|"));
+  });
 });
 
 function createTriangleMeshData(firstX = 0) {
@@ -133,4 +160,30 @@ async function loadTerrainCore(): Promise<TerrainCoreWasmInstance> {
   ) as ArrayBuffer;
 
   return instantiateTerrainCoreWasm(wasmBytes);
+}
+
+function createRecordingSink(): TerrainRenderChunkSink & { readonly events: string[] } {
+  return {
+    events: [],
+    addChunk(chunk: TerrainRenderChunkInput) {
+      this.events.push(`add:${chunk.key}`);
+    },
+    getChunk() {
+      return undefined;
+    },
+    removeChunk(chunk) {
+      this.events.push(`remove:${typeof chunk === "string" ? chunk : `${chunk.x},${chunk.y},${chunk.z}`}`);
+      return true;
+    },
+    clear() {
+      this.events.push("clear");
+    },
+    retainChunks(chunks) {
+      this.events.push(
+        `retain:${chunks.map((chunk) =>
+          typeof chunk === "string" ? chunk : `${chunk.x},${chunk.y},${chunk.z}`
+        ).join(";")}`
+      );
+    }
+  };
 }

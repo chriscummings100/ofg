@@ -12,7 +12,6 @@ import {
   readTerrainCoreMeshVertexBuffer,
   type TerrainCoreWasmInstance
 } from "../world/terrainCoreWasm.js";
-import type { TerrainMaterialTextures } from "./terrainTextures.js";
 
 export type TerrainRenderMeshPacket = {
   readonly vertices: Float32Array;
@@ -42,25 +41,14 @@ export type TerrainRenderChunkSink = {
   retainChunks(chunks: readonly (TerrainChunkKey | TerrainChunkCoord)[]): void;
 };
 
-export type TerrainRenderSource = {
-  readonly terrainTextures?: TerrainMaterialTextures;
-  readonly chunks: readonly TerrainRenderChunkPacket[];
-};
-
 export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
   readonly runtime = "rust" as const;
-  readonly terrainTextures?: TerrainMaterialTextures;
   private cachedVersion = -1;
   private cachedChunks: TerrainRenderChunkPacket[] = [];
 
   constructor(
-    private readonly terrainCore: TerrainCoreWasmInstance,
-    options: {
-      readonly terrainTextures?: TerrainMaterialTextures;
-    } = {}
-  ) {
-    this.terrainTextures = options.terrainTextures;
-  }
+    private readonly terrainCore: TerrainCoreWasmInstance
+  ) {}
 
   get chunks(): readonly TerrainRenderChunkPacket[] {
     this.syncMeshCache();
@@ -145,37 +133,31 @@ export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
     return this.terrainCore.exports.ofg_terrain_mesh_packet_store_entry_count();
   }
 
+  chunkKeys(): TerrainChunkKey[] {
+    return this.meshPacketCoords()
+      .map(({ coord }) => terrainChunkKey(coord))
+      .sort();
+  }
+
   private syncMeshCache(): void {
     const version = this.terrainCore.exports.ofg_terrain_mesh_packet_store_version();
     if (version === this.cachedVersion) {
       return;
     }
 
-    const expectedCount = this.terrainCore.exports.ofg_terrain_mesh_packet_store_entry_count();
-    const count = this.terrainCore.exports.ofg_write_terrain_mesh_packet_coords();
-    if (count !== expectedCount) {
-      throw new Error(
-        `Rust terrain mesh packet coord buffer wrote ${count} packets, expected ${expectedCount}.`
-      );
-    }
-
-    const lods = new Uint32Array(this.meshPacketLodBuffer(count));
-    const xs = new Int32Array(this.meshPacketXBuffer(count));
-    const ys = new Int32Array(this.meshPacketYBuffer(count));
-    const zs = new Int32Array(this.meshPacketZBuffer(count));
+    const coords = this.meshPacketCoords();
     const chunks: TerrainRenderChunkPacket[] = [];
 
-    for (let index = 0; index < count; index += 1) {
-      if (lods[index] !== 0) {
-        throw new Error(`Unsupported Rust terrain mesh packet LOD '${lods[index]}'.`);
+    for (const { coord, lod } of coords) {
+      if (lod !== 0) {
+        throw new Error(`Unsupported Rust terrain mesh packet LOD '${lod}'.`);
       }
 
-      const coord = terrainChunkCoord(xs[index], ys[index], zs[index]);
       const loaded = this.terrainCore.exports.ofg_load_terrain_mesh_packet_buffer(
         coord.x,
         coord.y,
         coord.z,
-        lods[index]
+        lod
       );
       if (loaded !== 1) {
         throw new Error(`Rust terrain mesh packet '${terrainChunkKey(coord)}' could not be loaded.`);
@@ -193,6 +175,28 @@ export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
 
     this.cachedChunks = chunks;
     this.cachedVersion = version;
+  }
+
+  private meshPacketCoords(): { readonly coord: TerrainChunkCoord; readonly lod: number }[] {
+    const expectedCount = this.terrainCore.exports.ofg_terrain_mesh_packet_store_entry_count();
+    const count = this.terrainCore.exports.ofg_write_terrain_mesh_packet_coords();
+    if (count !== expectedCount) {
+      throw new Error(
+        `Rust terrain mesh packet coord buffer wrote ${count} packets, expected ${expectedCount}.`
+      );
+    }
+
+    const lods = new Uint32Array(this.meshPacketLodBuffer(count));
+    const xs = new Int32Array(this.meshPacketXBuffer(count));
+    const ys = new Int32Array(this.meshPacketYBuffer(count));
+    const zs = new Int32Array(this.meshPacketZBuffer(count));
+
+    return Array.from({ length: count }, (_value, index) => ({
+      coord: terrainChunkCoord(xs[index], ys[index], zs[index]),
+      lod: lods[index]
+    })).sort((a, b) =>
+      terrainChunkKey(a.coord).localeCompare(terrainChunkKey(b.coord)) || a.lod - b.lod
+    );
   }
 
   private meshPacketLodBuffer(length: number): Uint32Array {
@@ -229,10 +233,53 @@ export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
 }
 
 export function createTerrainCoreRenderPacketStore(
-  terrainCore: TerrainCoreWasmInstance,
-  options: ConstructorParameters<typeof TerrainCoreRenderPacketStore>[1] = {}
+  terrainCore: TerrainCoreWasmInstance
 ): TerrainCoreRenderPacketStore {
-  return new TerrainCoreRenderPacketStore(terrainCore, options);
+  return new TerrainCoreRenderPacketStore(terrainCore);
+}
+
+export function createMirroredTerrainRenderChunkSink(
+  sinks: readonly TerrainRenderChunkSink[]
+): TerrainRenderChunkSink {
+  if (sinks.length === 0) {
+    throw new Error("Mirrored terrain render sink requires at least one target sink.");
+  }
+
+  return {
+    addChunk(chunk) {
+      for (const sink of sinks) {
+        sink.addChunk(chunk);
+      }
+    },
+    getChunk(chunk) {
+      for (const sink of sinks) {
+        const result = sink.getChunk(chunk);
+        if (result !== undefined) {
+          return result;
+        }
+      }
+
+      return undefined;
+    },
+    removeChunk(chunk) {
+      let removed = false;
+      for (const sink of sinks) {
+        removed = sink.removeChunk(chunk) || removed;
+      }
+
+      return removed;
+    },
+    clear() {
+      for (const sink of sinks) {
+        sink.clear();
+      }
+    },
+    retainChunks(chunks) {
+      for (const sink of sinks) {
+        sink.retainChunks(chunks);
+      }
+    }
+  };
 }
 
 function toChunkKey(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainChunkKey {
