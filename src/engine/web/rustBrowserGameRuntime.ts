@@ -1,9 +1,5 @@
 import { vec3, type Vec3 } from "../math/vec3.js";
-import {
-  createMirroredTerrainRenderChunkSink,
-  createTerrainCoreRenderPacketStore,
-  type TerrainRenderChunkSink
-} from "../render/TerrainCoreRenderPackets.js";
+import type { TerrainRenderChunkSink } from "../render/TerrainCoreRenderPackets.js";
 import { loadTerrainMaterialTextures, type TerrainMaterialTextures } from "../render/terrainTextures.js";
 import { createTerrainCoreDensityChunkStore } from "../world/terrainCoreDensityChunkStore.js";
 import { createTerrainCoreStreamScheduler } from "../world/terrainCoreStreamScheduler.js";
@@ -47,6 +43,7 @@ export type RustBrowserGameRenderer = TerrainRenderChunkSink & {
   setPlayerPosition(x: number, z: number): void;
   setDebugCamera(position: Vec3, yaw: number, pitch: number): void;
   getStatus(): EngineWebRendererStatus;
+  chunkKeys(): TerrainChunkKey[];
 };
 
 export type TerrainWorkerStreamer = {
@@ -61,9 +58,6 @@ export type TerrainWorkerStreamer = {
 export type RustBrowserGameRuntimeDependencies = {
   readonly descriptor: WorldDescriptor;
   readonly renderer: RustBrowserGameRenderer;
-  readonly terrainRenderPackets: {
-    chunkKeys(): TerrainChunkKey[];
-  };
   readonly terrainStreamer: TerrainWorkerStreamer;
   readonly terrainWorker: {
     readonly workerCount: number;
@@ -127,7 +121,7 @@ export class RustBrowserGameRuntime {
   }
 
   getTerrainChunkKeys(): TerrainChunkKey[] {
-    return this.dependencies.terrainRenderPackets.chunkKeys();
+    return this.dependencies.renderer.chunkKeys();
   }
 
   getTerrainPreset(): TerrainPresetId {
@@ -186,13 +180,8 @@ export async function createRustBrowserGameRuntime(
 
   renderer.setTerrainTextures(await loadTerrainMaterialTextures());
 
-  const terrainRenderPackets = createTerrainCoreRenderPacketStore(terrainCore);
-  const terrainRenderSink = createMirroredTerrainRenderChunkSink([
-    terrainRenderPackets,
-    renderer
-  ]);
   const terrainStreamer = new TerrainCoreWorkerStreamer(
-    terrainRenderSink,
+    renderer,
     terrainStreamScheduler,
     terrainDensityChunkStore,
     terrainWorker,
@@ -207,7 +196,6 @@ export async function createRustBrowserGameRuntime(
   return new RustBrowserGameRuntime({
     descriptor,
     renderer,
-    terrainRenderPackets,
     terrainStreamer,
     terrainWorker,
     terrainDensityChunkStore,

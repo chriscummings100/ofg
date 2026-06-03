@@ -27,6 +27,7 @@ const DEBUG_FLY_MODE = 1;
 export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
   readonly runtime = "rust-wgpu" as const;
   private uploadedTerrainTextures?: TerrainMaterialTextures;
+  private readonly terrainChunkKeys = new Set<TerrainChunkKey>();
   private width = 1;
   private height = 1;
 
@@ -115,6 +116,7 @@ export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
 
   addChunk(chunk: TerrainRenderChunkInput): void {
     const mesh = "mesh" in chunk ? chunk.mesh : chunk;
+    this.terrainChunkKeys.add(chunk.key);
     this.game.upsertTerrainMesh(chunk.key, mesh.vertices, mesh.indices);
   }
 
@@ -123,16 +125,30 @@ export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
   }
 
   removeChunk(chunk: TerrainChunkKey | TerrainChunkCoord): boolean {
-    this.game.destroyTerrainMesh(toChunkKey(chunk));
-    return true;
+    const key = toChunkKey(chunk);
+    const existed = this.terrainChunkKeys.delete(key);
+    this.game.destroyTerrainMesh(key);
+    return existed;
   }
 
   clear(): void {
+    this.terrainChunkKeys.clear();
     this.game.clearTerrainMeshes();
   }
 
   retainChunks(chunks: readonly (TerrainChunkKey | TerrainChunkCoord)[]): void {
-    this.game.retainTerrainMeshes(chunks.map(toChunkKey));
+    const keys = chunks.map(toChunkKey);
+    const retainSet = new Set(keys);
+    for (const key of this.terrainChunkKeys) {
+      if (!retainSet.has(key)) {
+        this.terrainChunkKeys.delete(key);
+      }
+    }
+    this.game.retainTerrainMeshes(keys);
+  }
+
+  chunkKeys(): TerrainChunkKey[] {
+    return [...this.terrainChunkKeys].sort();
   }
 
   renderGameFrame(): void {

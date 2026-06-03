@@ -36,14 +36,13 @@ src/engine/math
   Small vector and matrix primitives.
 
 src/engine/render
-  CPU-side terrain texture decoding helpers, terrain mesh packet source
-  adapters, and the temporary Rust/wgpu browser adapter. Runtime terrain chunks
-  enter this path as direct mesh byte packets loaded from a Rust-owned terrain
-  packet store. Actual browser WebGPU resource creation and draw submission
-  happen in Rust/wgpu through `crates/engine_web`; TypeScript only uploads
-  terrain mesh bytes by chunk key and uploads the terrain texture arrays for the
-  Rust browser game facade. Rust now constructs the terrain draw transforms
-  internally.
+  CPU-side terrain texture decoding helpers and the temporary Rust/wgpu browser
+  adapter. Runtime terrain worker results enter this path as mesh bytes that are
+  handed directly to `RustBrowserGame` by chunk key. Actual browser WebGPU
+  resource creation and draw submission happen in Rust/wgpu through
+  `crates/engine_web`; TypeScript only uploads terrain mesh bytes by chunk key
+  and uploads the terrain texture arrays for the Rust browser game facade. Rust
+  now constructs the terrain draw transforms internally.
 
 src/engine/web
   Browser-facing WASM loaders for Rust systems that are not pure engine core or
@@ -80,14 +79,16 @@ temporary terrain worker/asset transport.
   playable app for active player/camera state.
 - `terrain_core.wasm` owns terrain height/density sampling, generated chunk mesh
   emission, stream scheduling, density storage, worker-pool request state, and
-  terrain mesh packet storage.
+  the tested legacy terrain mesh packet store. The playable browser path now
+  sends completed worker mesh results straight into `RustBrowserGame` terrain
+  mesh handles instead of mirroring through that store.
 - `engine_web` owns the Rust/wgpu browser renderer: WebGPU canvas surface,
   adapter/device/queue, surface configuration, depth texture, shader modules,
   pipelines, buffers, texture arrays, samplers, bind groups, render-pass
   submission, frame/resource counts, and GPU resource pruning.
 - TypeScript collects DOM input, parses URL seed/preset values, starts WASM,
   hosts browser Workers below `RustBrowserGameRuntime`, wraps shared density
-  buffers, exposes debug hooks, loads terrain mesh bytes from Rust packet stores,
+  buffers, exposes debug hooks, receives terrain mesh bytes from worker results,
   fetches texture assets, and passes terrain mesh bytes by chunk key plus texture
   arrays into Rust-owned renderer facades. `src/app` no longer constructs the
   terrain scheduler, density store, render packet store, worker client, mirrored
@@ -133,10 +134,11 @@ work. Loaded density chunk keys remain fully 3D.
 Runtime terrain meshes carry position, color, normal, uv, material layer indices,
 and material weights. A small mesh post-pass expands indexed triangles so each
 triangle has a coherent local four-material palette for interpolation.
-In the playable browser runtime, those chunk mesh payloads are written into and
-pruned from a Rust-owned mesh packet store in `terrain_core.wasm`, then loaded as
-direct render mesh packets by `TerrainCoreRenderPacketStore`. The old compiled
-TypeScript `TerrainChunkStreamer`, `TerrainRenderer`, `TerrainRenderPacketStore`,
+In the playable browser runtime, those chunk mesh payloads are uploaded directly
+into `RustBrowserGame` chunk-keyed terrain mesh handles. The
+adapter tracks live chunk keys for debug/smoke, while Rust/wgpu owns the actual
+GPU mesh handles and active draw set. The old compiled TypeScript
+`TerrainChunkStreamer`, `TerrainRenderer`, `TerrainRenderPacketStore`,
 `RenderWorld`, highest-surface mesher, and heightfield mesh path have been
 retired rather than kept as parallel terrain owners.
 

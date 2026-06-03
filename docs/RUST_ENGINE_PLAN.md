@@ -243,12 +243,12 @@ in-flight jobs, reset generation tokens, stale completion rejection, retryable
 density failures, empty LOD0 tracking, and window pruning. The browser runtime
 now also retains completed density payloads in the main `terrain_core.wasm`
 density store instead of a TypeScript-owned payload map. The playable runtime no
-longer mutates `TerrainRenderer` for streamed chunks; Rust/WASM mesh payloads now
-flow into a Rust-owned terrain mesh packet store in `terrain_core.wasm` outside
-the scene terrain component path. Scheduler-backed terrain packet pruning also
-runs through that Rust store, and rendered/empty LOD0 status comes from the Rust
+longer mutates `TerrainRenderer` for streamed chunks; worker mesh results now
+flow directly into `RustBrowserGame` chunk-keyed Rust/wgpu terrain mesh handles.
+The older `terrain_core.wasm` terrain mesh packet store remains tested but is no
+longer the playable mesh handoff. Rendered/empty LOD0 status comes from the Rust
 scheduler rather than a TypeScript render-key mirror. TypeScript still owns the
-browser Worker host and the temporary render-packet adapter, but Rust/wgpu now
+browser Worker host and the temporary terrain worker bridge, but Rust/wgpu now
 owns actual WebGPU upload/cache resources and draw submission. The playable app
 uses `TerrainCoreWorkerStreamer` and the compiled legacy `TerrainChunkStreamer`
 has been deleted. The dev/smoke browser runtime is now cross-origin isolated and uses
@@ -306,15 +306,15 @@ Deletion path:
 Goal: make rendering consume Rust-produced data before moving WebGPU itself.
 
 Status: in progress. `engine_core` now has a tested Rust render packet model and
-raw WASM snapshot buffer for the player camera, main light, and debug player
-marker visibility/position. The playable browser render path now passes that raw
-snapshot to `engine_web`; Rust builds the frame packet and player-marker world
-matrix from it. Streamed terrain chunks no longer use `TerrainRenderer` in the
-playable app; Rust/WASM worker mesh payloads are copied into a Rust-owned terrain
-mesh packet store and exposed to the Rust/wgpu adapter as direct mesh packets
-rather than CPU-side TypeScript `Mesh` objects. The TypeScript scene/render
-extractor path and compiled `RenderWorld` model have been deleted. This is still
-a browser transport/resource-handle bridge, not a coarse Rust `game.tick()` facade.
+raw WASM snapshot buffer for standalone core tests, while `engine_web` owns the
+active browser player/camera state and builds the playable frame packet from its
+own `BrowserGameState`. Streamed terrain chunks no longer use `TerrainRenderer`
+in the playable app; Rust/WASM worker mesh payloads are uploaded directly into
+`RustBrowserGame` chunk-keyed terrain mesh handles rather than CPU-side
+TypeScript `Mesh` objects or the older `terrain_core.wasm` mesh packet store.
+The TypeScript scene/render extractor path and compiled `RenderWorld` model have
+been deleted. This is still a browser Worker/asset transport bridge, not
+Rust-owned worker spawning.
 
 Implementation:
 
@@ -364,13 +364,13 @@ been deleted.
 
 The remaining Phase 5/ownership gap is facade granularity, not GPU ownership:
 the TypeScript `RustBrowserGameRuntime` now hides the remaining browser-only
-terrain worker and asset transport from `src/app`, but it still loads terrain
-mesh packet bytes from `terrain_core.wasm`, fetches/decodes texture assets,
-uploads terrain mesh bytes by terrain chunk key, uploads the three terrain
-texture arrays through one terrain-specific facade call, hosts browser Workers,
-and applies a narrow browser compatibility shim for the older `wgpu` limit name
-used by the pinned Rust toolchain. `engine_web` now exposes `RustBrowserGame`,
-which owns renderer resource handles, terrain mesh handles keyed by chunk,
+terrain worker and asset transport from `src/app`, but it still receives mesh
+bytes from Worker results, uploads terrain mesh bytes by terrain chunk key,
+fetches/decodes texture assets, uploads the three terrain texture arrays through
+one terrain-specific facade call, hosts browser Workers, and applies a narrow
+browser compatibility shim for the older `wgpu` limit name used by the pinned
+Rust toolchain. `engine_web` now exposes `RustBrowserGame`, which owns renderer
+resource handles, terrain mesh handles keyed by chunk,
 terrain texture handles, terrain identity world matrices, the fixed terrain
 renderer vertex stride, the fixed terrain material recipe,
 material-to-texture selection, object handles keyed by chunk, active terrain
@@ -379,8 +379,8 @@ mesh/material, and the active player/camera tick state. `src/app` now collects
 input/HUD/debug state and calls the coarse TypeScript runtime facade for
 `tick`/`renderFrame`; `renderGameFrame` no longer receives engine snapshots or
 terrain chunk keys from TypeScript. The next renderer/world slices should move
-terrain packet loading, texture asset ownership, and terrain worker orchestration
-out of the TypeScript runtime facade and into Rust/browser-threading support.
+texture asset ownership and terrain worker orchestration out of the TypeScript
+runtime facade and into Rust/browser-threading support.
 
 Implementation:
 
@@ -603,6 +603,7 @@ streaming, then render packets, then Rust/wgpu.
 | 2026-06-03 | Terrain mesh handles moved to Rust browser facade | Replaced the generic `upsertMesh`/`destroyMesh` browser API and per-frame item/mesh ID arrays with chunk-keyed `upsertTerrainMesh`/`destroyTerrainMesh` calls and a temporary chunk-keyed `renderEngineFrame` call. Deleted the compiled TypeScript `RenderMeshPacket`/`ResourceId` surface; TypeScript still transports terrain mesh bytes from `terrain_core.wasm`, but Rust now owns terrain GPU mesh handles and per-chunk object handles. The later per-frame terrain source slice removed chunk keys from `renderEngineFrame`. |
 | 2026-06-03 | Terrain draw transforms moved to Rust browser facade | Removed the temporary TypeScript terrain `worldMatrix` packet fields and the `worldMatrices` parameter from `RustBrowserGame.renderEngineFrame`. Terrain chunks are currently emitted in world space, so Rust now supplies identity terrain world matrices internally before packing object uniforms. |
 | 2026-06-03 | Terrain renderer vertex stride moved to Rust browser facade | Removed `floatsPerVertex` from terrain render packets, `TerrainCoreWorkerStreamer`, `RustBrowserGameAdapter`, and the wasm-bindgen `upsertTerrainMesh` API. Rust/wgpu now supplies and validates the fixed terrain vertex stride internally when registering terrain chunk meshes. |
-| 2026-06-03 | Per-frame terrain render source retired | Changed `RustBrowserGame.renderEngineFrame` so TypeScript no longer passes terrain chunk keys every frame. The terrain streamer now mirrors chunk completion/removal into the Rust terrain packet store and the Rust browser game facade at event time; Rust owns the live terrain draw set and resource pruning through `retainTerrainMeshes`, `destroyTerrainMesh`, and `clearTerrainMeshes`. |
+| 2026-06-03 | Per-frame terrain render source retired | Changed `RustBrowserGame.renderEngineFrame` so TypeScript no longer passes terrain chunk keys every frame. At that point the terrain streamer still mirrored chunk completion/removal into both the Rust terrain packet store and the Rust browser game facade at event time; the later playable mesh packet-store mirror slice removed that duplicate handoff. |
 | 2026-06-03 | Active browser player/tick moved into Rust game facade | Added `engine_web::BrowserGameState`, backed by `engine_core` and `terrain_core` as Rust library dependencies, and replaced the TypeScript `RustPlayerController` plus `engine_core.wasm` runtime load. The browser frame loop now forwards input axes/debug commands to `RustBrowserGame.tick`, reads player state from Rust for terrain streaming/debug hooks, and calls `renderGameFrame` without passing an engine render snapshot. Browser smoke passed after refresh with `playerControllerRuntime`, `renderPacketRuntime`, and `rendererRuntime` all Rust-owned. |
 | 2026-06-03 | App terrain pipeline wiring collapsed behind runtime facade | Added `RustBrowserGameRuntime`, a coarse TypeScript browser shell around `RustBrowserGame`, terrain worker transport, texture loading, stream status, and debug hooks. `src/app/game.ts` no longer constructs terrain schedulers, density stores, render packet stores, worker clients, texture uploads, or mirrored sinks directly; the frame loop now calls `game.tick(delta, intent)` and `game.renderFrame()`. This is a shell-boundary cleanup, not full Rust-owned worker spawning yet. |
+| 2026-06-03 | Playable terrain mesh packet-store mirror retired | `TerrainCoreWorkerStreamer` now writes completed worker mesh results straight to `RustBrowserGame` through the adapter sink. The adapter tracks live chunk keys for debug/smoke and Rust/wgpu owns the actual chunk mesh handles; the older `terrain_core.wasm` mesh packet store remains tested but is no longer part of the playable browser handoff. |

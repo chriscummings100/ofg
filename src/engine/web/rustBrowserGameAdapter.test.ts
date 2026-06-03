@@ -64,7 +64,9 @@ describe("RustBrowserGameAdapter", () => {
     adapter.addChunk({ key: "kept", mesh: keptMesh });
     adapter.addChunk({ key: "gone", ...goneMesh });
     adapter.retainChunks(["kept"]);
-    adapter.removeChunk("gone");
+    equal(adapter.chunkKeys().join(","), "kept");
+    equal(adapter.removeChunk("gone"), false);
+    equal(adapter.removeChunk("kept"), true);
     adapter.clear();
 
     equal(fake.upsertedTerrainMeshes.length, 2);
@@ -72,8 +74,9 @@ describe("RustBrowserGameAdapter", () => {
     equal(fake.upsertedTerrainMeshes[1]?.chunkKey, "gone");
     equal(fake.retainedTerrainMeshSets.length, 1);
     equal(fake.retainedTerrainMeshSets[0]?.join(","), "kept");
-    equal(fake.destroyedTerrainMeshes.join(","), "gone");
+    equal(fake.destroyedTerrainMeshes.join(","), "gone,kept");
     equal(fake.clearedTerrainMeshes, 1);
+    equal(adapter.chunkKeys().length, 0);
   });
 });
 

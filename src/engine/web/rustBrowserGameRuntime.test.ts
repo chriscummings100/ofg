@@ -17,9 +17,6 @@ describe("RustBrowserGameRuntime", () => {
     const runtime = new RustBrowserGameRuntime({
       descriptor: createSeedWorldDescriptor(0x0F6, { terrainPreset: "rockyHighland" }),
       renderer,
-      terrainRenderPackets: {
-        chunkKeys: () => ["0,0,0", "1,0,0"]
-      },
       terrainStreamer: streamer,
       terrainWorker: {
         workerCount: 4,
@@ -135,7 +132,10 @@ function fakeRenderer(): FakeRenderer {
       return false;
     },
     clear() {},
-    retainChunks() {}
+    retainChunks() {},
+    chunkKeys() {
+      return ["0,0,0", "1,0,0"];
+    }
   };
 
   return renderer;
