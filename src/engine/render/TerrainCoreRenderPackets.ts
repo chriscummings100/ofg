@@ -14,19 +14,22 @@ import {
   type TerrainCoreWasmInstance
 } from "../world/terrainCoreWasm.js";
 import { POSITION_COLOR_NORMAL_UV_LAYOUT } from "../world/terrainMesh.js";
-import type { RenderMeshPacket } from "./RenderPackets.js";
-import type { ResourceId } from "./ResourceId.js";
 import type { TerrainMaterialTextures } from "./terrainTextures.js";
+
+export type TerrainRenderMeshPacket = {
+  readonly vertices: Float32Array;
+  readonly indices: Uint32Array;
+  readonly floatsPerVertex: number;
+};
 
 export type TerrainRenderChunkPacket = {
   readonly key: TerrainChunkKey;
-  readonly mesh: RenderMeshPacket;
+  readonly mesh: TerrainRenderMeshPacket;
   readonly worldMatrix?: Mat4;
 };
 
 export type TerrainRenderChunkMeshPacket = {
   readonly key: TerrainChunkKey;
-  readonly meshId: ResourceId;
   readonly vertices: Float32Array;
   readonly indices: Uint32Array;
   readonly floatsPerVertex?: number;
@@ -46,15 +49,12 @@ export type TerrainRenderChunkSink = {
 };
 
 export type TerrainRenderSource = {
-  readonly itemIdPrefix: string;
   readonly terrainTextures?: TerrainMaterialTextures;
   readonly chunks: readonly TerrainRenderChunkPacket[];
 };
 
 export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
   readonly runtime = "rust" as const;
-  readonly itemIdPrefix: string;
-  readonly meshIdPrefix: string;
   readonly terrainTextures?: TerrainMaterialTextures;
   private cachedVersion = -1;
   private cachedChunks: TerrainRenderChunkPacket[] = [];
@@ -63,13 +63,9 @@ export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
     private readonly terrainCore: TerrainCoreWasmInstance,
     options: {
       readonly terrainTextures?: TerrainMaterialTextures;
-      readonly itemIdPrefix?: string;
-      readonly meshIdPrefix?: string;
     } = {}
   ) {
     this.terrainTextures = options.terrainTextures;
-    this.itemIdPrefix = options.itemIdPrefix ?? "terrain:rust";
-    this.meshIdPrefix = options.meshIdPrefix ?? "mesh:terrain.chunk";
   }
 
   get chunks(): readonly TerrainRenderChunkPacket[] {
@@ -195,7 +191,6 @@ export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
       chunks.push({
         key,
         mesh: {
-          id: `${this.meshIdPrefix}:${key}`,
           vertices: new Float32Array(readTerrainCoreMeshVertexBuffer(this.terrainCore.exports)),
           indices: new Uint32Array(readTerrainCoreMeshIndexBuffer(this.terrainCore.exports)),
           floatsPerVertex: POSITION_COLOR_NORMAL_UV_LAYOUT.floatsPerVertex

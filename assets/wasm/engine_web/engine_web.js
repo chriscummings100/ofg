@@ -334,21 +334,21 @@ export class RustBrowserGame {
         }
     }
     /**
-     * @param {string} id
+     * @param {string} chunk_key
      * @param {Float32Array} vertices
      * @param {Uint32Array} indices
      * @param {number} floats_per_vertex
      */
-    upsertMesh(id, vertices, indices, floats_per_vertex) {
+    upsertTerrainMesh(chunk_key, vertices, indices, floats_per_vertex) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const ptr0 = passStringToWasm0(chunk_key, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len0 = WASM_VECTOR_LEN;
             const ptr1 = passArrayF32ToWasm0(vertices, wasm.__wbindgen_malloc);
             const len1 = WASM_VECTOR_LEN;
             const ptr2 = passArray32ToWasm0(indices, wasm.__wbindgen_malloc);
             const len2 = WASM_VECTOR_LEN;
-            wasm.rustbrowsergame_upsertMesh(retptr, this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2, floats_per_vertex);
+            wasm.rustbrowsergame_upsertTerrainMesh(retptr, this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2, floats_per_vertex);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             if (r1) {
@@ -359,14 +359,14 @@ export class RustBrowserGame {
         }
     }
     /**
-     * @param {string} id
+     * @param {string} chunk_key
      */
-    destroyMesh(id) {
+    destroyTerrainMesh(chunk_key) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const ptr0 = passStringToWasm0(chunk_key, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len0 = WASM_VECTOR_LEN;
-            wasm.rustbrowsergame_destroyMesh(retptr, this.__wbg_ptr, ptr0, len0);
+            wasm.rustbrowsergame_destroyTerrainMesh(retptr, this.__wbg_ptr, ptr0, len0);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             if (r1) {
@@ -407,18 +407,17 @@ export class RustBrowserGame {
     /**
      * @param {Float32Array} engine_snapshot
      * @param {number} aspect
-     * @param {Array<any>} item_ids
-     * @param {Array<any>} mesh_ids
+     * @param {Array<any>} chunk_keys
      * @param {Float32Array} world_matrices
      */
-    renderEngineFrame(engine_snapshot, aspect, item_ids, mesh_ids, world_matrices) {
+    renderEngineFrame(engine_snapshot, aspect, chunk_keys, world_matrices) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
             const ptr0 = passArrayF32ToWasm0(engine_snapshot, wasm.__wbindgen_malloc);
             const len0 = WASM_VECTOR_LEN;
             const ptr1 = passArrayF32ToWasm0(world_matrices, wasm.__wbindgen_malloc);
             const len1 = WASM_VECTOR_LEN;
-            wasm.rustbrowsergame_renderEngineFrame(retptr, this.__wbg_ptr, ptr0, len0, aspect, addHeapObject(item_ids), addHeapObject(mesh_ids), ptr1, len1);
+            wasm.rustbrowsergame_renderEngineFrame(retptr, this.__wbg_ptr, ptr0, len0, aspect, addHeapObject(chunk_keys), ptr1, len1);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             if (r1) {
@@ -1332,15 +1331,15 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper1074 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper1070 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 238, __wbg_adapter_31);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper358 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper354 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 33, __wbg_adapter_26);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper360 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper356 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 33, __wbg_adapter_26);
         return addHeapObject(ret);
     };

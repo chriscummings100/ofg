@@ -25,7 +25,7 @@ const SHADER_SOURCE: &str = include_str!("../../../src/engine/render/shaders/ube
 #[wasm_bindgen]
 pub struct RustBrowserGame {
     renderer: BrowserWgpuRenderer,
-    mesh_handles_by_id: HashMap<String, ResourceHandle>,
+    terrain_mesh_handles_by_key: HashMap<String, ResourceHandle>,
     terrain_textures: Option<TerrainTextureHandles>,
     object_handles_by_id: HashMap<String, ResourceHandle>,
     player_marker_mesh: ResourceHandle,
@@ -119,7 +119,7 @@ impl RustBrowserGame {
 
         Ok(Self {
             renderer,
-            mesh_handles_by_id: HashMap::new(),
+            terrain_mesh_handles_by_key: HashMap::new(),
             terrain_textures: None,
             object_handles_by_id: HashMap::new(),
             player_marker_mesh,
@@ -133,28 +133,29 @@ impl RustBrowserGame {
         self.renderer.resize(width, height)
     }
 
-    #[wasm_bindgen(js_name = upsertMesh)]
-    pub fn upsert_mesh(
+    #[wasm_bindgen(js_name = upsertTerrainMesh)]
+    pub fn upsert_terrain_mesh(
         &mut self,
-        id: &str,
+        chunk_key: &str,
         vertices: &[f32],
         indices: &[u32],
         floats_per_vertex: u32,
     ) -> Result<(), JsValue> {
-        if let Some(handle) = self.mesh_handles_by_id.remove(id) {
+        if let Some(handle) = self.terrain_mesh_handles_by_key.remove(chunk_key) {
             self.renderer.destroy_mesh(handle)?;
         }
 
         let handle = self
             .renderer
             .register_mesh(vertices, indices, floats_per_vertex)?;
-        self.mesh_handles_by_id.insert(id.to_string(), handle);
+        self.terrain_mesh_handles_by_key
+            .insert(chunk_key.to_string(), handle);
         Ok(())
     }
 
-    #[wasm_bindgen(js_name = destroyMesh)]
-    pub fn destroy_mesh(&mut self, id: &str) -> Result<(), JsValue> {
-        let Some(handle) = self.mesh_handles_by_id.remove(id) else {
+    #[wasm_bindgen(js_name = destroyTerrainMesh)]
+    pub fn destroy_terrain_mesh(&mut self, chunk_key: &str) -> Result<(), JsValue> {
+        let Some(handle) = self.terrain_mesh_handles_by_key.remove(chunk_key) else {
             return Ok(());
         };
         self.renderer.destroy_mesh(handle)
@@ -216,44 +217,44 @@ impl RustBrowserGame {
         &mut self,
         engine_snapshot: &[f32],
         aspect: f32,
-        item_ids: js_sys::Array,
-        mesh_ids: js_sys::Array,
+        chunk_keys: js_sys::Array,
         world_matrices: &[f32],
     ) -> Result<(), JsValue> {
-        let item_ids = string_array_values(&item_ids)?;
-        let mesh_ids = string_array_values(&mesh_ids)?;
-        let item_count = item_ids.len();
-        if mesh_ids.len() != item_count || world_matrices.len() != item_count * WORLD_MATRIX_FLOATS
-        {
+        let chunk_keys = string_array_values(&chunk_keys)?;
+        let chunk_count = chunk_keys.len();
+        if world_matrices.len() != chunk_count * WORLD_MATRIX_FLOATS {
             return Err(js_error(
                 "Rust browser game received mismatched render packet arrays.",
             ));
         }
 
-        let mut mesh_handles = Vec::with_capacity(item_count);
-        let mut object_handles = Vec::with_capacity(item_count);
-        let mut albedo_texture_handles = Vec::with_capacity(item_count);
-        let mut normal_texture_handles = Vec::with_capacity(item_count);
-        let mut material_texture_handles = Vec::with_capacity(item_count);
-        let mut material_packets = Vec::with_capacity(item_count * MATERIAL_PACKET_FLOATS);
-        let mut seen_mesh_ids = HashSet::with_capacity(item_count);
-        let mut seen_item_ids = HashSet::with_capacity(item_count);
+        let mut mesh_handles = Vec::with_capacity(chunk_count);
+        let mut object_handles = Vec::with_capacity(chunk_count);
+        let mut albedo_texture_handles = Vec::with_capacity(chunk_count);
+        let mut normal_texture_handles = Vec::with_capacity(chunk_count);
+        let mut material_texture_handles = Vec::with_capacity(chunk_count);
+        let mut material_packets = Vec::with_capacity(chunk_count * MATERIAL_PACKET_FLOATS);
+        let mut seen_chunk_keys = HashSet::with_capacity(chunk_count);
         let terrain_textures = self.terrain_textures.unwrap_or(TerrainTextureHandles {
             albedo: self.renderer.fallback_albedo,
             normal: self.renderer.fallback_normal,
             material: self.renderer.fallback_material,
         });
 
-        for index in 0..item_count {
-            let item_id = &item_ids[index];
-            let mesh_id = &mesh_ids[index];
-            let mesh_handle = *self.mesh_handles_by_id.get(mesh_id).ok_or_else(|| {
-                js_error(format!("Rust browser game is missing mesh '{mesh_id}'."))
-            })?;
-            let object_handle = self.object_handle_for_id(item_id)?;
+        for index in 0..chunk_count {
+            let chunk_key = &chunk_keys[index];
+            let mesh_handle =
+                *self
+                    .terrain_mesh_handles_by_key
+                    .get(chunk_key)
+                    .ok_or_else(|| {
+                        js_error(format!(
+                            "Rust browser game is missing terrain mesh '{chunk_key}'."
+                        ))
+                    })?;
+            let object_handle = self.object_handle_for_id(chunk_key)?;
 
-            seen_item_ids.insert(item_id.clone());
-            seen_mesh_ids.insert(mesh_id.clone());
+            seen_chunk_keys.insert(chunk_key.clone());
             mesh_handles.push(handle_to_js(mesh_handle));
             object_handles.push(handle_to_js(object_handle));
             albedo_texture_handles.push(handle_to_js(terrain_textures.albedo));
@@ -280,8 +281,8 @@ impl RustBrowserGame {
             &self.player_marker_material_packet,
         )?;
 
-        self.retain_mesh_ids(&seen_mesh_ids)?;
-        self.retain_object_ids(&seen_item_ids)?;
+        self.retain_terrain_mesh_keys(&seen_chunk_keys)?;
+        self.retain_object_keys(&seen_chunk_keys)?;
         Ok(())
     }
 
@@ -309,26 +310,29 @@ impl RustBrowserGame {
         Ok(())
     }
 
-    fn retain_mesh_ids(&mut self, seen_mesh_ids: &HashSet<String>) -> Result<(), JsValue> {
+    fn retain_terrain_mesh_keys(
+        &mut self,
+        seen_chunk_keys: &HashSet<String>,
+    ) -> Result<(), JsValue> {
         let stale_ids = self
-            .mesh_handles_by_id
+            .terrain_mesh_handles_by_key
             .keys()
-            .filter(|id| !seen_mesh_ids.contains(*id))
+            .filter(|id| !seen_chunk_keys.contains(*id))
             .cloned()
             .collect::<Vec<_>>();
         for id in stale_ids {
-            if let Some(handle) = self.mesh_handles_by_id.remove(&id) {
+            if let Some(handle) = self.terrain_mesh_handles_by_key.remove(&id) {
                 self.renderer.destroy_mesh(handle)?;
             }
         }
         Ok(())
     }
 
-    fn retain_object_ids(&mut self, seen_item_ids: &HashSet<String>) -> Result<(), JsValue> {
+    fn retain_object_keys(&mut self, seen_chunk_keys: &HashSet<String>) -> Result<(), JsValue> {
         let stale_ids = self
             .object_handles_by_id
             .keys()
-            .filter(|id| !seen_item_ids.contains(*id))
+            .filter(|id| !seen_chunk_keys.contains(*id))
             .cloned()
             .collect::<Vec<_>>();
         for id in stale_ids {
@@ -1257,7 +1261,7 @@ fn string_array_values(values: &js_sys::Array) -> Result<Vec<String>, JsValue> {
         .map(|value| {
             value
                 .as_string()
-                .ok_or_else(|| js_error("Rust browser game expected string render IDs."))
+                .ok_or_else(|| js_error("Rust browser game expected terrain chunk keys."))
         })
         .collect()
 }

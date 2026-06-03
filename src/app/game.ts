@@ -86,9 +86,7 @@ export async function startGame(elements: GameElements): Promise<void> {
   const terrainDensityChunkStore = createTerrainCoreDensityChunkStore(terrainCore, descriptor);
   const terrainTextures = await loadTerrainMaterialTextures();
   const terrainRenderPackets = createTerrainCoreRenderPacketStore(terrainCore, {
-    terrainTextures,
-    itemIdPrefix: "terrain:rust",
-    meshIdPrefix: "mesh:terrain.chunk"
+    terrainTextures
   });
   const initialPlayerPosition = vec3(0, terrainHeightAt(0, 0), 0);
   const initialDebugPosition = vec3(14, terrainHeightAt(0, 0) + 12, 18);

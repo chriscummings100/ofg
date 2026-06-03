@@ -1,12 +1,15 @@
 import { getFloatsPerVertex } from "../world/terrainMesh.js";
+import type { TerrainChunkKey } from "../world/terrainChunk.js";
 import {
   createEngineWebBrowserGame,
   ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM,
   type EngineWebBrowserGame,
   type EngineWebRendererStatus
 } from "./engineWebWasm.js";
-import type { RenderMeshPacket } from "../render/RenderPackets.js";
-import type { TerrainRenderSource } from "../render/TerrainCoreRenderPackets.js";
+import type {
+  TerrainRenderMeshPacket,
+  TerrainRenderSource
+} from "../render/TerrainCoreRenderPackets.js";
 import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
 
 const WORLD_MATRIX_FLOATS = 16;
@@ -19,7 +22,7 @@ const IDENTITY_WORLD_MATRIX = new Float32Array([
 
 export class RustBrowserGameAdapter {
   readonly runtime = "rust-wgpu" as const;
-  private readonly uploadedMeshes = new Map<string, RenderMeshPacket>();
+  private readonly uploadedTerrainMeshes = new Map<TerrainChunkKey, TerrainRenderMeshPacket>();
   private uploadedTerrainTextures?: TerrainMaterialTextures;
   private width = 1;
   private height = 1;
@@ -62,48 +65,48 @@ export class RustBrowserGameAdapter {
   renderEngineFrame(engineSnapshot: Float32Array, terrain: TerrainRenderSource): void {
     this.resize();
     const chunks = terrain.chunks;
-    const itemCount = chunks.length;
-    const itemIds: string[] = [];
-    const meshIds: string[] = [];
-    const worldMatrices = new Float32Array(itemCount * WORLD_MATRIX_FLOATS);
-    const seenMeshes = new Set<RenderMeshPacket>();
+    const chunkCount = chunks.length;
+    const chunkKeys: string[] = [];
+    const worldMatrices = new Float32Array(chunkCount * WORLD_MATRIX_FLOATS);
+    const seenChunkKeys = new Set<TerrainChunkKey>();
 
     this.upsertTerrainTexturesIfNeeded(terrain.terrainTextures);
 
-    for (let index = 0; index < itemCount; index += 1) {
+    for (let index = 0; index < chunkCount; index += 1) {
       const chunk = chunks[index];
 
-      this.upsertMeshIfNeeded(chunk.mesh);
-      seenMeshes.add(chunk.mesh);
-      itemIds.push(`${terrain.itemIdPrefix}:${chunk.key}`);
-      meshIds.push(chunk.mesh.id);
+      this.upsertTerrainMeshIfNeeded(chunk.key, chunk.mesh);
+      seenChunkKeys.add(chunk.key);
+      chunkKeys.push(chunk.key);
       worldMatrices.set(chunk.worldMatrix ?? IDENTITY_WORLD_MATRIX, index * WORLD_MATRIX_FLOATS);
     }
 
     this.game.renderEngineFrame(
       engineSnapshot,
       this.getAspectRatio(),
-      itemIds,
-      meshIds,
+      chunkKeys,
       worldMatrices
     );
-    this.pruneUploadedMeshes(seenMeshes);
+    this.pruneUploadedTerrainMeshes(seenChunkKeys);
   }
 
-  private upsertMeshIfNeeded(mesh: RenderMeshPacket): void {
+  private upsertTerrainMeshIfNeeded(
+    chunkKey: TerrainChunkKey,
+    mesh: TerrainRenderMeshPacket
+  ): void {
     if (mesh.floatsPerVertex !== getFloatsPerVertex()) {
       throw new Error(
         `RustBrowserGame renderer only supports ${getFloatsPerVertex()} floats per vertex; ` +
-        `mesh '${mesh.id}' uses ${mesh.floatsPerVertex}.`
+        `terrain chunk '${chunkKey}' uses ${mesh.floatsPerVertex}.`
       );
     }
 
-    if (this.uploadedMeshes.get(mesh.id) === mesh) {
+    if (this.uploadedTerrainMeshes.get(chunkKey) === mesh) {
       return;
     }
 
-    this.game.upsertMesh(mesh.id, mesh.vertices, mesh.indices, mesh.floatsPerVertex);
-    this.uploadedMeshes.set(mesh.id, mesh);
+    this.game.upsertTerrainMesh(chunkKey, mesh.vertices, mesh.indices, mesh.floatsPerVertex);
+    this.uploadedTerrainMeshes.set(chunkKey, mesh);
   }
 
   private upsertTerrainTexturesIfNeeded(textures: TerrainMaterialTextures | undefined): void {
@@ -124,14 +127,14 @@ export class RustBrowserGameAdapter {
     this.uploadedTerrainTextures = textures;
   }
 
-  private pruneUploadedMeshes(seenMeshes: Set<RenderMeshPacket>): void {
-    for (const [id, mesh] of this.uploadedMeshes) {
-      if (seenMeshes.has(mesh)) {
+  private pruneUploadedTerrainMeshes(seenChunkKeys: Set<TerrainChunkKey>): void {
+    for (const key of this.uploadedTerrainMeshes.keys()) {
+      if (seenChunkKeys.has(key)) {
         continue;
       }
 
-      this.game.destroyMesh(id);
-      this.uploadedMeshes.delete(id);
+      this.game.destroyTerrainMesh(key);
+      this.uploadedTerrainMeshes.delete(key);
     }
   }
 

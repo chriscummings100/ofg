@@ -1,16 +1,19 @@
 import { equal, ok } from "node:assert/strict";
-import type { RenderMeshPacket } from "../render/RenderPackets.js";
-import type { TerrainRenderSource } from "../render/TerrainCoreRenderPackets.js";
+import type {
+  TerrainRenderMeshPacket,
+  TerrainRenderSource
+} from "../render/TerrainCoreRenderPackets.js";
 import type { RgbaTextureArray } from "../render/textureLoader.js";
 import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
+import type { TerrainChunkKey } from "../world/terrainChunk.js";
 import type { EngineWebBrowserGame } from "./engineWebWasm.js";
 import { RustBrowserGameAdapter } from "./rustBrowserGameAdapter.js";
 
 describe("RustBrowserGameAdapter", () => {
-  it("uploads mesh and texture bytes then renders item IDs through the Rust browser game facade", () => {
+  it("uploads terrain chunk mesh and texture bytes then renders chunk keys through the Rust browser game facade", () => {
     const fake = fakeBrowserGame();
     const adapter = new RustBrowserGameAdapter(fakeCanvas(), fake);
-    const mesh = fakeMeshPacket("mesh:test");
+    const mesh = fakeMeshPacket();
     const terrainTextures = fakeTerrainTextures();
     const snapshot = sampleEngineRenderSnapshot();
 
@@ -19,9 +22,9 @@ describe("RustBrowserGameAdapter", () => {
       fakeTerrainRenderSource(mesh, terrainTextures)
     ));
 
-    equal(fake.upsertedMeshes.length, 1);
-    equal(fake.upsertedMeshes[0]?.id, "mesh:test");
-    equal(fake.upsertedMeshes[0]?.floatsPerVertex, 19);
+    equal(fake.upsertedTerrainMeshes.length, 1);
+    equal(fake.upsertedTerrainMeshes[0]?.chunkKey, "0,0,0");
+    equal(fake.upsertedTerrainMeshes[0]?.floatsPerVertex, 19);
     equal(fake.upsertedTerrainTextures.length, 1);
     equal(fake.upsertedTerrainTextures[0]?.width, 1);
     equal(fake.upsertedTerrainTextures[0]?.layers, 1);
@@ -31,34 +34,33 @@ describe("RustBrowserGameAdapter", () => {
     equal(fake.upsertedTerrainTextures[0]?.materialData[2], 255);
     equal(fake.lastRender?.engineSnapshot[0], 1);
     equal(fake.lastRender?.aspect, 640 / 480);
-    equal(fake.lastRender?.itemIds[0], "terrain:test:0,0,0");
-    equal(fake.lastRender?.meshIds[0], "mesh:test");
+    equal(fake.lastRender?.chunkKeys[0], "0,0,0");
     almostEqual(fake.lastRender?.worldMatrices[0], 1);
   });
 
-  it("destroys uploaded meshes that disappear from render packets", () => {
+  it("destroys uploaded terrain meshes that disappear from render packets", () => {
     const fake = fakeBrowserGame();
     const adapter = new RustBrowserGameAdapter(fakeCanvas(), fake) as unknown as {
-      uploadedMeshes: Map<string, RenderMeshPacket>;
-      pruneUploadedMeshes(seenMeshes: Set<RenderMeshPacket>): void;
+      uploadedTerrainMeshes: Map<TerrainChunkKey, TerrainRenderMeshPacket>;
+      pruneUploadedTerrainMeshes(seenChunkKeys: Set<TerrainChunkKey>): void;
     };
-    const keptMesh = fakeMeshPacket("mesh:kept");
-    const goneMesh = fakeMeshPacket("mesh:gone");
+    const keptMesh = fakeMeshPacket();
+    const goneMesh = fakeMeshPacket();
 
-    adapter.uploadedMeshes.set(keptMesh.id, keptMesh);
-    adapter.uploadedMeshes.set(goneMesh.id, goneMesh);
+    adapter.uploadedTerrainMeshes.set("kept", keptMesh);
+    adapter.uploadedTerrainMeshes.set("gone", goneMesh);
 
-    adapter.pruneUploadedMeshes(new Set([keptMesh]));
+    adapter.pruneUploadedTerrainMeshes(new Set(["kept"]));
 
-    equal(adapter.uploadedMeshes.has(keptMesh.id), true);
-    equal(adapter.uploadedMeshes.has(goneMesh.id), false);
-    equal(fake.destroyedMeshes.join(","), "mesh:gone");
+    equal(adapter.uploadedTerrainMeshes.has("kept"), true);
+    equal(adapter.uploadedTerrainMeshes.has("gone"), false);
+    equal(fake.destroyedTerrainMeshes.join(","), "gone");
   });
 });
 
 type FakeBrowserGame = EngineWebBrowserGame & {
-  upsertedMeshes: {
-    readonly id: string;
+  upsertedTerrainMeshes: {
+    readonly chunkKey: string;
     readonly floatsPerVertex: number;
   }[];
   upsertedTerrainTextures: {
@@ -69,27 +71,26 @@ type FakeBrowserGame = EngineWebBrowserGame & {
     readonly normalData: Uint8Array;
     readonly materialData: Uint8Array;
   }[];
-  destroyedMeshes: string[];
+  destroyedTerrainMeshes: string[];
   lastRender?: {
     readonly engineSnapshot: Float32Array;
     readonly aspect: number;
-    readonly itemIds: string[];
-    readonly meshIds: string[];
+    readonly chunkKeys: string[];
     readonly worldMatrices: Float32Array;
   };
 };
 
 function fakeBrowserGame(): FakeBrowserGame {
   return {
-    upsertedMeshes: [],
+    upsertedTerrainMeshes: [],
     upsertedTerrainTextures: [],
-    destroyedMeshes: [],
+    destroyedTerrainMeshes: [],
     resize() {},
-    upsertMesh(id, _vertices, _indices, floatsPerVertex) {
-      this.upsertedMeshes.push({ id, floatsPerVertex });
+    upsertTerrainMesh(chunkKey, _vertices, _indices, floatsPerVertex) {
+      this.upsertedTerrainMeshes.push({ chunkKey, floatsPerVertex });
     },
-    destroyMesh(id) {
-      this.destroyedMeshes.push(id);
+    destroyTerrainMesh(chunkKey) {
+      this.destroyedTerrainMeshes.push(chunkKey);
     },
     upsertTerrainTextures(width, _height, layers, formatCode, albedoData, normalData, materialData) {
       this.upsertedTerrainTextures.push({
@@ -104,15 +105,13 @@ function fakeBrowserGame(): FakeBrowserGame {
     renderEngineFrame(
       engineSnapshot,
       aspect,
-      itemIds,
-      meshIds,
+      chunkKeys,
       worldMatrices
     ) {
       this.lastRender = {
         engineSnapshot: new Float32Array(engineSnapshot),
         aspect,
-        itemIds: [...itemIds],
-        meshIds: [...meshIds],
+        chunkKeys: [...chunkKeys],
         worldMatrices: new Float32Array(worldMatrices)
       };
     },
@@ -136,11 +135,10 @@ function fakeBrowserGame(): FakeBrowserGame {
 }
 
 function fakeTerrainRenderSource(
-  mesh: RenderMeshPacket,
+  mesh: TerrainRenderMeshPacket,
   terrainTextures: TerrainMaterialTextures
 ): TerrainRenderSource {
   return {
-    itemIdPrefix: "terrain:test",
     terrainTextures,
     chunks: [
       {
@@ -168,9 +166,8 @@ function fakeTextureArray(bytes: readonly number[]): RgbaTextureArray {
   };
 }
 
-function fakeMeshPacket(id: string): RenderMeshPacket {
+function fakeMeshPacket(): TerrainRenderMeshPacket {
   return {
-    id,
     vertices: new Float32Array(19 * 3),
     indices: new Uint32Array([0, 1, 2]),
     floatsPerVertex: 19

@@ -37,13 +37,13 @@ src/engine/math
   Small vector and matrix primitives.
 
 src/engine/render
-  CPU-side texture/material descriptions, terrain mesh packet source adapters,
-  and the temporary Rust/wgpu browser adapter. Runtime terrain chunks enter this
-  path as direct mesh byte packets loaded from a Rust-owned terrain packet store.
-  Actual browser WebGPU resource creation and draw submission happen in
-  Rust/wgpu through `crates/engine_web`; TypeScript only uploads mesh/texture
-  bytes by ID and material definitions by ID, then passes compact per-item world
-  matrices and material IDs for the Rust browser game facade.
+  CPU-side terrain texture decoding helpers, terrain mesh packet source
+  adapters, and the temporary Rust/wgpu browser adapter. Runtime terrain chunks
+  enter this path as direct mesh byte packets loaded from a Rust-owned terrain
+  packet store. Actual browser WebGPU resource creation and draw submission
+  happen in Rust/wgpu through `crates/engine_web`; TypeScript only uploads
+  terrain mesh bytes by chunk key, uploads the terrain texture arrays, and passes
+  compact per-chunk world matrices for the Rust browser game facade.
 
 src/engine/web
   Browser-facing WASM loaders for Rust systems that are not pure engine core or
@@ -81,11 +81,11 @@ adapter.
 - TypeScript collects DOM input, parses URL seed/preset values, starts WASM,
   hosts browser Workers, wraps shared density buffers, exposes debug hooks,
   loads terrain mesh bytes from Rust packet stores, fetches texture assets, and
-  uploads mesh/texture bytes and material definitions by ID. It no longer
-  creates WebGPU devices, pipelines, buffers, textures, render passes, shader
-  uniform buffers, renderer resource handles, shader material packets, camera
-  frames, light packets, player-marker mesh/material data, player-marker world
-  matrices, or normal matrices.
+  passes terrain mesh bytes by chunk key plus texture arrays into Rust-owned
+  renderer facades. It no longer creates WebGPU devices, pipelines, buffers,
+  textures, render passes, shader uniform buffers, renderer resource handles,
+  shader material packets, camera frames, light packets, player-marker
+  mesh/material data, player-marker world matrices, or normal matrices.
 
 [SCENE_MODEL_PLAN.md](SCENE_MODEL_PLAN.md) is now historical documentation of the
 deleted TypeScript scene model. Future large-scale world state should move into
@@ -154,13 +154,13 @@ direct, and familiar enough for AI-driven changes.
 The first material model is intentionally pre-PBR: mesh vertex color multiplied by
 an albedo factor and optional albedo texture sample, plus specular color and
 specular factor. The shader uses a simple Lambert diffuse plus Blinn-Phong specular
-model. `Texture` stores CPU-side rgba8 data that the TypeScript shell uploads by
-ID to the Rust browser game facade for GPU upload. Rust/wgpu builds compact
-frame packets from the raw Rust engine render snapshot, owns shader material
-packets and material-to-texture selection, owns the debug player-marker
-mesh/material and world matrix, validates per-item world matrices and material
-IDs from the temporary TypeScript adapter, computes object normal matrices, and
-packs the WGSL camera/object uniform buffers.
+model. Terrain texture helpers decode checked-in image assets into CPU-side
+rgba8 arrays that the TypeScript shell passes through one terrain-specific Rust
+facade call. Rust/wgpu builds compact frame packets from the raw Rust engine
+render snapshot, owns shader material packets and material-to-texture selection,
+owns the debug player-marker mesh/material and world matrix, validates per-chunk
+world matrices from the temporary TypeScript adapter, computes object normal
+matrices, and packs the WGSL camera/object uniform buffers.
 
 Terrain uses checked-in Poly Haven CC0 materials imported into 16-layer global
 texture arrays. The runtime currently loads albedo, normal, and roughness arrays;

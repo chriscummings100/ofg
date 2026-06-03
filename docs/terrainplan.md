@@ -143,9 +143,9 @@ Supported:
   Rust browser game render facade instead of assembling a compiled TypeScript
   `RenderWorld`. Rust now owns renderer mesh/texture/object handles, render
   resource pruning, and the debug player marker mesh/material; TypeScript
-  uploads terrain mesh bytes by ID and the three terrain texture arrays through a
-  terrain-specific facade call while that remaining transport is being collapsed
-  into a coarse Rust game facade.
+  uploads terrain mesh bytes by terrain chunk key and the three terrain texture
+  arrays through a terrain-specific facade call while that remaining transport is
+  being collapsed into a coarse Rust game facade.
 - Rust/wgpu is now the playable browser renderer through `crates/engine_web` and
   generated `assets/wasm/engine_web/` wasm-bindgen artifacts. Rust owns the
   WebGPU canvas surface, adapter/device/queue, surface configuration, depth
@@ -190,14 +190,15 @@ Partially supported or placeholder-only:
   mesh-upload optimized.
 - TypeScript still owns the browser Worker transport and shared-density payload
   wrapping. It also still has a temporary render adapter that loads Rust terrain
-  mesh packet bytes from `terrain_core.wasm`, uploads mesh and texture bytes by
-  ID, uploads the three terrain texture arrays through a terrain-specific Rust
-  facade call, and passes per-item world matrices for Rust/wgpu. Rust owns the
-  renderer handle maps, terrain texture handles, fixed terrain material recipe,
-  material packet construction, material-to-texture selection, stale resource
-  pruning, builds the frame packet from the raw `engine_core.wasm` render
-  snapshot, derives the player-marker transform, validates those packets,
-  computes normal matrices, and packs WGSL shader uniforms.
+  mesh packet bytes from `terrain_core.wasm`, uploads mesh bytes by terrain chunk
+  key, uploads the three terrain texture arrays through a terrain-specific Rust
+  facade call, and passes per-chunk world matrices for Rust/wgpu. Rust owns the
+  renderer handle maps, terrain mesh handles, terrain texture handles, fixed
+  terrain material recipe, material packet construction, material-to-texture
+  selection, stale resource pruning, builds the frame packet from the raw
+  `engine_core.wasm` render snapshot, derives the player-marker transform,
+  validates those packets, computes normal matrices, and packs WGSL shader
+  uniforms.
   `TerrainCoreWorkerStreamer` is now a small browser bridge that executes Worker
   jobs selected by `terrain_core.wasm`, asks Rust for LOD0 density dependency
   coordinates, stores density and mesh payloads in Rust, and feeds terrain
@@ -209,8 +210,8 @@ Partially supported or placeholder-only:
   Terrain chunk packet storage is Rust-owned for the playable path, and the old
   TypeScript `SceneRenderExtractor`/`MeshRenderer`/`RenderWorld` path has been
   deleted. TypeScript still acts as a browser transport for mesh bytes, texture
-  assets, frame item IDs, and UI/debug hooks until Rust owns a coarse end-to-end
-  game/render facade.
+  assets, terrain chunk keys, and UI/debug hooks until Rust owns a coarse
+  end-to-end game/render facade.
 
 Not yet supported:
 
@@ -961,6 +962,7 @@ Progress notes:
 | 2026-06-02 | Generic TypeScript render items retired | Deleted the compiled `RenderItemPacket` abstraction. The app loop now hands the Rust terrain packet source to the temporary render adapter directly, so TypeScript no longer builds a generic render item list before calling `RustBrowserGame`. |
 | 2026-06-03 | Terrain material definition moved to Rust | Deleted the compiled TypeScript `Material` model and removed material fields from the terrain packet store and worker streamer. At that point the remaining TypeScript terrain render bridge uploaded texture bytes and called Rust's terrain-specific material configuration API; Rust owned the terrain material recipe and no per-chunk material IDs were submitted from TypeScript. |
 | 2026-06-03 | Terrain texture handles moved to Rust | Deleted the compiled TypeScript `Texture` model and replaced generic texture registration with a single `upsertTerrainTextures` facade call. TypeScript still fetches and decodes checked-in JPEGs with browser APIs, but Rust owns the resulting terrain texture handles and streamed chunks no longer reference texture IDs. |
+| 2026-06-03 | Terrain mesh handles moved to Rust | Replaced generic mesh IDs with terrain chunk keys at the `RustBrowserGame` boundary. TypeScript still loads terrain mesh packet bytes from `terrain_core.wasm`, but Rust now owns the terrain GPU mesh handle map, per-chunk object handles, and stale chunk resource pruning through `upsertTerrainMesh`, `destroyTerrainMesh`, and chunk-keyed `renderEngineFrame` calls. |
 
 ## Cross-Cutting Validation
 

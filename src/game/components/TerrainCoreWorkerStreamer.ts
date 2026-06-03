@@ -48,7 +48,6 @@ export type TerrainCoreWorkerStreamStatus = {
 export type TerrainCoreWorkerStreamerOptions = {
   readonly getTargetPosition?: () => Vec3 | undefined;
   readonly cellSize?: number;
-  readonly meshIdPrefix?: string;
   readonly densityTransferMode?: TerrainDensityTransferModeRequest;
 };
 
@@ -57,7 +56,6 @@ export class TerrainCoreWorkerStreamer {
   enabled = true;
   getTargetPosition?: () => Vec3 | undefined;
   cellSize: number;
-  meshIdPrefix: string;
   densityTransferMode: TerrainDensityTransferMode;
 
   private lastCenterCoord?: TerrainChunkCoord;
@@ -73,7 +71,6 @@ export class TerrainCoreWorkerStreamer {
   ) {
     this.getTargetPosition = options.getTargetPosition;
     this.cellSize = options.cellSize ?? 1;
-    this.meshIdPrefix = options.meshIdPrefix ?? "mesh:terrain.chunk";
     this.densityTransferMode = resolveTerrainDensityTransferMode(options.densityTransferMode);
     validateCellSize(this.cellSize);
   }
@@ -260,7 +257,6 @@ export class TerrainCoreWorkerStreamer {
       } else {
         this.terrain.addChunk({
           key,
-          meshId: `${this.meshIdPrefix}:${key}`,
           vertices: result.vertices,
           indices: result.indices,
           floatsPerVertex: POSITION_COLOR_NORMAL_UV_LAYOUT.floatsPerVertex
