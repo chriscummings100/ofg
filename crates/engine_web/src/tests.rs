@@ -3,8 +3,8 @@ use crate::{
     build_object_uniform_values, build_player_marker_world_matrix, MaterialPacketError,
     RenderPacketError, RenderUniformError, RendererState, RendererStateError, ResourceHandle,
     ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS, MATERIAL_PACKET_FLOATS,
-    REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
-    WORLD_MATRIX_FLOATS,
+    REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_MATERIAL_ID, TERRAIN_MATERIAL_PACKET,
+    TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM, WORLD_MATRIX_FLOATS,
 };
 
 #[test]
@@ -268,6 +268,18 @@ fn material_packets_are_built_in_rust() {
     assert_close(packet[7], 0.4);
     assert_close(packet[8], 1.0);
     assert_close(packet[9], 0.08);
+}
+
+#[test]
+fn terrain_material_packet_is_owned_by_rust() {
+    assert_eq!(TERRAIN_MATERIAL_ID, "material:terrain.seed");
+    assert_close(TERRAIN_MATERIAL_PACKET[0], 1.0);
+    assert_close(TERRAIN_MATERIAL_PACKET[4], 0.55);
+    assert_close(TERRAIN_MATERIAL_PACKET[5], 0.58);
+    assert_close(TERRAIN_MATERIAL_PACKET[6], 0.52);
+    assert_close(TERRAIN_MATERIAL_PACKET[7], 0.04);
+    assert_close(TERRAIN_MATERIAL_PACKET[8], 1.0);
+    assert_close(TERRAIN_MATERIAL_PACKET[9], 0.08);
 }
 
 #[test]

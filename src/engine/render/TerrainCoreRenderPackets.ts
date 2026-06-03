@@ -14,7 +14,6 @@ import {
   type TerrainCoreWasmInstance
 } from "../world/terrainCoreWasm.js";
 import { POSITION_COLOR_NORMAL_UV_LAYOUT } from "../world/terrainMesh.js";
-import type { Material } from "./Material.js";
 import type { RenderMeshPacket } from "./RenderPackets.js";
 import type { ResourceId } from "./ResourceId.js";
 import type { Texture } from "./Texture.js";
@@ -22,7 +21,6 @@ import type { Texture } from "./Texture.js";
 export type TerrainRenderChunkPacket = {
   readonly key: TerrainChunkKey;
   readonly mesh: RenderMeshPacket;
-  readonly material?: ResourceId;
   readonly worldMatrix?: Mat4;
 };
 
@@ -32,7 +30,6 @@ export type TerrainRenderChunkMeshPacket = {
   readonly vertices: Float32Array;
   readonly indices: Uint32Array;
   readonly floatsPerVertex?: number;
-  readonly material?: ResourceId;
   readonly worldMatrix?: Mat4;
 };
 
@@ -50,7 +47,6 @@ export type TerrainRenderChunkSink = {
 
 export type TerrainRenderSource = {
   readonly itemIdPrefix: string;
-  readonly material?: Material;
   readonly albedoTexture?: Texture;
   readonly normalTexture?: Texture;
   readonly materialTexture?: Texture;
@@ -61,7 +57,6 @@ export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
   readonly runtime = "rust" as const;
   readonly itemIdPrefix: string;
   readonly meshIdPrefix: string;
-  readonly material?: Material;
   readonly albedoTexture?: Texture;
   readonly normalTexture?: Texture;
   readonly materialTexture?: Texture;
@@ -71,7 +66,6 @@ export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
   constructor(
     private readonly terrainCore: TerrainCoreWasmInstance,
     options: {
-      readonly material?: Material;
       readonly albedoTexture?: Texture;
       readonly normalTexture?: Texture;
       readonly materialTexture?: Texture;
@@ -79,7 +73,6 @@ export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
       readonly meshIdPrefix?: string;
     } = {}
   ) {
-    this.material = options.material;
     this.albedoTexture = options.albedoTexture;
     this.normalTexture = options.normalTexture;
     this.materialTexture = options.materialTexture;

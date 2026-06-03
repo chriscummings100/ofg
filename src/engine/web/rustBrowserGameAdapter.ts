@@ -5,9 +5,6 @@ import {
   type EngineWebBrowserGame,
   type EngineWebRendererStatus
 } from "./engineWebWasm.js";
-import {
-  type Material
-} from "../render/Material.js";
 import type { RenderMeshPacket } from "../render/RenderPackets.js";
 import type { TerrainRenderSource } from "../render/TerrainCoreRenderPackets.js";
 import type { Texture } from "../render/Texture.js";
@@ -24,7 +21,7 @@ export class RustBrowserGameAdapter {
   readonly runtime = "rust-wgpu" as const;
   private readonly uploadedMeshes = new Map<string, RenderMeshPacket>();
   private readonly uploadedTextures = new Map<string, Texture>();
-  private readonly uploadedMaterials = new Map<string, UploadedMaterial>();
+  private uploadedTerrainMaterial?: UploadedTerrainMaterial;
   private width = 1;
   private height = 1;
 
@@ -69,15 +66,13 @@ export class RustBrowserGameAdapter {
     const itemCount = chunks.length;
     const itemIds: string[] = [];
     const meshIds: string[] = [];
-    const materialIds: string[] = [];
     const worldMatrices = new Float32Array(itemCount * WORLD_MATRIX_FLOATS);
     const seenMeshes = new Set<RenderMeshPacket>();
 
     this.upsertTextureIfNeeded(terrain.albedoTexture);
     this.upsertTextureIfNeeded(terrain.normalTexture);
     this.upsertTextureIfNeeded(terrain.materialTexture);
-    this.upsertMaterialIfNeeded(
-      terrain.material,
+    this.upsertTerrainMaterialIfNeeded(
       terrain.albedoTexture,
       terrain.normalTexture,
       terrain.materialTexture
@@ -90,7 +85,6 @@ export class RustBrowserGameAdapter {
       seenMeshes.add(chunk.mesh);
       itemIds.push(`${terrain.itemIdPrefix}:${chunk.key}`);
       meshIds.push(chunk.mesh.id);
-      materialIds.push(terrain.material?.id ?? "");
       worldMatrices.set(chunk.worldMatrix ?? IDENTITY_WORLD_MATRIX, index * WORLD_MATRIX_FLOATS);
     }
 
@@ -99,7 +93,6 @@ export class RustBrowserGameAdapter {
       this.getAspectRatio(),
       itemIds,
       meshIds,
-      materialIds,
       worldMatrices
     );
     this.pruneUploadedMeshes(seenMeshes);
@@ -144,49 +137,31 @@ export class RustBrowserGameAdapter {
     this.uploadedTextures.set(texture.id, texture);
   }
 
-  private upsertMaterialIfNeeded(
-    material: Material | undefined,
+  private upsertTerrainMaterialIfNeeded(
     albedoTexture: Texture | undefined,
     normalTexture: Texture | undefined,
     materialTexture: Texture | undefined
   ): void {
-    if (material === undefined) {
-      return;
-    }
-
     const uploaded = {
-      material,
-      albedoTextureId: material.albedoTexture ?? albedoTexture?.id ?? "",
-      normalTextureId: material.normalTexture ?? normalTexture?.id ?? "",
-      materialTextureId: material.materialTexture ?? materialTexture?.id ?? ""
+      albedoTextureId: albedoTexture?.id ?? "",
+      normalTextureId: normalTexture?.id ?? "",
+      materialTextureId: materialTexture?.id ?? ""
     };
-    const cached = this.uploadedMaterials.get(material.id);
+    const cached = this.uploadedTerrainMaterial;
     if (
-      cached?.material === uploaded.material &&
-      cached.albedoTextureId === uploaded.albedoTextureId &&
+      cached?.albedoTextureId === uploaded.albedoTextureId &&
       cached.normalTextureId === uploaded.normalTextureId &&
       cached.materialTextureId === uploaded.materialTextureId
     ) {
       return;
     }
 
-    this.game.upsertMaterial(
-      material.id,
-      material.albedoFactor.x,
-      material.albedoFactor.y,
-      material.albedoFactor.z,
-      material.albedoFactor.w,
-      material.specular.x,
-      material.specular.y,
-      material.specular.z,
-      material.specularFactor,
-      material.flags,
-      material.textureScale,
+    this.game.upsertTerrainMaterial(
       uploaded.albedoTextureId,
       uploaded.normalTextureId,
       uploaded.materialTextureId
     );
-    this.uploadedMaterials.set(material.id, uploaded);
+    this.uploadedTerrainMaterial = uploaded;
   }
 
   private pruneUploadedMeshes(seenMeshes: Set<RenderMeshPacket>): void {
@@ -222,8 +197,7 @@ function createOpaqueWhiteTextureData(width: number, height: number, layers: num
   return data;
 }
 
-type UploadedMaterial = {
-  readonly material: Material;
+type UploadedTerrainMaterial = {
   readonly albedoTextureId: string;
   readonly normalTextureId: string;
   readonly materialTextureId: string;

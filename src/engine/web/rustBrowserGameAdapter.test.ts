@@ -1,7 +1,4 @@
 import { equal, ok } from "node:assert/strict";
-import { vec3 } from "../math/vec3.js";
-import { vec4 } from "../math/vec4.js";
-import { Material } from "../render/Material.js";
 import type { RenderMeshPacket } from "../render/RenderPackets.js";
 import type { TerrainRenderSource } from "../render/TerrainCoreRenderPackets.js";
 import { Texture } from "../render/Texture.js";
@@ -13,41 +10,30 @@ describe("RustBrowserGameAdapter", () => {
     const fake = fakeBrowserGame();
     const adapter = new RustBrowserGameAdapter(fakeCanvas(), fake);
     const mesh = fakeMeshPacket("mesh:test");
-    const texture = new Texture(
-      "texture:test",
-      1,
-      1,
-      "rgba8unorm",
-      { data: new Uint8Array([255, 0, 0, 255]) }
-    );
-    const material = new Material("material:test", {
-      albedoFactor: vec4(0.8, 0.7, 0.6, 1),
-      specular: vec3(0.1, 0.2, 0.3),
-      specularFactor: 0.4
-    });
+    const albedoTexture = fakeTexture("texture:albedo");
+    const normalTexture = fakeTexture("texture:normal");
+    const materialTexture = fakeTexture("texture:material");
     const snapshot = sampleEngineRenderSnapshot();
 
     withFakeWindow(() => adapter.renderEngineFrame(
       snapshot,
-      fakeTerrainRenderSource(mesh, material, texture)
+      fakeTerrainRenderSource(mesh, albedoTexture, normalTexture, materialTexture)
     ));
 
     equal(fake.upsertedMeshes.length, 1);
     equal(fake.upsertedMeshes[0]?.id, "mesh:test");
     equal(fake.upsertedMeshes[0]?.floatsPerVertex, 19);
-    equal(fake.upsertedTextures.length, 1);
-    equal(fake.upsertedTextures[0]?.id, "texture:test");
+    equal(fake.upsertedTextures.length, 3);
+    equal(fake.upsertedTextures[0]?.id, "texture:albedo");
     equal(fake.upsertedTextures[0]?.formatCode, 1);
-    equal(fake.upsertedMaterials.length, 1);
-    equal(fake.upsertedMaterials[0]?.id, "material:test");
-    equal(fake.upsertedMaterials[0]?.albedoTextureId, "texture:test");
-    almostEqual(fake.upsertedMaterials[0]?.albedoR, 0.8);
-    almostEqual(fake.upsertedMaterials[0]?.specularFactor, 0.4);
+    equal(fake.upsertedTerrainMaterials.length, 1);
+    equal(fake.upsertedTerrainMaterials[0]?.albedoTextureId, "texture:albedo");
+    equal(fake.upsertedTerrainMaterials[0]?.normalTextureId, "texture:normal");
+    equal(fake.upsertedTerrainMaterials[0]?.materialTextureId, "texture:material");
     equal(fake.lastRender?.engineSnapshot[0], 1);
     equal(fake.lastRender?.aspect, 640 / 480);
     equal(fake.lastRender?.itemIds[0], "terrain:test:0,0,0");
     equal(fake.lastRender?.meshIds[0], "mesh:test");
-    equal(fake.lastRender?.materialIds[0], "material:test");
     almostEqual(fake.lastRender?.worldMatrices[0], 1);
   });
 
@@ -80,11 +66,10 @@ type FakeBrowserGame = EngineWebBrowserGame & {
     readonly id: string;
     readonly formatCode: number;
   }[];
-  upsertedMaterials: {
-    readonly id: string;
-    readonly albedoR: number;
-    readonly specularFactor: number;
+  upsertedTerrainMaterials: {
     readonly albedoTextureId: string;
+    readonly normalTextureId: string;
+    readonly materialTextureId: string;
   }[];
   destroyedMeshes: string[];
   lastRender?: {
@@ -92,7 +77,6 @@ type FakeBrowserGame = EngineWebBrowserGame & {
     readonly aspect: number;
     readonly itemIds: string[];
     readonly meshIds: string[];
-    readonly materialIds: string[];
     readonly worldMatrices: Float32Array;
   };
 };
@@ -101,7 +85,7 @@ function fakeBrowserGame(): FakeBrowserGame {
   return {
     upsertedMeshes: [],
     upsertedTextures: [],
-    upsertedMaterials: [],
+    upsertedTerrainMaterials: [],
     destroyedMeshes: [],
     resize() {},
     upsertMesh(id, _vertices, _indices, floatsPerVertex) {
@@ -114,29 +98,18 @@ function fakeBrowserGame(): FakeBrowserGame {
       this.upsertedTextures.push({ id, formatCode });
     },
     destroyTexture() {},
-    upsertMaterial(
-      id,
-      albedoR,
-      _albedoG,
-      _albedoB,
-      _albedoA,
-      _specularR,
-      _specularG,
-      _specularB,
-      specularFactor,
-      _flags,
-      _textureScale,
-      albedoTextureId
-    ) {
-      this.upsertedMaterials.push({ id, albedoR, specularFactor, albedoTextureId });
+    upsertTerrainMaterial(albedoTextureId, normalTextureId, materialTextureId) {
+      this.upsertedTerrainMaterials.push({
+        albedoTextureId,
+        normalTextureId,
+        materialTextureId
+      });
     },
-    destroyMaterial() {},
     renderEngineFrame(
       engineSnapshot,
       aspect,
       itemIds,
       meshIds,
-      materialIds,
       worldMatrices
     ) {
       this.lastRender = {
@@ -144,7 +117,6 @@ function fakeBrowserGame(): FakeBrowserGame {
         aspect,
         itemIds: [...itemIds],
         meshIds: [...meshIds],
-        materialIds: [...materialIds],
         worldMatrices: new Float32Array(worldMatrices)
       };
     },
@@ -169,13 +141,15 @@ function fakeBrowserGame(): FakeBrowserGame {
 
 function fakeTerrainRenderSource(
   mesh: RenderMeshPacket,
-  material: Material,
-  albedoTexture: Texture
+  albedoTexture: Texture,
+  normalTexture: Texture,
+  materialTexture: Texture
 ): TerrainRenderSource {
   return {
     itemIdPrefix: "terrain:test",
-    material,
     albedoTexture,
+    normalTexture,
+    materialTexture,
     chunks: [
       {
         key: "0,0,0",
@@ -183,6 +157,16 @@ function fakeTerrainRenderSource(
       }
     ]
   };
+}
+
+function fakeTexture(id: string): Texture {
+  return new Texture(
+    id,
+    1,
+    1,
+    "rgba8unorm",
+    { data: new Uint8Array([255, 0, 0, 255]) }
+  );
 }
 
 function fakeMeshPacket(id: string): RenderMeshPacket {

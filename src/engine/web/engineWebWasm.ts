@@ -35,29 +35,16 @@ export type EngineWebBrowserGame = {
     data: Uint8Array
   ): void;
   destroyTexture(id: string): void;
-  upsertMaterial(
-    id: string,
-    albedoR: number,
-    albedoG: number,
-    albedoB: number,
-    albedoA: number,
-    specularR: number,
-    specularG: number,
-    specularB: number,
-    specularFactor: number,
-    flags: number,
-    textureScale: number,
+  upsertTerrainMaterial(
     albedoTextureId: string,
     normalTextureId: string,
     materialTextureId: string
   ): void;
-  destroyMaterial(id: string): void;
   renderEngineFrame(
     engineSnapshot: Float32Array,
     aspect: number,
     itemIds: string[],
     meshIds: string[],
-    materialIds: string[],
     worldMatrices: Float32Array
   ): void;
   status(): EngineWebRendererStatus;

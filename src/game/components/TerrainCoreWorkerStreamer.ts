@@ -1,5 +1,4 @@
 import type { TerrainCoreRenderPacketStore } from "../../engine/render/TerrainCoreRenderPackets.js";
-import type { ResourceId } from "../../engine/render/ResourceId.js";
 import type { Vec3 } from "../../engine/math/vec3.js";
 import {
   terrainChunkCoordContainingPosition,
@@ -48,7 +47,6 @@ export type TerrainCoreWorkerStreamStatus = {
 
 export type TerrainCoreWorkerStreamerOptions = {
   readonly getTargetPosition?: () => Vec3 | undefined;
-  readonly material?: ResourceId;
   readonly cellSize?: number;
   readonly meshIdPrefix?: string;
   readonly densityTransferMode?: TerrainDensityTransferModeRequest;
@@ -58,7 +56,6 @@ export class TerrainCoreWorkerStreamer {
   readonly runtime = "rust" as const;
   enabled = true;
   getTargetPosition?: () => Vec3 | undefined;
-  material?: ResourceId;
   cellSize: number;
   meshIdPrefix: string;
   densityTransferMode: TerrainDensityTransferMode;
@@ -75,7 +72,6 @@ export class TerrainCoreWorkerStreamer {
     options: TerrainCoreWorkerStreamerOptions = {}
   ) {
     this.getTargetPosition = options.getTargetPosition;
-    this.material = options.material;
     this.cellSize = options.cellSize ?? 1;
     this.meshIdPrefix = options.meshIdPrefix ?? "mesh:terrain.chunk";
     this.densityTransferMode = resolveTerrainDensityTransferMode(options.densityTransferMode);
@@ -267,8 +263,7 @@ export class TerrainCoreWorkerStreamer {
           meshId: `${this.meshIdPrefix}:${key}`,
           vertices: result.vertices,
           indices: result.indices,
-          floatsPerVertex: POSITION_COLOR_NORMAL_UV_LAYOUT.floatsPerVertex,
-          material: this.material
+          floatsPerVertex: POSITION_COLOR_NORMAL_UV_LAYOUT.floatsPerVertex
         });
       }
       this.lastChunkJobStats = result.stats;

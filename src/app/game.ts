@@ -3,8 +3,6 @@ import { computeFrameDeltaSeconds } from "./frameTiming.js";
 import { EngineCoreWasmHandle, loadEngineCoreWasm } from "../engine/core/engineCoreWasm.js";
 import type { EngineWebRendererStatus } from "../engine/web/engineWebWasm.js";
 import { vec3, type Vec3 } from "../engine/math/vec3.js";
-import { vec4 } from "../engine/math/vec4.js";
-import { MATERIAL_FLAG_TRIPLANAR_ALBEDO, Material } from "../engine/render/Material.js";
 import { createTerrainCoreRenderPacketStore } from "../engine/render/TerrainCoreRenderPackets.js";
 import { loadTerrainMaterialTextures } from "../engine/render/terrainTextures.js";
 import { RustBrowserGameAdapter } from "../engine/web/rustBrowserGameAdapter.js";
@@ -87,18 +85,7 @@ export async function startGame(elements: GameElements): Promise<void> {
   });
   const terrainDensityChunkStore = createTerrainCoreDensityChunkStore(terrainCore, descriptor);
   const terrainTextures = await loadTerrainMaterialTextures();
-  const terrainMaterial = new Material("material:terrain.seed", {
-    albedoTexture: terrainTextures.albedo.id,
-    normalTexture: terrainTextures.normal.id,
-    materialTexture: terrainTextures.material.id,
-    albedoFactor: vec4(1, 1, 1, 1),
-    specular: vec3(0.55, 0.58, 0.52),
-    specularFactor: 0.04,
-    flags: MATERIAL_FLAG_TRIPLANAR_ALBEDO,
-    textureScale: 0.08
-  });
   const terrainRenderPackets = createTerrainCoreRenderPacketStore(terrainCore, {
-    material: terrainMaterial,
     albedoTexture: terrainTextures.albedo,
     normalTexture: terrainTextures.normal,
     materialTexture: terrainTextures.material,
@@ -120,7 +107,6 @@ export async function startGame(elements: GameElements): Promise<void> {
     terrainWorker,
     {
       getTargetPosition: () => playerController.getPlayerPosition(),
-      material: terrainMaterial.id,
       cellSize: terrainStreamConfig.cellSize
     }
   );

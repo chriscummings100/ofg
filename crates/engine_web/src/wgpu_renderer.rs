@@ -8,7 +8,7 @@ use wgpu::util::DeviceExt;
 use crate::config::{
     REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
 };
-use crate::materials::{build_material_packet, DEFAULT_MATERIAL_PACKET};
+use crate::materials::{DEFAULT_MATERIAL_PACKET, TERRAIN_MATERIAL_PACKET};
 use crate::render_packets::{
     build_frame_packet_from_engine_snapshot, build_player_marker_world_matrix,
 };
@@ -27,7 +27,7 @@ pub struct RustBrowserGame {
     renderer: BrowserWgpuRenderer,
     mesh_handles_by_id: HashMap<String, ResourceHandle>,
     texture_handles_by_id: HashMap<String, ResourceHandle>,
-    materials_by_id: HashMap<String, BrowserMaterial>,
+    terrain_material: Option<BrowserMaterial>,
     object_handles_by_id: HashMap<String, ResourceHandle>,
     player_marker_mesh: ResourceHandle,
     player_marker_object: ResourceHandle,
@@ -122,7 +122,7 @@ impl RustBrowserGame {
             renderer,
             mesh_handles_by_id: HashMap::new(),
             texture_handles_by_id: HashMap::new(),
-            materials_by_id: HashMap::new(),
+            terrain_material: None,
             object_handles_by_id: HashMap::new(),
             player_marker_mesh,
             player_marker_object,
@@ -191,52 +191,19 @@ impl RustBrowserGame {
         self.renderer.destroy_texture(handle)
     }
 
-    #[allow(clippy::too_many_arguments)]
-    #[wasm_bindgen(js_name = upsertMaterial)]
-    pub fn upsert_material(
+    #[wasm_bindgen(js_name = upsertTerrainMaterial)]
+    pub fn upsert_terrain_material(
         &mut self,
-        id: &str,
-        albedo_r: f32,
-        albedo_g: f32,
-        albedo_b: f32,
-        albedo_a: f32,
-        specular_r: f32,
-        specular_g: f32,
-        specular_b: f32,
-        specular_factor: f32,
-        flags: f32,
-        texture_scale: f32,
         albedo_texture_id: &str,
         normal_texture_id: &str,
         material_texture_id: &str,
-    ) -> Result<(), JsValue> {
-        if id.is_empty() {
-            return Err(js_error("Rust browser game received an empty material ID."));
-        }
-
-        let packet = build_material_packet(
-            [albedo_r, albedo_g, albedo_b, albedo_a],
-            [specular_r, specular_g, specular_b],
-            specular_factor,
-            flags,
-            texture_scale,
-        )
-        .map_err(js_error)?;
-        self.materials_by_id.insert(
-            id.to_string(),
-            BrowserMaterial {
-                packet,
-                albedo_texture_id: albedo_texture_id.to_string(),
-                normal_texture_id: normal_texture_id.to_string(),
-                material_texture_id: material_texture_id.to_string(),
-            },
-        );
-        Ok(())
-    }
-
-    #[wasm_bindgen(js_name = destroyMaterial)]
-    pub fn destroy_material(&mut self, id: &str) {
-        self.materials_by_id.remove(id);
+    ) {
+        self.terrain_material = Some(BrowserMaterial {
+            packet: TERRAIN_MATERIAL_PACKET,
+            albedo_texture_id: albedo_texture_id.to_string(),
+            normal_texture_id: normal_texture_id.to_string(),
+            material_texture_id: material_texture_id.to_string(),
+        });
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -247,16 +214,12 @@ impl RustBrowserGame {
         aspect: f32,
         item_ids: js_sys::Array,
         mesh_ids: js_sys::Array,
-        material_ids: js_sys::Array,
         world_matrices: &[f32],
     ) -> Result<(), JsValue> {
         let item_ids = string_array_values(&item_ids)?;
         let mesh_ids = string_array_values(&mesh_ids)?;
-        let material_ids = string_array_values(&material_ids)?;
         let item_count = item_ids.len();
-        if mesh_ids.len() != item_count
-            || material_ids.len() != item_count
-            || world_matrices.len() != item_count * WORLD_MATRIX_FLOATS
+        if mesh_ids.len() != item_count || world_matrices.len() != item_count * WORLD_MATRIX_FLOATS
         {
             return Err(js_error(
                 "Rust browser game received mismatched render packet arrays.",
@@ -284,7 +247,7 @@ impl RustBrowserGame {
             seen_mesh_ids.insert(mesh_id.clone());
             mesh_handles.push(handle_to_js(mesh_handle));
             object_handles.push(handle_to_js(object_handle));
-            let material = self.material_for_id(&material_ids[index])?;
+            let material = self.terrain_material.as_ref();
             albedo_texture_handles.push(handle_to_js(
                 self.texture_handle_or_fallback(
                     material
@@ -369,17 +332,6 @@ impl RustBrowserGame {
             .get(id)
             .copied()
             .ok_or_else(|| js_error(format!("Rust browser game is missing texture '{id}'.")))
-    }
-
-    fn material_for_id(&self, id: &str) -> Result<Option<&BrowserMaterial>, JsValue> {
-        if id.is_empty() {
-            return Ok(None);
-        }
-
-        self.materials_by_id
-            .get(id)
-            .map(Some)
-            .ok_or_else(|| js_error(format!("Rust browser game is missing material '{id}'.")))
     }
 
     fn retain_mesh_ids(&mut self, seen_mesh_ids: &HashSet<String>) -> Result<(), JsValue> {

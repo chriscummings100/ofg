@@ -1,23 +1,17 @@
 import { equal, notEqual, throws } from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { vec4 } from "../math/vec4.js";
 import { terrainChunkCoord } from "../world/terrainChunk.js";
 import {
   instantiateTerrainCoreWasm,
   type TerrainCoreWasmInstance
 } from "../world/terrainCoreWasm.js";
 import { TERRAIN_CORE_WASM_METADATA } from "../../generated/terrain/terrainCoreWasm.js";
-import { Material } from "./Material.js";
 import { TerrainCoreRenderPacketStore } from "./TerrainCoreRenderPackets.js";
 
 describe("TerrainCoreRenderPacketStore", () => {
   it("stores terrain chunk packets in Rust and exposes terrain render source data", async () => {
     const terrainCore = await loadTerrainCore();
-    const material = new Material("material:terrain", {
-      albedoFactor: vec4(0.3, 0.5, 0.7, 1)
-    });
     const store = new TerrainCoreRenderPacketStore(terrainCore, {
-      material,
       itemIdPrefix: "terrain:rust",
       meshIdPrefix: "mesh:terrain.chunk"
     });
@@ -36,7 +30,6 @@ describe("TerrainCoreRenderPacketStore", () => {
     equal(store.chunks[0].mesh.id, "mesh:terrain.chunk:0,0,0");
 
     equal(store.itemIdPrefix, "terrain:rust");
-    equal(store.material, material);
   });
 
   it("removes Rust-owned terrain chunk packets by key or coord", async () => {

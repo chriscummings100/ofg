@@ -2,6 +2,9 @@ use crate::render_uniforms::MATERIAL_PACKET_FLOATS;
 
 pub const DEFAULT_MATERIAL_PACKET: [f32; MATERIAL_PACKET_FLOATS] =
     [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.18, 0.0, 1.0];
+pub const TERRAIN_MATERIAL_ID: &str = "material:terrain.seed";
+pub const TERRAIN_MATERIAL_PACKET: [f32; MATERIAL_PACKET_FLOATS] =
+    [1.0, 1.0, 1.0, 1.0, 0.55, 0.58, 0.52, 0.04, 1.0, 0.08];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MaterialPacketError {

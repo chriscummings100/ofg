@@ -139,7 +139,6 @@ function createStreamer(
     densityStore,
     worker,
     {
-      material: "material:terrain",
       ...options
     }
   );

@@ -271,7 +271,7 @@ function __wbg_adapter_31(arg0, arg1, arg2) {
     wasm._dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h5dc9a98bc8edeb10(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wbg_adapter_384(arg0, arg1, arg2, arg3) {
+function __wbg_adapter_383(arg0, arg1, arg2, arg3) {
     wasm.wasm_bindgen__convert__closures__invoke2_mut__h3ff0595175ed627e(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
@@ -420,66 +420,34 @@ export class RustBrowserGame {
         }
     }
     /**
-     * @param {string} id
-     * @param {number} albedo_r
-     * @param {number} albedo_g
-     * @param {number} albedo_b
-     * @param {number} albedo_a
-     * @param {number} specular_r
-     * @param {number} specular_g
-     * @param {number} specular_b
-     * @param {number} specular_factor
-     * @param {number} flags
-     * @param {number} texture_scale
      * @param {string} albedo_texture_id
      * @param {string} normal_texture_id
      * @param {string} material_texture_id
      */
-    upsertMaterial(id, albedo_r, albedo_g, albedo_b, albedo_a, specular_r, specular_g, specular_b, specular_factor, flags, texture_scale, albedo_texture_id, normal_texture_id, material_texture_id) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-            const len0 = WASM_VECTOR_LEN;
-            const ptr1 = passStringToWasm0(albedo_texture_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-            const len1 = WASM_VECTOR_LEN;
-            const ptr2 = passStringToWasm0(normal_texture_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-            const len2 = WASM_VECTOR_LEN;
-            const ptr3 = passStringToWasm0(material_texture_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-            const len3 = WASM_VECTOR_LEN;
-            wasm.rustbrowsergame_upsertMaterial(retptr, this.__wbg_ptr, ptr0, len0, albedo_r, albedo_g, albedo_b, albedo_a, specular_r, specular_g, specular_b, specular_factor, flags, texture_scale, ptr1, len1, ptr2, len2, ptr3, len3);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            if (r1) {
-                throw takeObject(r0);
-            }
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * @param {string} id
-     */
-    destroyMaterial(id) {
-        const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    upsertTerrainMaterial(albedo_texture_id, normal_texture_id, material_texture_id) {
+        const ptr0 = passStringToWasm0(albedo_texture_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        wasm.rustbrowsergame_destroyMaterial(this.__wbg_ptr, ptr0, len0);
+        const ptr1 = passStringToWasm0(normal_texture_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(material_texture_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        wasm.rustbrowsergame_upsertTerrainMaterial(this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2);
     }
     /**
      * @param {Float32Array} engine_snapshot
      * @param {number} aspect
      * @param {Array<any>} item_ids
      * @param {Array<any>} mesh_ids
-     * @param {Array<any>} material_ids
      * @param {Float32Array} world_matrices
      */
-    renderEngineFrame(engine_snapshot, aspect, item_ids, mesh_ids, material_ids, world_matrices) {
+    renderEngineFrame(engine_snapshot, aspect, item_ids, mesh_ids, world_matrices) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
             const ptr0 = passArrayF32ToWasm0(engine_snapshot, wasm.__wbindgen_malloc);
             const len0 = WASM_VECTOR_LEN;
             const ptr1 = passArrayF32ToWasm0(world_matrices, wasm.__wbindgen_malloc);
             const len1 = WASM_VECTOR_LEN;
-            wasm.rustbrowsergame_renderEngineFrame(retptr, this.__wbg_ptr, ptr0, len0, aspect, addHeapObject(item_ids), addHeapObject(mesh_ids), addHeapObject(material_ids), ptr1, len1);
+            wasm.rustbrowsergame_renderEngineFrame(retptr, this.__wbg_ptr, ptr0, len0, aspect, addHeapObject(item_ids), addHeapObject(mesh_ids), ptr1, len1);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             if (r1) {
@@ -1152,7 +1120,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_384(a, state0.b, arg0, arg1);
+                    return __wbg_adapter_383(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -1393,16 +1361,16 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper1088 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 240, __wbg_adapter_31);
+    imports.wbg.__wbindgen_closure_wrapper1081 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 239, __wbg_adapter_31);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper372 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 35, __wbg_adapter_26);
+    imports.wbg.__wbindgen_closure_wrapper365 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 34, __wbg_adapter_26);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper374 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 35, __wbg_adapter_26);
+    imports.wbg.__wbindgen_closure_wrapper367 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 34, __wbg_adapter_26);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_debug_string = function(arg0, arg1) {
