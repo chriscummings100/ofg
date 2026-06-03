@@ -20,8 +20,8 @@ byte-upload adapter around a Rust-owned browser game/render facade.
 ```text
 src/app
   Browser lifecycle, canvas setup, frame loop, HUD state, URL terrain
-  descriptor parsing, debug hooks, input forwarding, terrain streamer ticking,
-  and handoff of terrain packet bytes to the Rust browser game facade.
+  descriptor parsing, debug hooks, input forwarding, and calls into the coarse
+  browser game runtime facade for `tick` and `renderFrame`.
 
 src/engine/input
   DOM input tracking with edge-triggered key events and mouse deltas.
@@ -49,7 +49,9 @@ src/engine/web
   Browser-facing WASM loaders for Rust systems that are not pure engine core or
   terrain. `engineWebWasm.ts` loads the wasm-bindgen `RustBrowserGame` facade
   and applies a narrow browser compatibility shim for the pinned `wgpu` limit
-  name.
+  name. `rustBrowserGameRuntime.ts` is the temporary TypeScript shell around
+  remaining browser-only terrain Worker transport, texture asset decoding, stream
+  status, and debug hooks.
 
 src/engine/render/shaders
   Shader source inputs. The current `uber.wgsl` is the single shader contract for
@@ -84,11 +86,14 @@ temporary terrain worker/asset transport.
   pipelines, buffers, texture arrays, samplers, bind groups, render-pass
   submission, frame/resource counts, and GPU resource pruning.
 - TypeScript collects DOM input, parses URL seed/preset values, starts WASM,
-  hosts browser Workers, wraps shared density buffers, exposes debug hooks,
-  loads terrain mesh bytes from Rust packet stores, fetches texture assets, and
-  passes terrain mesh bytes by chunk key plus texture arrays into Rust-owned
-  renderer facades. Rust owns the terrain renderer vertex stride and active
-  frame construction at that facade.
+  hosts browser Workers below `RustBrowserGameRuntime`, wraps shared density
+  buffers, exposes debug hooks, loads terrain mesh bytes from Rust packet stores,
+  fetches texture assets, and passes terrain mesh bytes by chunk key plus texture
+  arrays into Rust-owned renderer facades. `src/app` no longer constructs the
+  terrain scheduler, density store, render packet store, worker client, mirrored
+  terrain sink, texture upload path, or terrain height sampler directly. Rust
+  owns the terrain renderer vertex stride and active frame construction at that
+  facade.
   TypeScript no longer creates WebGPU devices, pipelines, buffers, textures,
   render passes, shader uniform buffers, renderer resource handles, shader
   material packets, camera frames, light packets, player-marker mesh/material
@@ -112,17 +117,19 @@ deleted; Rust is now the browser terrain source of truth for height, density,
 material classification, and mesh emission. `heightAt(x, z)` remains a Rust
 compatibility query for player grounding until movement is density/mesh aware.
 
-`TerrainCoreWorkerStreamer` keeps the playable browser terrain bridge thin:
-`terrain_core.wasm` owns desired density/LOD0 sets, dependency coordinates,
-in-flight work, stale generation rejection, ready/empty state, density storage,
-mesh packet storage, packet pruning, and the worker-pool/request model. That
-worker model includes slot assignment, request IDs, reset generations, and
-completion validation. TypeScript still constructs browser Workers, but only
-through a generic transport utility; the dev/smoke runtime is cross-origin
-isolated and the playable bridge uses `SharedArrayBuffer`-backed density
-dependency payloads when available. Workers still copy those payloads into their
-local `terrain_core.wasm` density stores before contouring; Rust-managed wasm
-threads are still future work. Loaded density chunk keys remain fully 3D.
+`RustBrowserGameRuntime` keeps the playable browser terrain bridge away from the
+app layer. Beneath it, `TerrainCoreWorkerStreamer` still coordinates the
+browser-only Worker transport while `terrain_core.wasm` owns desired
+density/LOD0 sets, dependency coordinates, in-flight work, stale generation
+rejection, ready/empty state, density storage, mesh packet storage, packet
+pruning, and the worker-pool/request model. That worker model includes slot
+assignment, request IDs, reset generations, and completion validation. TypeScript
+still constructs browser Workers, but only below the runtime facade and through a
+generic transport utility; the dev/smoke runtime is cross-origin isolated and the
+playable bridge uses `SharedArrayBuffer`-backed density dependency payloads when
+available. Workers still copy those payloads into their local `terrain_core.wasm`
+density stores before contouring; Rust-managed wasm threads are still future
+work. Loaded density chunk keys remain fully 3D.
 Runtime terrain meshes carry position, color, normal, uv, material layer indices,
 and material weights. A small mesh post-pass expands indexed triangles so each
 triangle has a coherent local four-material palette for interpolation.

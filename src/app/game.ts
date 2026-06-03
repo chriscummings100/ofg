@@ -1,31 +1,16 @@
 import { InputTracker } from "../engine/input/inputTracker.js";
 import { computeFrameDeltaSeconds } from "./frameTiming.js";
 import type { EngineWebRendererStatus } from "../engine/web/engineWebWasm.js";
-import { vec3 } from "../engine/math/vec3.js";
 import {
-  createMirroredTerrainRenderChunkSink,
-  createTerrainCoreRenderPacketStore
-} from "../engine/render/TerrainCoreRenderPackets.js";
-import { loadTerrainMaterialTextures } from "../engine/render/terrainTextures.js";
-import { RustBrowserGameAdapter } from "../engine/web/rustBrowserGameAdapter.js";
-import { TerrainCoreWorkerStreamer } from "../game/components/TerrainCoreWorkerStreamer.js";
+  createRustBrowserGameRuntime,
+  type RustBrowserGameRuntime
+} from "../engine/web/rustBrowserGameRuntime.js";
 import {
   createSeedWorldDescriptor,
   isTerrainPresetId,
   type TerrainPresetId,
   type WorldDescriptor
 } from "../engine/world/terrainDescriptor.js";
-import { createTerrainCoreDensityChunkStore } from "../engine/world/terrainCoreDensityChunkStore.js";
-import {
-  loadTerrainCoreWasm,
-  terrainPresetToWasmCode,
-  type TerrainCoreWasmInstance
-} from "../engine/world/terrainCoreWasm.js";
-import { createTerrainCoreStreamScheduler } from "../engine/world/terrainCoreStreamScheduler.js";
-import {
-  type TerrainChunkWorkerClient,
-  createTerrainChunkWorkerClient
-} from "../engine/world/terrainChunkWorkerClient.js";
 import {
   type PlayerMode,
   type PlayerMovementIntent
@@ -37,8 +22,6 @@ type GameElements = {
   readonly frameTime: HTMLElement;
 };
 
-type TerrainHeightSampler = (x: number, z: number) => number;
-
 declare global {
   interface Window {
     __ofgDebug?: {
@@ -46,7 +29,7 @@ declare global {
       getTerrainChunkKeys: () => string[];
       getTerrainPreset: () => TerrainPresetId;
       getTerrainSeed: () => number;
-      getTerrainStreamStatus: () => ReturnType<TerrainCoreWorkerStreamer["getStreamStatus"]>;
+      getTerrainStreamStatus: () => ReturnType<RustBrowserGameRuntime["getTerrainStreamStatus"]>;
       getTerrainStreamerRuntime: () => "rust";
       getTerrainStreamSchedulerRuntime: () => "rust";
       getTerrainDensityStoreRuntime: () => "rust";
@@ -67,76 +50,39 @@ declare global {
 }
 
 export async function startGame(elements: GameElements): Promise<void> {
-  const renderer = await RustBrowserGameAdapter.create(elements.canvas);
   const input = new InputTracker();
   const descriptor = readWorldDescriptor();
-  const terrainCore = await loadRequiredTerrainCore();
-  const terrainHeightAt = createTerrainHeightSampler(terrainCore, descriptor);
-  const terrainPresetCode = terrainPresetToWasmCode(descriptor.terrainPreset);
-  renderer.resetGame(descriptor.seed, terrainPresetCode);
-  const terrainWorker = createRequiredTerrainWorker(descriptor, terrainCore);
-  const terrainStreamConfig = {
-    horizontalRadius: 1,
-    verticalChunkOffsets: [-2, -1, 0, 1],
-    cellSize: 1
-  } as const;
-  const terrainStreamScheduler = createTerrainCoreStreamScheduler(terrainCore, {
-    horizontalRadius: terrainStreamConfig.horizontalRadius,
-    verticalChunkOffsets: terrainStreamConfig.verticalChunkOffsets,
-    maxInFlightJobs: terrainWorker.workerCount
-  });
-  const terrainDensityChunkStore = createTerrainCoreDensityChunkStore(terrainCore, descriptor);
-  const terrainTextures = await loadTerrainMaterialTextures();
-  renderer.setTerrainTextures(terrainTextures);
-  const terrainRenderPackets = createTerrainCoreRenderPacketStore(terrainCore);
-  const terrainRenderSink = createMirroredTerrainRenderChunkSink([
-    terrainRenderPackets,
-    renderer
-  ]);
-  const terrainStreamer = new TerrainCoreWorkerStreamer(
-    terrainRenderSink,
-    terrainStreamScheduler,
-    terrainDensityChunkStore,
-    terrainWorker,
-    {
-      getTargetPosition: () => renderer.getPlayerPosition(),
-      cellSize: terrainStreamConfig.cellSize
-    }
-  );
-
-  terrainStreamer.syncAround(renderer.getPlayerPosition());
-  let renderPacketRuntime: "rust" | "typescript" = "typescript";
+  const game = await createRustBrowserGameRuntime(elements.canvas, descriptor);
   window.__ofgDebug = {
-    getLoadedTerrainChunkKeys: () => terrainStreamer.getLoadedChunkKeys(),
-    getTerrainChunkKeys: () => terrainRenderPackets.chunkKeys(),
-    getTerrainPreset: () => descriptor.terrainPreset,
-    getTerrainSeed: () => descriptor.seed,
-    getTerrainStreamStatus: () => terrainStreamer.getStreamStatus(),
-    getTerrainStreamerRuntime: () => terrainStreamer.runtime,
-    getTerrainStreamSchedulerRuntime: () => "rust",
-    getTerrainDensityStoreRuntime: () => terrainDensityChunkStore.runtime,
-    getTerrainWorkerPoolRuntime: () => terrainWorker.workerPoolRuntime,
-    getRenderPacketRuntime: () => renderPacketRuntime,
-    getTerrainRenderPacketRuntime: () => "rust",
-    getRendererRuntime: () => renderer.runtime,
-    getRendererStatus: () => renderer.getStatus(),
-    getTerrainWorkerCount: () => terrainWorker.workerCount,
-    getPlayerControllerRuntime: () => "rust",
+    getLoadedTerrainChunkKeys: () => game.getLoadedTerrainChunkKeys(),
+    getTerrainChunkKeys: () => game.getTerrainChunkKeys(),
+    getTerrainPreset: () => game.getTerrainPreset(),
+    getTerrainSeed: () => game.getTerrainSeed(),
+    getTerrainStreamStatus: () => game.getTerrainStreamStatus(),
+    getTerrainStreamerRuntime: () => game.getTerrainStreamerRuntime(),
+    getTerrainStreamSchedulerRuntime: () => game.terrainStreamSchedulerRuntime,
+    getTerrainDensityStoreRuntime: () => game.getTerrainDensityStoreRuntime(),
+    getTerrainWorkerPoolRuntime: () => game.getTerrainWorkerPoolRuntime(),
+    getRenderPacketRuntime: () => game.renderPacketRuntime,
+    getTerrainRenderPacketRuntime: () => game.terrainRenderPacketRuntime,
+    getRendererRuntime: () => game.rendererRuntime,
+    getRendererStatus: () => game.getRendererStatus(),
+    getTerrainWorkerCount: () => game.getTerrainWorkerCount(),
+    getPlayerControllerRuntime: () => game.playerControllerRuntime,
     resetTerrainStreaming() {
-      terrainStreamer.resetStreaming(renderer.getPlayerPosition());
+      game.resetTerrainStreaming();
     },
     getTerrainHeight(x, z) {
-      return terrainHeightAt(x, z);
+      return game.getTerrainHeight(x, z);
     },
     setCameraMode(mode) {
-      renderer.setPlayerMode(validatePlayerMode(mode));
+      game.setPlayerMode(validatePlayerMode(mode));
     },
     setDebugCamera(x, y, z, yaw, pitch) {
-      renderer.setDebugCamera(vec3(x, y, z), yaw, pitch);
+      game.setDebugCamera(x, y, z, yaw, pitch);
     },
     setPlayerPosition(x, z) {
-      renderer.setPlayerPosition(x, z);
-      terrainStreamer.syncAround(renderer.getPlayerPosition());
+      game.setPlayerPosition(x, z);
     }
   };
 
@@ -149,19 +95,16 @@ export async function startGame(elements: GameElements): Promise<void> {
     lastTimestamp = timestamp;
 
     if (input.consumePress("KeyC") || input.consumePress("F1")) {
-      renderer.toggleCameraMode();
+      game.toggleCameraMode();
     }
 
     const snapshot = input.consumeFrameSnapshot();
     const intent = readMovementIntent(input, snapshot.mouseDeltaX, snapshot.mouseDeltaY);
 
-    renderer.tick(deltaSeconds, intent);
-    terrainStreamer.update();
+    game.tick(deltaSeconds, intent);
+    game.renderFrame();
 
-    renderPacketRuntime = "rust";
-    renderer.renderGameFrame();
-
-    const playerMode = renderer.getPlayerMode();
+    const playerMode = game.getPlayerMode();
     elements.cameraMode.textContent = playerMode === "firstPerson" ? "FIRST" : "FLY";
     elements.cameraMode.dataset.mode = playerMode;
     elements.frameTime.textContent = `${(deltaSeconds * 1000).toFixed(1)} ms`;
@@ -181,31 +124,6 @@ function readWorldDescriptor(): WorldDescriptor {
     terrainSeed,
     terrainPreset === undefined ? {} : { terrainPreset }
   );
-}
-
-async function loadRequiredTerrainCore(): Promise<TerrainCoreWasmInstance> {
-  return loadTerrainCoreWasm();
-}
-
-function createRequiredTerrainWorker(
-  descriptor: WorldDescriptor,
-  terrainCore: TerrainCoreWasmInstance
-): TerrainChunkWorkerClient {
-  const worker = createTerrainChunkWorkerClient(descriptor, terrainCore);
-  if (worker === undefined) {
-    throw new Error("Terrain workers are required for the playable Rust terrain runtime.");
-  }
-
-  return worker;
-}
-
-function createTerrainHeightSampler(
-  terrainCore: TerrainCoreWasmInstance,
-  descriptor: WorldDescriptor
-): TerrainHeightSampler {
-  const preset = terrainPresetToWasmCode(descriptor.terrainPreset);
-
-  return (x, z) => terrainCore.exports.ofg_height_at(descriptor.seed, preset, x, z);
 }
 
 function readTerrainPreset(value: string | null): TerrainPresetId | undefined {
