@@ -14,7 +14,7 @@ import {
 import {
   type PlayerMode,
   type PlayerMovementIntent
-} from "../game/components/playerTypes.js";
+} from "../engine/web/browserGameTypes.js";
 
 type GameElements = {
   readonly canvas: HTMLCanvasElement;

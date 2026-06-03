@@ -8,7 +8,7 @@ import {
 } from "./rustBrowserGameRuntime.js";
 import { createSeedWorldDescriptor } from "../world/terrainDescriptor.js";
 import type { Vec3 } from "../math/vec3.js";
-import type { PlayerMovementIntent } from "../../game/components/playerTypes.js";
+import type { PlayerMovementIntent } from "./browserGameTypes.js";
 
 describe("RustBrowserGameRuntime", () => {
   it("coordinates Rust ticking, terrain streaming, rendering, and debug hooks", () => {

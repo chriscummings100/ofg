@@ -14,11 +14,11 @@ import {
 } from "../world/terrainChunkWorkerClient.js";
 import type { TerrainChunkKey } from "../world/terrainChunk.js";
 import type { TerrainPresetId, WorldDescriptor } from "../world/terrainDescriptor.js";
-import type { PlayerMode, PlayerMovementIntent } from "../../game/components/playerTypes.js";
+import type { PlayerMode, PlayerMovementIntent } from "./browserGameTypes.js";
 import {
   TerrainCoreWorkerStreamer,
   type TerrainCoreWorkerStreamStatus
-} from "../../game/components/TerrainCoreWorkerStreamer.js";
+} from "./terrainCoreWorkerStreamer.js";
 import { RustBrowserGameAdapter } from "./rustBrowserGameAdapter.js";
 import type { EngineWebRendererStatus } from "./engineWebWasm.js";
 

@@ -1,32 +1,32 @@
 import { equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { vec3 } from "../../engine/math/vec3.js";
-import { TerrainCoreRenderPacketStore } from "../../engine/render/TerrainCoreRenderPackets.js";
+import { vec3 } from "../math/vec3.js";
+import { TerrainCoreRenderPacketStore } from "../render/TerrainCoreRenderPackets.js";
 import {
   TerrainCoreDensityChunkStore
-} from "../../engine/world/terrainCoreDensityChunkStore.js";
+} from "../world/terrainCoreDensityChunkStore.js";
 import {
   createTerrainCoreStreamScheduler
-} from "../../engine/world/terrainCoreStreamScheduler.js";
+} from "../world/terrainCoreStreamScheduler.js";
 import {
   instantiateTerrainCoreWasm,
   type TerrainCoreWasmInstance
-} from "../../engine/world/terrainCoreWasm.js";
+} from "../world/terrainCoreWasm.js";
 import {
   terrainChunkKey,
   type TerrainChunkCoord
-} from "../../engine/world/terrainChunk.js";
+} from "../world/terrainChunk.js";
 import type {
   TerrainChunkJobGenerator,
   TerrainDensityChunkPayload,
   TerrainDensityJobResult
-} from "../../engine/world/terrainChunkWorkerTypes.js";
-import { createSeedWorldDescriptor } from "../../engine/world/terrainDescriptor.js";
+} from "../world/terrainChunkWorkerTypes.js";
+import { createSeedWorldDescriptor } from "../world/terrainDescriptor.js";
 import { TERRAIN_CORE_WASM_METADATA } from "../../generated/terrain/terrainCoreWasm.js";
 import {
   TerrainCoreWorkerStreamer,
   type TerrainCoreWorkerStreamerOptions
-} from "./TerrainCoreWorkerStreamer.js";
+} from "./terrainCoreWorkerStreamer.js";
 
 describe("TerrainCoreWorkerStreamer", () => {
   it("executes worker jobs selected by the Rust stream scheduler", async () => {

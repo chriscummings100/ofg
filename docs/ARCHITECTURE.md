@@ -50,7 +50,8 @@ src/engine/web
   and applies a narrow browser compatibility shim for the pinned `wgpu` limit
   name. `rustBrowserGameRuntime.ts` is the temporary TypeScript shell around
   remaining browser-only terrain Worker transport, texture asset decoding, stream
-  status, and debug hooks.
+  status, debug hooks, and browser game input types. `terrainCoreWorkerStreamer`
+  is the browser-only Worker bridge over the Rust-owned terrain scheduler.
 
 src/engine/render/shaders
   Shader source inputs. The current `uber.wgsl` is the single shader contract for
@@ -58,10 +59,6 @@ src/engine/render/shaders
 
 src/generated
   Deterministically generated TypeScript artifacts used by runtime code.
-
-src/game/components
-  Game-specific browser bridge classes, currently `TerrainCoreWorkerStreamer`.
-  They wrap Rust state and browser Worker transport and are not scene components.
 ```
 
 ## Runtime Ownership

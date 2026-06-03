@@ -19,7 +19,7 @@ import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
 import type {
   PlayerMode,
   PlayerMovementIntent
-} from "../../game/components/playerTypes.js";
+} from "./browserGameTypes.js";
 
 const FIRST_PERSON_MODE = 0;
 const DEBUG_FLY_MODE = 1;

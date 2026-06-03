@@ -119,18 +119,21 @@ crates/terrain_core
   Rust terrain core built to wasm32-unknown-unknown. It owns macro base
   elevation, density, compatibility height sampling, density chunk filling,
   browser runtime chunk mesh generation, stream scheduling, density storage,
-  worker-pool state, and terrain mesh packet storage. It is now the browser
-  terrain source of truth.
+  worker-pool state, and the tested legacy terrain mesh packet store. It is now
+  the browser terrain source of truth; the playable mesh handoff currently goes
+  from worker results straight into `engine_web`/Rust-wgpu terrain mesh handles.
 
 crates/engine_web
-  Browser-facing Rust renderer bridge built to wasm32-unknown-unknown. It owns
-  the first tested WebGPU resource ledger and is the staging crate for the future
-  Rust/wgpu renderer.
+  Browser-facing Rust game/render bridge built to wasm32-unknown-unknown. It
+  owns the active browser player/camera tick state, Rust/wgpu renderer, WebGPU
+  resource handles, terrain texture handles, terrain mesh handles, live terrain
+  draw set, and frame draw submission.
 
-src/game/components
-  Game-level browser bridge classes such as `RustPlayerController` and
-  `TerrainCoreWorkerStreamer`. These are plain TypeScript wrappers around Rust
-  engine/terrain state, not scene components.
+src/engine/web
+  Browser-facing TypeScript shell around Rust/WASM systems. It loads
+  `RustBrowserGame`, hosts the temporary terrain Worker transport, forwards
+  input/debug commands, uploads texture and worker mesh bytes to Rust, and keeps
+  browser-only compatibility shims.
 
 tools
   Local scripts, including shader generation, Poly Haven terrain texture import,

@@ -1,4 +1,4 @@
-import type { Vec3 } from "../../engine/math/vec3.js";
+import type { Vec3 } from "../math/vec3.js";
 
 export type PlayerMode = "firstPerson" | "debugFly";
 

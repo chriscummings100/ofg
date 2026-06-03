@@ -1,28 +1,28 @@
-import type { TerrainRenderChunkSink } from "../../engine/render/TerrainCoreRenderPackets.js";
-import type { Vec3 } from "../../engine/math/vec3.js";
+import type { TerrainRenderChunkSink } from "../render/TerrainCoreRenderPackets.js";
+import type { Vec3 } from "../math/vec3.js";
 import {
   terrainChunkCoordContainingPosition,
   terrainChunkKey,
   type TerrainChunkCoord,
   type TerrainChunkKey
-} from "../../engine/world/terrainChunk.js";
-import type { TerrainDensityChunkStore } from "../../engine/world/terrainCoreDensityChunkStore.js";
+} from "../world/terrainChunk.js";
+import type { TerrainDensityChunkStore } from "../world/terrainCoreDensityChunkStore.js";
 import type {
   TerrainStreamJob,
   TerrainStreamScheduler
-} from "../../engine/world/terrainCoreStreamScheduler.js";
+} from "../world/terrainCoreStreamScheduler.js";
 import {
   type TerrainChunkJobGenerator,
   type TerrainChunkJobStats,
   type TerrainDensityChunkPayload,
   type TerrainDensityJobStats
-} from "../../engine/world/terrainChunkWorkerTypes.js";
+} from "../world/terrainChunkWorkerTypes.js";
 import {
   prepareTerrainDensityChunkForWorkerTransfer,
   resolveTerrainDensityTransferMode,
   type TerrainDensityTransferMode,
   type TerrainDensityTransferModeRequest
-} from "../../engine/world/terrainDensityTransfer.js";
+} from "../world/terrainDensityTransfer.js";
 
 export type TerrainCoreWorkerStreamStatus = {
   readonly generation: number;
