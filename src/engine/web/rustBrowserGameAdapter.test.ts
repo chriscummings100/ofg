@@ -1,7 +1,8 @@
 import { equal, ok } from "node:assert/strict";
 import type { RenderMeshPacket } from "../render/RenderPackets.js";
 import type { TerrainRenderSource } from "../render/TerrainCoreRenderPackets.js";
-import { Texture } from "../render/Texture.js";
+import type { RgbaTextureArray } from "../render/textureLoader.js";
+import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
 import type { EngineWebBrowserGame } from "./engineWebWasm.js";
 import { RustBrowserGameAdapter } from "./rustBrowserGameAdapter.js";
 
@@ -10,26 +11,24 @@ describe("RustBrowserGameAdapter", () => {
     const fake = fakeBrowserGame();
     const adapter = new RustBrowserGameAdapter(fakeCanvas(), fake);
     const mesh = fakeMeshPacket("mesh:test");
-    const albedoTexture = fakeTexture("texture:albedo");
-    const normalTexture = fakeTexture("texture:normal");
-    const materialTexture = fakeTexture("texture:material");
+    const terrainTextures = fakeTerrainTextures();
     const snapshot = sampleEngineRenderSnapshot();
 
     withFakeWindow(() => adapter.renderEngineFrame(
       snapshot,
-      fakeTerrainRenderSource(mesh, albedoTexture, normalTexture, materialTexture)
+      fakeTerrainRenderSource(mesh, terrainTextures)
     ));
 
     equal(fake.upsertedMeshes.length, 1);
     equal(fake.upsertedMeshes[0]?.id, "mesh:test");
     equal(fake.upsertedMeshes[0]?.floatsPerVertex, 19);
-    equal(fake.upsertedTextures.length, 3);
-    equal(fake.upsertedTextures[0]?.id, "texture:albedo");
-    equal(fake.upsertedTextures[0]?.formatCode, 1);
-    equal(fake.upsertedTerrainMaterials.length, 1);
-    equal(fake.upsertedTerrainMaterials[0]?.albedoTextureId, "texture:albedo");
-    equal(fake.upsertedTerrainMaterials[0]?.normalTextureId, "texture:normal");
-    equal(fake.upsertedTerrainMaterials[0]?.materialTextureId, "texture:material");
+    equal(fake.upsertedTerrainTextures.length, 1);
+    equal(fake.upsertedTerrainTextures[0]?.width, 1);
+    equal(fake.upsertedTerrainTextures[0]?.layers, 1);
+    equal(fake.upsertedTerrainTextures[0]?.formatCode, 1);
+    equal(fake.upsertedTerrainTextures[0]?.albedoData[0], 255);
+    equal(fake.upsertedTerrainTextures[0]?.normalData[1], 255);
+    equal(fake.upsertedTerrainTextures[0]?.materialData[2], 255);
     equal(fake.lastRender?.engineSnapshot[0], 1);
     equal(fake.lastRender?.aspect, 640 / 480);
     equal(fake.lastRender?.itemIds[0], "terrain:test:0,0,0");
@@ -62,14 +61,13 @@ type FakeBrowserGame = EngineWebBrowserGame & {
     readonly id: string;
     readonly floatsPerVertex: number;
   }[];
-  upsertedTextures: {
-    readonly id: string;
+  upsertedTerrainTextures: {
+    readonly width: number;
+    readonly layers: number;
     readonly formatCode: number;
-  }[];
-  upsertedTerrainMaterials: {
-    readonly albedoTextureId: string;
-    readonly normalTextureId: string;
-    readonly materialTextureId: string;
+    readonly albedoData: Uint8Array;
+    readonly normalData: Uint8Array;
+    readonly materialData: Uint8Array;
   }[];
   destroyedMeshes: string[];
   lastRender?: {
@@ -84,8 +82,7 @@ type FakeBrowserGame = EngineWebBrowserGame & {
 function fakeBrowserGame(): FakeBrowserGame {
   return {
     upsertedMeshes: [],
-    upsertedTextures: [],
-    upsertedTerrainMaterials: [],
+    upsertedTerrainTextures: [],
     destroyedMeshes: [],
     resize() {},
     upsertMesh(id, _vertices, _indices, floatsPerVertex) {
@@ -94,15 +91,14 @@ function fakeBrowserGame(): FakeBrowserGame {
     destroyMesh(id) {
       this.destroyedMeshes.push(id);
     },
-    upsertTexture(id, _width, _height, _layers, formatCode) {
-      this.upsertedTextures.push({ id, formatCode });
-    },
-    destroyTexture() {},
-    upsertTerrainMaterial(albedoTextureId, normalTextureId, materialTextureId) {
-      this.upsertedTerrainMaterials.push({
-        albedoTextureId,
-        normalTextureId,
-        materialTextureId
+    upsertTerrainTextures(width, _height, layers, formatCode, albedoData, normalData, materialData) {
+      this.upsertedTerrainTextures.push({
+        width,
+        layers,
+        formatCode,
+        albedoData,
+        normalData,
+        materialData
       });
     },
     renderEngineFrame(
@@ -141,15 +137,11 @@ function fakeBrowserGame(): FakeBrowserGame {
 
 function fakeTerrainRenderSource(
   mesh: RenderMeshPacket,
-  albedoTexture: Texture,
-  normalTexture: Texture,
-  materialTexture: Texture
+  terrainTextures: TerrainMaterialTextures
 ): TerrainRenderSource {
   return {
     itemIdPrefix: "terrain:test",
-    albedoTexture,
-    normalTexture,
-    materialTexture,
+    terrainTextures,
     chunks: [
       {
         key: "0,0,0",
@@ -159,14 +151,21 @@ function fakeTerrainRenderSource(
   };
 }
 
-function fakeTexture(id: string): Texture {
-  return new Texture(
-    id,
-    1,
-    1,
-    "rgba8unorm",
-    { data: new Uint8Array([255, 0, 0, 255]) }
-  );
+function fakeTerrainTextures(): TerrainMaterialTextures {
+  return {
+    albedo: fakeTextureArray([255, 0, 0, 255]),
+    normal: fakeTextureArray([0, 255, 0, 255]),
+    material: fakeTextureArray([0, 0, 255, 255])
+  };
+}
+
+function fakeTextureArray(bytes: readonly number[]): RgbaTextureArray {
+  return {
+    width: 1,
+    height: 1,
+    layers: 1,
+    data: new Uint8Array(bytes)
+  };
 }
 
 function fakeMeshPacket(id: string): RenderMeshPacket {

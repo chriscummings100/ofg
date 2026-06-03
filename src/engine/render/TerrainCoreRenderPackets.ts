@@ -16,7 +16,7 @@ import {
 import { POSITION_COLOR_NORMAL_UV_LAYOUT } from "../world/terrainMesh.js";
 import type { RenderMeshPacket } from "./RenderPackets.js";
 import type { ResourceId } from "./ResourceId.js";
-import type { Texture } from "./Texture.js";
+import type { TerrainMaterialTextures } from "./terrainTextures.js";
 
 export type TerrainRenderChunkPacket = {
   readonly key: TerrainChunkKey;
@@ -47,9 +47,7 @@ export type TerrainRenderChunkSink = {
 
 export type TerrainRenderSource = {
   readonly itemIdPrefix: string;
-  readonly albedoTexture?: Texture;
-  readonly normalTexture?: Texture;
-  readonly materialTexture?: Texture;
+  readonly terrainTextures?: TerrainMaterialTextures;
   readonly chunks: readonly TerrainRenderChunkPacket[];
 };
 
@@ -57,25 +55,19 @@ export class TerrainCoreRenderPacketStore implements TerrainRenderChunkSink {
   readonly runtime = "rust" as const;
   readonly itemIdPrefix: string;
   readonly meshIdPrefix: string;
-  readonly albedoTexture?: Texture;
-  readonly normalTexture?: Texture;
-  readonly materialTexture?: Texture;
+  readonly terrainTextures?: TerrainMaterialTextures;
   private cachedVersion = -1;
   private cachedChunks: TerrainRenderChunkPacket[] = [];
 
   constructor(
     private readonly terrainCore: TerrainCoreWasmInstance,
     options: {
-      readonly albedoTexture?: Texture;
-      readonly normalTexture?: Texture;
-      readonly materialTexture?: Texture;
+      readonly terrainTextures?: TerrainMaterialTextures;
       readonly itemIdPrefix?: string;
       readonly meshIdPrefix?: string;
     } = {}
   ) {
-    this.albedoTexture = options.albedoTexture;
-    this.normalTexture = options.normalTexture;
-    this.materialTexture = options.materialTexture;
+    this.terrainTextures = options.terrainTextures;
     this.itemIdPrefix = options.itemIdPrefix ?? "terrain:rust";
     this.meshIdPrefix = options.meshIdPrefix ?? "mesh:terrain.chunk";
   }

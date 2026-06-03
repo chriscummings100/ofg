@@ -7,9 +7,7 @@ export class RustBrowserGame {
   resize(width: number, height: number): void;
   upsertMesh(id: string, vertices: Float32Array, indices: Uint32Array, floats_per_vertex: number): void;
   destroyMesh(id: string): void;
-  upsertTexture(id: string, width: number, height: number, layers: number, format_code: number, data: Uint8Array): void;
-  destroyTexture(id: string): void;
-  upsertTerrainMaterial(albedo_texture_id: string, normal_texture_id: string, material_texture_id: string): void;
+  upsertTerrainTextures(width: number, height: number, layers: number, format_code: number, albedo_data: Uint8Array, normal_data: Uint8Array, material_data: Uint8Array): void;
   renderEngineFrame(engine_snapshot: Float32Array, aspect: number, item_ids: Array<any>, mesh_ids: Array<any>, world_matrices: Float32Array): void;
   status(): RustBrowserGameStatus;
 }
@@ -63,9 +61,7 @@ export interface InitOutput {
   readonly rustbrowsergame_resize: (a: number, b: number, c: number, d: number) => void;
   readonly rustbrowsergame_upsertMesh: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => void;
   readonly rustbrowsergame_destroyMesh: (a: number, b: number, c: number, d: number) => void;
-  readonly rustbrowsergame_upsertTexture: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => void;
-  readonly rustbrowsergame_destroyTexture: (a: number, b: number, c: number, d: number) => void;
-  readonly rustbrowsergame_upsertTerrainMaterial: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+  readonly rustbrowsergame_upsertTerrainTextures: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => void;
   readonly rustbrowsergame_renderEngineFrame: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => void;
   readonly rustbrowsergame_status: (a: number) => number;
   readonly rustbrowsergamestatus_version: (a: number) => number;

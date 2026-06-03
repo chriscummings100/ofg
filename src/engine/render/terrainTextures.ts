@@ -2,32 +2,28 @@ import {
   TERRAIN_MATERIAL_LAYER_COUNT,
   TERRAIN_MATERIALS
 } from "../world/terrainMaterials.js";
-import type { Texture } from "./Texture.js";
-import { loadRgbaTextureArrayFromUrls } from "./textureLoader.js";
+import { loadRgbaTextureArrayFromUrls, type RgbaTextureArray } from "./textureLoader.js";
 
-export const TERRAIN_ALBEDO_TEXTURE_ID = "texture:terrain.albedoArray";
-export const TERRAIN_NORMAL_TEXTURE_ID = "texture:terrain.normalArray";
-export const TERRAIN_MATERIAL_TEXTURE_ID = "texture:terrain.materialArray";
 export const TERRAIN_TEXTURE_ARRAY_LAYER_COUNT = TERRAIN_MATERIAL_LAYER_COUNT;
 
 export type TerrainMaterialTextures = {
-  readonly albedo: Texture;
-  readonly normal: Texture;
-  readonly material: Texture;
+  readonly albedo: RgbaTextureArray;
+  readonly normal: RgbaTextureArray;
+  readonly material: RgbaTextureArray;
 };
 
 export async function loadTerrainMaterialTextures(): Promise<TerrainMaterialTextures> {
   const [albedo, normal, material] = await Promise.all([
     loadRgbaTextureArrayFromUrls(
-      TERRAIN_ALBEDO_TEXTURE_ID,
+      "terrain albedo array",
       TERRAIN_MATERIALS.map((terrainMaterial) => terrainMaterial.albedoUrl)
     ),
     loadRgbaTextureArrayFromUrls(
-      TERRAIN_NORMAL_TEXTURE_ID,
+      "terrain normal array",
       TERRAIN_MATERIALS.map((terrainMaterial) => terrainMaterial.normalUrl)
     ),
     loadRgbaTextureArrayFromUrls(
-      TERRAIN_MATERIAL_TEXTURE_ID,
+      "terrain material array",
       TERRAIN_MATERIALS.map((terrainMaterial) => terrainMaterial.roughnessUrl)
     )
   ]);

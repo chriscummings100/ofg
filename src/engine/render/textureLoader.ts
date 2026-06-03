@@ -1,21 +1,26 @@
-import { Texture } from "./Texture.js";
+export type RgbaTextureArray = {
+  readonly width: number;
+  readonly height: number;
+  readonly layers: number;
+  readonly data: Uint8Array;
+};
 
 export async function loadRgbaTextureFromUrl(
-  id: string,
+  label: string,
   url: string
-): Promise<Texture> {
+): Promise<RgbaTextureArray> {
   const image = await loadImageBitmap(url);
   try {
-    return textureFromRgbaPixels(id, image.width, image.height, imageBitmapToRgba(image, url));
+    return textureFromRgbaPixels(label, image.width, image.height, imageBitmapToRgba(image, url));
   } finally {
     image.close();
   }
 }
 
 export async function loadRgbaTextureArrayFromUrls(
-  id: string,
+  label: string,
   urls: readonly string[]
-): Promise<Texture> {
+): Promise<RgbaTextureArray> {
   if (urls.length === 0) {
     throw new Error("Texture array must contain at least one URL.");
   }
@@ -30,7 +35,7 @@ export async function loadRgbaTextureArrayFromUrls(
       const image = images[layer];
       if (image.width !== first.width || image.height !== first.height) {
         throw new Error(
-          `Texture array '${id}' layer ${layer} has dimensions ` +
+          `Texture array '${label}' layer ${layer} has dimensions ` +
           `${image.width}x${image.height}; expected ${first.width}x${first.height}.`
         );
       }
@@ -38,10 +43,7 @@ export async function loadRgbaTextureArrayFromUrls(
       data.set(imageBitmapToRgba(image, urls[layer]), layer * bytesPerLayer);
     }
 
-    return new Texture(id, first.width, first.height, "rgba8unorm", {
-      data,
-      layers: images.length
-    });
+    return textureArrayFromRgbaPixels(label, first.width, first.height, images.length, data);
   } finally {
     for (const image of images) {
       image.close();
@@ -50,14 +52,41 @@ export async function loadRgbaTextureArrayFromUrls(
 }
 
 export function textureFromRgbaPixels(
-  id: string,
+  label: string,
   width: number,
   height: number,
   data: Uint8Array | Uint8ClampedArray
-): Texture {
-  return new Texture(id, width, height, "rgba8unorm", {
-    data: data instanceof Uint8Array ? data : new Uint8Array(data)
-  });
+): RgbaTextureArray {
+  return textureArrayFromRgbaPixels(label, width, height, 1, data);
+}
+
+export function textureArrayFromRgbaPixels(
+  label: string,
+  width: number,
+  height: number,
+  layers: number,
+  data: Uint8Array | Uint8ClampedArray
+): RgbaTextureArray {
+  if (width <= 0 || height <= 0) {
+    throw new Error(`Texture '${label}' dimensions must be positive.`);
+  }
+  if (!Number.isInteger(layers) || layers <= 0) {
+    throw new Error(`Texture '${label}' layers must be a positive integer.`);
+  }
+
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+  if (bytes.length !== width * height * layers * 4) {
+    throw new Error(
+      `Texture '${label}' rgba data must contain width * height * layers * 4 bytes.`
+    );
+  }
+
+  return {
+    width,
+    height,
+    layers,
+    data: bytes
+  };
 }
 
 async function loadImageBitmap(url: string): Promise<ImageBitmap> {

@@ -26,19 +26,14 @@ export type EngineWebBrowserGame = {
     floatsPerVertex: number
   ): void;
   destroyMesh(id: string): void;
-  upsertTexture(
-    id: string,
+  upsertTerrainTextures(
     width: number,
     height: number,
     layers: number,
     formatCode: number,
-    data: Uint8Array
-  ): void;
-  destroyTexture(id: string): void;
-  upsertTerrainMaterial(
-    albedoTextureId: string,
-    normalTextureId: string,
-    materialTextureId: string
+    albedoData: Uint8Array,
+    normalData: Uint8Array,
+    materialData: Uint8Array
   ): void;
   renderEngineFrame(
     engineSnapshot: Float32Array,

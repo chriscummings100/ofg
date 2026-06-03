@@ -271,7 +271,7 @@ function __wbg_adapter_31(arg0, arg1, arg2) {
     wasm._dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h5dc9a98bc8edeb10(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wbg_adapter_383(arg0, arg1, arg2, arg3) {
+function __wbg_adapter_381(arg0, arg1, arg2, arg3) {
     wasm.wasm_bindgen__convert__closures__invoke2_mut__h3ff0595175ed627e(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
@@ -377,21 +377,24 @@ export class RustBrowserGame {
         }
     }
     /**
-     * @param {string} id
      * @param {number} width
      * @param {number} height
      * @param {number} layers
      * @param {number} format_code
-     * @param {Uint8Array} data
+     * @param {Uint8Array} albedo_data
+     * @param {Uint8Array} normal_data
+     * @param {Uint8Array} material_data
      */
-    upsertTexture(id, width, height, layers, format_code, data) {
+    upsertTerrainTextures(width, height, layers, format_code, albedo_data, normal_data, material_data) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const ptr0 = passArray8ToWasm0(albedo_data, wasm.__wbindgen_malloc);
             const len0 = WASM_VECTOR_LEN;
-            const ptr1 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+            const ptr1 = passArray8ToWasm0(normal_data, wasm.__wbindgen_malloc);
             const len1 = WASM_VECTOR_LEN;
-            wasm.rustbrowsergame_upsertTexture(retptr, this.__wbg_ptr, ptr0, len0, width, height, layers, format_code, ptr1, len1);
+            const ptr2 = passArray8ToWasm0(material_data, wasm.__wbindgen_malloc);
+            const len2 = WASM_VECTOR_LEN;
+            wasm.rustbrowsergame_upsertTerrainTextures(retptr, this.__wbg_ptr, width, height, layers, format_code, ptr0, len0, ptr1, len1, ptr2, len2);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             if (r1) {
@@ -400,38 +403,6 @@ export class RustBrowserGame {
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
-    }
-    /**
-     * @param {string} id
-     */
-    destroyTexture(id) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-            const len0 = WASM_VECTOR_LEN;
-            wasm.rustbrowsergame_destroyTexture(retptr, this.__wbg_ptr, ptr0, len0);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            if (r1) {
-                throw takeObject(r0);
-            }
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * @param {string} albedo_texture_id
-     * @param {string} normal_texture_id
-     * @param {string} material_texture_id
-     */
-    upsertTerrainMaterial(albedo_texture_id, normal_texture_id, material_texture_id) {
-        const ptr0 = passStringToWasm0(albedo_texture_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(normal_texture_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passStringToWasm0(material_texture_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len2 = WASM_VECTOR_LEN;
-        wasm.rustbrowsergame_upsertTerrainMaterial(this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2);
     }
     /**
      * @param {Float32Array} engine_snapshot
@@ -1120,7 +1091,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_383(a, state0.b, arg0, arg1);
+                    return __wbg_adapter_381(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -1361,16 +1332,16 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper1081 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 239, __wbg_adapter_31);
+    imports.wbg.__wbindgen_closure_wrapper1074 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 238, __wbg_adapter_31);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper365 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 34, __wbg_adapter_26);
+    imports.wbg.__wbindgen_closure_wrapper358 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 33, __wbg_adapter_26);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper367 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 34, __wbg_adapter_26);
+    imports.wbg.__wbindgen_closure_wrapper360 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 33, __wbg_adapter_26);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_debug_string = function(arg0, arg1) {

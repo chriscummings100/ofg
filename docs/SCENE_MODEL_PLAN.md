@@ -17,10 +17,10 @@ live in `terrain_core.wasm`. `RustPlayerController` and
 components.
 
 The TypeScript `PlayerController`, `Scene`, `Entity`, `Component`, `Transform`,
-`ResourceStore`, `MeshRenderer`, `SceneRenderExtractor`, `TerrainRenderer`,
-`TerrainChunkStreamer`, `terrainChunkMesher`, TypeScript Dual Contouring module,
-and TypeScript terrain generator/noise reference have all been retired from live
-compiled `src`.
+`ResourceStore`, `Material`, `Texture`, `MeshRenderer`, `SceneRenderExtractor`,
+`TerrainRenderer`, `TerrainChunkStreamer`, `terrainChunkMesher`, TypeScript Dual
+Contouring module, and TypeScript terrain generator/noise reference have all
+been retired from live compiled `src`.
 This is not a full ECS and should not become one by accident. The model is:
 
 - One global active `Scene`.

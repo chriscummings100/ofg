@@ -1,9 +1,6 @@
 import { equal, ok } from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import {
-  TERRAIN_ALBEDO_TEXTURE_ID,
-  TERRAIN_MATERIAL_TEXTURE_ID,
-  TERRAIN_NORMAL_TEXTURE_ID,
   TERRAIN_TEXTURE_ARRAY_LAYER_COUNT
 } from "./terrainTextures.js";
 import {
@@ -13,9 +10,6 @@ import {
 
 describe("terrainTextures", () => {
   it("defines texture arrays for the terrain material library", () => {
-    equal(TERRAIN_ALBEDO_TEXTURE_ID, "texture:terrain.albedoArray");
-    equal(TERRAIN_NORMAL_TEXTURE_ID, "texture:terrain.normalArray");
-    equal(TERRAIN_MATERIAL_TEXTURE_ID, "texture:terrain.materialArray");
     equal(TERRAIN_TEXTURE_ARRAY_LAYER_COUNT, 16);
     equal(TERRAIN_TEXTURE_ARRAY_LAYER_COUNT, TERRAIN_MATERIAL_LAYER_COUNT);
   });

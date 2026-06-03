@@ -7,7 +7,7 @@ import {
 } from "./engineWebWasm.js";
 import type { RenderMeshPacket } from "../render/RenderPackets.js";
 import type { TerrainRenderSource } from "../render/TerrainCoreRenderPackets.js";
-import type { Texture } from "../render/Texture.js";
+import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
 
 const WORLD_MATRIX_FLOATS = 16;
 const IDENTITY_WORLD_MATRIX = new Float32Array([
@@ -20,8 +20,7 @@ const IDENTITY_WORLD_MATRIX = new Float32Array([
 export class RustBrowserGameAdapter {
   readonly runtime = "rust-wgpu" as const;
   private readonly uploadedMeshes = new Map<string, RenderMeshPacket>();
-  private readonly uploadedTextures = new Map<string, Texture>();
-  private uploadedTerrainMaterial?: UploadedTerrainMaterial;
+  private uploadedTerrainTextures?: TerrainMaterialTextures;
   private width = 1;
   private height = 1;
 
@@ -69,14 +68,7 @@ export class RustBrowserGameAdapter {
     const worldMatrices = new Float32Array(itemCount * WORLD_MATRIX_FLOATS);
     const seenMeshes = new Set<RenderMeshPacket>();
 
-    this.upsertTextureIfNeeded(terrain.albedoTexture);
-    this.upsertTextureIfNeeded(terrain.normalTexture);
-    this.upsertTextureIfNeeded(terrain.materialTexture);
-    this.upsertTerrainMaterialIfNeeded(
-      terrain.albedoTexture,
-      terrain.normalTexture,
-      terrain.materialTexture
-    );
+    this.upsertTerrainTexturesIfNeeded(terrain.terrainTextures);
 
     for (let index = 0; index < itemCount; index += 1) {
       const chunk = chunks[index];
@@ -114,54 +106,22 @@ export class RustBrowserGameAdapter {
     this.uploadedMeshes.set(mesh.id, mesh);
   }
 
-  private upsertTextureIfNeeded(texture: Texture | undefined): void {
-    if (texture === undefined || this.uploadedTextures.get(texture.id) === texture) {
+  private upsertTerrainTexturesIfNeeded(textures: TerrainMaterialTextures | undefined): void {
+    if (textures === undefined || this.uploadedTerrainTextures === textures) {
       return;
     }
 
-    if (texture.format !== "rgba8unorm") {
-      throw new Error(`RustBrowserGame renderer does not support texture format '${texture.format}'.`);
-    }
-
-    const data = texture.data === undefined
-      ? createOpaqueWhiteTextureData(texture.width, texture.height, texture.layers)
-      : new Uint8Array(texture.data.buffer, texture.data.byteOffset, texture.data.byteLength);
-    this.game.upsertTexture(
-      texture.id,
-      texture.width,
-      texture.height,
-      texture.layers,
+    validateTerrainTextureArrays(textures);
+    this.game.upsertTerrainTextures(
+      textures.albedo.width,
+      textures.albedo.height,
+      textures.albedo.layers,
       ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM,
-      data
+      textures.albedo.data,
+      textures.normal.data,
+      textures.material.data
     );
-    this.uploadedTextures.set(texture.id, texture);
-  }
-
-  private upsertTerrainMaterialIfNeeded(
-    albedoTexture: Texture | undefined,
-    normalTexture: Texture | undefined,
-    materialTexture: Texture | undefined
-  ): void {
-    const uploaded = {
-      albedoTextureId: albedoTexture?.id ?? "",
-      normalTextureId: normalTexture?.id ?? "",
-      materialTextureId: materialTexture?.id ?? ""
-    };
-    const cached = this.uploadedTerrainMaterial;
-    if (
-      cached?.albedoTextureId === uploaded.albedoTextureId &&
-      cached.normalTextureId === uploaded.normalTextureId &&
-      cached.materialTextureId === uploaded.materialTextureId
-    ) {
-      return;
-    }
-
-    this.game.upsertTerrainMaterial(
-      uploaded.albedoTextureId,
-      uploaded.normalTextureId,
-      uploaded.materialTextureId
-    );
-    this.uploadedTerrainMaterial = uploaded;
+    this.uploadedTerrainTextures = textures;
   }
 
   private pruneUploadedMeshes(seenMeshes: Set<RenderMeshPacket>): void {
@@ -185,20 +145,18 @@ export class RustBrowserGameAdapter {
   }
 }
 
-function createOpaqueWhiteTextureData(width: number, height: number, layers: number): Uint8Array {
-  const data = new Uint8Array(width * height * layers * 4);
-  for (let offset = 0; offset < data.length; offset += 4) {
-    data[offset] = 255;
-    data[offset + 1] = 255;
-    data[offset + 2] = 255;
-    data[offset + 3] = 255;
+function validateTerrainTextureArrays(textures: TerrainMaterialTextures): void {
+  const { width, height, layers } = textures.albedo;
+  for (const [label, texture] of [
+    ["normal", textures.normal],
+    ["material", textures.material]
+  ] as const) {
+    if (texture.width !== width || texture.height !== height || texture.layers !== layers) {
+      throw new Error(
+        `RustBrowserGame renderer received terrain ${label} texture dimensions ` +
+        `${texture.width}x${texture.height}x${texture.layers}; expected ` +
+        `${width}x${height}x${layers}.`
+      );
+    }
   }
-
-  return data;
 }
-
-type UploadedTerrainMaterial = {
-  readonly albedoTextureId: string;
-  readonly normalTextureId: string;
-  readonly materialTextureId: string;
-};

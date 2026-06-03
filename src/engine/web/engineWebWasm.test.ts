@@ -33,8 +33,9 @@ describe("engine web WASM", () => {
     ok(moduleText.includes("export class RustBrowserGameStatus"));
     ok(dtsText.includes("static create(canvas: HTMLCanvasElement): Promise<RustBrowserGame>"));
     ok(dtsText.includes("upsertMesh"));
-    ok(dtsText.includes("upsertTexture"));
-    ok(dtsText.includes("upsertTerrainMaterial"));
+    ok(dtsText.includes("upsertTerrainTextures"));
+    equal(dtsText.includes("upsertTexture"), false);
+    equal(dtsText.includes("upsertTerrainMaterial"), false);
     equal(dtsText.includes("upsertMaterial"), false);
     ok(dtsText.includes("maxTextureArrayLayers"));
   });
@@ -112,9 +113,7 @@ function fakeBrowserGame(): EngineWebBrowserGame {
     resize() {},
     upsertMesh() {},
     destroyMesh() {},
-    upsertTexture() {},
-    destroyTexture() {},
-    upsertTerrainMaterial() {},
+    upsertTerrainTextures() {},
     renderEngineFrame() {},
     status() {
       return {

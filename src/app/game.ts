@@ -86,9 +86,7 @@ export async function startGame(elements: GameElements): Promise<void> {
   const terrainDensityChunkStore = createTerrainCoreDensityChunkStore(terrainCore, descriptor);
   const terrainTextures = await loadTerrainMaterialTextures();
   const terrainRenderPackets = createTerrainCoreRenderPacketStore(terrainCore, {
-    albedoTexture: terrainTextures.albedo,
-    normalTexture: terrainTextures.normal,
-    materialTexture: terrainTextures.material,
+    terrainTextures,
     itemIdPrefix: "terrain:rust",
     meshIdPrefix: "mesh:terrain.chunk"
   });
