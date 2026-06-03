@@ -20,9 +20,8 @@ byte-upload adapter around a Rust-owned browser game/render facade.
 ```text
 src/app
   Browser lifecycle, canvas setup, frame loop, HUD state, URL terrain
-  descriptor parsing, debug hooks, input forwarding, and handoff of raw Rust
-  engine render snapshots plus terrain packet bytes/IDs to the Rust browser game
-  facade.
+  descriptor parsing, debug hooks, input forwarding, terrain streamer ticking,
+  and handoff of terrain packet bytes to the Rust browser game facade.
 
 src/engine/input
   DOM input tracking with edge-triggered key events and mouse deltas.
@@ -60,18 +59,23 @@ src/generated
   Deterministically generated TypeScript artifacts used by runtime code.
 
 src/game/components
-  Game-specific browser bridge classes, currently RustPlayerController and
-  TerrainCoreWorkerStreamer. They wrap Rust state and are not scene components.
+  Game-specific browser bridge classes, currently `TerrainCoreWorkerStreamer`.
+  They wrap Rust state and browser Worker transport and are not scene components.
 ```
 
 ## Runtime Ownership
 
-The playable browser runtime is now Rust-owned for player/camera state and
-terrain state, with TypeScript acting as a browser shell and temporary renderer
-adapter.
+The playable browser runtime is now Rust-owned for player/camera state, terrain
+state, and WebGPU rendering, with TypeScript acting as a browser shell and
+temporary terrain worker/asset transport.
 
-- `engine_core.wasm` owns the active player/camera rig and emits camera, light,
-  and debug player-marker render packets.
+- `engine_web` composes `engine_core` and `terrain_core` as Rust libraries for
+  the active browser game facade. It owns player/camera movement, terrain-height
+  grounding, camera mode switching, debug player marker state, frame packet
+  construction, and Rust/wgpu draw submission.
+- `engine_core` remains the browser-free Rust logic crate for engine/player/world
+  behavior and tests. Its standalone WASM artifact is no longer loaded by the
+  playable app for active player/camera state.
 - `terrain_core.wasm` owns terrain height/density sampling, generated chunk mesh
   emission, stream scheduling, density storage, worker-pool request state, and
   terrain mesh packet storage.
@@ -83,7 +87,8 @@ adapter.
   hosts browser Workers, wraps shared density buffers, exposes debug hooks,
   loads terrain mesh bytes from Rust packet stores, fetches texture assets, and
   passes terrain mesh bytes by chunk key plus texture arrays into Rust-owned
-  renderer facades. Rust owns the terrain renderer vertex stride at that facade.
+  renderer facades. Rust owns the terrain renderer vertex stride and active
+  frame construction at that facade.
   TypeScript no longer creates WebGPU devices, pipelines, buffers, textures,
   render passes, shader uniform buffers, renderer resource handles, shader
   material packets, camera frames, light packets, player-marker mesh/material
@@ -158,9 +163,9 @@ an albedo factor and optional albedo texture sample, plus specular color and
 specular factor. The shader uses a simple Lambert diffuse plus Blinn-Phong specular
 model. Terrain texture helpers decode checked-in image assets into CPU-side
 rgba8 arrays that the TypeScript shell passes through one terrain-specific Rust
-facade call. Rust/wgpu builds compact frame packets from the raw Rust engine
-render snapshot, owns shader material packets and material-to-texture selection,
-owns the debug player-marker mesh/material and world matrix, validates per-chunk
+facade call. Rust/wgpu builds compact frame packets from its Rust-owned browser
+game state, owns shader material packets and material-to-texture selection, owns
+the debug player-marker mesh/material and world matrix, validates per-chunk
 terrain draw transforms inside the browser game facade, computes object normal
 matrices, and packs the WGSL camera/object uniform buffers.
 
@@ -173,7 +178,7 @@ not yet applied to lighting.
 The sky is also shader-driven. Rust/wgpu draws a full-screen sky pass before
 terrain and marker geometry, reconstructs world rays from the inverse
 view-projection matrix, and renders a blue gradient plus a sun disk in the
-direction of the Rust engine main-light render packet.
+direction of the Rust-owned main light.
 
 ## Testing Direction
 

@@ -1,5 +1,5 @@
 pub(crate) const TERRAIN_CORE_VERSION: u32 = 1;
-pub(crate) const DEFAULT_TERRAIN_PRESET: u32 = 1;
+pub const DEFAULT_TERRAIN_PRESET: u32 = 1;
 pub(crate) const SURFACE_SEARCH_MIN_Y: f64 = -96.0;
 pub(crate) const SURFACE_SEARCH_MAX_Y: f64 = 96.0;
 pub(crate) const SURFACE_SEARCH_STEP: f64 = 1.0;

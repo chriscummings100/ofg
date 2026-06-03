@@ -1,11 +1,13 @@
 use crate::{
     build_frame_packet_from_engine_snapshot, build_frame_uniform_values, build_material_packet,
-    build_object_uniform_values, build_player_marker_world_matrix, MaterialPacketError,
-    RenderPacketError, RenderUniformError, RendererState, RendererStateError, ResourceHandle,
-    ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS, MATERIAL_PACKET_FLOATS,
-    REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_MATERIAL_ID, TERRAIN_MATERIAL_PACKET,
-    TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM, WORLD_MATRIX_FLOATS,
+    build_object_uniform_values, build_player_marker_world_matrix, BrowserGameInput,
+    BrowserGameState, MaterialPacketError, RenderPacketError, RenderUniformError, RendererState,
+    RendererStateError, ResourceHandle, ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS,
+    MATERIAL_PACKET_FLOATS, REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_MATERIAL_ID,
+    TERRAIN_MATERIAL_PACKET, TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
+    WORLD_MATRIX_FLOATS,
 };
+use engine_core::PlayerMode;
 
 #[test]
 fn config_rejects_canvas_and_texture_limits_that_webgpu_terrain_cannot_use() {
@@ -292,6 +294,75 @@ fn material_packets_reject_invalid_values() {
         build_material_packet([1.0; 4], [1.0; 3], 0.18, 0.0, 0.0),
         Err(MaterialPacketError::InvalidTextureScale)
     );
+}
+
+#[test]
+fn browser_game_state_resets_with_a_rust_owned_grounded_player() {
+    let mut state = BrowserGameState::new();
+
+    state.reset_game(0x0F6, 1).unwrap();
+
+    let position = state.player_position().unwrap();
+    assert_close(position.x, 0.0);
+    assert!(position.y.is_finite());
+    assert_close(position.z, 0.0);
+    assert_eq!(state.player_mode().unwrap(), PlayerMode::FirstPerson);
+
+    let snapshot = state.render_snapshot_values().unwrap();
+    assert_close(snapshot[19], 0.0);
+    assert_close(snapshot[20], position.x);
+    assert_close(snapshot[21], position.y);
+    assert_close(snapshot[22], position.z);
+}
+
+#[test]
+fn browser_game_state_ticks_player_and_grounds_against_terrain() {
+    let mut state = BrowserGameState::new();
+    state.reset_game(0x0F6, 1).unwrap();
+    let before = state.player_position().unwrap();
+
+    state
+        .tick(BrowserGameInput {
+            delta_seconds: 1.0,
+            forward: 1.0,
+            right: 0.0,
+            up: 0.0,
+            fast: false,
+            look_delta_x: 0.0,
+            look_delta_y: 0.0,
+        })
+        .unwrap();
+
+    let after = state.player_position().unwrap();
+    assert!(after.z > before.z);
+    assert!(after.y.is_finite());
+}
+
+#[test]
+fn browser_game_state_debug_fly_moves_camera_without_moving_player_marker() {
+    let mut state = BrowserGameState::new();
+    state.reset_game(0x0F6, 1).unwrap();
+    let player_position = state.player_position().unwrap();
+
+    state.set_player_mode(PlayerMode::DebugFly).unwrap();
+    state
+        .tick(BrowserGameInput {
+            delta_seconds: 1.0,
+            forward: 0.0,
+            right: 0.0,
+            up: 1.0,
+            fast: false,
+            look_delta_x: 0.0,
+            look_delta_y: 0.0,
+        })
+        .unwrap();
+
+    assert_eq!(state.player_position().unwrap(), player_position);
+    let snapshot = state.render_snapshot_values().unwrap();
+    assert_close(snapshot[19], 1.0);
+    assert_close(snapshot[20], player_position.x);
+    assert_close(snapshot[21], player_position.y);
+    assert_close(snapshot[22], player_position.z);
 }
 
 fn sample_engine_render_snapshot(marker_visible: bool) -> [f32; ENGINE_RENDER_SNAPSHOT_FLOATS] {

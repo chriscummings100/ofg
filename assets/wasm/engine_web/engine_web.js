@@ -271,7 +271,7 @@ function __wbg_adapter_31(arg0, arg1, arg2) {
     wasm._dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h5dc9a98bc8edeb10(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wbg_adapter_383(arg0, arg1, arg2, arg3) {
+function __wbg_adapter_393(arg0, arg1, arg2, arg3) {
     wasm.wasm_bindgen__convert__closures__invoke2_mut__h3ff0595175ed627e(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
@@ -324,6 +324,188 @@ export class RustBrowserGame {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
             wasm.rustbrowsergame_resize(retptr, this.__wbg_ptr, width, height);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @param {number} terrain_seed
+     * @param {number} terrain_preset
+     */
+    resetGame(terrain_seed, terrain_preset) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.rustbrowsergame_resetGame(retptr, this.__wbg_ptr, terrain_seed, terrain_preset);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @param {number} delta_seconds
+     * @param {number} forward
+     * @param {number} right
+     * @param {number} up
+     * @param {boolean} fast
+     * @param {number} look_delta_x
+     * @param {number} look_delta_y
+     */
+    tick(delta_seconds, forward, right, up, fast, look_delta_x, look_delta_y) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.rustbrowsergame_tick(retptr, this.__wbg_ptr, delta_seconds, forward, right, up, fast, look_delta_x, look_delta_y);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    togglePlayerMode() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.rustbrowsergame_togglePlayerMode(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0 >>> 0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    playerMode() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.rustbrowsergame_playerMode(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0 >>> 0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @param {number} mode
+     */
+    setPlayerMode(mode) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.rustbrowsergame_setPlayerMode(retptr, this.__wbg_ptr, mode);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    playerX() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.rustbrowsergame_playerX(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getFloat32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    playerY() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.rustbrowsergame_playerY(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getFloat32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    playerZ() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.rustbrowsergame_playerZ(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getFloat32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @param {number} x
+     * @param {number} z
+     */
+    setPlayerPosition(x, z) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.rustbrowsergame_setPlayerPosition(retptr, this.__wbg_ptr, x, z);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @param {number} z
+     * @param {number} yaw
+     * @param {number} pitch
+     */
+    setDebugCamera(x, y, z, yaw, pitch) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.rustbrowsergame_setDebugCamera(retptr, this.__wbg_ptr, x, y, z, yaw, pitch);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             if (r1) {
@@ -433,15 +615,12 @@ export class RustBrowserGame {
         }
     }
     /**
-     * @param {Float32Array} engine_snapshot
      * @param {number} aspect
      */
-    renderEngineFrame(engine_snapshot, aspect) {
+    renderGameFrame(aspect) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passArrayF32ToWasm0(engine_snapshot, wasm.__wbindgen_malloc);
-            const len0 = WASM_VECTOR_LEN;
-            wasm.rustbrowsergame_renderEngineFrame(retptr, this.__wbg_ptr, ptr0, len0, aspect);
+            wasm.rustbrowsergame_renderGameFrame(retptr, this.__wbg_ptr, aspect);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             if (r1) {
@@ -1114,7 +1293,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_383(a, state0.b, arg0, arg1);
+                    return __wbg_adapter_393(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -1355,16 +1534,16 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper1077 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 238, __wbg_adapter_31);
+    imports.wbg.__wbindgen_closure_wrapper1109 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 246, __wbg_adapter_31);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper361 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 33, __wbg_adapter_26);
+    imports.wbg.__wbindgen_closure_wrapper393 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 41, __wbg_adapter_26);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper363 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 33, __wbg_adapter_26);
+    imports.wbg.__wbindgen_closure_wrapper395 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 41, __wbg_adapter_26);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_debug_string = function(arg0, arg1) {

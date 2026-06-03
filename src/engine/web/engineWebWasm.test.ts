@@ -32,12 +32,23 @@ describe("engine web WASM", () => {
     ok(moduleText.includes("export class RustBrowserGame"));
     ok(moduleText.includes("export class RustBrowserGameStatus"));
     ok(dtsText.includes("static create(canvas: HTMLCanvasElement): Promise<RustBrowserGame>"));
+    ok(dtsText.includes("resetGame(terrain_seed: number, terrain_preset: number): void"));
+    ok(dtsText.includes("tick(delta_seconds: number, forward: number, right: number, up: number, fast: boolean, look_delta_x: number, look_delta_y: number): void"));
+    ok(dtsText.includes("togglePlayerMode(): number"));
+    ok(dtsText.includes("playerMode(): number"));
+    ok(dtsText.includes("setPlayerMode(mode: number): void"));
+    ok(dtsText.includes("playerX(): number"));
+    ok(dtsText.includes("playerY(): number"));
+    ok(dtsText.includes("playerZ(): number"));
+    ok(dtsText.includes("setPlayerPosition(x: number, z: number): void"));
+    ok(dtsText.includes("setDebugCamera(x: number, y: number, z: number, yaw: number, pitch: number): void"));
     ok(dtsText.includes("upsertTerrainMesh(chunk_key: string, vertices: Float32Array, indices: Uint32Array): void"));
     ok(dtsText.includes("destroyTerrainMesh"));
     ok(dtsText.includes("retainTerrainMeshes(chunk_keys: Array<any>): void"));
     ok(dtsText.includes("clearTerrainMeshes(): void"));
     ok(dtsText.includes("upsertTerrainTextures"));
-    ok(dtsText.includes("renderEngineFrame(engine_snapshot: Float32Array, aspect: number): void"));
+    ok(dtsText.includes("renderGameFrame(aspect: number): void"));
+    equal(dtsText.includes("renderEngineFrame"), false);
     equal(dtsText.includes("upsertMesh"), false);
     equal(dtsText.includes("destroyMesh"), false);
     equal(dtsText.includes("floats_per_vertex"), false);
@@ -119,12 +130,32 @@ function fakeModule(
 function fakeBrowserGame(): EngineWebBrowserGame {
   return {
     resize() {},
+    resetGame() {},
+    tick() {},
+    togglePlayerMode() {
+      return 0;
+    },
+    playerMode() {
+      return 0;
+    },
+    setPlayerMode() {},
+    playerX() {
+      return 0;
+    },
+    playerY() {
+      return 0;
+    },
+    playerZ() {
+      return 0;
+    },
+    setPlayerPosition() {},
+    setDebugCamera() {},
     upsertTerrainMesh() {},
     destroyTerrainMesh() {},
     retainTerrainMeshes() {},
     clearTerrainMeshes() {},
     upsertTerrainTextures() {},
-    renderEngineFrame() {},
+    renderGameFrame() {},
     status() {
       return {
         version: 1,

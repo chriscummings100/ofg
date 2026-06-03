@@ -19,6 +19,24 @@ export type EngineWebRendererStatus = {
 
 export type EngineWebBrowserGame = {
   resize(width: number, height: number): void;
+  resetGame(terrainSeed: number, terrainPreset: number): void;
+  tick(
+    deltaSeconds: number,
+    forward: number,
+    right: number,
+    up: number,
+    fast: boolean,
+    lookDeltaX: number,
+    lookDeltaY: number
+  ): void;
+  togglePlayerMode(): number;
+  playerMode(): number;
+  setPlayerMode(mode: number): void;
+  playerX(): number;
+  playerY(): number;
+  playerZ(): number;
+  setPlayerPosition(x: number, z: number): void;
+  setDebugCamera(x: number, y: number, z: number, yaw: number, pitch: number): void;
   upsertTerrainMesh(
     chunkKey: string,
     vertices: Float32Array,
@@ -36,10 +54,7 @@ export type EngineWebBrowserGame = {
     normalData: Uint8Array,
     materialData: Uint8Array
   ): void;
-  renderEngineFrame(
-    engineSnapshot: Float32Array,
-    aspect: number
-  ): void;
+  renderGameFrame(aspect: number): void;
   status(): EngineWebRendererStatus;
 };
 

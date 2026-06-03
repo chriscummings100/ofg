@@ -1,8 +1,7 @@
 import { InputTracker } from "../engine/input/inputTracker.js";
 import { computeFrameDeltaSeconds } from "./frameTiming.js";
-import { EngineCoreWasmHandle, loadEngineCoreWasm } from "../engine/core/engineCoreWasm.js";
 import type { EngineWebRendererStatus } from "../engine/web/engineWebWasm.js";
-import { vec3, type Vec3 } from "../engine/math/vec3.js";
+import { vec3 } from "../engine/math/vec3.js";
 import {
   createMirroredTerrainRenderChunkSink,
   createTerrainCoreRenderPacketStore
@@ -31,7 +30,6 @@ import {
   type PlayerMode,
   type PlayerMovementIntent
 } from "../game/components/playerTypes.js";
-import { RustPlayerController } from "../game/components/RustPlayerController.js";
 
 type GameElements = {
   readonly canvas: HTMLCanvasElement;
@@ -74,7 +72,8 @@ export async function startGame(elements: GameElements): Promise<void> {
   const descriptor = readWorldDescriptor();
   const terrainCore = await loadRequiredTerrainCore();
   const terrainHeightAt = createTerrainHeightSampler(terrainCore, descriptor);
-  const engineCore = await loadRequiredEngineCore();
+  const terrainPresetCode = terrainPresetToWasmCode(descriptor.terrainPreset);
+  renderer.resetGame(descriptor.seed, terrainPresetCode);
   const terrainWorker = createRequiredTerrainWorker(descriptor, terrainCore);
   const terrainStreamConfig = {
     horizontalRadius: 1,
@@ -94,26 +93,18 @@ export async function startGame(elements: GameElements): Promise<void> {
     terrainRenderPackets,
     renderer
   ]);
-  const initialPlayerPosition = vec3(0, terrainHeightAt(0, 0), 0);
-  const initialDebugPosition = vec3(14, terrainHeightAt(0, 0) + 12, 18);
-  const playerController = createPlayerController(
-    engineCore,
-    initialPlayerPosition,
-    initialDebugPosition,
-    terrainHeightAt
-  );
   const terrainStreamer = new TerrainCoreWorkerStreamer(
     terrainRenderSink,
     terrainStreamScheduler,
     terrainDensityChunkStore,
     terrainWorker,
     {
-      getTargetPosition: () => playerController.getPlayerPosition(),
+      getTargetPosition: () => renderer.getPlayerPosition(),
       cellSize: terrainStreamConfig.cellSize
     }
   );
 
-  terrainStreamer.syncAround(playerController.getPlayerPosition());
+  terrainStreamer.syncAround(renderer.getPlayerPosition());
   let renderPacketRuntime: "rust" | "typescript" = "typescript";
   window.__ofgDebug = {
     getLoadedTerrainChunkKeys: () => terrainStreamer.getLoadedChunkKeys(),
@@ -132,20 +123,20 @@ export async function startGame(elements: GameElements): Promise<void> {
     getTerrainWorkerCount: () => terrainWorker.workerCount,
     getPlayerControllerRuntime: () => "rust",
     resetTerrainStreaming() {
-      terrainStreamer.resetStreaming(playerController.getPlayerPosition());
+      terrainStreamer.resetStreaming(renderer.getPlayerPosition());
     },
     getTerrainHeight(x, z) {
       return terrainHeightAt(x, z);
     },
     setCameraMode(mode) {
-      playerController.mode = validatePlayerMode(mode);
+      renderer.setPlayerMode(validatePlayerMode(mode));
     },
     setDebugCamera(x, y, z, yaw, pitch) {
-      playerController.setDebugCamera(vec3(x, y, z), yaw, pitch);
+      renderer.setDebugCamera(vec3(x, y, z), yaw, pitch);
     },
     setPlayerPosition(x, z) {
-      playerController.setPlayerPosition(vec3(x, terrainHeightAt(x, z), z));
-      terrainStreamer.syncAround(playerController.getPlayerPosition());
+      renderer.setPlayerPosition(x, z);
+      terrainStreamer.syncAround(renderer.getPlayerPosition());
     }
   };
 
@@ -158,25 +149,21 @@ export async function startGame(elements: GameElements): Promise<void> {
     lastTimestamp = timestamp;
 
     if (input.consumePress("KeyC") || input.consumePress("F1")) {
-      playerController.toggleCameraMode();
+      renderer.toggleCameraMode();
     }
 
     const snapshot = input.consumeFrameSnapshot();
     const intent = readMovementIntent(input, snapshot.mouseDeltaX, snapshot.mouseDeltaY);
 
-    playerController.setMovementIntent(intent);
-    playerController.update(deltaSeconds);
+    renderer.tick(deltaSeconds, intent);
     terrainStreamer.update();
 
-    const renderSnapshot = engineCore.renderSnapshotPacket();
-    if (renderSnapshot === undefined) {
-      throw new Error("Rust engine did not produce a render snapshot.");
-    }
     renderPacketRuntime = "rust";
-    renderer.renderEngineFrame(renderSnapshot);
+    renderer.renderGameFrame();
 
-    elements.cameraMode.textContent = playerController.mode === "firstPerson" ? "FIRST" : "FLY";
-    elements.cameraMode.dataset.mode = playerController.mode;
+    const playerMode = renderer.getPlayerMode();
+    elements.cameraMode.textContent = playerMode === "firstPerson" ? "FIRST" : "FLY";
+    elements.cameraMode.dataset.mode = playerMode;
     elements.frameTime.textContent = `${(deltaSeconds * 1000).toFixed(1)} ms`;
 
     requestAnimationFrame(frame);
@@ -210,12 +197,6 @@ function createRequiredTerrainWorker(
   }
 
   return worker;
-}
-
-async function loadRequiredEngineCore(): Promise<EngineCoreWasmHandle> {
-  const handle = new EngineCoreWasmHandle(await loadEngineCoreWasm());
-  handle.reset();
-  return handle;
 }
 
 function createTerrainHeightSampler(
@@ -260,23 +241,6 @@ function validatePlayerMode(mode: string): PlayerMode {
   }
 
   throw new Error(`Unknown player camera mode '${mode}'.`);
-}
-
-function createPlayerController(
-  engineCore: EngineCoreWasmHandle,
-  initialPlayerPosition: Vec3,
-  initialDebugPosition: Vec3,
-  terrainHeightAt: TerrainHeightSampler
-): RustPlayerController {
-  return new RustPlayerController(engineCore, {
-    initialPosition: initialPlayerPosition,
-    initialYaw: Math.PI * 0.18,
-    initialPitch: -0.08,
-    initialDebugPosition,
-    initialDebugYaw: Math.PI * 1.24,
-    initialDebugPitch: -0.48,
-    terrainHeightAt
-  });
 }
 
 function readMovementIntent(

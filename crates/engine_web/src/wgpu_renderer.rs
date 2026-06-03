@@ -8,6 +8,9 @@ use wgpu::util::DeviceExt;
 use crate::config::{
     REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
 };
+use crate::game_state::{
+    player_mode_code, player_mode_from_code, BrowserGameInput, BrowserGameState,
+};
 use crate::materials::TERRAIN_MATERIAL_PACKET;
 use crate::render_packets::{
     build_frame_packet_from_engine_snapshot, build_player_marker_world_matrix,
@@ -18,12 +21,14 @@ use crate::render_uniforms::{
 };
 use crate::resources::{ResourceHandle, ResourceStore};
 use crate::ENGINE_WEB_VERSION;
+use engine_core::Vec3;
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
 const SHADER_SOURCE: &str = include_str!("../../../src/engine/render/shaders/uber.wgsl");
 
 #[wasm_bindgen]
 pub struct RustBrowserGame {
+    game_state: BrowserGameState,
     renderer: BrowserWgpuRenderer,
     terrain_mesh_handles_by_key: HashMap<String, ResourceHandle>,
     terrain_textures: Option<TerrainTextureHandles>,
@@ -121,6 +126,7 @@ impl RustBrowserGame {
         let player_marker_object = renderer.register_object()?;
 
         Ok(Self {
+            game_state: BrowserGameState::new(),
             renderer,
             terrain_mesh_handles_by_key: HashMap::new(),
             terrain_textures: None,
@@ -134,6 +140,107 @@ impl RustBrowserGame {
     #[wasm_bindgen(js_name = resize)]
     pub fn resize(&mut self, width: u32, height: u32) -> Result<(), JsValue> {
         self.renderer.resize(width, height)
+    }
+
+    #[wasm_bindgen(js_name = resetGame)]
+    pub fn reset_game(&mut self, terrain_seed: u32, terrain_preset: u32) -> Result<(), JsValue> {
+        self.game_state
+            .reset_game(terrain_seed, terrain_preset)
+            .map_err(js_error)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[wasm_bindgen(js_name = tick)]
+    pub fn tick(
+        &mut self,
+        delta_seconds: f32,
+        forward: f32,
+        right: f32,
+        up: f32,
+        fast: bool,
+        look_delta_x: f32,
+        look_delta_y: f32,
+    ) -> Result<(), JsValue> {
+        self.game_state
+            .tick(BrowserGameInput {
+                delta_seconds,
+                forward,
+                right,
+                up,
+                fast,
+                look_delta_x,
+                look_delta_y,
+            })
+            .map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = togglePlayerMode)]
+    pub fn toggle_player_mode(&mut self) -> Result<u32, JsValue> {
+        self.game_state
+            .toggle_player_mode()
+            .map(player_mode_code)
+            .map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = playerMode)]
+    pub fn player_mode(&self) -> Result<u32, JsValue> {
+        self.game_state
+            .player_mode()
+            .map(player_mode_code)
+            .map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = setPlayerMode)]
+    pub fn set_player_mode(&mut self, mode: u32) -> Result<(), JsValue> {
+        let mode = player_mode_from_code(mode)
+            .ok_or_else(|| js_error(format!("Unknown Rust browser game player mode '{mode}'.")))?;
+        self.game_state.set_player_mode(mode).map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = playerX)]
+    pub fn player_x(&self) -> Result<f32, JsValue> {
+        self.game_state
+            .player_position()
+            .map(|position| position.x)
+            .map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = playerY)]
+    pub fn player_y(&self) -> Result<f32, JsValue> {
+        self.game_state
+            .player_position()
+            .map(|position| position.y)
+            .map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = playerZ)]
+    pub fn player_z(&self) -> Result<f32, JsValue> {
+        self.game_state
+            .player_position()
+            .map(|position| position.z)
+            .map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = setPlayerPosition)]
+    pub fn set_player_position(&mut self, x: f32, z: f32) -> Result<(), JsValue> {
+        self.game_state
+            .set_player_position_xz(x, z)
+            .map(|_| ())
+            .map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = setDebugCamera)]
+    pub fn set_debug_camera(
+        &mut self,
+        x: f32,
+        y: f32,
+        z: f32,
+        yaw: f32,
+        pitch: f32,
+    ) -> Result<(), JsValue> {
+        self.game_state
+            .set_debug_camera(Vec3::new(x, y, z), yaw, pitch)
+            .map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = upsertTerrainMesh)]
@@ -240,13 +347,9 @@ impl RustBrowserGame {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    #[wasm_bindgen(js_name = renderEngineFrame)]
-    pub fn render_engine_frame(
-        &mut self,
-        engine_snapshot: &[f32],
-        aspect: f32,
-    ) -> Result<(), JsValue> {
+    #[wasm_bindgen(js_name = renderGameFrame)]
+    pub fn render_game_frame(&mut self, aspect: f32) -> Result<(), JsValue> {
+        let engine_snapshot = self.game_state.render_snapshot_values().map_err(js_error)?;
         let chunk_keys = sorted_terrain_chunk_keys(&self.terrain_mesh_handles_by_key);
         let chunk_count = chunk_keys.len();
 
@@ -286,7 +389,7 @@ impl RustBrowserGame {
         }
 
         self.renderer.render_engine_frame(
-            engine_snapshot,
+            &engine_snapshot,
             aspect,
             &mesh_handles,
             &object_handles,

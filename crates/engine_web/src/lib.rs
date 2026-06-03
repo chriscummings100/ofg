@@ -1,5 +1,6 @@
 mod config;
 mod facade;
+mod game_state;
 mod materials;
 mod render_packets;
 mod render_uniforms;
@@ -15,6 +16,10 @@ pub use config::{
     TEXTURE_FORMAT_RGBA8_UNORM,
 };
 pub use facade::*;
+pub use game_state::{
+    player_mode_code, player_mode_from_code, BrowserGameInput, BrowserGameState,
+    BrowserGameStateError,
+};
 pub use materials::{
     build_material_packet, MaterialPacketError, DEFAULT_MATERIAL_PACKET, TERRAIN_MATERIAL_ID,
     TERRAIN_MATERIAL_PACKET,

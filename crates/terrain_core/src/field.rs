@@ -22,7 +22,7 @@ pub(crate) struct DensitySample {
     pub(crate) gradient: Vec3,
 }
 
-pub(crate) fn height_at(seed: u32, preset: u32, x: f64, z: f64) -> f64 {
+pub fn height_at(seed: u32, preset: u32, x: f64, z: f64) -> f64 {
     let noise = SimplexNoise3D::new(seed);
     let preset = terrain_preset(preset);
     let mut upper_y = SURFACE_SEARCH_MAX_Y;

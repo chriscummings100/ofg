@@ -3,6 +3,7 @@ import {
   type TerrainChunkCoord,
   type TerrainChunkKey
 } from "../world/terrainChunk.js";
+import { vec3, type Vec3 } from "../math/vec3.js";
 import {
   createEngineWebBrowserGame,
   ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM,
@@ -15,6 +16,13 @@ import type {
   TerrainRenderChunkSink
 } from "../render/TerrainCoreRenderPackets.js";
 import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
+import type {
+  PlayerMode,
+  PlayerMovementIntent
+} from "../../game/components/playerTypes.js";
+
+const FIRST_PERSON_MODE = 0;
+const DEBUG_FLY_MODE = 1;
 
 export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
   readonly runtime = "rust-wgpu" as const;
@@ -61,6 +69,50 @@ export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
     this.upsertTerrainTexturesIfNeeded(textures);
   }
 
+  resetGame(terrainSeed: number, terrainPreset: number): void {
+    this.game.resetGame(terrainSeed, terrainPreset);
+  }
+
+  tick(deltaSeconds: number, intent: PlayerMovementIntent): void {
+    this.game.tick(
+      deltaSeconds,
+      intent.forward,
+      intent.right,
+      intent.up,
+      intent.fast,
+      intent.lookDeltaX,
+      intent.lookDeltaY
+    );
+  }
+
+  toggleCameraMode(): PlayerMode {
+    return playerModeFromCode(this.game.togglePlayerMode());
+  }
+
+  getPlayerMode(): PlayerMode {
+    return playerModeFromCode(this.game.playerMode());
+  }
+
+  setPlayerMode(mode: PlayerMode): void {
+    this.game.setPlayerMode(playerModeToCode(mode));
+  }
+
+  getPlayerPosition(): Vec3 {
+    return vec3(
+      this.game.playerX(),
+      this.game.playerY(),
+      this.game.playerZ()
+    );
+  }
+
+  setPlayerPosition(x: number, z: number): void {
+    this.game.setPlayerPosition(x, z);
+  }
+
+  setDebugCamera(position: Vec3, yaw: number, pitch: number): void {
+    this.game.setDebugCamera(position.x, position.y, position.z, yaw, pitch);
+  }
+
   addChunk(chunk: TerrainRenderChunkInput): void {
     const mesh = "mesh" in chunk ? chunk.mesh : chunk;
     this.game.upsertTerrainMesh(chunk.key, mesh.vertices, mesh.indices);
@@ -83,13 +135,9 @@ export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
     this.game.retainTerrainMeshes(chunks.map(toChunkKey));
   }
 
-  renderEngineFrame(engineSnapshot: Float32Array): void {
+  renderGameFrame(): void {
     this.resize();
-
-    this.game.renderEngineFrame(
-      engineSnapshot,
-      this.getAspectRatio()
-    );
+    this.game.renderGameFrame(this.getAspectRatio());
   }
 
   private upsertTerrainTexturesIfNeeded(textures: TerrainMaterialTextures | undefined): void {
@@ -122,6 +170,22 @@ export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
 
 function toChunkKey(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainChunkKey {
   return typeof chunk === "string" ? chunk : terrainChunkKey(chunk);
+}
+
+function playerModeToCode(mode: PlayerMode): number {
+  return mode === "firstPerson" ? FIRST_PERSON_MODE : DEBUG_FLY_MODE;
+}
+
+function playerModeFromCode(code: number): PlayerMode {
+  if (code === FIRST_PERSON_MODE) {
+    return "firstPerson";
+  }
+
+  if (code === DEBUG_FLY_MODE) {
+    return "debugFly";
+  }
+
+  throw new Error(`Rust browser game returned unknown player mode '${code}'.`);
 }
 
 function validateTerrainTextureArrays(textures: TerrainMaterialTextures): void {

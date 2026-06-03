@@ -30,5 +30,8 @@ pub(crate) use store::*;
 pub(crate) use stream::*;
 pub(crate) use worker_pool::*;
 
+pub use constants::DEFAULT_TERRAIN_PRESET;
+pub use field::height_at;
+
 #[cfg(test)]
 mod tests;

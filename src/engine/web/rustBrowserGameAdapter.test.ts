@@ -10,10 +10,9 @@ describe("RustBrowserGameAdapter", () => {
     const fake = fakeBrowserGame();
     const adapter = new RustBrowserGameAdapter(fakeCanvas(), fake);
     const terrainTextures = fakeTerrainTextures();
-    const snapshot = sampleEngineRenderSnapshot();
 
     adapter.setTerrainTextures(terrainTextures);
-    withFakeWindow(() => adapter.renderEngineFrame(snapshot));
+    withFakeWindow(() => adapter.renderGameFrame());
 
     equal(fake.upsertedTerrainTextures.length, 1);
     equal(fake.upsertedTerrainTextures[0]?.width, 1);
@@ -22,8 +21,38 @@ describe("RustBrowserGameAdapter", () => {
     equal(fake.upsertedTerrainTextures[0]?.albedoData[0], 255);
     equal(fake.upsertedTerrainTextures[0]?.normalData[1], 255);
     equal(fake.upsertedTerrainTextures[0]?.materialData[2], 255);
-    equal(fake.lastRender?.engineSnapshot[0], 1);
     equal(fake.lastRender?.aspect, 640 / 480);
+  });
+
+  it("forwards browser frame input and player controls to the Rust game facade", () => {
+    const fake = fakeBrowserGame();
+    const adapter = new RustBrowserGameAdapter(fakeCanvas(), fake);
+
+    adapter.resetGame(0x0F6, 1);
+    adapter.tick(0.25, {
+      forward: 1,
+      right: -1,
+      up: 0,
+      fast: true,
+      lookDeltaX: 3,
+      lookDeltaY: -2
+    });
+    equal(adapter.toggleCameraMode(), "debugFly");
+    adapter.setPlayerMode("firstPerson");
+    adapter.setPlayerPosition(96, 12);
+    adapter.setDebugCamera({ x: 1, y: 2, z: 3 }, 0.25, -0.5);
+
+    equal(fake.resetGameCalls[0]?.terrainSeed, 0x0F6);
+    equal(fake.resetGameCalls[0]?.terrainPreset, 1);
+    equal(fake.tickCalls[0]?.deltaSeconds, 0.25);
+    equal(fake.tickCalls[0]?.forward, 1);
+    equal(fake.tickCalls[0]?.right, -1);
+    equal(fake.tickCalls[0]?.fast, true);
+    equal(fake.setPlayerModeCalls.join(","), "0");
+    equal(fake.setPlayerPositionCalls[0]?.x, 96);
+    equal(fake.setDebugCameraCalls[0]?.z, 3);
+    equal(adapter.getPlayerMode(), "firstPerson");
+    equal(adapter.getPlayerPosition().x, 96);
   });
 
   it("acts as a terrain chunk sink over the Rust browser game facade", () => {
@@ -63,8 +92,29 @@ type FakeBrowserGame = EngineWebBrowserGame & {
   destroyedTerrainMeshes: string[];
   retainedTerrainMeshSets: string[][];
   clearedTerrainMeshes: number;
+  resetGameCalls: {
+    readonly terrainSeed: number;
+    readonly terrainPreset: number;
+  }[];
+  tickCalls: {
+    readonly deltaSeconds: number;
+    readonly forward: number;
+    readonly right: number;
+    readonly up: number;
+    readonly fast: boolean;
+    readonly lookDeltaX: number;
+    readonly lookDeltaY: number;
+  }[];
+  setPlayerModeCalls: number[];
+  setPlayerPositionCalls: { readonly x: number; readonly z: number }[];
+  setDebugCameraCalls: {
+    readonly x: number;
+    readonly y: number;
+    readonly z: number;
+    readonly yaw: number;
+    readonly pitch: number;
+  }[];
   lastRender?: {
-    readonly engineSnapshot: Float32Array;
     readonly aspect: number;
   };
 };
@@ -76,7 +126,50 @@ function fakeBrowserGame(): FakeBrowserGame {
     destroyedTerrainMeshes: [],
     retainedTerrainMeshSets: [],
     clearedTerrainMeshes: 0,
+    resetGameCalls: [],
+    tickCalls: [],
+    setPlayerModeCalls: [],
+    setPlayerPositionCalls: [],
+    setDebugCameraCalls: [],
     resize() {},
+    resetGame(terrainSeed, terrainPreset) {
+      this.resetGameCalls.push({ terrainSeed, terrainPreset });
+    },
+    tick(deltaSeconds, forward, right, up, fast, lookDeltaX, lookDeltaY) {
+      this.tickCalls.push({
+        deltaSeconds,
+        forward,
+        right,
+        up,
+        fast,
+        lookDeltaX,
+        lookDeltaY
+      });
+    },
+    togglePlayerMode() {
+      return 1;
+    },
+    playerMode() {
+      return 0;
+    },
+    setPlayerMode(mode) {
+      this.setPlayerModeCalls.push(mode);
+    },
+    playerX() {
+      return 96;
+    },
+    playerY() {
+      return 7;
+    },
+    playerZ() {
+      return 12;
+    },
+    setPlayerPosition(x, z) {
+      this.setPlayerPositionCalls.push({ x, z });
+    },
+    setDebugCamera(x, y, z, yaw, pitch) {
+      this.setDebugCameraCalls.push({ x, y, z, yaw, pitch });
+    },
     upsertTerrainMesh(chunkKey) {
       this.upsertedTerrainMeshes.push({ chunkKey });
     },
@@ -99,12 +192,8 @@ function fakeBrowserGame(): FakeBrowserGame {
         materialData
       });
     },
-    renderEngineFrame(
-      engineSnapshot,
-      aspect
-    ) {
+    renderGameFrame(aspect) {
       this.lastRender = {
-        engineSnapshot: new Float32Array(engineSnapshot),
         aspect
       };
     },
@@ -149,24 +238,6 @@ function fakeMeshPacket(): TerrainRenderMeshPacket {
     vertices: new Float32Array(19 * 3),
     indices: new Uint32Array([0, 1, 2])
   };
-}
-
-function sampleEngineRenderSnapshot(): Float32Array {
-  return new Float32Array([
-    1, 2, 3,
-    1, 2, 2,
-    0, 0,
-    70 * Math.PI / 180,
-    0.05,
-    500,
-    0, 1, 0,
-    1, 1, 1,
-    2,
-    0.2,
-    1,
-    1, 2, 3,
-    0
-  ]);
 }
 
 function fakeCanvas(): HTMLCanvasElement {
