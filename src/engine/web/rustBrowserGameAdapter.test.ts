@@ -1,4 +1,4 @@
-import { equal, ok } from "node:assert/strict";
+import { equal } from "node:assert/strict";
 import type {
   TerrainRenderMeshPacket,
   TerrainRenderSource
@@ -35,7 +35,6 @@ describe("RustBrowserGameAdapter", () => {
     equal(fake.lastRender?.engineSnapshot[0], 1);
     equal(fake.lastRender?.aspect, 640 / 480);
     equal(fake.lastRender?.chunkKeys[0], "0,0,0");
-    almostEqual(fake.lastRender?.worldMatrices[0], 1);
   });
 
   it("destroys uploaded terrain meshes that disappear from render packets", () => {
@@ -76,7 +75,6 @@ type FakeBrowserGame = EngineWebBrowserGame & {
     readonly engineSnapshot: Float32Array;
     readonly aspect: number;
     readonly chunkKeys: string[];
-    readonly worldMatrices: Float32Array;
   };
 };
 
@@ -105,14 +103,12 @@ function fakeBrowserGame(): FakeBrowserGame {
     renderEngineFrame(
       engineSnapshot,
       aspect,
-      chunkKeys,
-      worldMatrices
+      chunkKeys
     ) {
       this.lastRender = {
         engineSnapshot: new Float32Array(engineSnapshot),
         aspect,
-        chunkKeys: [...chunkKeys],
-        worldMatrices: new Float32Array(worldMatrices)
+        chunkKeys: [...chunkKeys]
       };
     },
     status() {
@@ -212,12 +208,4 @@ function withFakeWindow(action: () => void): void {
   } finally {
     globalWithWindow.window = previousWindow;
   }
-}
-
-function almostEqual(actual: number | undefined, expected: number): void {
-  if (actual === undefined) {
-    ok(false, "Expected a numeric value.");
-    return;
-  }
-  ok(Math.abs(actual - expected) < 0.00001, `Expected ${actual} to be close to ${expected}.`);
 }

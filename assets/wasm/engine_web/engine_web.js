@@ -408,16 +408,13 @@ export class RustBrowserGame {
      * @param {Float32Array} engine_snapshot
      * @param {number} aspect
      * @param {Array<any>} chunk_keys
-     * @param {Float32Array} world_matrices
      */
-    renderEngineFrame(engine_snapshot, aspect, chunk_keys, world_matrices) {
+    renderEngineFrame(engine_snapshot, aspect, chunk_keys) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
             const ptr0 = passArrayF32ToWasm0(engine_snapshot, wasm.__wbindgen_malloc);
             const len0 = WASM_VECTOR_LEN;
-            const ptr1 = passArrayF32ToWasm0(world_matrices, wasm.__wbindgen_malloc);
-            const len1 = WASM_VECTOR_LEN;
-            wasm.rustbrowsergame_renderEngineFrame(retptr, this.__wbg_ptr, ptr0, len0, aspect, addHeapObject(chunk_keys), ptr1, len1);
+            wasm.rustbrowsergame_renderEngineFrame(retptr, this.__wbg_ptr, ptr0, len0, aspect, addHeapObject(chunk_keys));
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             if (r1) {
@@ -1331,15 +1328,15 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper1070 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper1068 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 238, __wbg_adapter_31);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper354 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper352 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 33, __wbg_adapter_26);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper356 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper354 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 33, __wbg_adapter_26);
         return addHeapObject(ret);
     };

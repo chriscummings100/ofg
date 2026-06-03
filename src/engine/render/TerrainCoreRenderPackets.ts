@@ -1,4 +1,3 @@
-import type { Mat4 } from "../math/mat4.js";
 import {
   parseTerrainChunkKey,
   terrainChunkCoord,
@@ -25,7 +24,6 @@ export type TerrainRenderMeshPacket = {
 export type TerrainRenderChunkPacket = {
   readonly key: TerrainChunkKey;
   readonly mesh: TerrainRenderMeshPacket;
-  readonly worldMatrix?: Mat4;
 };
 
 export type TerrainRenderChunkMeshPacket = {
@@ -33,7 +31,6 @@ export type TerrainRenderChunkMeshPacket = {
   readonly vertices: Float32Array;
   readonly indices: Uint32Array;
   readonly floatsPerVertex?: number;
-  readonly worldMatrix?: Mat4;
 };
 
 export type TerrainRenderChunkInput =

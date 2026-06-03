@@ -38,8 +38,7 @@ export type EngineWebBrowserGame = {
   renderEngineFrame(
     engineSnapshot: Float32Array,
     aspect: number,
-    chunkKeys: string[],
-    worldMatrices: Float32Array
+    chunkKeys: string[]
   ): void;
   status(): EngineWebRendererStatus;
 };

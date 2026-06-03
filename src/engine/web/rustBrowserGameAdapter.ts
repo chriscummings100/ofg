@@ -12,14 +12,6 @@ import type {
 } from "../render/TerrainCoreRenderPackets.js";
 import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
 
-const WORLD_MATRIX_FLOATS = 16;
-const IDENTITY_WORLD_MATRIX = new Float32Array([
-  1, 0, 0, 0,
-  0, 1, 0, 0,
-  0, 0, 1, 0,
-  0, 0, 0, 1
-]);
-
 export class RustBrowserGameAdapter {
   readonly runtime = "rust-wgpu" as const;
   private readonly uploadedTerrainMeshes = new Map<TerrainChunkKey, TerrainRenderMeshPacket>();
@@ -67,7 +59,6 @@ export class RustBrowserGameAdapter {
     const chunks = terrain.chunks;
     const chunkCount = chunks.length;
     const chunkKeys: string[] = [];
-    const worldMatrices = new Float32Array(chunkCount * WORLD_MATRIX_FLOATS);
     const seenChunkKeys = new Set<TerrainChunkKey>();
 
     this.upsertTerrainTexturesIfNeeded(terrain.terrainTextures);
@@ -78,14 +69,12 @@ export class RustBrowserGameAdapter {
       this.upsertTerrainMeshIfNeeded(chunk.key, chunk.mesh);
       seenChunkKeys.add(chunk.key);
       chunkKeys.push(chunk.key);
-      worldMatrices.set(chunk.worldMatrix ?? IDENTITY_WORLD_MATRIX, index * WORLD_MATRIX_FLOATS);
     }
 
     this.game.renderEngineFrame(
       engineSnapshot,
       this.getAspectRatio(),
-      chunkKeys,
-      worldMatrices
+      chunkKeys
     );
     this.pruneUploadedTerrainMeshes(seenChunkKeys);
   }

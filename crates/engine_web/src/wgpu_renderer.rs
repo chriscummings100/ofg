@@ -100,6 +100,9 @@ struct TerrainTextureHandles {
 
 const TERRAIN_MATERIAL_INDICES_OFFSET: usize = 11;
 const TERRAIN_MATERIAL_WEIGHTS_OFFSET: usize = 15;
+const IDENTITY_WORLD_MATRIX: [f32; WORLD_MATRIX_FLOATS] = [
+    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+];
 const PLAYER_MARKER_MATERIAL_PACKET: [f32; MATERIAL_PACKET_FLOATS] =
     [1.0, 1.0, 1.0, 1.0, 1.0, 0.92, 0.65, 0.45, 0.0, 1.0];
 
@@ -218,21 +221,16 @@ impl RustBrowserGame {
         engine_snapshot: &[f32],
         aspect: f32,
         chunk_keys: js_sys::Array,
-        world_matrices: &[f32],
     ) -> Result<(), JsValue> {
         let chunk_keys = string_array_values(&chunk_keys)?;
         let chunk_count = chunk_keys.len();
-        if world_matrices.len() != chunk_count * WORLD_MATRIX_FLOATS {
-            return Err(js_error(
-                "Rust browser game received mismatched render packet arrays.",
-            ));
-        }
 
         let mut mesh_handles = Vec::with_capacity(chunk_count);
         let mut object_handles = Vec::with_capacity(chunk_count);
         let mut albedo_texture_handles = Vec::with_capacity(chunk_count);
         let mut normal_texture_handles = Vec::with_capacity(chunk_count);
         let mut material_texture_handles = Vec::with_capacity(chunk_count);
+        let mut world_matrices = Vec::with_capacity(chunk_count * WORLD_MATRIX_FLOATS);
         let mut material_packets = Vec::with_capacity(chunk_count * MATERIAL_PACKET_FLOATS);
         let mut seen_chunk_keys = HashSet::with_capacity(chunk_count);
         let terrain_textures = self.terrain_textures.unwrap_or(TerrainTextureHandles {
@@ -260,6 +258,7 @@ impl RustBrowserGame {
             albedo_texture_handles.push(handle_to_js(terrain_textures.albedo));
             normal_texture_handles.push(handle_to_js(terrain_textures.normal));
             material_texture_handles.push(handle_to_js(terrain_textures.material));
+            world_matrices.extend_from_slice(&IDENTITY_WORLD_MATRIX);
             material_packets.extend_from_slice(&TERRAIN_MATERIAL_PACKET);
         }
 
@@ -271,7 +270,7 @@ impl RustBrowserGame {
             &albedo_texture_handles,
             &normal_texture_handles,
             &material_texture_handles,
-            world_matrices,
+            &world_matrices,
             &material_packets,
             handle_to_js(self.player_marker_mesh),
             handle_to_js(self.player_marker_object),

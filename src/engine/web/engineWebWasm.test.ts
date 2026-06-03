@@ -35,8 +35,10 @@ describe("engine web WASM", () => {
     ok(dtsText.includes("upsertTerrainMesh"));
     ok(dtsText.includes("destroyTerrainMesh"));
     ok(dtsText.includes("upsertTerrainTextures"));
+    ok(dtsText.includes("renderEngineFrame(engine_snapshot: Float32Array, aspect: number, chunk_keys: Array<any>): void"));
     equal(dtsText.includes("upsertMesh"), false);
     equal(dtsText.includes("destroyMesh"), false);
+    equal(dtsText.includes("world_matrices"), false);
     equal(dtsText.includes("upsertTexture"), false);
     equal(dtsText.includes("upsertTerrainMaterial"), false);
     equal(dtsText.includes("upsertMaterial"), false);
