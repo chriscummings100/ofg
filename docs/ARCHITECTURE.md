@@ -37,19 +37,19 @@ src/engine/browser
 
 src/engine/world
   Terrain descriptor/config types, 3D terrain chunk key helpers, Rust/WASM
-  terrain adapters, worker density result contracts, worker transport, terrain
-  material metadata, and the terrain mesh data/stride contract. Runtime terrain
-  generation, meshing, material packing, terrain edits, and worker density
-  dependency generation are Rust-owned.
+  terrain adapters, worker density result contracts, worker transport, and the
+  terrain mesh data/stride contract. Runtime terrain generation, meshing,
+  material packing, terrain material manifests, terrain edits, and worker
+  density dependency generation are Rust-owned.
 
 src/engine/math
   Small vector and matrix primitives.
 
 src/engine/render
-  CPU-side terrain texture decoding helpers, shader contract tests, and the
-  temporary terrain render chunk sink contract used by the browser Worker
-  bridge. Runtime terrain worker results are handed directly to `RustBrowserGame`
-  by chunk key. Actual browser
+  CPU-side terrain texture decoding helpers that read the checked-in Poly Haven
+  manifest, shader contract tests, and the temporary terrain render chunk sink
+  contract used by the browser Worker bridge. Runtime terrain worker results are
+  handed directly to `RustBrowserGame` by chunk key. Actual browser
   WebGPU resource creation and draw submission happen in Rust/wgpu through
   `crates/engine_web`; TypeScript only uploads terrain mesh bytes by chunk key
   and uploads the terrain texture arrays for the Rust browser game facade. Rust

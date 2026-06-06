@@ -123,10 +123,8 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   `artifacts/browser-smoke/2026-06-06T08-51-28-528Z/report.json` plus first
   person, debug-fly, and streamed first-person screenshots.
 - [x] (2026-06-06) Deleted legacy TypeScript terrain material packing and
-  triangle material-palette mesh expansion helpers. `terrainMaterials.ts` now
-  carries only the runtime texture material manifest/layer count, and
-  `terrainMesh.ts` carries only the mesh data shape plus Rust terrain vertex
-  stride.
+  triangle material-palette mesh expansion helpers. `terrainMesh.ts` carries
+  only the mesh data shape plus Rust terrain vertex stride.
 - [x] (2026-06-06) Validated legacy terrain helper deletion with `npm test`.
 - [x] (2026-06-06) Deleted the legacy TypeScript terrain density source/edit
   API, density chunk class, sample indexing helpers, and broad density tests.
@@ -154,6 +152,13 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
 - [x] (2026-06-06) Validated coord-only worker result payloads with `npm test`
   and `npm run smoke:browser`; inspected
   `artifacts/browser-smoke/2026-06-06T09-18-43-891Z/report.json` plus first
+  person, debug-fly, and streamed first-person screenshots.
+- [x] (2026-06-06) Deleted `src/engine/world/terrainMaterials.ts`. Runtime
+  texture loading now derives material layer URLs from the checked-in Poly Haven
+  asset manifest instead of a duplicated compiled TypeScript material list.
+- [x] (2026-06-06) Validated manifest-backed terrain texture loading with
+  `npm test` and `npm run smoke:browser`; inspected
+  `artifacts/browser-smoke/2026-06-06T09-23-07-362Z/report.json` plus first
   person, debug-fly, and streamed first-person screenshots.
 
 ## Surprises & Discoveries
@@ -231,6 +236,11 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   Evidence: `TerrainCoreWorkerStreamer` already receives the scheduler-selected
   coord for each job and can derive a string key at the renderer/density-store
   boundary. The Rust worker pool validates completions from generation and coord.
+- Observation: The compiled TypeScript terrain material list duplicated the
+  checked-in Poly Haven asset manifest.
+  Evidence: `terrainMaterials.ts` repeated the same material IDs and map paths
+  already present in `assets/textures/polyhaven/manifest.json`; tests only
+  verified that the two copies stayed aligned.
 - Observation: The active docs had become plan-shaped overlap: an engine plan,
   a reduction audit, an API contract, a scene-model plan, and a reduction
   ExecPlan were all close enough to confuse the source of truth.
@@ -327,6 +337,12 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   not needed by Rust scheduler completion checks. Removing them narrows the
   terrain-specific worker payload while preserving current renderer calls.
   Date/Author: 2026-06-06 / Codex.
+- Decision: Use the checked-in Poly Haven manifest instead of a compiled
+  TypeScript material list until Rust owns terrain texture assets outright.
+  Rationale: This removes duplicated material order and path metadata from
+  compiled TypeScript while preserving the current browser-only image decode
+  step and texture upload API.
+  Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -396,6 +412,11 @@ The unused terrain adapter trim validated with:
     npm test
 
 The coord-only worker result payload slice validated with:
+
+    npm test
+    npm run smoke:browser
+
+The manifest-backed terrain texture loading slice validated with:
 
     npm test
     npm run smoke:browser
@@ -587,7 +608,7 @@ Already Rust-owned:
 | Terrain height/density sampling | `crates/terrain_core` | Runtime TypeScript generator/noise code deleted. |
 | Density chunk filling | `crates/terrain_core` | Browser bridge stores completed density jobs in Rust for scheduler bookkeeping, but no longer copies density chunks between main and worker WASM instances. |
 | Dual Contouring mesh emission | `crates/terrain_core` | Runtime TypeScript meshing code deleted. |
-| Terrain material/biome classification | `crates/terrain_core` | Runtime classification is Rust-owned; TypeScript still has material asset metadata. |
+| Terrain material/biome classification | `crates/terrain_core` | Runtime classification is Rust-owned; the duplicated TypeScript material list is deleted, but TypeScript still reads the checked-in texture asset manifest for browser image decode. |
 | Terrain stream scheduling | `crates/terrain_core/src/stream.rs` | TypeScript bridge calls the scheduler but does not choose jobs itself. |
 | Terrain retained density store | `crates/terrain_core/src/store.rs` | TypeScript adapter writes density job results and retains desired windows; it no longer reads chunks back for worker transfer. |
 | Terrain worker-pool bookkeeping | `crates/terrain_core/src/worker_pool.rs` | TypeScript still constructs browser Workers; `BrowserWorkerHost` is payload-opaque and there is no TypeScript worker-pool fallback, but `TerrainChunkWorkerClient` still builds terrain-specific density/chunk request payloads. |
@@ -628,7 +649,7 @@ Current runtime TypeScript that remains:
 | App shell | Starts game, tracks input, updates HUD, exposes debug hooks, reads URL params, calls `game.tick(frame)`, sends `game.command(...)`, and reads `game.debugSnapshot()`. | Keep as browser shell. |
 | WASM loading | Loads `engine_web` and `terrain_core.wasm` for the temporary worker bridge. | Keep only generic game module loading; remove runtime `terrain_core.wasm` calls. |
 | Terrain worker transport | `BrowserWorkerHost` owns Worker lifecycle and request-id envelopes; `TerrainChunkWorkerClient` still builds terrain-specific density/chunk payloads, but worker results no longer carry string chunk keys, LOD chunk requests no longer include density buffers, and worker-pool bookkeeping has no TypeScript fallback. | Replace terrain-specific payload construction with Rust-owned worker/threading runtime or an opaque byte protocol. |
-| Texture asset decode | Fetches checked-in JPGs, draws them to canvas, reads RGBA pixels, uploads arrays into Rust. | Move terrain asset ownership behind Rust; TS may remain generic byte/image helper only. |
+| Texture asset decode | Fetches the checked-in Poly Haven manifest and JPGs, draws them to canvas, reads RGBA pixels, uploads arrays into Rust. | Move terrain asset ownership behind Rust; TS may remain generic byte/image helper only. |
 | Debug/smoke mirrors | `window.__ofgDebug` now reads `game.debugSnapshot()` and sends `game.command(...)`, but the snapshot is still assembled by the TypeScript runtime facade. | Replace with a Rust-assembled `debugSnapshot()`. |
 
 ## Current Scorecard

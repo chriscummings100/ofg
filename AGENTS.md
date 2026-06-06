@@ -164,16 +164,17 @@ src/engine/browser
 
 src/engine/world
   Browser-side terrain descriptor/config types, 3D density job result contracts,
-  Rust/WASM terrain adapters, generic browser worker transport, terrain material
-  metadata, and the terrain mesh data/stride contract. Compiled TypeScript no
-  longer owns terrain generation, noise, Dual Contouring, terrain streaming
-  policy, terrain edits, density transfer between worker WASM instances, or a
+  Rust/WASM terrain adapters, generic browser worker transport, and the terrain
+  mesh data/stride contract. Compiled TypeScript no longer owns terrain
+  generation, noise, Dual Contouring, terrain streaming policy, terrain edits,
+  material manifests, density transfer between worker WASM instances, or a
   terrain manager.
 
 src/engine/render
-  Browser-side texture loading helpers, shader metadata tests, and the temporary
-  terrain render chunk sink contract used by the browser Worker bridge. The
-  playable browser path no longer has a TypeScript WebGPU renderer or
+  Browser-side texture loading helpers that read the checked-in Poly Haven
+  manifest, shader metadata tests, and the temporary terrain render chunk sink
+  contract used by the browser Worker bridge. The playable browser path no
+  longer has a TypeScript WebGPU renderer or
   `RenderWorld`; runtime worker mesh results are handed to `RustBrowserGame` by
   chunk key, and Rust/wgpu owns
   actual WebGPU resources and draw submission.

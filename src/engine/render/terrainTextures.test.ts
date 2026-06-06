@@ -1,41 +1,41 @@
 import { equal, ok } from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import {
-  TERRAIN_TEXTURE_ARRAY_LAYER_COUNT
+  TERRAIN_TEXTURE_ARRAY_LAYER_COUNT,
+  terrainTextureUrlsFromManifest,
+  type TerrainTextureManifest
 } from "./terrainTextures.js";
-import {
-  TERRAIN_MATERIAL_LAYER_COUNT,
-  TERRAIN_MATERIALS
-} from "../world/terrainMaterials.js";
 
 describe("terrainTextures", () => {
   it("defines texture arrays for the terrain material library", () => {
     equal(TERRAIN_TEXTURE_ARRAY_LAYER_COUNT, 16);
-    equal(TERRAIN_TEXTURE_ARRAY_LAYER_COUNT, TERRAIN_MATERIAL_LAYER_COUNT);
   });
 
-  it("keeps the Poly Haven material manifest aligned with the runtime material list", () => {
-    const manifest = JSON.parse(readFileSync("assets/textures/polyhaven/manifest.json", "utf8")) as {
-      readonly source: string;
-      readonly license: string;
-      readonly materials: readonly { readonly id: string; readonly slug: string }[];
-    };
+  it("uses the checked-in Poly Haven material manifest as the layer source", () => {
+    const manifest = loadManifest();
 
     equal(manifest.source, "Poly Haven");
     equal(manifest.license, "CC0");
-    equal(manifest.materials.length, TERRAIN_MATERIALS.length);
-    equal(manifest.materials.map((material) => material.id).join("|"), TERRAIN_MATERIALS.map((material) => material.id).join("|"));
+    equal(manifest.materials.length, TERRAIN_TEXTURE_ARRAY_LAYER_COUNT);
     ok(manifest.materials.every((material) => material.slug.length > 0));
   });
 
   it("points every terrain material layer at checked-in 1k texture maps", () => {
-    for (const material of TERRAIN_MATERIALS) {
-      assertJpegTexture(material.albedoUrl);
-      assertJpegTexture(material.normalUrl);
-      assertJpegTexture(material.roughnessUrl);
+    const urls = terrainTextureUrlsFromManifest(loadManifest());
+
+    for (let index = 0; index < TERRAIN_TEXTURE_ARRAY_LAYER_COUNT; index += 1) {
+      assertJpegTexture(urls.albedo[index]);
+      assertJpegTexture(urls.normal[index]);
+      assertJpegTexture(urls.material[index]);
     }
   });
 });
+
+function loadManifest(): TerrainTextureManifest {
+  return JSON.parse(
+    readFileSync("assets/textures/polyhaven/manifest.json", "utf8")
+  ) as TerrainTextureManifest;
+}
 
 function assertJpegTexture(url: string): void {
   const path = `.${url}`;
