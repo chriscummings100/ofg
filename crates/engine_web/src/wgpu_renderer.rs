@@ -13,10 +13,11 @@ use crate::game_state::{BrowserGameInput, BrowserGameState};
 use crate::materials::TERRAIN_MATERIAL_PACKET;
 use crate::model_asset_loader::load_model_asset_bytes;
 use crate::model_assets::{
-    import_gltf_model_from_slice, SAMPLE_RIGGED_SIMPLE_MATERIAL_LABEL,
-    SAMPLE_RIGGED_SIMPLE_MESH_LABEL, SAMPLE_RIGGED_SIMPLE_MODEL_ID, SAMPLE_RIGGED_SIMPLE_MODEL_URL,
+    import_gltf_model_from_slice, PLAYER_QUATERNIUS_UAL2_MATERIAL_LABEL,
+    PLAYER_QUATERNIUS_UAL2_MESH_LABEL, PLAYER_QUATERNIUS_UAL2_MODEL_ID,
+    PLAYER_QUATERNIUS_UAL2_MODEL_URL,
 };
-use crate::model_render_assets::skinned_model_render_assets;
+use crate::model_locomotion::PlayerCharacterModel;
 use crate::render_packets::build_frame_packet_from_engine_snapshot;
 use crate::render_uniforms::{
     build_frame_uniform_values, build_object_uniform_values, FRAME_PACKET_FLOATS,
@@ -44,6 +45,7 @@ pub struct RustBrowserGame {
     object_handles_by_id: HashMap<String, ResourceHandle>,
     scene_mesh_handles_by_label: HashMap<String, ResourceHandle>,
     scene_material_packets_by_label: HashMap<String, [f32; MATERIAL_PACKET_FLOATS]>,
+    player_character: PlayerCharacterModel,
     model_skinning_runtime: Option<&'static str>,
     model_skinning_joint_count: usize,
 }
@@ -92,6 +94,7 @@ struct GpuMesh {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     index_count: u32,
+    vertex_float_count: usize,
     vertex_layout: MeshVertexLayout,
 }
 
@@ -135,7 +138,8 @@ const TERRAIN_MATERIAL_WEIGHTS_OFFSET: usize = 15;
 const IDENTITY_WORLD_MATRIX: [f32; WORLD_MATRIX_FLOATS] = [
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
 ];
-const SAMPLE_RIGGED_SIMPLE_SCENE_SCALE: f32 = 0.45;
+const PLAYER_CHARACTER_SCENE_SCALE: f32 = 1.0;
+const PLAYER_CHARACTER_HEIGHT_OFFSET: f32 = 0.0;
 const PLAYER_MARKER_MATERIAL_PACKET: [f32; MATERIAL_PACKET_FLOATS] =
     [1.0, 1.0, 1.0, 1.0, 1.0, 0.92, 0.65, 0.45, 0.0, 1.0];
 
@@ -149,44 +153,24 @@ impl RustBrowserGame {
         console_error_panic_hook::set_once();
         let mut renderer = BrowserWgpuRenderer::new(canvas).await?;
         let terrain_texture_arrays = load_terrain_texture_arrays(&asset_loader).await?;
-        let sample_model_bytes = load_model_asset_bytes(
+        let player_model_bytes = load_model_asset_bytes(
             &asset_loader,
-            SAMPLE_RIGGED_SIMPLE_MODEL_ID,
-            SAMPLE_RIGGED_SIMPLE_MODEL_URL,
+            PLAYER_QUATERNIUS_UAL2_MODEL_ID,
+            PLAYER_QUATERNIUS_UAL2_MODEL_URL,
         )
         .await?;
-        let sample_model = import_gltf_model_from_slice(&sample_model_bytes).map_err(js_error)?;
-        let sample_model_animation = sample_model
-            .animations
-            .first()
-            .cloned()
-            .ok_or_else(|| js_error("Rust GLTF importer found no sample animation clips."))?;
-        let sample_model_node_base_transforms: Vec<_> = sample_model
-            .nodes
-            .iter()
-            .map(|node| node.local_transform)
-            .collect();
-        let sample_model_pose_time = if sample_model_animation.duration_seconds > f32::EPSILON {
-            sample_model_animation.duration_seconds * 0.5
-        } else {
-            0.0
-        };
-        let sample_model_render_assets = skinned_model_render_assets(
-            &sample_model,
-            &sample_model_animation,
-            &sample_model_node_base_transforms,
-            sample_model_pose_time,
-        )
-        .map_err(js_error)?;
+        let player_model = import_gltf_model_from_slice(&player_model_bytes).map_err(js_error)?;
+        let player_character = PlayerCharacterModel::from_model(player_model).map_err(js_error)?;
+        let player_character_vertices = player_character.current_vertices().map_err(js_error)?;
         let (player_marker_vertices, player_marker_indices) = create_player_marker_mesh();
         let player_marker_mesh = renderer.register_mesh(
             &player_marker_vertices,
             &player_marker_indices,
             TERRAIN_VERTEX_FLOATS,
         )?;
-        let sample_model_mesh = renderer.register_mesh(
-            &sample_model_render_assets.vertices,
-            &sample_model_render_assets.indices,
+        let player_character_mesh = renderer.register_mesh(
+            &player_character_vertices,
+            player_character.indices(),
             MODEL_VERTEX_FLOATS,
         )?;
 
@@ -196,8 +180,8 @@ impl RustBrowserGame {
             player_marker_mesh,
         );
         scene_mesh_handles_by_label.insert(
-            SAMPLE_RIGGED_SIMPLE_MESH_LABEL.to_string(),
-            sample_model_mesh,
+            PLAYER_QUATERNIUS_UAL2_MESH_LABEL.to_string(),
+            player_character_mesh,
         );
 
         let mut scene_material_packets_by_label = HashMap::new();
@@ -206,21 +190,20 @@ impl RustBrowserGame {
             PLAYER_MARKER_MATERIAL_PACKET,
         );
         scene_material_packets_by_label.insert(
-            SAMPLE_RIGGED_SIMPLE_MATERIAL_LABEL.to_string(),
-            sample_model_render_assets.material_packet,
+            PLAYER_QUATERNIUS_UAL2_MATERIAL_LABEL.to_string(),
+            player_character.material_packet(),
         );
 
         let mut game_state = BrowserGameState::new();
         game_state
-            .configure_scaled_animated_static_model_scene(
-                SAMPLE_RIGGED_SIMPLE_MESH_LABEL,
-                SAMPLE_RIGGED_SIMPLE_MATERIAL_LABEL,
-                SAMPLE_RIGGED_SIMPLE_SCENE_SCALE,
-                sample_model_animation,
-                sample_model_render_assets.mesh_node_index,
-                sample_model_node_base_transforms,
+            .configure_scaled_static_model_scene(
+                PLAYER_QUATERNIUS_UAL2_MESH_LABEL,
+                PLAYER_QUATERNIUS_UAL2_MATERIAL_LABEL,
+                PLAYER_CHARACTER_SCENE_SCALE,
+                PLAYER_CHARACTER_HEIGHT_OFFSET,
             )
             .map_err(js_error)?;
+        let model_skinning_joint_count = player_character.skin_joint_count();
 
         let mut game = Self {
             game_state,
@@ -232,8 +215,9 @@ impl RustBrowserGame {
             object_handles_by_id: HashMap::new(),
             scene_mesh_handles_by_label,
             scene_material_packets_by_label,
+            player_character,
             model_skinning_runtime: Some("rust-cpu"),
-            model_skinning_joint_count: sample_model_render_assets.skin_joint_count,
+            model_skinning_joint_count,
         };
         game.install_terrain_textures(terrain_texture_arrays)?;
 
@@ -251,6 +235,7 @@ impl RustBrowserGame {
     pub fn tick(&mut self, frame: JsValue) -> Result<(), JsValue> {
         let input = browser_game_input_from_js(&frame)?;
         self.game_state.tick(input).map_err(js_error)?;
+        self.update_player_character_mesh(input)?;
         self.update_terrain_stream()?;
         self.render_frame()
     }
@@ -401,30 +386,39 @@ impl RustBrowserGame {
             "playerControllerRuntime",
             JsValue::from_str("rust"),
         )?;
-        if let Some(animation) = self.game_state.model_animation_snapshot() {
+        let animation = self.player_character.animation_snapshot();
+        set_js_property(
+            &snapshot,
+            "modelAnimationRuntime",
+            JsValue::from_str(animation.runtime),
+        )?;
+        set_js_property(
+            &snapshot,
+            "activeModelAnimationClip",
+            JsValue::from_str(&animation.active_clip_name),
+        )?;
+        if let Some(next_clip_name) = animation.next_clip_name {
             set_js_property(
                 &snapshot,
-                "modelAnimationRuntime",
-                JsValue::from_str(animation.runtime),
-            )?;
-            if let Some(clip_name) = animation.clip_name {
-                set_js_property(
-                    &snapshot,
-                    "activeModelAnimationClip",
-                    JsValue::from_str(&clip_name),
-                )?;
-            }
-            set_js_property(
-                &snapshot,
-                "modelAnimationTimeSeconds",
-                JsValue::from_f64(animation.time_seconds as f64),
-            )?;
-            set_js_property(
-                &snapshot,
-                "modelAnimationDurationSeconds",
-                JsValue::from_f64(animation.duration_seconds as f64),
+                "nextModelAnimationClip",
+                JsValue::from_str(&next_clip_name),
             )?;
         }
+        set_js_property(
+            &snapshot,
+            "modelAnimationTimeSeconds",
+            JsValue::from_f64(animation.time_seconds as f64),
+        )?;
+        set_js_property(
+            &snapshot,
+            "modelAnimationDurationSeconds",
+            JsValue::from_f64(animation.duration_seconds as f64),
+        )?;
+        set_js_property(
+            &snapshot,
+            "modelAnimationBlendWeight",
+            JsValue::from_f64(animation.blend_weight as f64),
+        )?;
         if let Some(runtime) = self.model_skinning_runtime {
             set_js_property(
                 &snapshot,
@@ -584,6 +578,17 @@ impl RustBrowserGame {
         });
         Ok(())
     }
+
+    fn update_player_character_mesh(&mut self, input: BrowserGameInput) -> Result<(), JsValue> {
+        let vertices = self
+            .player_character
+            .tick_vertices(input.delta_seconds, [input.forward, input.right])
+            .map_err(js_error)?;
+        let mesh_handle = self.scene_mesh_handle(PLAYER_QUATERNIUS_UAL2_MESH_LABEL)?;
+        self.renderer
+            .update_mesh_vertices(mesh_handle, &vertices, MODEL_VERTEX_FLOATS)
+    }
+
     fn update_terrain_stream(&mut self) -> Result<(), JsValue> {
         let player_position = self.game_state.player_position().map_err(js_error)?;
         let update = self.terrain_stream.tick(player_position);
@@ -890,7 +895,7 @@ impl BrowserWgpuRenderer {
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("mesh vertices"),
                 contents: f32_as_bytes(vertices),
-                usage: wgpu::BufferUsages::VERTEX,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             });
         let index_buffer = self
             .device
@@ -904,8 +909,42 @@ impl BrowserWgpuRenderer {
             vertex_buffer,
             index_buffer,
             index_count: indices.len() as u32,
+            vertex_float_count: vertices.len(),
             vertex_layout,
         }))
+    }
+
+    fn update_mesh_vertices(
+        &mut self,
+        handle: ResourceHandle,
+        vertices: &[f32],
+        floats_per_vertex: u32,
+    ) -> Result<(), JsValue> {
+        let Some(vertex_layout) = MeshVertexLayout::from_floats_per_vertex(floats_per_vertex)
+        else {
+            return Err(js_error(
+                "Rust WebGPU renderer rejected an invalid mesh update.",
+            ));
+        };
+        if vertices.is_empty() || vertices.len() % floats_per_vertex as usize != 0 {
+            return Err(js_error(
+                "Rust WebGPU renderer rejected an invalid mesh update.",
+            ));
+        }
+
+        let mesh = self
+            .meshes
+            .get(handle)
+            .ok_or_else(|| js_error("Rust WebGPU renderer rejected a stale mesh handle."))?;
+        if mesh.vertex_layout != vertex_layout || mesh.vertex_float_count != vertices.len() {
+            return Err(js_error(
+                "Rust WebGPU renderer rejected a mismatched mesh vertex update.",
+            ));
+        }
+
+        self.queue
+            .write_buffer(&mesh.vertex_buffer, 0, f32_as_bytes(vertices));
+        Ok(())
     }
 
     fn destroy_mesh(&mut self, handle: ResourceHandle) -> Result<(), JsValue> {

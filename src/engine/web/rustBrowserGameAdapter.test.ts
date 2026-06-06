@@ -54,8 +54,10 @@ describe("RustBrowserGameAdapter", () => {
     equal(snapshot.loadedTerrainChunkKeys[0], "0,0,0");
     equal(snapshot.modelAnimationRuntime, "rust");
     equal(snapshot.activeModelAnimationClip, "test-move");
+    equal(snapshot.nextModelAnimationClip, "test-walk");
     equal(snapshot.modelAnimationTimeSeconds, 0.25);
     equal(snapshot.modelAnimationDurationSeconds, 2);
+    equal(snapshot.modelAnimationBlendWeight, 0.5);
     equal(snapshot.modelSkinningRuntime, "rust-cpu");
     equal(snapshot.modelSkinningJointCount, 2);
   });
@@ -134,8 +136,10 @@ function fakeBrowserGame(): FakeBrowserGame {
         playerControllerRuntime: "rust",
         modelAnimationRuntime: "rust",
         activeModelAnimationClip: "test-move",
+        nextModelAnimationClip: "test-walk",
         modelAnimationTimeSeconds: 0.25,
         modelAnimationDurationSeconds: 2,
+        modelAnimationBlendWeight: 0.5,
         modelSkinningRuntime: "rust-cpu",
         modelSkinningJointCount: 2
       };

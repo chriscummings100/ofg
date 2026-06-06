@@ -1,6 +1,6 @@
-// Rust-owned glTF animation import and sampling for model node transforms.
-// This first animation slice handles non-skinned node translation, rotation,
-// and scale channels; skinning and morph target animation stay out of scope.
+// Rust-owned glTF animation import, sampling, and blending for model node
+// transforms. The runtime supports node-local translation, rotation, and scale
+// channels; morph target animation remains out of scope.
 
 use crate::model_assets::{ModelAssetError, ModelNode, ModelNodeTransform};
 
@@ -55,6 +55,34 @@ impl ModelAnimationClip {
             time_seconds
         }
     }
+}
+
+/// Blends two sampled node-local poses with normalized TRS interpolation.
+pub fn blend_node_transforms(
+    from: &[ModelNodeTransform],
+    to: &[ModelNodeTransform],
+    amount: f32,
+) -> Result<Vec<ModelNodeTransform>, ModelAssetError> {
+    if from.len() != to.len() {
+        return Err(ModelAssetError::InvalidAnimationBlendTransformCount {
+            from_count: from.len(),
+            to_count: to.len(),
+        });
+    }
+    if !amount.is_finite() {
+        return Err(ModelAssetError::InvalidAnimationTime);
+    }
+
+    let amount = amount.clamp(0.0, 1.0);
+    Ok(from
+        .iter()
+        .zip(to.iter())
+        .map(|(from, to)| ModelNodeTransform {
+            translation: lerp_vec3(from.translation, to.translation, amount),
+            rotation: slerp_quat(from.rotation, to.rotation, amount),
+            scale: lerp_vec3(from.scale, to.scale, amount),
+        })
+        .collect())
 }
 
 #[derive(Clone, Debug, PartialEq)]

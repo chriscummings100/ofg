@@ -321,10 +321,13 @@ slice loads checked-in GLB fixtures through the generic byte asset loader,
 parses them in Rust, registers static model mesh/material resources, attaches
 model nodes to the Rust scene, renders them through Rust/wgpu, samples
 non-skinned node animation clips for translation, rotation, and scale, imports
-skin joints/inverse bind matrices, and CPU-skins one sampled rigged pose into
-the static model vertex layout. Per-frame skinned mesh updates, animation
-blending, and player locomotion selection are still future milestones under the
-same boundary.
+skin joints/inverse bind matrices, CPU-skins rigged model vertices, updates a
+same-size model vertex buffer every frame, and selects/blends idle and walk
+clips from Rust horizontal movement input. The current live player asset is a
+selected Quaternius Universal Animation Library 2 GLB using
+`Idle_FoldArms_Loop` and `Walk_Carry_Loop`. GPU skinning, multi-primitive
+character assembly, and retargeting the separate Quaternius base-character GLB
+remain future milestones under the same boundary.
 
 The intended runtime format is checked-in GLB for model and animation assets.
 Rust owns GLTF parsing, model resource registration, scene node/entity creation,
@@ -373,8 +376,8 @@ These are known contract risks for milestone reviewers:
 - `crates/engine_web/src/wgpu_renderer.rs` is still over the maximum preferred
   file size, `crates/engine_web/src/model_assets.rs` is over the split-pressure
   threshold, and `crates/terrain_core/src/facade.rs` is also oversized. Continue
-  extracting focused model/renderer modules before dynamic skinning or blending
-  adds more renderer code.
+  extracting focused model/renderer modules before GPU skinning, multi-primitive
+  character rendering, or retargeting adds more renderer code.
 - The GLTF path uses the generic byte asset loader and Rust-owned animation
   sampling; keep TypeScript generic and do not let it grow model or animation
   semantics while expanding the feature.

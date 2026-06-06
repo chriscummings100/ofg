@@ -89,6 +89,28 @@ async function runBrowserSmoke(url) {
     assertModelAnimationAdvanced(firstModelAnimation, advancedModelAnimation);
     const modelSkinning = await readModelSkinningDebug(page);
     assertModelSkinningDebug(modelSkinning);
+    await page.keyboard.down("KeyW");
+    await page.waitForFunction(() => {
+      const debug = window.__ofgDebug;
+      return debug?.getActiveModelAnimationClip?.() === "Walk_Carry_Loop";
+    }, null, { timeout: 5000 });
+    const movingModelAnimation = await readModelAnimationDebug(page);
+    assertModelAnimationMoving(movingModelAnimation);
+    await page.keyboard.up("KeyW");
+    await page.waitForFunction(() => {
+      const debug = window.__ofgDebug;
+      return debug?.getNextModelAnimationClip?.() === "Idle_FoldArms_Loop";
+    }, null, { timeout: 5000 });
+    const returnedModelAnimation = await readModelAnimationDebug(page);
+    assertModelAnimationReturnedToIdle(returnedModelAnimation);
+    await page.waitForFunction(() => {
+      const debug = window.__ofgDebug;
+      return debug?.getActiveModelAnimationClip?.() === "Idle_FoldArms_Loop" &&
+        (debug?.getNextModelAnimationClip?.() ?? "") === "" &&
+        debug?.getModelAnimationBlendWeight?.() === 0;
+    }, null, { timeout: 5000 });
+    const settledModelAnimation = await readModelAnimationDebug(page);
+    assertModelAnimationIdle(settledModelAnimation);
 
     await page.reload({ waitUntil: "load" });
     await waitForPlayableTerrain(page);
@@ -174,6 +196,9 @@ async function runBrowserSmoke(url) {
       refreshedRendererRuntime,
       firstModelAnimation,
       advancedModelAnimation,
+      movingModelAnimation,
+      returnedModelAnimation,
+      settledModelAnimation,
       modelSkinning,
       terrainStreamRuntime: refreshedTerrainStreamRuntime,
       initialTerrain,
@@ -263,8 +288,10 @@ async function readModelAnimationDebug(page) {
     return {
       runtime: debug?.getModelAnimationRuntime?.() ?? "missing",
       activeClip: debug?.getActiveModelAnimationClip?.() ?? "",
+      nextClip: debug?.getNextModelAnimationClip?.() ?? "",
       timeSeconds: debug?.getModelAnimationTimeSeconds?.() ?? Number.NaN,
-      durationSeconds: debug?.getModelAnimationDurationSeconds?.() ?? Number.NaN
+      durationSeconds: debug?.getModelAnimationDurationSeconds?.() ?? Number.NaN,
+      blendWeight: debug?.getModelAnimationBlendWeight?.() ?? Number.NaN
     };
   });
 }
@@ -322,6 +349,9 @@ function assertModelAnimationDebug(animation) {
   if (typeof animation.activeClip !== "string") {
     throw new Error(`Expected model animation clip name: ${JSON.stringify(animation)}`);
   }
+  if (!Number.isFinite(animation.blendWeight) || animation.blendWeight < 0 || animation.blendWeight > 1) {
+    throw new Error(`Expected normalized model animation blend weight: ${JSON.stringify(animation)}`);
+  }
 }
 
 function assertModelAnimationAdvanced(before, after) {
@@ -334,6 +364,31 @@ function assertModelAnimationAdvanced(before, after) {
     after.timeSeconds < before.durationSeconds * 0.2;
   if (!advancedWithoutWrap && !advancedWithWrap) {
     throw new Error(`Expected model animation time to advance: ${JSON.stringify({ before, after })}`);
+  }
+}
+
+function assertModelAnimationMoving(animation) {
+  assertModelAnimationDebug(animation);
+  if (animation.activeClip !== "Walk_Carry_Loop") {
+    throw new Error(`Expected movement to select the walk clip: ${JSON.stringify(animation)}`);
+  }
+}
+
+function assertModelAnimationReturnedToIdle(animation) {
+  assertModelAnimationDebug(animation);
+  if (animation.nextClip !== "Idle_FoldArms_Loop") {
+    throw new Error(`Expected released movement to select the idle clip: ${JSON.stringify(animation)}`);
+  }
+}
+
+function assertModelAnimationIdle(animation) {
+  assertModelAnimationDebug(animation);
+  if (
+    animation.activeClip !== "Idle_FoldArms_Loop" ||
+    animation.nextClip !== "" ||
+    animation.blendWeight !== 0
+  ) {
+    throw new Error(`Expected model animation to settle on idle: ${JSON.stringify(animation)}`);
   }
 }
 

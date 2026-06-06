@@ -96,8 +96,10 @@ export type RustBrowserGameDebugSnapshot = {
   readonly playerControllerRuntime: "rust";
   readonly modelAnimationRuntime?: "rust";
   readonly activeModelAnimationClip?: string;
+  readonly nextModelAnimationClip?: string;
   readonly modelAnimationTimeSeconds?: number;
   readonly modelAnimationDurationSeconds?: number;
+  readonly modelAnimationBlendWeight?: number;
   readonly modelSkinningRuntime?: "rust-cpu";
   readonly modelSkinningJointCount?: number;
 };

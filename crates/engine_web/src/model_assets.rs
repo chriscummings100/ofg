@@ -23,6 +23,12 @@ pub const SAMPLE_STATIC_BOX_MODEL_URL: &str = "/assets/models/test-fixtures/stat
 pub const SAMPLE_STATIC_BOX_MESH_LABEL: &str = "model.test-fixtures.static-box.primitive0.mesh";
 pub const SAMPLE_STATIC_BOX_MATERIAL_LABEL: &str =
     "model.test-fixtures.static-box.primitive0.material";
+pub const PLAYER_QUATERNIUS_UAL2_MODEL_ID: &str = "model.player.quaternius-ual2";
+pub const PLAYER_QUATERNIUS_UAL2_MODEL_URL: &str =
+    "/assets/models/player/quaternius-ual2-standard.glb";
+pub const PLAYER_QUATERNIUS_UAL2_MESH_LABEL: &str = "model.player.quaternius-ual2.primitive0.mesh";
+pub const PLAYER_QUATERNIUS_UAL2_MATERIAL_LABEL: &str =
+    "model.player.quaternius-ual2.primitive0.material";
 
 const IDENTITY_MATRIX: [f32; 16] = [
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
@@ -207,6 +213,10 @@ pub enum ModelAssetError {
     InvalidAnimationTargetNode {
         node_index: usize,
     },
+    InvalidAnimationBlendTransformCount {
+        from_count: usize,
+        to_count: usize,
+    },
     InvalidAnimationTime,
     InvalidSkinIndex {
         skin_index: usize,
@@ -348,6 +358,13 @@ impl fmt::Display for ModelAssetError {
             Self::InvalidAnimationTargetNode { node_index } => write!(
                 formatter,
                 "glTF animation targets missing model node {node_index}"
+            ),
+            Self::InvalidAnimationBlendTransformCount {
+                from_count,
+                to_count,
+            } => write!(
+                formatter,
+                "glTF animation blend received {from_count} source transforms and {to_count} target transforms"
             ),
             Self::InvalidAnimationTime => {
                 write!(formatter, "glTF animation sampling time was not finite")

@@ -39,6 +39,7 @@ pub enum BrowserGameStateError {
     ModelAnimation(ModelAssetError),
     InvalidTerrainHeight { x: f32, z: f32 },
     InvalidStaticModelScale(f32),
+    InvalidStaticModelHeightOffset(f32),
     MissingSceneMeshResource(MeshId),
     MissingSceneMaterialResource(MaterialId),
 }
@@ -75,6 +76,7 @@ struct StaticModelSceneConfig {
     mesh_label: String,
     material_label: String,
     scale: f32,
+    height_offset: f32,
     animation: Option<StaticModelAnimationConfig>,
 }
 
@@ -163,6 +165,7 @@ impl BrowserGameState {
             mesh_label: mesh_label.into(),
             material_label: material_label.into(),
             scale: INITIAL_STATIC_MODEL_SCALE,
+            height_offset: INITIAL_STATIC_MODEL_HEIGHT_OFFSET,
             animation: None,
         });
         if self.engine.player_rig().is_some() {
@@ -199,26 +202,27 @@ impl BrowserGameState {
         node_index: usize,
         node_base_transforms: Vec<ModelNodeTransform>,
     ) -> Result<(), BrowserGameStateError> {
-        if !scale.is_finite() || scale <= 0.0 {
-            return Err(BrowserGameStateError::InvalidStaticModelScale(scale));
-        }
-
-        self.static_model_scene = Some(StaticModelSceneConfig {
-            mesh_label: mesh_label.into(),
-            material_label: material_label.into(),
+        self.configure_model_scene(
+            mesh_label,
+            material_label,
             scale,
-            animation: Some(StaticModelAnimationConfig {
+            INITIAL_STATIC_MODEL_HEIGHT_OFFSET,
+            Some(StaticModelAnimationConfig {
                 clip,
                 node_index,
                 node_base_transforms,
             }),
-        });
-        self.static_model_animation_time_seconds = 0.0;
-        if self.engine.player_rig().is_some() {
-            self.replace_configured_static_model()?;
-        }
+        )
+    }
 
-        Ok(())
+    pub fn configure_scaled_static_model_scene(
+        &mut self,
+        mesh_label: impl Into<String>,
+        material_label: impl Into<String>,
+        scale: f32,
+        height_offset: f32,
+    ) -> Result<(), BrowserGameStateError> {
+        self.configure_model_scene(mesh_label, material_label, scale, height_offset, None)
     }
 
     pub fn tick(&mut self, input: BrowserGameInput) -> Result<(), BrowserGameStateError> {
@@ -386,7 +390,7 @@ impl BrowserGameState {
             &config.material_label,
             Vec3::new(
                 INITIAL_STATIC_MODEL_X,
-                terrain_height + INITIAL_STATIC_MODEL_HEIGHT_OFFSET,
+                terrain_height + config.height_offset,
                 INITIAL_STATIC_MODEL_Z,
             ),
             config.scale,
@@ -558,6 +562,12 @@ impl std::fmt::Display for BrowserGameStateError {
                     "Rust browser game static model scale was invalid: {scale}"
                 )
             }
+            Self::InvalidStaticModelHeightOffset(height_offset) => {
+                write!(
+                    formatter,
+                    "Rust browser game static model height offset was invalid: {height_offset}"
+                )
+            }
             Self::MissingSceneMeshResource(mesh) => {
                 write!(
                     formatter,
@@ -571,6 +581,41 @@ impl std::fmt::Display for BrowserGameStateError {
                 )
             }
         }
+    }
+}
+
+impl BrowserGameState {
+    /// Configures the optional imported model scene item.
+    fn configure_model_scene(
+        &mut self,
+        mesh_label: impl Into<String>,
+        material_label: impl Into<String>,
+        scale: f32,
+        height_offset: f32,
+        animation: Option<StaticModelAnimationConfig>,
+    ) -> Result<(), BrowserGameStateError> {
+        if !scale.is_finite() || scale <= 0.0 {
+            return Err(BrowserGameStateError::InvalidStaticModelScale(scale));
+        }
+        if !height_offset.is_finite() {
+            return Err(BrowserGameStateError::InvalidStaticModelHeightOffset(
+                height_offset,
+            ));
+        }
+
+        self.static_model_scene = Some(StaticModelSceneConfig {
+            mesh_label: mesh_label.into(),
+            material_label: material_label.into(),
+            scale,
+            height_offset,
+            animation,
+        });
+        self.static_model_animation_time_seconds = 0.0;
+        if self.engine.player_rig().is_some() {
+            self.replace_configured_static_model()?;
+        }
+
+        Ok(())
     }
 }
 

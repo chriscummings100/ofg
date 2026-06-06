@@ -42,8 +42,10 @@ declare global {
       getPlayerControllerRuntime: () => "rust";
       getModelAnimationRuntime: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationRuntime"];
       getActiveModelAnimationClip: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["activeModelAnimationClip"];
+      getNextModelAnimationClip: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["nextModelAnimationClip"];
       getModelAnimationTimeSeconds: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationTimeSeconds"];
       getModelAnimationDurationSeconds: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationDurationSeconds"];
+      getModelAnimationBlendWeight: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationBlendWeight"];
       getModelSkinningRuntime: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelSkinningRuntime"];
       getModelSkinningJointCount: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelSkinningJointCount"];
       getPlayerPosition: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerPosition"];
@@ -77,8 +79,10 @@ export async function startGame(elements: GameElements): Promise<void> {
     getPlayerControllerRuntime: () => game.debugSnapshot().playerControllerRuntime,
     getModelAnimationRuntime: () => game.debugSnapshot().modelAnimationRuntime,
     getActiveModelAnimationClip: () => game.debugSnapshot().activeModelAnimationClip,
+    getNextModelAnimationClip: () => game.debugSnapshot().nextModelAnimationClip,
     getModelAnimationTimeSeconds: () => game.debugSnapshot().modelAnimationTimeSeconds,
     getModelAnimationDurationSeconds: () => game.debugSnapshot().modelAnimationDurationSeconds,
+    getModelAnimationBlendWeight: () => game.debugSnapshot().modelAnimationBlendWeight,
     getModelSkinningRuntime: () => game.debugSnapshot().modelSkinningRuntime,
     getModelSkinningJointCount: () => game.debugSnapshot().modelSkinningJointCount,
     getPlayerPosition: () => game.debugSnapshot().playerPosition,

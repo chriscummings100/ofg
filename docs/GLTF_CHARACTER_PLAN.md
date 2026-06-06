@@ -71,8 +71,12 @@ The staged outcome is:
   `WEIGHTS_0`, skin joint lists, and inverse bind matrices, added CPU skinning
   for sampled poses, rendered Khronos `RiggedSimple.glb` as a posed skinned
   model, and extended browser smoke to verify Rust CPU skinning state.
-- [ ] Implement milestone 5: add idle/walk clip selection and blending driven by
-  player movement.
+- [x] (2026-06-06) Implemented milestone 5: downloaded Quaternius Universal
+  Base Characters and Universal Animation Library 2 standard packs, checked in
+  selected CC0 player GLBs with source notes, added Rust idle/walk locomotion
+  selection and blending, updates the CPU-skinned mesh vertices every frame,
+  and extended browser smoke to verify `W` selects walk and release blends back
+  to idle.
 
 ## Surprises & Discoveries
 
@@ -148,6 +152,26 @@ The staged outcome is:
   Evidence: milestone 4 extracts `crates/engine_web/src/model_render_assets.rs`
   for skinned render-asset baking, while `wgpu_renderer.rs` remains oversized
   and should not absorb dynamic skinning/blending logic.
+- Observation: Quaternius' free Itch downloads can be fetched non-interactively
+  through the standard `download_url` and `file/<upload_id>` endpoints once the
+  CSRF token is read from the purchase/download pages.
+  Evidence: milestone 5 downloaded
+  `Universal Base Characters[Standard].zip` and
+  `Universal Animation Library 2[Standard].zip` into
+  `artifacts/quaternius-downloads/`, then committed only selected assets under
+  `assets/models/player/`.
+- Observation: The Quaternius Universal Animation Library 2 GLB is the best
+  first runtime player asset because it combines a skinned mannequin mesh, a
+  65-joint humanoid skeleton, and named animation clips in one GLB.
+  Evidence: `assets/models/player/quaternius-ual2-standard.glb` imports with
+  43 clips, including `Idle_FoldArms_Loop` and `Walk_Carry_Loop`, while the
+  Universal Base Characters pack provides external-buffer `.gltf` character
+  files that need conversion or future retargeting work.
+- Observation: Per-frame CPU skinning is acceptable for this first player
+  slice when limited to one selected primitive.
+  Evidence: browser smoke on 2026-06-06 rendered the Quaternius character,
+  updated the model vertex buffer every frame through Rust/wgpu, and held
+  steady at a reported `16.7 ms` frame time in the sampled smoke run.
 
 ## Decision Log
 
@@ -265,6 +289,24 @@ The staged outcome is:
   Rationale: Browser smoke needs to observe that the rendered model came through
   Rust CPU skinning, while TypeScript still must not inspect or process GLTF
   skins, joints, weights, or skeletons.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Use Quaternius UAL2 `Idle_FoldArms_Loop` and `Walk_Carry_Loop` for
+  the first movement-driven player runtime.
+  Rationale: These clips are named, loopable, and live in the same GLB and
+  skeleton as the skinned mannequin mesh, avoiding retargeting complexity while
+  proving Rust-owned locomotion selection, blending, and dynamic CPU skinning.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Commit selected Quaternius GLBs and source notes, not the downloaded
+  source zips.
+  Rationale: The standard source zips are useful acquisition artifacts but too
+  broad for runtime. The repo needs only `quaternius-ual2-standard.glb`, a
+  converted `quaternius-superhero-male.glb` for future retargeting, and a
+  concise CC0 source note under `assets/models/player/`.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Keep CPU skinning single-primitive for milestone 5.
+  Rationale: One primitive is enough to prove visible idle/walk behavior and
+  same-size WebGPU vertex-buffer updates. Multi-primitive model assembly and GPU
+  skinning are separable follow-ups.
   Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
@@ -444,6 +486,66 @@ Milestone review:
 - Remaining risk: milestone 4 bakes one sampled CPU-skinned pose at startup.
   It does not yet update skinned vertices every frame, blend clips, load the
   Quaternius humanoid player, or choose idle/walk from player movement.
+
+Milestone 5 is complete. The repo now includes selected Quaternius CC0 player
+assets under `assets/models/player/`: `quaternius-ual2-standard.glb` copied from
+Universal Animation Library 2 Standard, `quaternius-superhero-male.glb`
+converted from the Universal Base Characters standard `.gltf` plus `.bin`, and
+`SOURCE.md` documenting source URLs, license, and extraction notes. Runtime now
+loads the UAL2 GLB through the generic byte loader, imports the skinned humanoid
+in Rust, samples `Idle_FoldArms_Loop` and `Walk_Carry_Loop`, crossfades between
+them from horizontal movement input, CPU-skins the selected primitive each
+frame, and updates the existing model vertex buffer through Rust/wgpu.
+
+Validation completed on 2026-06-06:
+
+    cargo test -p engine_web
+    npm run check:wasm
+    npm test
+    npm run smoke:browser
+
+`npm run check:wasm` initially reported stale generated `engine_web` wasm
+artifacts after the Rust changes; `npm run build:wasm` regenerated them and the
+subsequent `npm test`/smoke builds completed cleanly. Browser smoke passed with
+artifacts in `C:\dev\ofg\artifacts\browser-smoke\2026-06-06T21-08-52-884Z`.
+The report showed Rust/wgpu runtime, 13 mesh resources, 12 objects, 12 frame
+draws, holding `W` reaching active `Walk_Carry_Loop`, releasing `W` selecting
+`Idle_FoldArms_Loop` as `nextClip` with blend weight `0.09333333`, settling
+back to active `Idle_FoldArms_Loop` with blend weight `0`, and Rust CPU skinning
+with 65 joints. First-person and debug-fly screenshots were inspected and show
+the orange Quaternius humanoid standing in the terrain; the yellow debug marker
+remains visible only in debug-fly mode.
+
+Milestone review:
+
+- Scope: milestone 5 Quaternius asset acquisition, selected player GLB source
+  notes, Rust locomotion animation controller, transform blending, per-frame CPU
+  skinning, same-size WebGPU model vertex-buffer updates, debug snapshot blend
+  fields, generated wasm artifacts, TypeScript debug forwarding, and browser
+  smoke locomotion validation.
+- Reviewers: contract, code quality, legacy, correctness, and validation passes
+  were done locally. Sub-agents were not used because the available delegation
+  tool requires the user to explicitly request sub-agents.
+- Required findings fixed: tightened browser smoke so holding `W` must reach
+  active `Walk_Carry_Loop`, releasing `W` must select `Idle_FoldArms_Loop` as
+  `nextClip`, and the animation must settle back to idle with blend weight `0`;
+  renamed the selected player asset note to `assets/models/player/SOURCE.md`;
+  updated `docs/API_CONTRACTS.md` and `docs/ARCHITECTURE.md` so active docs
+  describe locomotion blending and per-frame CPU skinning as live.
+- Follow-ups recorded: `crates/engine_web/src/wgpu_renderer.rs` remains over
+  1000 lines, `crates/engine_web/src/tests.rs` is now over 1000 lines, and
+  `crates/engine_web/src/model_assets.rs` remains over the 600-line
+  split-pressure threshold. Do not add the next model/rendering slice until the
+  renderer and model tests are split into focused modules. Multi-primitive
+  character assembly, retargeting the separate Quaternius base character, and
+  GPU skinning remain follow-up milestones.
+- Rejected findings: none.
+- Validation rerun: `cargo test -p engine_core`, `cargo test -p engine_web`,
+  `npm run check:wasm`, `npm test`, `npm run smoke:browser`, and
+  `git -c safe.directory=C:/dev/ofg diff --check` all passed.
+- Remaining risk: the visible player path still skins one selected primitive on
+  CPU and uses fallback material texture handles. It proves the idle/walk
+  locomotion behavior, but it is not a complete authored character pipeline yet.
 
 ## Contract and Quality Baseline
 

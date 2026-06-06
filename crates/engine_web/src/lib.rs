@@ -5,6 +5,7 @@ mod materials;
 mod model_animation;
 mod model_asset_loader;
 mod model_assets;
+mod model_locomotion;
 mod model_render_assets;
 mod model_skinning;
 mod render_packets;
@@ -32,20 +33,27 @@ pub use materials::{
     TERRAIN_MATERIAL_PACKET,
 };
 pub use model_animation::{
-    ModelAnimationChannel, ModelAnimationClip, ModelAnimationInterpolation, ModelAnimationOutputs,
-    ModelAnimationTarget,
+    blend_node_transforms, ModelAnimationChannel, ModelAnimationClip, ModelAnimationInterpolation,
+    ModelAnimationOutputs, ModelAnimationTarget,
 };
 #[cfg(target_arch = "wasm32")]
 pub use model_asset_loader::load_model_asset_bytes;
 pub use model_assets::{
     import_gltf_model_from_slice, model_primitive_vertex_floats, ModelAsset, ModelAssetError,
     ModelMaterial, ModelNode, ModelNodeTransform, ModelPrimitive, ModelSkin, ModelVertex,
+    PLAYER_QUATERNIUS_UAL2_MATERIAL_LABEL, PLAYER_QUATERNIUS_UAL2_MESH_LABEL,
+    PLAYER_QUATERNIUS_UAL2_MODEL_ID, PLAYER_QUATERNIUS_UAL2_MODEL_URL,
     SAMPLE_ANIMATED_BOX_MATERIAL_LABEL, SAMPLE_ANIMATED_BOX_MESH_LABEL,
     SAMPLE_ANIMATED_BOX_MODEL_ID, SAMPLE_ANIMATED_BOX_MODEL_URL,
     SAMPLE_RIGGED_SIMPLE_MATERIAL_LABEL, SAMPLE_RIGGED_SIMPLE_MESH_LABEL,
     SAMPLE_RIGGED_SIMPLE_MODEL_ID, SAMPLE_RIGGED_SIMPLE_MODEL_URL,
     SAMPLE_STATIC_BOX_MATERIAL_LABEL, SAMPLE_STATIC_BOX_MESH_LABEL, SAMPLE_STATIC_BOX_MODEL_ID,
     SAMPLE_STATIC_BOX_MODEL_URL,
+};
+pub use model_locomotion::{
+    horizontal_movement_is_active, LocomotionAnimationController, PlayerCharacterAnimationSnapshot,
+    PlayerCharacterModel, PlayerCharacterModelError, QUATERNIUS_IDLE_CLIP_NAME,
+    QUATERNIUS_WALK_CLIP_NAME,
 };
 pub use model_render_assets::{
     first_primitive_node_index, skinned_model_render_assets, ModelRenderAssetError,
