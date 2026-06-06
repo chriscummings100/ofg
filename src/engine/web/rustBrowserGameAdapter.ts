@@ -56,10 +56,6 @@ export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
     this.game.resize(width, height);
   }
 
-  getAspectRatio(): number {
-    return this.width / this.height;
-  }
-
   getStatus(): EngineWebRendererStatus {
     return this.game.status();
   }
@@ -126,9 +122,9 @@ export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
     return [...this.terrainChunkKeys].sort();
   }
 
-  renderGameFrame(): void {
+  renderFrame(): void {
     this.resize();
-    this.game.renderGameFrame(this.getAspectRatio());
+    this.game.renderFrame();
   }
 
   private upsertTerrainTexturesIfNeeded(textures: TerrainMaterialTextures | undefined): void {

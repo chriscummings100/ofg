@@ -50,7 +50,8 @@ describe("engine web WASM", () => {
     ok(dtsText.includes("retainTerrainMeshes(chunk_keys: Array<any>): void"));
     ok(dtsText.includes("clearTerrainMeshes(): void"));
     ok(dtsText.includes("upsertTerrainTextures"));
-    ok(dtsText.includes("renderGameFrame(aspect: number): void"));
+    ok(dtsText.includes("renderFrame(): void"));
+    equal(dtsText.includes("renderGameFrame"), false);
     equal(dtsText.includes("renderEngineFrame"), false);
     equal(dtsText.includes("upsertMesh"), false);
     equal(dtsText.includes("destroyMesh"), false);
@@ -147,7 +148,7 @@ function fakeBrowserGame(): EngineWebBrowserGame {
     retainTerrainMeshes() {},
     clearTerrainMeshes() {},
     upsertTerrainTextures() {},
-    renderGameFrame() {},
+    renderFrame() {},
     status() {
       return {
         version: 1,

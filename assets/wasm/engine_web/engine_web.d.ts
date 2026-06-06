@@ -14,7 +14,7 @@ export class RustBrowserGame {
   retainTerrainMeshes(chunk_keys: Array<any>): void;
   clearTerrainMeshes(): void;
   upsertTerrainTextures(width: number, height: number, layers: number, format_code: number, albedo_data: Uint8Array, normal_data: Uint8Array, material_data: Uint8Array): void;
-  renderGameFrame(aspect: number): void;
+  renderFrame(): void;
   status(): RustBrowserGameStatus;
 }
 export class RustBrowserGameStatus {
@@ -74,7 +74,7 @@ export interface InitOutput {
   readonly rustbrowsergame_retainTerrainMeshes: (a: number, b: number, c: number) => void;
   readonly rustbrowsergame_clearTerrainMeshes: (a: number, b: number) => void;
   readonly rustbrowsergame_upsertTerrainTextures: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => void;
-  readonly rustbrowsergame_renderGameFrame: (a: number, b: number, c: number) => void;
+  readonly rustbrowsergame_renderFrame: (a: number, b: number) => void;
   readonly rustbrowsergame_status: (a: number) => number;
   readonly rustbrowsergamestatus_version: (a: number) => number;
   readonly rustbrowsergamestatus_runtime: (a: number, b: number) => void;

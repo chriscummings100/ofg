@@ -13,7 +13,7 @@ describe("RustBrowserGameAdapter", () => {
     const terrainTextures = fakeTerrainTextures();
 
     adapter.setTerrainTextures(terrainTextures);
-    withFakeWindow(() => adapter.renderGameFrame());
+    withFakeWindow(() => adapter.renderFrame());
 
     equal(fake.upsertedTerrainTextures.length, 1);
     equal(fake.upsertedTerrainTextures[0]?.width, 1);
@@ -22,7 +22,9 @@ describe("RustBrowserGameAdapter", () => {
     equal(fake.upsertedTerrainTextures[0]?.albedoData[0], 255);
     equal(fake.upsertedTerrainTextures[0]?.normalData[1], 255);
     equal(fake.upsertedTerrainTextures[0]?.materialData[2], 255);
-    equal(fake.lastRender?.aspect, 640 / 480);
+    equal(fake.renderCount, 1);
+    equal(fake.resizeCalls[0]?.width, 640);
+    equal(fake.resizeCalls[0]?.height, 480);
   });
 
   it("forwards browser frame input and player controls to the Rust game facade", () => {
@@ -103,15 +105,17 @@ type FakeBrowserGame = EngineWebBrowserGame & {
   destroyedTerrainMeshes: string[];
   retainedTerrainMeshSets: string[][];
   clearedTerrainMeshes: number;
+  resizeCalls: {
+    readonly width: number;
+    readonly height: number;
+  }[];
+  renderCount: number;
   resetGameCalls: {
     readonly terrainSeed: number;
     readonly terrainPreset: number;
   }[];
   tickCalls: BrowserFrameInput[];
   commandCalls: Array<Parameters<EngineWebBrowserGame["command"]>[0]>;
-  lastRender?: {
-    readonly aspect: number;
-  };
 };
 
 function fakeBrowserGame(): FakeBrowserGame {
@@ -121,10 +125,14 @@ function fakeBrowserGame(): FakeBrowserGame {
     destroyedTerrainMeshes: [],
     retainedTerrainMeshSets: [],
     clearedTerrainMeshes: 0,
+    resizeCalls: [],
+    renderCount: 0,
     resetGameCalls: [],
     tickCalls: [],
     commandCalls: [],
-    resize() {},
+    resize(width, height) {
+      this.resizeCalls.push({ width, height });
+    },
     resetGame(terrainSeed, terrainPreset) {
       this.resetGameCalls.push({ terrainSeed, terrainPreset });
     },
@@ -166,10 +174,8 @@ function fakeBrowserGame(): FakeBrowserGame {
         materialData
       });
     },
-    renderGameFrame(aspect) {
-      this.lastRender = {
-        aspect
-      };
+    renderFrame() {
+      this.renderCount += 1;
     },
     status() {
       return {

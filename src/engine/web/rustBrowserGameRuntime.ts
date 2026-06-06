@@ -41,7 +41,7 @@ export type RustBrowserGameRenderer = TerrainRenderChunkSink & {
   setTerrainTextures(textures: TerrainMaterialTextures): void;
   resetGame(terrainSeed: number, terrainPreset: number): void;
   tick(frame: BrowserFrameInput): void;
-  renderGameFrame(): void;
+  renderFrame(): void;
   command(command: RustBrowserGameCommand): void;
   getDebugSnapshot(): RustBrowserGameDebugSnapshot;
   getStatus(): EngineWebRendererStatus;
@@ -85,7 +85,7 @@ export class RustBrowserGameRuntime {
   tick(frame: BrowserFrameInput): void {
     this.dependencies.renderer.tick(frame);
     this.dependencies.terrainStreamer.update();
-    this.dependencies.renderer.renderGameFrame();
+    this.dependencies.renderer.renderFrame();
   }
 
   command(command: GameCommand): void {

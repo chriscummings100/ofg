@@ -98,7 +98,7 @@ function fakeRenderer(): FakeRenderer {
     tick(frame) {
       this.tickCalls.push(frame);
     },
-    renderGameFrame() {
+    renderFrame() {
       this.renderCount += 1;
     },
     command(command) {

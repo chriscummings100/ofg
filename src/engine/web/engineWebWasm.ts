@@ -45,7 +45,7 @@ export type EngineWebBrowserGame = {
     normalData: Uint8Array,
     materialData: Uint8Array
   ): void;
-  renderGameFrame(aspect: number): void;
+  renderFrame(): void;
   status(): EngineWebRendererStatus;
 };
 

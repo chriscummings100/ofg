@@ -323,9 +323,10 @@ impl RustBrowserGame {
         Ok(())
     }
 
-    #[wasm_bindgen(js_name = renderGameFrame)]
-    pub fn render_game_frame(&mut self, aspect: f32) -> Result<(), JsValue> {
+    #[wasm_bindgen(js_name = renderFrame)]
+    pub fn render_frame(&mut self) -> Result<(), JsValue> {
         let engine_snapshot = self.game_state.render_snapshot_values().map_err(js_error)?;
+        let aspect = self.renderer.aspect_ratio();
         let chunk_keys = sorted_terrain_chunk_keys(&self.terrain_mesh_handles_by_key);
         let chunk_count = chunk_keys.len();
 
@@ -699,6 +700,10 @@ impl BrowserWgpuRenderer {
         self.surface.configure(&self.device, &self.config);
         self.depth_texture = create_depth_texture(&self.device, width, height);
         Ok(())
+    }
+
+    fn aspect_ratio(&self) -> f32 {
+        self.config.width as f32 / self.config.height as f32
     }
 
     fn register_mesh(
