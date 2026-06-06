@@ -190,9 +190,9 @@ src/generated
 
 crates/engine_core
   Browser-free Rust engine core. It owns player/camera logic, a small
-  world/entity ID model, transforms, and render snapshot logic. Its standalone
-  WASM artifact remains tested, but the playable browser app now reaches this
-  logic through `engine_web`.
+  world/entity ID model, transforms, and render snapshot logic. It is tested as
+  a native Rust crate and reached by the playable browser app through
+  `engine_web`; no standalone `engine_core.wasm` browser artifact is built.
 
 crates/terrain_core
   Rust terrain core built to wasm32-unknown-unknown. It owns macro base

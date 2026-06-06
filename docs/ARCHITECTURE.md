@@ -82,8 +82,8 @@ temporary terrain worker/asset transport.
   grounding, camera mode switching, debug player marker state, frame packet
   construction, and Rust/wgpu draw submission.
 - `engine_core` remains the browser-free Rust logic crate for engine/player/world
-  behavior and tests. Its standalone WASM artifact is no longer loaded by the
-  playable app for active player/camera state.
+  behavior and native tests. It is linked into `engine_web`; no standalone
+  `engine_core.wasm` browser artifact is built for the playable app.
 - `terrain_core.wasm` owns terrain height/density sampling, generated chunk mesh
   emission, stream scheduling, density storage, worker-pool request state, and
   the tested legacy terrain mesh packet store. The playable browser path now

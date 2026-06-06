@@ -97,9 +97,12 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   terrain texture upload calls.
 - [ ] Remove public terrain mesh upload calls by making Rust terrain streaming
   own mesh upload, retention, pruning, and debug visibility.
-- [ ] Demote or delete standalone WASM wrappers that are not playable runtime,
-  especially the standalone `engine_core.wasm` TypeScript wrapper if it is no
-  longer a supported dev/test artifact.
+- [x] (2026-06-06) Deleted the unsupported standalone `engine_core.wasm`
+  TypeScript wrapper, generated metadata, build script, package-script entries,
+  and checked-in artifact; `engine_core` remains covered as a native Rust crate
+  and through `engine_web`.
+- [x] (2026-06-06) Validated the standalone `engine_core.wasm` deletion with
+  `npm test`, `cargo test -p engine_core`, and `npm run check:wasm`.
 
 ## Surprises & Discoveries
 
@@ -136,6 +139,11 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   completions by request id, while
   `src/engine/world/terrainChunkWorkerTypes.ts` still names density and chunk
   request/result payloads.
+- Observation: The standalone `engine_core.wasm` wrapper was no longer a live
+  runtime or necessary dev artifact.
+  Evidence: `rg` found live references only in its TypeScript wrapper, generated
+  metadata, tests, build script, package scripts, and docs; the playable app
+  reaches `engine_core` through `engine_web`.
 - Observation: The active docs had become plan-shaped overlap: an engine plan,
   a reduction audit, an API contract, a scene-model plan, and a reduction
   ExecPlan were all close enough to confuse the source of truth.
@@ -184,6 +192,11 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   the browser host while keeping the existing Rust worker-pool ownership of ids,
   slots, generations, and completion validation.
   Date/Author: 2026-06-06 / Codex.
+- Decision: Delete the standalone `engine_core.wasm` TypeScript wrapper instead
+  of preserving it as a dev/test artifact.
+  Rationale: The playable runtime uses `engine_web`, and `engine_core` is better
+  covered directly by native Rust tests plus `engine_web` integration tests.
+  Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -193,8 +206,7 @@ implementation gap is terrain-aware Worker and density transfer code in
 TypeScript, including terrain-specific worker payload construction, plus texture
 asset loading, split frame/render calls, the still scalar wasm-bindgen
 player/debug/status methods beneath the runtime facade, public terrain mesh and
-texture upload calls, the standalone `engineCoreWasm` wrapper, and TypeScript
-density/material helpers.
+texture upload calls, and TypeScript density/material helpers.
 
 The recommended next slice is to move terrain-specific worker payload
 construction and density transfer behind Rust or into a strictly opaque byte
@@ -217,6 +229,12 @@ The opaque worker-host slice validated with:
 
     npm test
     npm run smoke:browser
+
+The standalone `engine_core.wasm` deletion slice validated with:
+
+    npm test
+    cargo test -p engine_core
+    npm run check:wasm
 
 ## Context and Orientation
 
@@ -408,7 +426,7 @@ Already Rust-owned:
 | Terrain stream scheduling | `crates/terrain_core/src/stream.rs` | TypeScript bridge calls the scheduler but does not choose jobs itself. |
 | Terrain retained density store | `crates/terrain_core/src/store.rs` | TypeScript adapter still moves buffers between main and worker WASM instances. |
 | Terrain worker-pool bookkeeping | `crates/terrain_core/src/worker_pool.rs` | TypeScript still constructs browser Workers; `BrowserWorkerHost` is payload-opaque but `TerrainChunkWorkerClient` still builds terrain-specific payloads. |
-| Player/camera tick state | `crates/engine_web`, backed by `crates/engine_core` | Playable app no longer loads `engine_core.wasm` for active player movement. |
+| Player/camera tick state | `crates/engine_web`, backed by `crates/engine_core` | Playable app no longer loads or builds a standalone `engine_core.wasm` artifact. |
 | WebGPU renderer | `crates/engine_web/src/wgpu_renderer.rs` | TypeScript no longer creates devices, pipelines, buffers, render passes, or draw calls. |
 | Terrain GPU mesh/texture handles | `crates/engine_web` | TypeScript still uploads terrain mesh bytes and decoded texture arrays into Rust. |
 | Active terrain draw set | `crates/engine_web` | TypeScript adapter mirrors chunk keys for debug/smoke only. |
@@ -448,7 +466,7 @@ Current runtime TypeScript that remains:
 | Density payload movement | Moves/shared-buffers density chunks between main and worker `terrain_core.wasm` instances. | Delete when worker memory/job payload ownership is Rust-managed. |
 | Texture asset decode | Fetches checked-in JPGs, draws them to canvas, reads RGBA pixels, uploads arrays into Rust. | Move terrain asset ownership behind Rust; TS may remain generic byte/image helper only. |
 | Debug/smoke mirrors | `window.__ofgDebug` now reads `game.debugSnapshot()` and sends `game.command(...)`, but the snapshot is still assembled by the TypeScript runtime facade. | Replace with a Rust-assembled `debugSnapshot()`. |
-| Legacy/test adapters | Standalone `engineCoreWasm` wrapper, TS density/material helpers, and test-only support code. | Delete or demote to explicit test support. |
+| Legacy/test adapters | TS density/material helpers and test-only support code. | Delete or demote to explicit test support. |
 
 ## Current Scorecard
 
@@ -500,8 +518,8 @@ public API by making Rust terrain streaming own mesh upload, retention, pruning,
 and debug visibility.
 
 Sixth, demote or delete standalone WASM wrappers that are not playable runtime.
-Decide whether `engine_core.wasm` remains a supported dev/test artifact. If not,
-remove the wrapper, generated metadata, build output, and tests.
+This is complete for `engine_core.wasm`: the wrapper, generated metadata, build
+script, package-script entries, checked-in artifact, and tests are deleted.
 
 ## Concrete Steps
 
