@@ -1,4 +1,4 @@
-import type { TerrainRenderChunkSink } from "../render/TerrainCoreRenderPackets.js";
+import type { TerrainRenderChunkSink } from "../render/terrainRenderChunkSink.js";
 import type { Vec3 } from "../math/vec3.js";
 import {
   terrainChunkCoordContainingPosition,

@@ -14,7 +14,7 @@ import type {
   TerrainRenderChunkInput,
   TerrainRenderChunkPacket,
   TerrainRenderChunkSink
-} from "../render/TerrainCoreRenderPackets.js";
+} from "../render/terrainRenderChunkSink.js";
 import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
 import type {
   PlayerMode,

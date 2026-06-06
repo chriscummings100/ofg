@@ -165,10 +165,11 @@ src/engine/world
   noise, Dual Contouring, terrain streaming policy, or a terrain manager.
 
 src/engine/render
-  Browser-side texture loading helpers, shader metadata tests, and the legacy
-  `TerrainCoreRenderPacketStore` adapter/test surface. The playable browser path
-  no longer has a TypeScript WebGPU renderer or `RenderWorld`; runtime worker
-  mesh results are handed to `RustBrowserGame` by chunk key, and Rust/wgpu owns
+  Browser-side texture loading helpers, shader metadata tests, and the temporary
+  terrain render chunk sink contract used by the browser Worker bridge. The
+  playable browser path no longer has a TypeScript WebGPU renderer or
+  `RenderWorld`; runtime worker mesh results are handed to `RustBrowserGame` by
+  chunk key, and Rust/wgpu owns
   actual WebGPU resources and draw submission.
   Terrain rendering uses global 16-layer albedo, normal, and roughness texture
   arrays. Normal maps are loaded but not yet applied in shading.

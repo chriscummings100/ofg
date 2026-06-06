@@ -1,5 +1,5 @@
 import { vec3, type Vec3 } from "../math/vec3.js";
-import type { TerrainRenderChunkSink } from "../render/TerrainCoreRenderPackets.js";
+import type { TerrainRenderChunkSink } from "../render/terrainRenderChunkSink.js";
 import { loadTerrainMaterialTextures, type TerrainMaterialTextures } from "../render/terrainTextures.js";
 import { createTerrainCoreDensityChunkStore } from "../world/terrainCoreDensityChunkStore.js";
 import { createTerrainCoreStreamScheduler } from "../world/terrainCoreStreamScheduler.js";

@@ -40,8 +40,9 @@ src/engine/math
 
 src/engine/render
   CPU-side terrain texture decoding helpers, shader contract tests, and the
-  legacy/test `TerrainCoreRenderPacketStore` surface. Runtime terrain worker
-  results are handed directly to `RustBrowserGame` by chunk key. Actual browser
+  temporary terrain render chunk sink contract used by the browser Worker
+  bridge. Runtime terrain worker results are handed directly to `RustBrowserGame`
+  by chunk key. Actual browser
   WebGPU resource creation and draw submission happen in Rust/wgpu through
   `crates/engine_web`; TypeScript only uploads terrain mesh bytes by chunk key
   and uploads the terrain texture arrays for the Rust browser game facade. Rust

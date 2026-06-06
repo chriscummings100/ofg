@@ -1,7 +1,11 @@
 import { equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { vec3 } from "../math/vec3.js";
-import { TerrainCoreRenderPacketStore } from "../render/TerrainCoreRenderPackets.js";
+import type {
+  TerrainRenderChunkInput,
+  TerrainRenderChunkPacket,
+  TerrainRenderChunkSink
+} from "../render/terrainRenderChunkSink.js";
 import {
   TerrainCoreDensityChunkStore
 } from "../world/terrainCoreDensityChunkStore.js";
@@ -14,7 +18,8 @@ import {
 } from "../world/terrainCoreWasm.js";
 import {
   terrainChunkKey,
-  type TerrainChunkCoord
+  type TerrainChunkCoord,
+  type TerrainChunkKey
 } from "../world/terrainChunk.js";
 import type {
   TerrainChunkJobGenerator,
@@ -122,7 +127,7 @@ function createStreamer(
   options: TerrainCoreWorkerStreamerOptions = {}
 ): {
   readonly streamer: TerrainCoreWorkerStreamer;
-  readonly renderPackets: TerrainCoreRenderPacketStore;
+  readonly renderPackets: RecordingTerrainRenderChunkSink;
   readonly densityStore: TerrainCoreDensityChunkStore;
 } {
   const descriptor = createSeedWorldDescriptor(0x0F6);
@@ -132,7 +137,7 @@ function createStreamer(
     maxInFlightJobs: 8
   });
   const densityStore = new TerrainCoreDensityChunkStore(terrainCore, descriptor);
-  const renderPackets = new TerrainCoreRenderPacketStore(terrainCore);
+  const renderPackets = new RecordingTerrainRenderChunkSink();
   const streamer = new TerrainCoreWorkerStreamer(
     renderPackets,
     scheduler,
@@ -144,6 +149,53 @@ function createStreamer(
   );
 
   return { streamer, renderPackets, densityStore };
+}
+
+class RecordingTerrainRenderChunkSink implements TerrainRenderChunkSink {
+  private readonly packets = new Map<TerrainChunkKey, TerrainRenderChunkPacket>();
+
+  get chunks(): readonly TerrainRenderChunkPacket[] {
+    return [...this.packets.values()].sort((a, b) => a.key.localeCompare(b.key));
+  }
+
+  addChunk(chunk: TerrainRenderChunkInput): void {
+    this.packets.set(chunk.key, {
+      key: chunk.key,
+      mesh: "mesh" in chunk ? chunk.mesh : {
+        vertices: chunk.vertices,
+        indices: chunk.indices
+      }
+    });
+  }
+
+  getChunk(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainRenderChunkPacket | undefined {
+    return this.packets.get(toChunkKey(chunk));
+  }
+
+  removeChunk(chunk: TerrainChunkKey | TerrainChunkCoord): boolean {
+    return this.packets.delete(toChunkKey(chunk));
+  }
+
+  clear(): void {
+    this.packets.clear();
+  }
+
+  retainChunks(chunks: readonly (TerrainChunkKey | TerrainChunkCoord)[]): void {
+    const retained = new Set(chunks.map(toChunkKey));
+    for (const key of this.packets.keys()) {
+      if (!retained.has(key)) {
+        this.packets.delete(key);
+      }
+    }
+  }
+
+  size(): number {
+    return this.packets.size;
+  }
+}
+
+function toChunkKey(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainChunkKey {
+  return typeof chunk === "string" ? chunk : terrainChunkKey(chunk);
 }
 
 function createImmediateWorker(): TerrainChunkJobGenerator & {

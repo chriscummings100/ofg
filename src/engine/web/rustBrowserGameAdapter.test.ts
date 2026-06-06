@@ -1,5 +1,5 @@
 import { equal } from "node:assert/strict";
-import type { TerrainRenderMeshPacket } from "../render/TerrainCoreRenderPackets.js";
+import type { TerrainRenderMeshPacket } from "../render/terrainRenderChunkSink.js";
 import type { RgbaTextureArray } from "../render/textureLoader.js";
 import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
 import type { EngineWebBrowserGame } from "./engineWebWasm.js";

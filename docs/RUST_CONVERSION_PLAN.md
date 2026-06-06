@@ -71,9 +71,12 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   ExecPlan, with older split plans moved to `docs/archived/`.
 - [x] (2026-06-06) Added the operational rule to proceed independently for as
   long as possible, returning only for critical input or plan completion.
-- [ ] Delete or demote test-only compiled TypeScript: `primitiveMesh.ts` and the
-  legacy `TerrainCoreRenderPacketStore` surface after splitting live sink/packet
-  types.
+- [x] (2026-06-06) Delete or demote test-only compiled TypeScript:
+  `primitiveMesh.ts` and the legacy `TerrainCoreRenderPacketStore` surface after
+  splitting live sink/packet types.
+- [x] (2026-06-06) Split the live terrain render sink contract into
+  `src/engine/render/terrainRenderChunkSink.ts`, retargeted runtime imports, and
+  deleted the old packet-store module/tests plus the primitive mesh module/tests.
 - [ ] Move app-facing calls toward the target API: one frame input object,
   command lane, and Rust debug snapshot.
 - [ ] Collapse terrain Worker semantics behind Rust or an opaque generic browser
@@ -104,6 +107,11 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
 - Observation: `src/engine/world/primitiveMesh.ts` appears to be compiled only
   for its test, not runtime.
   Evidence: `rg` found imports only from `src/engine/world/primitiveMesh.test.ts`.
+- Observation: The worker-streamer tests did not need the legacy Rust mesh packet
+  store; a local recording sink proves streamer behavior without keeping a
+  compiled TypeScript adapter around.
+  Evidence: `src/engine/web/terrainCoreWorkerStreamer.test.ts` now implements
+  `RecordingTerrainRenderChunkSink` against the small sink contract.
 - Observation: The active docs had become plan-shaped overlap: an engine plan,
   a reduction audit, an API contract, a scene-model plan, and a reduction
   ExecPlan were all close enough to confuse the source of truth.
@@ -148,11 +156,11 @@ The docs now separate completed Rust ownership from remaining TypeScript browser
 substrate, and this plan gives the exact target boundary. The main remaining
 implementation gap is terrain-aware Worker and density transfer code in
 TypeScript, plus texture asset loading, split frame/render calls, direct
-player/status getters, public terrain mesh and texture upload calls, and a few
-legacy/test adapters.
+player/status getters, public terrain mesh and texture upload calls, the
+standalone `engineCoreWasm` wrapper, and TypeScript density/material helpers.
 
-The recommended next slice is to delete test-only compiled TypeScript first,
-then remove terrain-aware Worker semantics as a whole category.
+The recommended next slice is to move app-facing calls toward the target API:
+one frame input object, a command lane, and a Rust debug snapshot facade.
 
 The previous docs cleanup validated with:
 
@@ -386,7 +394,7 @@ Current runtime TypeScript that remains:
 | Density payload movement | Moves/shared-buffers density chunks between main and worker `terrain_core.wasm` instances. | Delete when worker memory/job payload ownership is Rust-managed. |
 | Texture asset decode | Fetches checked-in JPGs, draws them to canvas, reads RGBA pixels, uploads arrays into Rust. | Move terrain asset ownership behind Rust; TS may remain generic byte/image helper only. |
 | Debug/smoke mirrors | Tracks live chunk keys and exposes terrain/renderer/player status through `window.__ofgDebug`. | Replace with Rust `debugSnapshot()`. |
-| Legacy/test adapters | `TerrainCoreRenderPacketStore`, primitive mesh, standalone `engineCoreWasm` wrapper, TS density/material helpers. | Delete or demote to explicit test support. |
+| Legacy/test adapters | Standalone `engineCoreWasm` wrapper, TS density/material helpers, and test-only support code. | Delete or demote to explicit test support. |
 
 ## Current Scorecard
 
