@@ -1,6 +1,6 @@
-// Generic browser image decoder for Rust-owned render asset requests.
-// Rust sends URL lists and receives RGBA texture-array bytes; TypeScript does
-// not interpret terrain manifests, material layers, or renderer texture roles.
+// Generic browser asset loader for Rust-owned render and model asset requests.
+// Rust sends URL lists or byte URLs and receives decoded bytes; TypeScript does
+// not interpret terrain manifests, model files, materials, or renderer roles.
 
 export type RgbaTextureArrayAssetRequest = {
   readonly id: string;
@@ -22,20 +22,36 @@ export type RgbaTextureArrayPixels = {
   readonly data: Uint8Array;
 };
 
-export type BrowserTextureAssetLoader = {
+export type ByteAssetRequest = {
+  readonly id: string;
+  readonly url: string;
+};
+
+export type ByteAsset = {
+  readonly id: string;
+  readonly data: Uint8Array;
+};
+
+export type BrowserAssetLoader = {
   loadTextureArrays(
     requests: readonly RgbaTextureArrayAssetRequest[]
   ): Promise<readonly RgbaTextureArrayAsset[]>;
+  loadBytes(requests: readonly ByteAssetRequest[]): Promise<readonly ByteAsset[]>;
 };
+
+export type BrowserTextureAssetLoader = BrowserAssetLoader;
 
 type TextureArrayDecoder = (
   label: string,
   urls: readonly string[]
 ) => Promise<RgbaTextureArrayPixels>;
 
-export function createBrowserTextureAssetLoader(
-  decodeTextureArray: TextureArrayDecoder = loadRgbaTextureArrayFromUrls
-): BrowserTextureAssetLoader {
+type ByteAssetFetcher = (url: string) => Promise<Uint8Array>;
+
+export function createBrowserAssetLoader(
+  decodeTextureArray: TextureArrayDecoder = loadRgbaTextureArrayFromUrls,
+  fetchBytes: ByteAssetFetcher = loadByteAssetFromUrl
+): BrowserAssetLoader {
   return {
     async loadTextureArrays(requests) {
       return await Promise.all(
@@ -44,8 +60,24 @@ export function createBrowserTextureAssetLoader(
           ...(await decodeTextureArray(`texture-array:${request.id}`, request.urls))
         }))
       );
+    },
+
+    async loadBytes(requests) {
+      return await Promise.all(
+        requests.map(async (request) => ({
+          id: request.id,
+          data: await fetchBytes(request.url)
+        }))
+      );
     }
   };
+}
+
+export function createBrowserTextureAssetLoader(
+  decodeTextureArray: TextureArrayDecoder = loadRgbaTextureArrayFromUrls,
+  fetchBytes: ByteAssetFetcher = loadByteAssetFromUrl
+): BrowserTextureAssetLoader {
+  return createBrowserAssetLoader(decodeTextureArray, fetchBytes);
 }
 
 export async function loadRgbaTextureArrayFromUrls(
@@ -118,6 +150,15 @@ export function textureArrayFromRgbaPixels(
     layers,
     data: bytes
   };
+}
+
+export async function loadByteAssetFromUrl(url: string): Promise<Uint8Array> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to load asset bytes '${url}': ${response.status} ${response.statusText}`);
+  }
+
+  return new Uint8Array(await response.arrayBuffer());
 }
 
 async function loadImageBitmap(url: string): Promise<ImageBitmap> {

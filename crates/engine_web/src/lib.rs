@@ -2,6 +2,7 @@ mod config;
 mod facade;
 mod game_state;
 mod materials;
+mod model_assets;
 mod render_packets;
 mod render_uniforms;
 mod renderer;
@@ -20,15 +21,18 @@ pub use config::{
 pub use facade::*;
 pub use game_state::{
     player_mode_code, player_mode_from_code, BrowserGameInput, BrowserGameState,
-    BrowserGameStateError,
+    BrowserGameStateError, BrowserSceneMeshItem,
 };
 pub use materials::{
     build_material_packet, MaterialPacketError, DEFAULT_MATERIAL_PACKET, TERRAIN_MATERIAL_ID,
     TERRAIN_MATERIAL_PACKET,
 };
+pub use model_assets::{
+    import_gltf_model_from_slice, ModelAsset, ModelAssetError, ModelMaterial, ModelNode,
+    ModelNodeTransform, ModelPrimitive, ModelVertex,
+};
 pub use render_packets::{
-    build_frame_packet_from_engine_snapshot, build_player_marker_world_matrix, RenderPacketError,
-    ENGINE_RENDER_SNAPSHOT_FLOATS,
+    build_frame_packet_from_engine_snapshot, RenderPacketError, ENGINE_RENDER_SNAPSHOT_FLOATS,
 };
 pub use render_uniforms::{
     build_frame_uniform_values, build_object_uniform_values, RenderUniformError,

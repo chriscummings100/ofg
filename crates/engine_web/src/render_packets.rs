@@ -1,6 +1,6 @@
 use crate::render_uniforms::{inverse_mat4, FRAME_PACKET_FLOATS, WORLD_MATRIX_FLOATS};
 
-pub const ENGINE_RENDER_SNAPSHOT_FLOATS: usize = 24;
+pub const ENGINE_RENDER_SNAPSHOT_FLOATS: usize = 19;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RenderPacketError {
@@ -57,30 +57,6 @@ pub fn build_frame_packet_from_engine_snapshot(
     frame[42] = snapshot[18];
 
     Ok(frame)
-}
-
-pub fn build_player_marker_world_matrix(
-    snapshot: &[f32],
-) -> Result<Option<[f32; WORLD_MATRIX_FLOATS]>, RenderPacketError> {
-    if snapshot.len() != ENGINE_RENDER_SNAPSHOT_FLOATS {
-        return Err(RenderPacketError::InvalidEngineSnapshot);
-    }
-
-    if snapshot[19] < 0.5 {
-        return Ok(None);
-    }
-
-    let mut matrix = identity_mat4();
-    matrix[12] = snapshot[20];
-    matrix[13] = snapshot[21];
-    matrix[14] = snapshot[22];
-    Ok(Some(matrix))
-}
-
-fn identity_mat4() -> [f32; WORLD_MATRIX_FLOATS] {
-    [
-        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-    ]
 }
 
 fn perspective_mat4(

@@ -32,7 +32,7 @@ pub extern "C" fn ofg_engine_create() {
 
 #[no_mangle]
 pub extern "C" fn ofg_engine_create_entity() -> u64 {
-    with_facade_engine(|engine| engine.world_mut().create_entity().to_raw())
+    with_facade_engine(|engine| engine.scene_mut().create_entity().to_raw())
 }
 
 #[no_mangle]

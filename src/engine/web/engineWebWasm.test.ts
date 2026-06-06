@@ -83,7 +83,10 @@ describe("engine web WASM", () => {
 
   it("creates the Rust browser game facade from the loaded module", async () => {
     const game = fakeBrowserGame();
-    const assetLoader = { loadTextureArrays: async () => [] };
+    const assetLoader = {
+      loadTextureArrays: async () => [],
+      loadBytes: async () => []
+    };
     const created = await createEngineWebBrowserGame(
       {} as HTMLCanvasElement,
       assetLoader,

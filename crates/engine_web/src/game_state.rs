@@ -1,6 +1,6 @@
 use engine_core::{
-    Engine, EngineError, EngineUpdateInput, PlayerMode, PlayerMovementIntent, Vec3,
-    RENDER_SNAPSHOT_FLOAT_COUNT,
+    Engine, EngineError, EngineUpdateInput, EntityId, MaterialId, MeshId, PlayerMode,
+    PlayerMovementIntent, TerrainComponent, Vec3, RENDER_SNAPSHOT_FLOAT_COUNT,
 };
 use terrain_core::{height_at, DEFAULT_TERRAIN_PRESET};
 
@@ -29,6 +29,18 @@ pub struct BrowserGameInput {
 pub enum BrowserGameStateError {
     Engine(EngineError),
     InvalidTerrainHeight { x: f32, z: f32 },
+    MissingSceneMeshResource(MeshId),
+    MissingSceneMaterialResource(MaterialId),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BrowserSceneMeshItem {
+    pub entity: EntityId,
+    pub mesh: MeshId,
+    pub mesh_label: String,
+    pub material: MaterialId,
+    pub material_label: String,
+    pub world_matrix: [f32; 16],
 }
 
 pub struct BrowserGameState {
@@ -54,6 +66,23 @@ impl BrowserGameState {
         self.engine = Engine::new();
         self.terrain_seed = terrain_seed;
         self.terrain_preset = terrain_preset;
+
+        let terrain_entity = self.engine.scene_mut().create_entity();
+        {
+            let mut entity = self
+                .engine
+                .scene_mut()
+                .entity_mut(terrain_entity)
+                .map_err(EngineError::from)?;
+            entity.add_terrain(TerrainComponent {
+                seed: terrain_seed,
+                preset: terrain_preset,
+            });
+        }
+        self.engine
+            .scene_mut()
+            .set_terrain(Some(terrain_entity))
+            .map_err(EngineError::from)?;
 
         let initial_height = self.terrain_height_at(INITIAL_PLAYER_X, INITIAL_PLAYER_Z)?;
         self.engine.create_player(Vec3::new(
@@ -163,6 +192,44 @@ impl BrowserGameState {
         Ok(values)
     }
 
+    pub fn render_mesh_items(&self) -> Result<Vec<BrowserSceneMeshItem>, BrowserGameStateError> {
+        let items = self.engine.render_mesh_items()?;
+        let resources = self.engine.scene().resources();
+        let mut browser_items = Vec::with_capacity(items.len());
+
+        for item in items {
+            let mesh_label = resources
+                .mesh(item.mesh)
+                .ok_or(BrowserGameStateError::MissingSceneMeshResource(item.mesh))?
+                .label
+                .clone();
+            let material_label = resources
+                .material(item.material)
+                .ok_or(BrowserGameStateError::MissingSceneMaterialResource(
+                    item.material,
+                ))?
+                .label
+                .clone();
+
+            browser_items.push(BrowserSceneMeshItem {
+                entity: item.entity,
+                mesh: item.mesh,
+                mesh_label,
+                material: item.material,
+                material_label,
+                world_matrix: item.world_matrix,
+            });
+        }
+
+        Ok(browser_items)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn terrain_component(&self) -> Option<TerrainComponent> {
+        let terrain = self.engine.scene().terrain_id()?;
+        self.engine.scene().entity(terrain).ok()?.terrain().copied()
+    }
+
     fn ensure_player(&mut self) -> Result<(), BrowserGameStateError> {
         if self.engine.player_rig().is_some() {
             return Ok(());
@@ -206,6 +273,18 @@ impl std::fmt::Display for BrowserGameStateError {
                 write!(
                     formatter,
                     "Rust browser game terrain height was invalid at ({x}, {z})"
+                )
+            }
+            Self::MissingSceneMeshResource(mesh) => {
+                write!(
+                    formatter,
+                    "Rust browser game scene mesh {mesh:?} was missing"
+                )
+            }
+            Self::MissingSceneMaterialResource(material) => {
+                write!(
+                    formatter,
+                    "Rust browser game scene material {material:?} was missing"
                 )
             }
         }

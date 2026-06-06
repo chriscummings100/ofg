@@ -1,0 +1,662 @@
+# GLTF Character Loading And Animation
+
+This ExecPlan is a living document. The sections Progress, Surprises &
+Discoveries, Decision Log, and Outcomes & Retrospective must stay up to date as
+work proceeds.
+
+Once this plan is started, proceed independently for as long as possible. Return
+to the user only for critical input that cannot be safely inferred, or when the
+plan is complete.
+
+If `PLANS.md` is present in the repo, maintain this document in accordance with
+it and link back to it by path.
+
+## Purpose / Big Picture
+
+Add a Rust-owned GLTF/GLB model path for OFG, then layer animation on top until
+the player character visibly plays a walk animation while moving. After this
+plan is complete, the browser game no longer uses the yellow box as the normal
+debug player representation. Instead, the Rust scene contains a character model
+loaded from GLB, the Rust renderer draws it through scene mesh renderer items,
+and the Rust player state chooses and blends character animation clips from
+movement state.
+
+This is a new feature plan. The scene/component plan in
+`docs/RUST_SCENE_COMPONENT_PLAN.md` is complete and is only background context.
+
+The staged outcome is:
+
+1. Static GLB meshes can be loaded, attached to scene entities, and rendered.
+2. GLTF node animation clips can be sampled and applied to non-skinned nodes.
+3. GLTF skinned meshes can be posed from skeleton joints and animation clips.
+4. Animation state can blend idle and walk clips.
+5. The player character plays the walk animation when movement input is active
+   and returns to idle when movement stops.
+
+## Progress
+
+- [x] (2026-06-06) Confirmed with the user that this is a new feature plan, not
+  an extension of the finished Rust scene/component plan.
+- [x] (2026-06-06) Re-read `PLANS.md`, `docs/API_CONTRACTS.md`,
+  `docs/ARCHITECTURE.md`, `docs/RUST_SCENE_COMPONENT_PLAN.md`, and current
+  scene/renderer files to anchor the plan on the finished Rust scene path.
+- [x] (2026-06-06) Checked current GLTF facts and source assets: Khronos glTF
+  2.0 defines scenes/nodes/meshes/materials/textures/skins/animations and GLB;
+  the Rust `gltf` crate exposes mesh readers for positions, normals, indices,
+  texcoords, joints, and weights plus animation readers; Quaternius provides
+  CC0 base characters and a CC0 GLB animation library.
+- [x] (2026-06-06) Updated `docs/API_CONTRACTS.md` with `OFG-API-010`, a
+  future GLTF/model asset boundary that keeps TypeScript limited to generic
+  byte fetching and keeps GLTF parsing, animation, skinning, and renderer
+  resource resolution in Rust.
+- [x] (2026-06-06) Added the asset acquisition rule: download small Khronos
+  glTF Sample Assets for importer/render/animation/skinning tests, and download
+  the Quaternius Universal Base Characters pack for the real humanoid character
+  once the static GLB path is ready.
+- [x] (2026-06-06) Implemented milestone 1: downloaded Khronos fixtures into
+  `assets/models/test-fixtures/`, added `SOURCE.md`, extended the browser asset
+  loader with opaque byte requests, added a Rust-owned GLB/glTF importer
+  foundation in `crates/engine_web/src/model_assets.rs`, and covered it with
+  unit tests.
+- [ ] Implement milestone 2: render imported static GLB mesh primitives through
+  scene mesh renderer items.
+- [ ] Implement milestone 3: sample non-skinned GLTF node animation.
+- [ ] Implement milestone 4: evaluate skinned animation and render a posed
+  skinned character.
+- [ ] Implement milestone 5: add idle/walk clip selection and blending driven by
+  player movement.
+
+## Surprises & Discoveries
+
+- Observation: The current scene path is ready for model instances, but the
+  renderer still resolves only the built-in debug marker mesh/material label.
+  Evidence: `crates/engine_web/src/wgpu_renderer.rs` resolves
+  `DEBUG_PLAYER_MARKER_MESH_LABEL` and `DEBUG_PLAYER_MARKER_MATERIAL_LABEL`
+  specially; unknown scene mesh/material labels currently error.
+- Observation: The current WebGPU pipeline is terrain-shaped. It can draw
+  non-terrain scene mesh items only because the debug marker is packed into the
+  19-float terrain vertex layout and uses fallback textures.
+  Evidence: `create_main_pipeline` in
+  `crates/engine_web/src/wgpu_renderer.rs` has a vertex buffer layout using
+  `TERRAIN_VERTEX_FLOATS` and shader locations for material indices and weights.
+- Observation: Before milestone 1, the browser asset loader was
+  image-array-only, so GLB bytes needed a generic byte asset request before Rust
+  could own GLTF parsing.
+  Evidence: pre-milestone `src/engine/browser/textureAssetLoader.ts` exposed
+  only `loadTextureArrays(requests)`.
+- Observation: The Rust `gltf` crate default feature set pulls image decoding
+  dependencies that require newer Cargo support than this repository currently
+  uses.
+  Evidence: `cargo test -p engine_web` failed when default features selected
+  `image` through `gltf` import support because `moxcms-0.8.1` requires the
+  unstable `edition2024` Cargo feature on Cargo 1.78.0.
+- Observation: The first importer should reject file-relative external buffers
+  until the browser/Rust asset handoff can resolve multi-file glTF assets
+  intentionally.
+  Evidence: `animated-cube.gltf` references `AnimatedCube.bin`; the test
+  `gltf_importer_rejects_file_relative_external_buffers` verifies this returns
+  `UnsupportedExternalBuffer`.
+
+## Decision Log
+
+- Decision: Use GLB as the checked-in runtime model format, while allowing GLTF
+  fixtures during tests if they make importer coverage easier.
+  Rationale: GLB is the single-file binary form of glTF, so it keeps character
+  model, mesh buffers, animation data, and often images together. That is less
+  brittle for browser asset loading and deployment.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Parse GLTF in Rust, not TypeScript.
+  Rationale: TypeScript must remain browser startup/input/HUD glue. Rust owns
+  scene state, render extraction, player state, and renderer resources. A
+  TypeScript GLTF scene mirror would violate `OFG-API-009`.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Add a generic byte asset request to the browser asset loader rather
+  than a GLTF-specific TypeScript loader.
+  Rationale: Browser `fetch` is a convenient substrate, but TypeScript should
+  not parse GLTF, choose meshes/materials, inspect nodes, or own animation data.
+  A byte loader preserves Rust ownership while reusing browser fetch.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Build static GLB rendering before animation.
+  Rationale: Mesh, material, resource lifetime, labels, scene attachment, and
+  browser smoke validation all need to work before animation can be debugged
+  sanely. Animation bugs are easier to see once a known model renders.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Implement node transform animation before skinned animation.
+  Rationale: GLTF animation sampling, interpolation, clip time wrapping, and
+  scene transform updates can be validated without the additional joint matrix
+  and skinning math. This de-risks the skeleton milestone.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Implement CPU skinning first unless profiling proves it is too slow
+  for one player.
+  Rationale: CPU skinning keeps the first skinned milestone inspectable and
+  avoids coupling pose correctness to a new WGSL joint-buffer pipeline. The
+  plan still leaves a path to move skinning into a GPU pipeline afterward.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Use Quaternius as the preferred character/animation source.
+  Rationale: Quaternius Universal Base Characters are CC0, rigged humanoids
+  available in glTF, and compatible with the Universal Animation Library. The
+  Universal Animation Library 2 is CC0 and available as GLB, giving a clean
+  checked-in prototype source.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Use Khronos sample assets as importer fixtures before relying on
+  the Quaternius humanoid pack.
+  Rationale: Khronos sample assets are small, feature-focused, and intended to
+  exercise glTF capabilities. They are better for deterministic importer tests
+  than a production character pack. Quaternius should be used for the final
+  humanoid player model and idle/walk source clips after the loader can already
+  prove static mesh, animation, and skinning behavior.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Add `gltf` to `engine_web` with `default-features = false` and
+  only `utils` and `names`, plus a tiny local base64 data-URI buffer resolver.
+  Rationale: The first milestone needs mesh/node/material buffer parsing, not
+  image decoding. Avoiding the crate's default importer keeps the dependency
+  compatible with the repo's Cargo 1.78.0 toolchain and keeps image/material
+  policy out of this first slice.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Keep the first parser module in `engine_web`.
+  Rationale: The browser-fetched bytes arrive at the browser-facing Rust crate,
+  and the next milestone needs renderer-side resource upload. Pure model and
+  animation data can move toward `engine_core` once the runtime ownership split
+  is clearer.
+  Date/Author: 2026-06-06 / Codex.
+
+## Outcomes & Retrospective
+
+Milestone 1 is complete. The browser asset loader now supports
+`loadBytes(requests)` for opaque byte fetches without TypeScript model
+semantics, while preserving the existing `loadTextureArrays(requests)` texture
+path. `engine_web` can import checked-in GLB or embedded-buffer glTF bytes into
+Rust-owned model nodes, materials, primitives, vertices, and indices. Tests
+cover a static Khronos `Box.glb`, an embedded `SimpleSkin.gltf` skin-count
+fixture for later work, and rejection of file-relative external buffers.
+
+Validation completed on 2026-06-06:
+
+    cargo test -p engine_core
+    cargo test -p engine_web
+    npx tsc -p tsconfig.json --noEmit
+    npm test
+    git -c safe.directory=C:/dev/ofg diff --check -- docs/GLTF_CHARACTER_PLAN.md src/engine/browser/textureAssetLoader.ts src/engine/browser/textureAssetLoader.test.ts src/engine/web/engineWebWasm.test.ts crates/engine_web/Cargo.toml crates/engine_web/src/lib.rs crates/engine_web/src/model_assets.rs crates/engine_web/src/tests.rs assets/models/test-fixtures/SOURCE.md docs/API_CONTRACTS.md docs/ARCHITECTURE.md
+
+`npm test` passed with 58 tests after fixing a brittle byte-loader test
+expectation. Browser smoke was not run for milestone 1 because no rendered
+browser behavior changed; it becomes required in milestone 2 when imported GLB
+meshes are drawn.
+
+Milestone review:
+
+- Scope: milestone 1 asset pipeline and static GLB import tests.
+- Reviewers: contract, code quality, legacy, correctness, and validation passes
+  were done locally. Sub-agents were not used because the available sub-agent
+  tool requires explicit user permission for delegation.
+- Required findings fixed: updated `docs/ARCHITECTURE.md` and
+  `OFG-API-002` in `docs/API_CONTRACTS.md` so active docs mention the new
+  opaque byte lane and still forbid TypeScript model semantics.
+- Follow-ups recorded: milestone 2 must add a real model renderer vertex layout
+  and browser smoke; future milestones must intentionally handle multi-file glTF
+  assets if they are needed.
+- Rejected findings: none.
+- Remaining risk: `crates/engine_web/src/wgpu_renderer.rs` is still oversized,
+  and model rendering should be split rather than growing that file further.
+
+## Contract and Quality Baseline
+
+This plan preserves `OFG-API-001`, the browser shell to Rust browser game API.
+The browser still creates one `RustBrowserGame`, calls `tick(frame)`, sends
+commands through `command(command)`, and reads debug state through
+`debugSnapshot()`. Model loading must not add per-entity TypeScript calls or raw
+wasm export usage.
+
+This plan intentionally extends `OFG-API-002`. The existing asset loader supports
+generic texture-array decode requests for Rust-owned terrain textures. This plan
+adds generic byte asset requests, probably:
+
+    export type ByteAssetRequest = {
+      readonly id: string;
+      readonly url: string;
+    };
+
+    export type ByteAsset = {
+      readonly id: string;
+      readonly data: Uint8Array;
+    };
+
+    export type BrowserAssetLoader = {
+      loadTextureArrays(requests): Promise<readonly RgbaTextureArrayAsset[]>;
+      loadBytes(requests): Promise<readonly ByteAsset[]>;
+    };
+
+Rust may ask for `/assets/models/player/player.glb` bytes. TypeScript only
+fetches bytes and returns them by ID. TypeScript must not parse GLTF JSON,
+inspect meshes, assign materials, read animation clips, or mirror model nodes.
+
+This plan preserves `OFG-API-003`, debug and smoke hooks. New debug fields may
+report active model ID, clip name, animation state, and skinning runtime, but
+the values must come from Rust `debugSnapshot()`.
+
+This plan preserves `OFG-API-004`, the terrain vertex and material layout.
+Static and skinned model meshes should get their own renderer vertex layouts
+instead of pretending to be terrain. Temporary reuse of fallback texture arrays
+is acceptable, but model vertex stride and shader locations must be explicitly
+documented and tested.
+
+This plan preserves `OFG-API-009`, forbidden TypeScript ownership. The new
+model loader, model resource registry, animation clips, skeletons, skinning,
+animation state machine, and render extraction all live in Rust.
+
+Quality constraints:
+
+- Keep `engine_core` browser-free. Scene components, animation clip state,
+  animation sampling, and locomotion decisions belong there when they do not
+  need WebGPU or browser APIs.
+- Keep `engine_web` responsible for browser asset fetch handoff, GLB parsing if
+  parsing needs loaded bytes near renderer resources, WebGPU mesh/texture
+  upload, shader pipelines, and browser-facing debug snapshots.
+- Keep WebGPU handles out of `engine_core` scene resources. Use logical
+  model/mesh/material IDs and resolve them inside `engine_web`.
+- Do not create scene entities for every terrain chunk. Model nodes and bones
+  may become scene entities only for imported model hierarchies or debug/socket
+  needs.
+- Keep unsupported GLTF features explicit. Reject or ignore unsupported
+  primitive modes, morph targets, cameras, lights, extensions, multiple UV sets,
+  and unusual material features with tests.
+- Use behavior-focused tests near the code. Examples:
+  `loads triangle primitives from a glb model`,
+  `samples node rotation animation between keyframes`,
+  `computes joint matrices from inverse bind poses`,
+  `crossfades idle to walk when movement starts`.
+
+## Context and Orientation
+
+Current relevant files:
+
+- `src/engine/browser/textureAssetLoader.ts` is the generic TypeScript browser
+  asset helper. It currently decodes Rust-provided texture-array URL lists into
+  RGBA bytes. This plan extends it with byte fetch, but not GLTF parsing.
+- `src/engine/web/browserGameTypes.ts` defines browser-facing frame input,
+  commands, and debug snapshot types.
+- `crates/engine_core/src/scene.rs` owns the Rust scene tree. It stores
+  `Entity` records with `EntityId` handles, parent/child links, local/world
+  transforms, and typed components.
+- `crates/engine_core/src/scene_components.rs` currently defines camera,
+  player, mesh renderer, and terrain components. This plan will add model and
+  animation components here or split them into focused modules if the file grows.
+- `crates/engine_core/src/scene_resources.rs` owns logical mesh/material
+  resources with labels and typed IDs. This plan will extend resource metadata
+  for imported models without storing WebGPU handles in `engine_core`.
+- `crates/engine_core/src/engine.rs` owns player/camera behavior and extracts
+  visible scene mesh renderer items.
+- `crates/engine_core/src/render_packet.rs` defines the camera/light snapshot
+  and visible mesh item packets.
+- `crates/engine_web/src/game_state.rs` bridges `engine_core` scene render items
+  to browser renderer labels and world matrices.
+- `crates/engine_web/src/wgpu_renderer.rs` owns WebGPU resources. It currently
+  uploads terrain meshes and the debug player marker, resolves only the marker
+  scene mesh/material labels, and draws with one terrain-shaped mesh pipeline.
+- `src/engine/render/shaders/uber.wgsl` is the shared WGSL shader source.
+  Static model and skinned model vertex entry points should either be added here
+  with tests or split into clearly generated shader sources.
+
+Definitions for this plan:
+
+- GLTF is the Khronos glTF 2.0 asset format. It describes scenes, nodes, meshes,
+  materials, textures, skins, and animations. GLB is the binary single-file
+  container form.
+- A node is a GLTF transform item. A node may have a mesh, a skin, children, or
+  animation channels targeting its translation, rotation, scale, or weights.
+- A mesh is a collection of primitives. A primitive is the actual draw unit: one
+  topology mode, one vertex/index set, and one material.
+- A skin is the GLTF skeleton binding. It lists joint nodes and optional inverse
+  bind matrices. In linear blend skinning, each vertex is influenced by weighted
+  joint transforms.
+- A clip is one GLTF animation converted to an engine-owned set of sampled
+  channels.
+- Blending means evaluating two or more clips at once and mixing their target
+  transforms. For this plan the required blend is only idle-to-walk and
+  walk-to-idle.
+
+## Plan of Work
+
+Milestone 1 adds the asset and importer foundation. Download a minimal set of
+Khronos glTF Sample Assets into `assets/models/test-fixtures/`, with
+`SOURCE.md` documenting source URLs, licenses, and why each fixture exists. The
+initial fixture set should include one static triangle/box-style asset for mesh
+loading, one node-animation asset for clip sampling, and one simple skin asset
+for the later skinning milestone. Extend
+`src/engine/browser/textureAssetLoader.ts` into a more general browser asset
+loader with `loadBytes`. Update TypeScript tests for successful byte fetch and
+error paths. Add the Rust `gltf` crate to the crate that owns parsing. The
+initial parser should support GLB files, embedded buffers, triangle primitives,
+positions, normals, texcoord 0, vertex color 0, unsigned indices, node
+hierarchies, node transforms, and base-color material factors. It should reject
+non-triangle primitive modes and malformed required attributes with clear
+errors. Add importer unit tests using minimal checked-in fixtures under
+`assets/models/test-fixtures/` or deterministic byte fixtures generated inside
+tests.
+
+Milestone 2 renders static imported GLB meshes through the Rust scene. Add model
+resource metadata so one imported model can register logical mesh/material
+resources and create child scene entities under the player or a test scene root.
+Add renderer-side GPU resource storage for imported static mesh primitives. Add
+a model vertex layout, such as position, normal, uv, and color. Add a WGSL model
+vertex entry point or a small model shader pipeline that shares the existing
+camera/object/material uniforms. At this point material support can be limited
+to base color plus fallback textures. Browser smoke should show the imported
+model in debug-fly mode, preferably replacing the yellow marker only after the
+static render path is stable.
+
+Milestone 3 implements non-skinned GLTF animation. Add animation clip structs in
+Rust for channels targeting node translation, rotation, and scale. Add linear
+interpolation for translation/scale and normalized spherical interpolation for
+rotation. Apply a clip to imported model node transforms, update scene world
+transforms, and render the moving static model. Validate with a simple fixture
+whose animated node motion is easy to assert numerically. Browser smoke should
+verify the animation clock advances via Rust debug snapshot state or by
+capturing two distinct frames.
+
+Milestone 4 implements skinned animation. Import `JOINTS_0`, `WEIGHTS_0`, skin
+joint lists, and inverse bind matrices. Start with CPU skinning for one player
+model: evaluate the skeleton pose from animation clips, compute joint matrices,
+skin positions and normals into a dynamic mesh buffer, and upload/update that
+mesh before drawing. Add tests for bind-pose identity, one-joint motion, and
+weighted two-joint interpolation. Use a Quaternius or Khronos skinned sample
+fixture to prove a real humanoid or sample skin can load. If CPU skinning causes
+visible cost, add a later GPU-skinning follow-up with a skinned vertex layout
+and joint matrix storage buffer; do not block the first character milestone on
+that pipeline unless correctness requires it.
+
+Before or during milestone 5, download the Quaternius Universal Base Characters
+pack and import only the needed GLB/glTF humanoid character file plus
+`SOURCE.md`. Do not commit the whole source pack if it is large. If the needed
+idle/walk clips are separate from the base character, download the Quaternius
+Universal Animation Library 2 and import only the required idle and walk GLB
+clips, again with source/license documentation.
+
+Milestone 5 adds animation state and blending for player locomotion. Add an
+animation controller component or player animation state in Rust. It chooses
+`idle` when no horizontal movement input is active and `walk` when movement is
+active. It advances clip time in seconds, crossfades between idle and walk over
+a short fixed duration, blends local joint/node transforms, and exposes
+`activeClip`, `nextClip`, `blendWeight`, and `skinningRuntime` in
+`debugSnapshot()`. The final acceptance behavior is that holding movement keys
+starts a visible walk animation and releasing movement keys blends back to idle.
+
+## Concrete Steps
+
+Work from `C:\dev\ofg`.
+
+Before editing implementation:
+
+    git -c safe.directory=C:/dev/ofg status --short
+    rg -n "loadTextureArrays|BrowserTextureAssetLoader|MeshRendererComponent|SceneResources|scene_mesh_handle|create_main_pipeline|TERRAIN_VERTEX_FLOATS" src crates docs
+
+Milestone 1, asset loader and importer:
+
+    Download selected Khronos glTF Sample Assets into assets/models/test-fixtures/
+    Add assets/models/test-fixtures/SOURCE.md with exact source URLs and licenses
+    Edit src/engine/browser/textureAssetLoader.ts
+    Edit src/engine/browser/textureAssetLoader.test.ts
+    Add Rust GLTF importer module(s), likely under crates/engine_web/src/model_assets.rs or crates/engine_core/src/model_assets.rs depending on ownership after the first parser sketch.
+    Add gltf dependency to the parsing crate.
+    cargo test -p engine_core
+    cargo test -p engine_web
+    npm test
+
+Milestone 2, static render path:
+
+    Add model mesh/material resource metadata and renderer-side GPU resource maps.
+    Add a static model vertex layout and shader entry point/pipeline.
+    Instantiate one imported model under the player or debug scene path.
+    cargo test -p engine_core
+    cargo test -p engine_web
+    npm run check:shaders
+    npm test
+    npm run smoke:browser
+
+Milestone 3, node animation:
+
+    Add animation clip/channel structs and interpolation tests.
+    Apply sampled node transforms to imported model scene nodes.
+    Expose debug snapshot fields for active animation time/clip.
+    cargo test -p engine_core
+    cargo test -p engine_web
+    npm test
+    npm run smoke:browser
+
+Milestone 4, skinned animation:
+
+    Import JOINTS_0, WEIGHTS_0, skins, inverse bind matrices, and skeleton node maps.
+    Compute joint matrices and CPU-skinned dynamic mesh output.
+    Render a posed skinned character.
+    cargo test -p engine_core
+    cargo test -p engine_web
+    npm run check:wasm
+    npm test
+    npm run smoke:browser
+
+Milestone 5, locomotion blending:
+
+    Download the Quaternius Universal Base Characters pack or selected GLB character file
+    Add assets/models/player/SOURCE.md with exact source URL, author, license, and extraction notes
+    If needed, download selected idle/walk clips from Quaternius Universal Animation Library 2
+    Add idle/walk animation controller state.
+    Blend idle and walk based on Rust movement intent.
+    Replace or demote the yellow debug marker once the model is reliable.
+    cargo test -p engine_core
+    cargo test -p engine_web
+    npm run check:wasm
+    npm test
+    npm run smoke:browser
+
+After every browser smoke run, inspect the newest
+`artifacts/browser-smoke/<run-id>/report.json` and screenshots. A black, blank,
+solid, or visually frozen frame is a failure for rendering milestones.
+
+## Milestone Review
+
+After each milestone:
+
+1. Update this ExecPlan's Progress, Surprises & Discoveries, Decision Log, and
+   Outcomes & Retrospective as needed.
+2. Update `docs/API_CONTRACTS.md` and `docs/ARCHITECTURE.md` if the milestone
+   changes supported boundaries or runtime ownership.
+3. Run the repo-local `milestone-review` skill against the milestone diff and
+   this ExecPlan.
+4. Apply required findings before marking the milestone complete, or record a
+   rejected finding with rationale in the Decision Log.
+5. Re-run relevant validation commands after fixes.
+6. Record commands, artifacts, and remaining risks in this plan.
+
+## Validation and Acceptance
+
+This plan is complete when all of the following are true:
+
+- The browser asset loader has a generic byte-fetch method used by Rust, and
+  TypeScript does not parse GLTF.
+- Rust imports at least one checked-in static GLB fixture and validates its
+  meshes, materials, node hierarchy, and transforms in tests.
+- Rust/wgpu renders an imported static GLB mesh through scene mesh renderer
+  extraction and renderer-side resource resolution.
+- Rust imports and samples at least one GLTF animation clip targeting node
+  transforms.
+- Rust imports a skinned GLB character with joints and weights and renders an
+  animated pose.
+- The player character chooses idle or walk from Rust player movement state.
+- Idle-to-walk and walk-to-idle transitions blend rather than snap.
+- Browser smoke shows the character in the world and verifies movement input
+  causes the active animation state to become walk.
+- The yellow debug marker is removed from the normal character path or remains
+  only as an explicit fallback/debug command.
+- No TypeScript scene graph, GLTF parser, animation runtime, skinning runtime,
+  render extractor, or WebGPU ownership is introduced.
+
+Required command results by final acceptance:
+
+    cargo test -p engine_core
+    cargo test -p engine_web
+    npm run check:shaders
+    npm run check:wasm
+    npm test
+    npm run smoke:browser
+
+All commands must pass, and browser smoke artifacts must be inspected.
+
+## Idempotence and Recovery
+
+Keep the model path additive until each milestone passes. Do not delete the
+debug marker until an imported model renders reliably in browser smoke. If an
+imported asset fails to load, keep the fallback marker path available and expose
+the GLTF load error in `debugSnapshot()` or browser console diagnostics.
+
+Check assets into `assets/models/` only with a small `LICENSE.md` or
+`SOURCE.md` next to them documenting the original URL, author, license, and any
+conversion command. Do not commit large unused source packs. Prefer one small
+test fixture and one player fixture at first. Khronos sample fixtures should
+live under `assets/models/test-fixtures/`; Quaternius player assets should live
+under `assets/models/player/`.
+
+If the renderer path becomes too large, split `crates/engine_web/src/wgpu_renderer.rs`
+before adding more model/skinning code. A separate `model_renderer.rs` or
+`model_gpu_resources.rs` is preferable to growing the already-large renderer
+file.
+
+If CPU skinning is visibly too slow, keep the CPU path as a correctness fixture
+and add a new GPU-skinning milestone instead of trying to optimize prematurely.
+
+Never use `git reset --hard` or destructive checkout commands unless the user
+explicitly requests them.
+
+## Artifacts and Notes
+
+Reference sources checked while drafting:
+
+- Khronos glTF page:
+  `https://www.khronos.org/gltf/`
+- Khronos glTF 2.0 specification:
+  `https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html`
+- Rust `gltf` crate docs:
+  `https://docs.rs/gltf/latest/gltf/`
+- Quaternius Universal Base Characters:
+  `https://quaternius.com/packs/universalbasecharacters.html`
+- Quaternius Universal Animation Library 2:
+  `https://quaternius.com/packs/universalanimationlibrary2.html`
+
+Required download sources:
+
+- Khronos glTF Sample Assets for small importer fixtures:
+  `https://github.khronos.org/glTF-Sample-Assets/`
+- Khronos sample asset repository for direct downloads:
+  `https://github.com/KhronosGroup/glTF-Sample-Assets`
+- Quaternius Universal Base Characters for the humanoid player model:
+  `https://quaternius.com/packs/universalbasecharacters.html`
+- Quaternius Universal Animation Library 2 for idle/walk humanoid animation
+  clips if the base character pack does not include the needed clips:
+  `https://quaternius.com/packs/universalanimationlibrary2.html`
+
+Relevant source facts:
+
+- Khronos describes glTF as a scene format whose top-level elements include
+  scenes/nodes, meshes, buffers, materials, textures, skins, and animations.
+- The glTF 2.0 specification defines a mesh as a collection of mesh primitives,
+  and a mesh primitive as indexed or non-indexed geometry bound to a material.
+- The glTF 2.0 specification defines linear blend skinning, skin joints,
+  inverse bind matrices, and joint hierarchy rules.
+- The Rust `gltf` crate version shown in docs is `1.4.1`; its mesh reader
+  exposes positions, normals, indices, texcoords, joints, and weights, and its
+  animation reader exposes input/output sampling data.
+- Quaternius Universal Base Characters are CC0, rigged humanoids available in
+  FBX and glTF. Quaternius Universal Animation Library 2 is CC0 and available
+  as GLB, FBX, and Blend.
+
+Candidate asset layout:
+
+    assets/models/player/SOURCE.md
+    assets/models/player/player.glb
+    assets/models/player/idle.glb
+    assets/models/player/walk.glb
+    assets/models/test-fixtures/SOURCE.md
+    assets/models/test-fixtures/static-triangle.glb
+    assets/models/test-fixtures/node-animation.glb
+    assets/models/test-fixtures/simple-skin.glb
+
+The actual imported assets should be kept small. If Quaternius source packs are
+large, import only the needed GLB files and document the extraction step.
+
+## Interfaces and Dependencies
+
+Expected TypeScript asset-loader shape:
+
+    export type ByteAssetRequest = {
+      readonly id: string;
+      readonly url: string;
+    };
+
+    export type ByteAsset = {
+      readonly id: string;
+      readonly data: Uint8Array;
+    };
+
+    export type BrowserAssetLoader = {
+      loadTextureArrays(
+        requests: readonly RgbaTextureArrayAssetRequest[]
+      ): Promise<readonly RgbaTextureArrayAsset[]>;
+      loadBytes(
+        requests: readonly ByteAssetRequest[]
+      ): Promise<readonly ByteAsset[]>;
+    };
+
+Expected Rust model asset types may be split between `engine_core` and
+`engine_web`, but the ownership should look like this:
+
+    pub struct ModelAsset {
+        pub nodes: Vec<ModelNode>,
+        pub primitives: Vec<ModelPrimitive>,
+        pub materials: Vec<ModelMaterial>,
+        pub animations: Vec<AnimationClip>,
+        pub skins: Vec<SkinAsset>,
+    }
+
+    pub struct ModelPrimitive {
+        pub vertices: Vec<ModelVertex>,
+        pub indices: Vec<u32>,
+        pub material: ModelMaterialId,
+        pub skin: Option<SkinId>,
+    }
+
+    pub struct ModelVertex {
+        pub position: [f32; 3],
+        pub normal: [f32; 3],
+        pub uv: [f32; 2],
+        pub color: [f32; 4],
+        pub joints: [u16; 4],
+        pub weights: [f32; 4],
+    }
+
+    pub struct AnimationClip {
+        pub name: String,
+        pub duration_seconds: f32,
+        pub channels: Vec<AnimationChannel>,
+    }
+
+    pub struct AnimationControllerComponent {
+        pub current_clip: AnimationClipId,
+        pub next_clip: Option<AnimationClipId>,
+        pub current_time_seconds: f32,
+        pub next_time_seconds: f32,
+        pub blend_weight: f32,
+        pub blend_duration_seconds: f32,
+    }
+
+The first static renderer milestone can ignore `joints` and `weights`, but the
+importer should preserve them once skinning work begins.
+
+Do not add a third-party ECS. Do not add TypeScript GLTF loader packages. Use a
+Rust GLTF parser crate and small in-repo runtime types that match OFG's scene
+and renderer contracts.
+
+## Revision Note
+
+2026-06-06: Initial ExecPlan created after the completed Rust scene/component
+plan. It scopes the new feature as GLB/static mesh loading first, then GLTF
+node animation, skinned animation, blending, and finally movement-driven walk
+animation for the player character.

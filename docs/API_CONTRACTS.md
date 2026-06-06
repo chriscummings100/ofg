@@ -33,6 +33,7 @@ decisions.
 | OFG-API-007 | Raw linked WASM exports in `engine_web` | Unsupported | `assets/wasm/engine_web/engine_web.d.ts`, `crates/*/src/facade.rs` |
 | OFG-API-008 | Future game lifecycle and tuning surface | Future | This document until real behavior exists |
 | OFG-API-009 | Forbidden TypeScript ownership | Forbidden | This document and `docs/ARCHITECTURE.md` |
+| OFG-API-010 | Future GLTF model and animation loading | Future | `docs/GLTF_CHARACTER_PLAN.md` |
 
 ## OFG-API-001: Browser Shell To Rust Browser Game
 
@@ -113,9 +114,17 @@ Rust owns terrain texture manifest interpretation, layer ordering, texture
 array IDs, texture-array shape validation, and GPU texture installation.
 TypeScript only decodes Rust-provided URL lists into RGBA bytes.
 
-Rust calls:
+The active terrain texture path calls:
 
     assetLoader.loadTextureArrays(requests)
+
+The same browser asset-loader object may also expose the future GLTF/model byte
+fetch lane described by `OFG-API-010`:
+
+    assetLoader.loadBytes(requests)
+
+`loadBytes` returns opaque bytes by ID. TypeScript must not interpret those
+bytes as model, material, animation, or renderer data.
 
 TypeScript accepts:
 
@@ -286,6 +295,15 @@ The following TypeScript ownership must not be reintroduced:
 - Terrain material manifest interpretation or material layer assignment.
 - Factory/world simulation owner.
 
+This rule forbids TypeScript ownership only. A small Rust-owned scene/component
+model in `crates/engine_core` is allowed when it preserves the browser runtime
+facade, keeps WebGPU handles out of scene resources, and does not route
+per-entity work through TypeScript. The intended Rust shape is a scene-owned
+array of entities addressed by stable generational `EntityId` handles, with
+typed components such as camera, player, terrain, and mesh renderer components.
+`engine_core` may extract visible mesh renderer items for Rust/wgpu to resolve,
+but TypeScript must not mirror or traverse the scene.
+
 Allowed TypeScript responsibilities remain:
 
 - Browser startup and WASM module loading.
@@ -294,6 +312,39 @@ Allowed TypeScript responsibilities remain:
 - URL seed/preset parsing.
 - HTML HUD/debug UI and smoke-test hooks.
 - Generic browser image decoding for Rust-provided texture-array requests.
+
+## OFG-API-010: Future GLTF Model And Animation Loading
+
+The active feature plan is `docs/GLTF_CHARACTER_PLAN.md`. The intended runtime
+format is checked-in GLB for model and animation assets. Rust owns GLTF parsing,
+model resource registration, scene node/entity creation, animation clips,
+skeletons, skinning, animation blending, and renderer resource resolution.
+
+TypeScript may provide only generic browser substrate:
+
+    export type ByteAssetRequest = {
+      readonly id: string;
+      readonly url: string;
+    };
+
+    export type ByteAsset = {
+      readonly id: string;
+      readonly data: Uint8Array;
+    };
+
+    assetLoader.loadBytes(requests)
+
+Contract rules:
+
+- TypeScript must not parse GLTF JSON or GLB chunks.
+- TypeScript must not inspect meshes, nodes, skins, animation channels, clips,
+  materials, or skeletons.
+- TypeScript must not create per-model or per-entity render calls.
+- Rust debug snapshots may expose active model, clip, blend, and skinning state
+  for HUD and smoke tests.
+- Static model meshes, skinned model meshes, and animation data should use
+  explicit Rust-owned contracts rather than overloading the terrain vertex
+  layout.
 
 ## Current Risk Register
 
@@ -311,3 +362,5 @@ These are known contract risks for milestone reviewers:
 - `crates/engine_web/src/wgpu_renderer.rs` and
   `crates/terrain_core/src/facade.rs` are over the preferred file size and need
   future split plans before they grow further.
+- The future GLTF path needs a generic byte asset loader; keep it generic and do
+  not let TypeScript grow model or animation semantics while adding it.

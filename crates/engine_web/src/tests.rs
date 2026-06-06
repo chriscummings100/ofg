@@ -1,7 +1,7 @@
 use crate::{
     build_frame_packet_from_engine_snapshot, build_frame_uniform_values, build_material_packet,
-    build_object_uniform_values, build_player_marker_world_matrix, BrowserGameInput,
-    BrowserGameState, BrowserTerrainStream, MaterialPacketError, RenderPacketError,
+    build_object_uniform_values, import_gltf_model_from_slice, BrowserGameInput, BrowserGameState,
+    BrowserTerrainStream, MaterialPacketError, ModelAssetError, RenderPacketError,
     RenderUniformError, RendererState, RendererStateError, ResourceHandle, RgbaTextureArrayAsset,
     TerrainTextureArrays, TerrainTextureError, ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS,
     MATERIAL_PACKET_FLOATS, REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_ALBEDO_TEXTURE_ARRAY_ID,
@@ -9,7 +9,18 @@ use crate::{
     TERRAIN_NORMAL_TEXTURE_ARRAY_ID, TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
     WORLD_MATRIX_FLOATS,
 };
-use engine_core::{PlayerMode, Vec3};
+use engine_core::{
+    PlayerMode, TerrainComponent, Vec3, DEBUG_PLAYER_MARKER_MATERIAL_LABEL,
+    DEBUG_PLAYER_MARKER_MESH_LABEL,
+};
+use terrain_core::DEFAULT_TERRAIN_PRESET;
+
+const STATIC_BOX_GLB: &[u8] =
+    include_bytes!("../../../assets/models/test-fixtures/static-box.glb");
+const ANIMATED_CUBE_GLTF: &[u8] =
+    include_bytes!("../../../assets/models/test-fixtures/animated-cube.gltf");
+const SIMPLE_SKIN_GLTF: &[u8] =
+    include_bytes!("../../../assets/models/test-fixtures/simple-skin.gltf");
 
 #[test]
 fn config_rejects_canvas_and_texture_limits_that_webgpu_terrain_cannot_use() {
@@ -169,7 +180,7 @@ fn frame_uniforms_are_packed_from_rust_render_packets() {
 
 #[test]
 fn engine_render_snapshot_builds_frame_packet_in_rust() {
-    let snapshot = sample_engine_render_snapshot(true);
+    let snapshot = sample_engine_render_snapshot();
     let frame = build_frame_packet_from_engine_snapshot(&snapshot, 16.0 / 9.0).unwrap();
 
     assert_close(frame[0], 0.80333316);
@@ -185,23 +196,8 @@ fn engine_render_snapshot_builds_frame_packet_in_rust() {
 }
 
 #[test]
-fn engine_render_snapshot_builds_player_marker_world_matrix_in_rust() {
-    let visible = sample_engine_render_snapshot(true);
-    let hidden = sample_engine_render_snapshot(false);
-
-    let world = build_player_marker_world_matrix(&visible).unwrap().unwrap();
-    assert_close(world[0], 1.0);
-    assert_close(world[5], 1.0);
-    assert_close(world[10], 1.0);
-    assert_close(world[12], 4.0);
-    assert_close(world[13], 5.0);
-    assert_close(world[14], 6.0);
-    assert_eq!(build_player_marker_world_matrix(&hidden).unwrap(), None);
-}
-
-#[test]
 fn engine_render_snapshot_packet_builders_validate_shape_and_camera() {
-    let mut snapshot = sample_engine_render_snapshot(true);
+    let mut snapshot = sample_engine_render_snapshot();
 
     assert_eq!(
         build_frame_packet_from_engine_snapshot(
@@ -272,6 +268,51 @@ fn material_packets_are_built_in_rust() {
     assert_close(packet[7], 0.4);
     assert_close(packet[8], 1.0);
     assert_close(packet[9], 0.08);
+}
+
+#[test]
+fn gltf_importer_loads_static_box_glb_mesh_primitives() {
+    let model = import_gltf_model_from_slice(STATIC_BOX_GLB).unwrap();
+
+    assert_eq!(model.primitive_count(), 1);
+    assert!(model.vertex_count() >= 8);
+    assert_eq!(model.index_count() % 3, 0);
+    assert!(!model.nodes.is_empty());
+    assert!(!model.materials.is_empty());
+
+    let primitive = &model.primitives[0];
+    assert!(model
+        .nodes
+        .iter()
+        .any(|node| node.mesh == Some(primitive.mesh_index)));
+    assert!(primitive
+        .vertices
+        .iter()
+        .all(|vertex| vertex.position.iter().all(|value| value.is_finite())));
+    assert!(model.materials.iter().all(|material| material
+        .base_color_factor
+        .iter()
+        .all(|value| value.is_finite())));
+}
+
+#[test]
+fn gltf_importer_rejects_file_relative_external_buffers() {
+    assert_eq!(
+        import_gltf_model_from_slice(ANIMATED_CUBE_GLTF),
+        Err(ModelAssetError::UnsupportedExternalBuffer {
+            buffer_index: 0,
+            uri: "AnimatedCube.bin".to_string()
+        })
+    );
+}
+
+#[test]
+fn gltf_importer_preserves_embedded_skin_counts_for_later_animation_work() {
+    let model = import_gltf_model_from_slice(SIMPLE_SKIN_GLTF).unwrap();
+
+    assert!(model.primitive_count() > 0);
+    assert!(model.skin_count > 0);
+    assert!(model.nodes.iter().any(|node| node.skin.is_some()));
 }
 
 #[test]
@@ -401,12 +442,14 @@ fn browser_game_state_resets_with_a_rust_owned_grounded_player() {
     assert!(position.y.is_finite());
     assert_close(position.z, 0.0);
     assert_eq!(state.player_mode().unwrap(), PlayerMode::FirstPerson);
-
-    let snapshot = state.render_snapshot_values().unwrap();
-    assert_close(snapshot[19], 0.0);
-    assert_close(snapshot[20], position.x);
-    assert_close(snapshot[21], position.y);
-    assert_close(snapshot[22], position.z);
+    assert_eq!(
+        state.terrain_component(),
+        Some(TerrainComponent {
+            seed: 0x0F6,
+            preset: 1
+        })
+    );
+    assert!(state.render_mesh_items().unwrap().is_empty());
 }
 
 #[test]
@@ -433,6 +476,46 @@ fn browser_game_state_ticks_player_and_grounds_against_terrain() {
 }
 
 #[test]
+fn browser_game_state_public_controls_cover_player_and_debug_camera_api() {
+    let mut state = BrowserGameState::new();
+
+    assert_eq!(state.terrain_seed(), 0);
+    assert_eq!(state.terrain_preset(), DEFAULT_TERRAIN_PRESET);
+
+    assert_eq!(state.toggle_player_mode().unwrap(), PlayerMode::DebugFly);
+    assert_eq!(state.player_mode().unwrap(), PlayerMode::DebugFly);
+
+    let position = state.set_player_position_xz(12.0, -8.0).unwrap();
+    assert_close(position.x, 12.0);
+    assert!(position.y.is_finite());
+    assert_close(position.z, -8.0);
+    assert_eq!(state.player_position().unwrap(), position);
+
+    state
+        .set_debug_camera(Vec3::new(1.0, 2.0, 3.0), 0.4, -0.2)
+        .unwrap();
+    let snapshot = state.render_snapshot_values().unwrap();
+    assert_close(snapshot[0], 1.0);
+    assert_close(snapshot[1], 2.0);
+    assert_close(snapshot[2], 3.0);
+    assert_close(snapshot[6], 0.4);
+    assert_close(snapshot[7], -0.2);
+
+    state.set_player_mode(PlayerMode::FirstPerson).unwrap();
+
+    assert_eq!(state.player_mode().unwrap(), PlayerMode::FirstPerson);
+    assert_eq!(
+        crate::player_mode_code(PlayerMode::DebugFly),
+        PlayerMode::DebugFly.code()
+    );
+    assert_eq!(
+        crate::player_mode_from_code(PlayerMode::FirstPerson.code()),
+        Some(PlayerMode::FirstPerson)
+    );
+    assert_eq!(crate::player_mode_from_code(99), None);
+}
+
+#[test]
 fn browser_game_state_debug_fly_moves_camera_without_moving_player_marker() {
     let mut state = BrowserGameState::new();
     state.reset_game(0x0F6, 1).unwrap();
@@ -452,11 +535,13 @@ fn browser_game_state_debug_fly_moves_camera_without_moving_player_marker() {
         .unwrap();
 
     assert_eq!(state.player_position().unwrap(), player_position);
-    let snapshot = state.render_snapshot_values().unwrap();
-    assert_close(snapshot[19], 1.0);
-    assert_close(snapshot[20], player_position.x);
-    assert_close(snapshot[21], player_position.y);
-    assert_close(snapshot[22], player_position.z);
+    let items = state.render_mesh_items().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].mesh_label, DEBUG_PLAYER_MARKER_MESH_LABEL);
+    assert_eq!(items[0].material_label, DEBUG_PLAYER_MARKER_MATERIAL_LABEL);
+    assert_close(items[0].world_matrix[12], player_position.x);
+    assert_close(items[0].world_matrix[13], player_position.y);
+    assert_close(items[0].world_matrix[14], player_position.z);
 }
 
 #[test]
@@ -483,7 +568,7 @@ fn browser_terrain_stream_generates_and_prunes_meshes_in_rust() {
     assert!(!stream.render_chunk_keys().contains(&"0,0,0".to_string()));
 }
 
-fn sample_engine_render_snapshot(marker_visible: bool) -> [f32; ENGINE_RENDER_SNAPSHOT_FLOATS] {
+fn sample_engine_render_snapshot() -> [f32; ENGINE_RENDER_SNAPSHOT_FLOATS] {
     [
         1.0,
         2.0,
@@ -504,11 +589,6 @@ fn sample_engine_render_snapshot(marker_visible: bool) -> [f32; ENGINE_RENDER_SN
         0.88,
         1.25,
         0.4,
-        if marker_visible { 1.0 } else { 0.0 },
-        4.0,
-        5.0,
-        6.0,
-        0.0,
     ]
 }
 

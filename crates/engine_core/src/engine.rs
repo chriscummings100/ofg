@@ -1,10 +1,12 @@
 use crate::math::{Quat, Vec3};
 use crate::player::{
-    speed_multiplier, yaw_pitch_forward, yaw_right, EyeTransform, PlayerConfig,
-    PlayerControllerState, PlayerMode, PlayerMovementIntent, PlayerRig,
+    speed_multiplier, yaw_pitch_forward, yaw_right, EyeTransform, PlayerMode, PlayerMovementIntent,
+    PlayerRig,
 };
 use crate::render_packet::RenderSnapshot;
-use crate::world::{LocalTransform, World, WorldError};
+use crate::scene::{EntityId, LocalTransform, Scene, SceneError};
+use crate::scene_components::{CameraComponent, MeshRendererComponent, PlayerComponent};
+use crate::scene_resources::{DEBUG_PLAYER_MARKER_MATERIAL_LABEL, DEBUG_PLAYER_MARKER_MESH_LABEL};
 use crate::ENGINE_CORE_VERSION;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -25,12 +27,12 @@ pub enum EngineError {
     InvalidDeltaSeconds(f32),
     InvalidPlayerMode(u32),
     MissingPlayer,
-    World(WorldError),
+    Scene(SceneError),
 }
 
-impl From<WorldError> for EngineError {
-    fn from(error: WorldError) -> Self {
-        Self::World(error)
+impl From<SceneError> for EngineError {
+    fn from(error: SceneError) -> Self {
+        Self::Scene(error)
     }
 }
 
@@ -44,10 +46,9 @@ pub struct EngineDebugSnapshot {
 
 #[derive(Default)]
 pub struct Engine {
-    world: World,
+    scene: Scene,
     tick: u64,
     elapsed_seconds: f64,
-    player_controller: Option<PlayerControllerState>,
 }
 
 impl Engine {
@@ -55,12 +56,12 @@ impl Engine {
         Self::default()
     }
 
-    pub fn world(&self) -> &World {
-        &self.world
+    pub fn scene(&self) -> &Scene {
+        &self.scene
     }
 
-    pub fn world_mut(&mut self) -> &mut World {
-        &mut self.world
+    pub fn scene_mut(&mut self) -> &mut Scene {
+        &mut self.scene
     }
 
     pub fn tick(&self) -> u64 {
@@ -76,29 +77,62 @@ impl Engine {
             version: ENGINE_CORE_VERSION,
             tick: self.tick,
             elapsed_seconds: self.elapsed_seconds,
-            entity_count: self.world.entity_count(),
+            entity_count: self.scene.entity_count(),
         }
     }
 
     pub fn create_player(&mut self, position: Vec3) -> PlayerRig {
-        let player_entity = self.world.create_entity();
-        let camera_entity = self.world.create_entity();
+        if let Some(previous_player) = self.scene.player_id() {
+            if let Ok(mut previous_player) = self.scene.entity_mut(previous_player) {
+                if let Some(renderer) = previous_player.mesh_renderer_mut() {
+                    renderer.visible = false;
+                }
+            }
+        }
+
+        let player_entity = self.scene.create_entity();
+        let camera_entity = self.scene.create_entity();
         let rig = PlayerRig {
             player_entity,
             camera_entity,
         };
-        self.player_controller = Some(PlayerControllerState {
-            rig,
-            mode: PlayerMode::FirstPerson,
-            yaw: 0.0,
-            pitch: 0.0,
-            debug_position: Vec3::new(position.x, position.y + 12.0, position.z),
-            debug_yaw: 0.0,
-            debug_pitch: -0.35,
-            intent: PlayerMovementIntent::default(),
-            config: PlayerConfig::default(),
-        });
-        self.world
+        let mut player = PlayerComponent::new(camera_entity);
+        player.debug_position = Vec3::new(position.x, position.y + 12.0, position.z);
+        let marker_mesh = self
+            .scene
+            .resources_mut()
+            .register_mesh(DEBUG_PLAYER_MARKER_MESH_LABEL);
+        let marker_material = self
+            .scene
+            .resources_mut()
+            .register_material(DEBUG_PLAYER_MARKER_MATERIAL_LABEL);
+
+        {
+            let mut player_entity_ref = self
+                .scene
+                .entity_mut(player_entity)
+                .expect("newly-created player entity should be valid");
+            player_entity_ref.add_player(player);
+            player_entity_ref.add_mesh_renderer(MeshRendererComponent {
+                mesh: marker_mesh,
+                material: marker_material,
+                visible: false,
+            });
+        }
+        {
+            let mut camera_entity_ref = self
+                .scene
+                .entity_mut(camera_entity)
+                .expect("newly-created camera entity should be valid");
+            camera_entity_ref.add_camera(CameraComponent::default());
+        }
+        self.scene
+            .set_player(Some(player_entity))
+            .expect("newly-created player entity should be valid");
+        self.scene
+            .set_active_camera(Some(camera_entity))
+            .expect("newly-created camera entity should be valid");
+        self.scene
             .set_local_transform(
                 player_entity,
                 LocalTransform {
@@ -115,17 +149,22 @@ impl Engine {
     }
 
     pub fn player_rig(&self) -> Option<PlayerRig> {
-        self.player_controller.map(|controller| controller.rig)
+        let (player_entity, player) = self.player_component().ok()?;
+
+        Some(PlayerRig {
+            player_entity,
+            camera_entity: player.camera_entity,
+        })
     }
 
     pub fn player_mode(&self) -> Result<PlayerMode, EngineError> {
-        Ok(self.player_controller()?.mode)
+        Ok(self.player_component()?.1.mode)
     }
 
     pub fn set_player_mode(&mut self, mode: PlayerMode) -> Result<(), EngineError> {
-        let mut controller = self.player_controller()?;
-        controller.mode = mode;
-        self.player_controller = Some(controller);
+        let (player_entity, mut player) = self.player_component()?;
+        player.mode = mode;
+        self.set_player_component(player_entity, player)?;
         self.sync_player_camera()
     }
 
@@ -149,20 +188,18 @@ impl Engine {
         &mut self,
         intent: PlayerMovementIntent,
     ) -> Result<(), EngineError> {
-        let mut controller = self.player_controller()?;
-        controller.intent = intent;
-        self.player_controller = Some(controller);
-
-        Ok(())
+        let (player_entity, mut player) = self.player_component()?;
+        player.intent = intent;
+        self.set_player_component(player_entity, player)
     }
 
     pub fn set_player_position(&mut self, position: Vec3) -> Result<(), EngineError> {
-        let controller = self.player_controller()?;
-        self.world.set_local_transform(
-            controller.rig.player_entity,
+        let (player_entity, player) = self.player_component()?;
+        self.scene.set_local_transform(
+            player_entity,
             LocalTransform {
                 translation: position,
-                rotation: Quat::from_yaw(controller.yaw),
+                rotation: Quat::from_yaw(player.yaw),
                 scale: Vec3::ONE,
             },
         )?;
@@ -170,10 +207,10 @@ impl Engine {
     }
 
     pub fn set_player_view(&mut self, yaw: f32, pitch: f32) -> Result<(), EngineError> {
-        let mut controller = self.player_controller()?;
-        controller.yaw = yaw;
-        controller.pitch = pitch.clamp(-controller.config.max_pitch, controller.config.max_pitch);
-        self.player_controller = Some(controller);
+        let (player_entity, mut player) = self.player_component()?;
+        player.yaw = yaw;
+        player.pitch = pitch.clamp(-player.config.max_pitch, player.config.max_pitch);
+        self.set_player_component(player_entity, player)?;
         self.sync_player_camera()
     }
 
@@ -183,64 +220,79 @@ impl Engine {
         yaw: f32,
         pitch: f32,
     ) -> Result<(), EngineError> {
-        let mut controller = self.player_controller()?;
-        controller.mode = PlayerMode::DebugFly;
-        controller.debug_position = position;
-        controller.debug_yaw = yaw;
-        controller.debug_pitch =
-            pitch.clamp(-controller.config.max_pitch, controller.config.max_pitch);
-        self.player_controller = Some(controller);
+        let (player_entity, mut player) = self.player_component()?;
+        player.mode = PlayerMode::DebugFly;
+        player.debug_position = position;
+        player.debug_yaw = yaw;
+        player.debug_pitch = pitch.clamp(-player.config.max_pitch, player.config.max_pitch);
+        self.set_player_component(player_entity, player)?;
         self.sync_player_camera()
     }
 
     pub fn player_position(&self) -> Result<Vec3, EngineError> {
-        let controller = self.player_controller()?;
+        let (player_entity, _) = self.player_component()?;
 
-        Ok(self
-            .world
-            .world_transform(controller.rig.player_entity)?
-            .translation)
+        Ok(self.scene.world_transform(player_entity)?.translation)
     }
 
     pub fn player_eye_transform(&self) -> Result<EyeTransform, EngineError> {
-        self.player_eye_transform_for(self.player_controller()?)
+        let (player_entity, player) = self.player_component()?;
+
+        self.player_eye_transform_for(player_entity, player)
     }
 
     pub fn render_snapshot(&self) -> Result<RenderSnapshot, EngineError> {
-        let controller = self.player_controller()?;
-        let eye = self.player_eye_transform_for(controller)?;
-        let player_position = self
-            .world
-            .world_transform(controller.rig.player_entity)?
-            .translation;
+        let (player_entity, player) = self.player_component()?;
+        let eye = self.player_eye_transform_for(player_entity, player)?;
 
         Ok(RenderSnapshot::from_player_view(
             eye.position,
             eye.yaw,
             eye.pitch,
-            player_position,
-            controller.mode,
         ))
+    }
+
+    pub fn render_mesh_items(
+        &self,
+    ) -> Result<Vec<crate::render_packet::RenderMeshItemPacket>, EngineError> {
+        let mut items = Vec::new();
+
+        for entity_id in self.scene.entity_ids() {
+            let entity = self.scene.entity(entity_id)?;
+            let Some(renderer) = entity.mesh_renderer() else {
+                continue;
+            };
+            if !renderer.visible {
+                continue;
+            }
+
+            items.push(crate::render_packet::RenderMeshItemPacket {
+                entity: entity_id,
+                mesh: renderer.mesh,
+                material: renderer.material,
+                world_matrix: entity.world_transform().to_matrix(),
+            });
+        }
+
+        Ok(items)
     }
 
     pub fn preview_player_position(&self, delta_seconds: f32) -> Result<Vec3, EngineError> {
         validate_delta_seconds(delta_seconds)?;
-        let controller = self.player_controller()?;
+        let (player_entity, player) = self.player_component()?;
 
-        match controller.mode {
+        match player.mode {
             PlayerMode::FirstPerson => self.preview_first_person_position_at_yaw(
-                controller,
-                controller.yaw
-                    - controller.intent.look_delta_x * controller.config.look_sensitivity,
+                player_entity,
+                player,
+                player.yaw - player.intent.look_delta_x * player.config.look_sensitivity,
                 delta_seconds,
             ),
-            PlayerMode::DebugFly => Ok(controller.debug_position.add(debug_fly_movement(
-                controller,
-                controller.debug_yaw
-                    - controller.intent.look_delta_x * controller.config.look_sensitivity,
-                (controller.debug_pitch
-                    - controller.intent.look_delta_y * controller.config.look_sensitivity)
-                    .clamp(-controller.config.max_pitch, controller.config.max_pitch),
+            PlayerMode::DebugFly => Ok(player.debug_position.add(debug_fly_movement(
+                player,
+                player.debug_yaw - player.intent.look_delta_x * player.config.look_sensitivity,
+                (player.debug_pitch - player.intent.look_delta_y * player.config.look_sensitivity)
+                    .clamp(-player.config.max_pitch, player.config.max_pitch),
                 delta_seconds,
             ))),
         }
@@ -252,18 +304,18 @@ impl Engine {
         terrain_height: Option<f32>,
     ) -> Result<EyeTransform, EngineError> {
         validate_delta_seconds(delta_seconds)?;
-        let mut controller = self.player_controller()?;
+        let (player_entity, mut player) = self.player_component()?;
 
-        match controller.mode {
+        match player.mode {
             PlayerMode::FirstPerson => {
-                controller.yaw -=
-                    controller.intent.look_delta_x * controller.config.look_sensitivity;
-                controller.pitch = (controller.pitch
-                    - controller.intent.look_delta_y * controller.config.look_sensitivity)
-                    .clamp(-controller.config.max_pitch, controller.config.max_pitch);
+                player.yaw -= player.intent.look_delta_x * player.config.look_sensitivity;
+                player.pitch = (player.pitch
+                    - player.intent.look_delta_y * player.config.look_sensitivity)
+                    .clamp(-player.config.max_pitch, player.config.max_pitch);
                 let next_position = self.preview_first_person_position_at_yaw(
-                    controller,
-                    controller.yaw,
+                    player_entity,
+                    player,
+                    player.yaw,
                     delta_seconds,
                 )?;
                 let grounded_position = Vec3::new(
@@ -271,31 +323,30 @@ impl Engine {
                     terrain_height.unwrap_or(next_position.y),
                     next_position.z,
                 );
-                self.world.set_local_transform(
-                    controller.rig.player_entity,
+                self.scene.set_local_transform(
+                    player_entity,
                     LocalTransform {
                         translation: grounded_position,
-                        rotation: Quat::from_yaw(controller.yaw),
+                        rotation: Quat::from_yaw(player.yaw),
                         scale: Vec3::ONE,
                     },
                 )?;
             }
             PlayerMode::DebugFly => {
-                controller.debug_yaw -=
-                    controller.intent.look_delta_x * controller.config.look_sensitivity;
-                controller.debug_pitch = (controller.debug_pitch
-                    - controller.intent.look_delta_y * controller.config.look_sensitivity)
-                    .clamp(-controller.config.max_pitch, controller.config.max_pitch);
-                controller.debug_position = controller.debug_position.add(debug_fly_movement(
-                    controller,
-                    controller.debug_yaw,
-                    controller.debug_pitch,
+                player.debug_yaw -= player.intent.look_delta_x * player.config.look_sensitivity;
+                player.debug_pitch = (player.debug_pitch
+                    - player.intent.look_delta_y * player.config.look_sensitivity)
+                    .clamp(-player.config.max_pitch, player.config.max_pitch);
+                player.debug_position = player.debug_position.add(debug_fly_movement(
+                    player,
+                    player.debug_yaw,
+                    player.debug_pitch,
                     delta_seconds,
                 ));
             }
         }
 
-        self.player_controller = Some(controller);
+        self.set_player_component(player_entity, player)?;
         self.sync_player_camera()?;
         self.player_eye_transform()
     }
@@ -305,99 +356,110 @@ impl Engine {
 
         self.tick = self.tick.wrapping_add(1);
         self.elapsed_seconds += input.delta_seconds as f64;
-        self.world.update_world_transforms();
+        self.scene.update_world_transforms();
 
         Ok(EngineUpdateSummary {
             tick: self.tick,
             delta_seconds: input.delta_seconds,
             elapsed_seconds: self.elapsed_seconds,
-            entity_count: self.world.entity_count(),
+            entity_count: self.scene.entity_count(),
         })
     }
 
-    fn player_controller(&self) -> Result<PlayerControllerState, EngineError> {
-        self.player_controller.ok_or(EngineError::MissingPlayer)
+    fn player_component(&self) -> Result<(EntityId, PlayerComponent), EngineError> {
+        let player_entity = self.scene.player_id().ok_or(EngineError::MissingPlayer)?;
+        let player = self
+            .scene
+            .entity(player_entity)?
+            .player()
+            .copied()
+            .ok_or(EngineError::MissingPlayer)?;
+
+        Ok((player_entity, player))
+    }
+
+    fn set_player_component(
+        &mut self,
+        player_entity: EntityId,
+        player: PlayerComponent,
+    ) -> Result<(), EngineError> {
+        let mut entity = self.scene.entity_mut(player_entity)?;
+        let component = entity.player_mut().ok_or(EngineError::MissingPlayer)?;
+        *component = player;
+        if let Some(renderer) = entity.mesh_renderer_mut() {
+            renderer.visible = player.mode == PlayerMode::DebugFly;
+        }
+        Ok(())
     }
 
     fn preview_first_person_position_at_yaw(
         &self,
-        controller: PlayerControllerState,
+        player_entity: EntityId,
+        player: PlayerComponent,
         yaw: f32,
         delta_seconds: f32,
     ) -> Result<Vec3, EngineError> {
-        let current_position = self
-            .world
-            .local_transform(controller.rig.player_entity)?
-            .translation;
-        let movement = planar_movement(controller, yaw, delta_seconds);
+        let current_position = self.scene.local_transform(player_entity)?.translation;
+        let movement = planar_movement(player, yaw, delta_seconds);
 
         Ok(current_position.add(movement))
     }
 
     fn sync_player_camera(&mut self) -> Result<(), EngineError> {
-        self.world.update_world_transforms();
-        let controller = self.player_controller()?;
-        let eye = self.player_eye_transform_for(controller)?;
-        self.world.set_local_transform(
-            controller.rig.camera_entity,
+        self.scene.update_world_transforms();
+        let (player_entity, player) = self.player_component()?;
+        let eye = self.player_eye_transform_for(player_entity, player)?;
+        self.scene.set_local_transform(
+            player.camera_entity,
             LocalTransform {
                 translation: eye.position,
                 rotation: Quat::from_yaw_pitch(eye.yaw, eye.pitch),
                 scale: Vec3::ONE,
             },
         )?;
-        self.world.update_world_transforms();
+        self.scene.update_world_transforms();
 
         Ok(())
     }
 
     fn player_eye_transform_for(
         &self,
-        controller: PlayerControllerState,
+        player_entity: EntityId,
+        player: PlayerComponent,
     ) -> Result<EyeTransform, EngineError> {
-        if controller.mode == PlayerMode::DebugFly {
+        if player.mode == PlayerMode::DebugFly {
             return Ok(EyeTransform {
-                position: controller.debug_position,
-                yaw: controller.debug_yaw,
-                pitch: controller.debug_pitch,
+                position: player.debug_position,
+                yaw: player.debug_yaw,
+                pitch: player.debug_pitch,
             });
         }
 
-        let player_position = self
-            .world
-            .world_transform(controller.rig.player_entity)?
-            .translation;
+        let player_position = self.scene.world_transform(player_entity)?.translation;
 
         Ok(EyeTransform {
-            position: player_position.add(Vec3::UP.scale(controller.config.eye_height)),
-            yaw: controller.yaw,
-            pitch: controller.pitch,
+            position: player_position.add(Vec3::UP.scale(player.config.eye_height)),
+            yaw: player.yaw,
+            pitch: player.pitch,
         })
     }
 }
 
-fn planar_movement(controller: PlayerControllerState, yaw: f32, delta_seconds: f32) -> Vec3 {
+fn planar_movement(player: PlayerComponent, yaw: f32, delta_seconds: f32) -> Vec3 {
     yaw_pitch_forward(yaw, 0.0)
-        .scale(controller.intent.forward)
-        .add(yaw_right(yaw).scale(controller.intent.right))
+        .scale(player.intent.forward)
+        .add(yaw_right(yaw).scale(player.intent.right))
         .normalize()
-        .scale(controller.config.move_speed * speed_multiplier(controller.intent) * delta_seconds)
+        .scale(player.config.move_speed * speed_multiplier(player.intent) * delta_seconds)
 }
 
-fn debug_fly_movement(
-    controller: PlayerControllerState,
-    yaw: f32,
-    pitch: f32,
-    delta_seconds: f32,
-) -> Vec3 {
+fn debug_fly_movement(player: PlayerComponent, yaw: f32, pitch: f32, delta_seconds: f32) -> Vec3 {
     yaw_pitch_forward(yaw, pitch)
-        .scale(controller.intent.forward)
-        .add(yaw_right(yaw).scale(controller.intent.right))
-        .add(Vec3::UP.scale(controller.intent.up))
+        .scale(player.intent.forward)
+        .add(yaw_right(yaw).scale(player.intent.right))
+        .add(Vec3::UP.scale(player.intent.up))
         .normalize()
-        .scale(
-            controller.config.debug_fly_speed * speed_multiplier(controller.intent) * delta_seconds,
-        )
+        .scale(player.config.debug_fly_speed * speed_multiplier(player.intent) * delta_seconds)
 }
 
 fn validate_delta_seconds(delta_seconds: f32) -> Result<(), EngineError> {

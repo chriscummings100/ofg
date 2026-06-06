@@ -33,8 +33,9 @@ src/engine/browser
   Generic browser substrate helpers. `BrowserWorkerHost` remains as tested
   generic worker substrate, but the playable terrain path no longer uses a
   TypeScript terrain worker bridge. `textureAssetLoader.ts` decodes
-  Rust-provided generic texture-array URL requests into RGBA arrays without
-  owning terrain material semantics.
+  Rust-provided generic texture-array URL requests into RGBA arrays and fetches
+  opaque byte asset requests without owning terrain material, model, or
+  animation semantics.
 
 src/engine/world
   Terrain descriptor/config types, 3D terrain chunk key helpers, Rust/WASM
@@ -76,12 +77,18 @@ as a browser shell plus generic browser image decoder.
 
 - `engine_web` composes `engine_core` and `terrain_core` as Rust libraries for
   the active browser game facade. It owns player/camera movement, terrain-height
-  grounding, camera mode switching, debug player marker state, frame packet
-  construction, terrain stream advancement, terrain mesh upload/pruning, and
-  Rust/wgpu draw submission.
+  grounding, camera mode switching, scene mesh item resolution for the debug
+  player marker, frame packet construction, terrain stream advancement, terrain
+  mesh upload/pruning, and Rust/wgpu draw submission.
 - `engine_core` remains the browser-free Rust logic crate for engine/player/world
-  behavior and native tests. It is linked into `engine_web`; no standalone
-  `engine_core.wasm` browser artifact is built for the playable app.
+  behavior and native tests. It owns the Rust scene/component model: one
+  scene tree of entities addressed by stable generational `EntityId` handles,
+  local/world transforms on every entity, typed components for player, camera,
+  terrain, and mesh rendering, and scene-level convenience handles for terrain,
+  player, and active camera. It also extracts visible mesh renderer items with
+  logical mesh/material IDs and world matrices for `engine_web` to resolve. It
+  is linked into `engine_web`; no standalone `engine_core.wasm` browser artifact
+  is built for the playable app.
 - `terrain_core` owns terrain height/density sampling, generated chunk mesh
   emission, stream scheduling, density storage, worker-pool request-state tests,
   and the tested legacy terrain mesh packet store. The playable browser path now
@@ -93,19 +100,22 @@ as a browser shell plus generic browser image decoder.
   pipelines, buffers, texture arrays, samplers, bind groups, render-pass
   submission, frame/resource counts, and GPU resource pruning.
 - TypeScript collects DOM input, parses URL seed/preset values, starts WASM,
-  exposes debug hooks, and decodes Rust-provided generic texture-array URL
-  requests into RGBA arrays. `src/app` no longer constructs the terrain
+  exposes debug hooks, decodes Rust-provided generic texture-array URL requests
+  into RGBA arrays, and can fetch Rust-provided opaque byte asset requests for
+  future model loading. `src/app` no longer constructs the terrain
   scheduler, density store, render packet store, worker client, mirrored terrain
   sink, texture upload path, or terrain height sampler directly. Rust owns the
   terrain renderer vertex stride, terrain texture layer requests, stream
   status/debug snapshot, and active frame construction at that facade.
   TypeScript no longer creates WebGPU devices, pipelines, buffers, textures,
   render passes, shader uniform buffers, renderer resource handles, shader
-  material packets, camera frames, light packets, player-marker mesh/material
-  data, player-marker world matrices, or normal matrices.
+material packets, camera frames, light packets, player-marker mesh/material
+data, scene mesh world matrices, or normal matrices.
 
 The retired TypeScript scene model is archived under `docs/archived/`. Future
 large-scale world state should move into Rust rather than recreating that graph.
+The active direction is a small Rust-owned scene/component layer in
+`engine_core`, not a TypeScript scene graph or a general-purpose ECS framework.
 
 ## Terrain Direction
 
@@ -171,9 +181,10 @@ generic browser RGBA texture arrays, validates the returned arrays, and installs
 the GPU texture handles. Rust/wgpu builds compact frame packets from its
 Rust-owned browser game state, owns shader material packets and
 material-to-texture selection, owns the debug player-marker mesh/material and
-world matrix, validates per-chunk terrain draw transforms inside the browser
-game facade, computes object normal matrices, and packs the WGSL camera/object
-uniform buffers.
+GPU resource mapping, validates per-chunk terrain draw transforms inside the
+browser game facade, consumes scene mesh world matrices extracted by
+`engine_core`, computes object normal matrices, and packs the WGSL
+camera/object uniform buffers.
 
 Terrain uses checked-in Poly Haven CC0 materials imported into 16-layer global
 texture arrays. The runtime currently loads albedo, normal, and roughness arrays;
@@ -182,7 +193,7 @@ material weights per vertex. Normal maps are loaded as renderer resources but ar
 not yet applied to lighting.
 
 The sky is also shader-driven. Rust/wgpu draws a full-screen sky pass before
-terrain and marker geometry, reconstructs world rays from the inverse
+terrain and scene mesh geometry, reconstructs world rays from the inverse
 view-projection matrix, and renders a blue gradient plus a sun disk in the
 direction of the Rust-owned main light.
 

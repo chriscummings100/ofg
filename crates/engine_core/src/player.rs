@@ -1,5 +1,5 @@
 use crate::math::Vec3;
-use crate::world::EntityId;
+use crate::scene::EntityId;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PlayerMode {
@@ -79,19 +79,6 @@ pub struct EyeTransform {
     pub position: Vec3,
     pub yaw: f32,
     pub pitch: f32,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct PlayerControllerState {
-    pub(crate) rig: PlayerRig,
-    pub(crate) mode: PlayerMode,
-    pub(crate) yaw: f32,
-    pub(crate) pitch: f32,
-    pub(crate) debug_position: Vec3,
-    pub(crate) debug_yaw: f32,
-    pub(crate) debug_pitch: f32,
-    pub(crate) intent: PlayerMovementIntent,
-    pub(crate) config: PlayerConfig,
 }
 
 pub(crate) fn speed_multiplier(intent: PlayerMovementIntent) -> f32 {

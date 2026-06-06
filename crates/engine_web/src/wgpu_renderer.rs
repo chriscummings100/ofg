@@ -10,9 +10,7 @@ use crate::config::{
 };
 use crate::game_state::{BrowserGameInput, BrowserGameState};
 use crate::materials::TERRAIN_MATERIAL_PACKET;
-use crate::render_packets::{
-    build_frame_packet_from_engine_snapshot, build_player_marker_world_matrix,
-};
+use crate::render_packets::build_frame_packet_from_engine_snapshot;
 use crate::render_uniforms::{
     build_frame_uniform_values, build_object_uniform_values, FRAME_PACKET_FLOATS,
     FRAME_UNIFORM_FLOATS, MATERIAL_PACKET_FLOATS, OBJECT_UNIFORM_FLOATS, WORLD_MATRIX_FLOATS,
@@ -21,7 +19,9 @@ use crate::resources::{ResourceHandle, ResourceStore};
 use crate::terrain_stream::{BrowserTerrainStream, BrowserTerrainStreamStatus, TerrainJobStats};
 use crate::terrain_textures::{load_terrain_texture_arrays, TerrainTextureArrays};
 use crate::ENGINE_WEB_VERSION;
-use engine_core::{PlayerMode, Vec3};
+use engine_core::{
+    PlayerMode, Vec3, DEBUG_PLAYER_MARKER_MATERIAL_LABEL, DEBUG_PLAYER_MARKER_MESH_LABEL,
+};
 use terrain_core::{terrain_chunk_key, TerrainChunkCoord, DEFAULT_TERRAIN_PRESET};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
@@ -36,7 +36,6 @@ pub struct RustBrowserGame {
     terrain_textures: Option<TerrainTextureHandles>,
     object_handles_by_id: HashMap<String, ResourceHandle>,
     player_marker_mesh: ResourceHandle,
-    player_marker_object: ResourceHandle,
     player_marker_material_packet: [f32; MATERIAL_PACKET_FLOATS],
 }
 
@@ -128,7 +127,6 @@ impl RustBrowserGame {
             &player_marker_indices,
             TERRAIN_VERTEX_FLOATS,
         )?;
-        let player_marker_object = renderer.register_object()?;
 
         let mut game = Self {
             game_state: BrowserGameState::new(),
@@ -139,7 +137,6 @@ impl RustBrowserGame {
             terrain_textures: None,
             object_handles_by_id: HashMap::new(),
             player_marker_mesh,
-            player_marker_object,
             player_marker_material_packet: PLAYER_MARKER_MATERIAL_PACKET,
         };
         game.install_terrain_textures(terrain_texture_arrays)?;
@@ -314,17 +311,19 @@ impl RustBrowserGame {
 
     fn render_frame(&mut self) -> Result<(), JsValue> {
         let engine_snapshot = self.game_state.render_snapshot_values().map_err(js_error)?;
+        let scene_mesh_items = self.game_state.render_mesh_items().map_err(js_error)?;
         let aspect = self.renderer.aspect_ratio();
         let chunk_keys = sorted_terrain_chunk_keys(&self.terrain_mesh_handles_by_key);
         let chunk_count = chunk_keys.len();
+        let item_count = chunk_count + scene_mesh_items.len();
 
-        let mut mesh_handles = Vec::with_capacity(chunk_count);
-        let mut object_handles = Vec::with_capacity(chunk_count);
-        let mut albedo_texture_handles = Vec::with_capacity(chunk_count);
-        let mut normal_texture_handles = Vec::with_capacity(chunk_count);
-        let mut material_texture_handles = Vec::with_capacity(chunk_count);
-        let mut world_matrices = Vec::with_capacity(chunk_count * WORLD_MATRIX_FLOATS);
-        let mut material_packets = Vec::with_capacity(chunk_count * MATERIAL_PACKET_FLOATS);
+        let mut mesh_handles = Vec::with_capacity(item_count);
+        let mut object_handles = Vec::with_capacity(item_count);
+        let mut albedo_texture_handles = Vec::with_capacity(item_count);
+        let mut normal_texture_handles = Vec::with_capacity(item_count);
+        let mut material_texture_handles = Vec::with_capacity(item_count);
+        let mut world_matrices = Vec::with_capacity(item_count * WORLD_MATRIX_FLOATS);
+        let mut material_packets = Vec::with_capacity(item_count * MATERIAL_PACKET_FLOATS);
         let terrain_textures = self.terrain_textures.unwrap_or(TerrainTextureHandles {
             albedo: self.renderer.fallback_albedo,
             normal: self.renderer.fallback_normal,
@@ -353,6 +352,21 @@ impl RustBrowserGame {
             material_packets.extend_from_slice(&TERRAIN_MATERIAL_PACKET);
         }
 
+        for item in scene_mesh_items {
+            let mesh_handle = self.scene_mesh_handle(&item.mesh_label)?;
+            let material_packet = self.scene_material_packet(&item.material_label)?;
+            let object_handle =
+                self.object_handle_for_id(&format!("entity:{}", item.entity.to_raw()))?;
+
+            mesh_handles.push(handle_to_js(mesh_handle));
+            object_handles.push(handle_to_js(object_handle));
+            albedo_texture_handles.push(handle_to_js(self.renderer.fallback_albedo));
+            normal_texture_handles.push(handle_to_js(self.renderer.fallback_normal));
+            material_texture_handles.push(handle_to_js(self.renderer.fallback_material));
+            world_matrices.extend_from_slice(&item.world_matrix);
+            material_packets.extend_from_slice(&material_packet);
+        }
+
         self.renderer.render_engine_frame(
             &engine_snapshot,
             aspect,
@@ -363,18 +377,30 @@ impl RustBrowserGame {
             &material_texture_handles,
             &world_matrices,
             &material_packets,
-            handle_to_js(self.player_marker_mesh),
-            handle_to_js(self.player_marker_object),
-            handle_to_js(self.renderer.fallback_albedo),
-            handle_to_js(self.renderer.fallback_normal),
-            handle_to_js(self.renderer.fallback_material),
-            &self.player_marker_material_packet,
         )?;
         Ok(())
     }
 }
 
 impl RustBrowserGame {
+    fn scene_mesh_handle(&self, label: &str) -> Result<ResourceHandle, JsValue> {
+        match label {
+            DEBUG_PLAYER_MARKER_MESH_LABEL => Ok(self.player_marker_mesh),
+            _ => Err(js_error(format!(
+                "Rust WebGPU renderer cannot resolve scene mesh '{label}'."
+            ))),
+        }
+    }
+
+    fn scene_material_packet(&self, label: &str) -> Result<[f32; MATERIAL_PACKET_FLOATS], JsValue> {
+        match label {
+            DEBUG_PLAYER_MARKER_MATERIAL_LABEL => Ok(self.player_marker_material_packet),
+            _ => Err(js_error(format!(
+                "Rust WebGPU renderer cannot resolve scene material '{label}'."
+            ))),
+        }
+    }
+
     fn install_terrain_textures(&mut self, textures: TerrainTextureArrays) -> Result<(), JsValue> {
         if let Some(handles) = self.terrain_textures.take() {
             self.destroy_terrain_textures(handles)?;
@@ -956,7 +982,6 @@ impl BrowserWgpuRenderer {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn render_engine_frame(
         &mut self,
         engine_snapshot: &[f32],
@@ -968,61 +993,19 @@ impl BrowserWgpuRenderer {
         material_texture_handles: &[f64],
         world_matrices: &[f32],
         material_packets: &[f32],
-        player_marker_mesh_handle: f64,
-        player_marker_object_handle: f64,
-        player_marker_albedo_texture_handle: f64,
-        player_marker_normal_texture_handle: f64,
-        player_marker_material_texture_handle: f64,
-        player_marker_material_packet: &[f32],
     ) -> Result<(), JsValue> {
         let frame_packet =
             build_frame_packet_from_engine_snapshot(engine_snapshot, aspect).map_err(js_error)?;
-        let Some(player_marker_world_matrix) =
-            build_player_marker_world_matrix(engine_snapshot).map_err(js_error)?
-        else {
-            return self.render(
-                &frame_packet,
-                mesh_handles,
-                object_handles,
-                albedo_texture_handles,
-                normal_texture_handles,
-                material_texture_handles,
-                world_matrices,
-                material_packets,
-            );
-        };
-
-        if player_marker_material_packet.len() != MATERIAL_PACKET_FLOATS {
-            return Err(js_error(
-                "Rust WebGPU renderer received an invalid player marker material packet.",
-            ));
-        }
-
-        let mut mesh_handles = mesh_handles.to_vec();
-        let mut object_handles = object_handles.to_vec();
-        let mut albedo_texture_handles = albedo_texture_handles.to_vec();
-        let mut normal_texture_handles = normal_texture_handles.to_vec();
-        let mut material_texture_handles = material_texture_handles.to_vec();
-        let mut world_matrices = world_matrices.to_vec();
-        let mut material_packets = material_packets.to_vec();
-
-        mesh_handles.push(player_marker_mesh_handle);
-        object_handles.push(player_marker_object_handle);
-        albedo_texture_handles.push(player_marker_albedo_texture_handle);
-        normal_texture_handles.push(player_marker_normal_texture_handle);
-        material_texture_handles.push(player_marker_material_texture_handle);
-        world_matrices.extend_from_slice(&player_marker_world_matrix);
-        material_packets.extend_from_slice(player_marker_material_packet);
 
         self.render(
             &frame_packet,
-            &mesh_handles,
-            &object_handles,
-            &albedo_texture_handles,
-            &normal_texture_handles,
-            &material_texture_handles,
-            &world_matrices,
-            &material_packets,
+            mesh_handles,
+            object_handles,
+            albedo_texture_handles,
+            normal_texture_handles,
+            material_texture_handles,
+            world_matrices,
+            material_packets,
         )
     }
 

@@ -1,7 +1,10 @@
 use crate::math::Vec3;
-use crate::player::{yaw_pitch_forward, PlayerMode};
+use crate::player::yaw_pitch_forward;
+use crate::scene::EntityId;
+use crate::scene_resources::{MaterialId, MeshId};
 
-pub const RENDER_SNAPSHOT_FLOAT_COUNT: usize = 24;
+pub const RENDER_SNAPSHOT_FLOAT_COUNT: usize = 19;
+pub const RENDER_MESH_ITEM_WORLD_MATRIX_FLOAT_COUNT: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RenderCameraPacket {
@@ -23,26 +26,21 @@ pub struct RenderLightPacket {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct RenderDebugMarkerPacket {
-    pub visible: bool,
-    pub position: Vec3,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RenderSnapshot {
     pub camera: RenderCameraPacket,
     pub main_light: RenderLightPacket,
-    pub player_marker: RenderDebugMarkerPacket,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RenderMeshItemPacket {
+    pub entity: EntityId,
+    pub mesh: MeshId,
+    pub material: MaterialId,
+    pub world_matrix: [f32; RENDER_MESH_ITEM_WORLD_MATRIX_FLOAT_COUNT],
 }
 
 impl RenderSnapshot {
-    pub fn from_player_view(
-        eye: Vec3,
-        yaw: f32,
-        pitch: f32,
-        player_position: Vec3,
-        player_mode: PlayerMode,
-    ) -> Self {
+    pub fn from_player_view(eye: Vec3, yaw: f32, pitch: f32) -> Self {
         Self {
             camera: RenderCameraPacket {
                 eye,
@@ -58,10 +56,6 @@ impl RenderSnapshot {
                 color: Vec3::new(1.0, 0.96, 0.88),
                 intensity: 1.0,
                 ambient: 0.34,
-            },
-            player_marker: RenderDebugMarkerPacket {
-                visible: player_mode == PlayerMode::DebugFly,
-                position: player_position,
             },
         }
     }
@@ -86,10 +80,5 @@ impl RenderSnapshot {
         out[16] = self.main_light.color.z;
         out[17] = self.main_light.intensity;
         out[18] = self.main_light.ambient;
-        out[19] = f32::from(self.player_marker.visible);
-        out[20] = self.player_marker.position.x;
-        out[21] = self.player_marker.position.y;
-        out[22] = self.player_marker.position.z;
-        out[23] = 0.0;
     }
 }

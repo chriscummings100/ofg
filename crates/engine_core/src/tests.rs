@@ -1,158 +1,15 @@
 use crate::*;
 use std::sync::{Mutex, OnceLock};
 
-#[test]
-fn entity_ids_reject_stale_generations_after_reuse() {
-    let mut world = World::new();
-    let first = world.create_entity();
-
-    world.destroy_entity(first).unwrap();
-    let second = world.create_entity();
-
-    assert_eq!(first.index(), second.index());
-    assert_ne!(first.generation(), second.generation());
-    assert!(!world.is_alive(first));
-    assert!(world.is_alive(second));
-    assert_eq!(
-        world.local_transform(first),
-        Err(WorldError::InvalidEntity(first))
-    );
-}
-
-#[test]
-fn destroying_an_entity_destroys_descendants() {
-    let mut world = World::new();
-    let parent = world.create_entity();
-    let child = world.create_entity();
-    let grandchild = world.create_entity();
-
-    world.set_parent(child, Some(parent)).unwrap();
-    world.set_parent(grandchild, Some(child)).unwrap();
-    world.destroy_entity(parent).unwrap();
-
-    assert_eq!(world.entity_count(), 0);
-    assert!(!world.is_alive(parent));
-    assert!(!world.is_alive(child));
-    assert!(!world.is_alive(grandchild));
-}
-
-#[test]
-fn reparenting_updates_parent_child_relationships() {
-    let mut world = World::new();
-    let first_parent = world.create_entity();
-    let second_parent = world.create_entity();
-    let child = world.create_entity();
-
-    world.set_parent(child, Some(first_parent)).unwrap();
-    world.set_parent(child, Some(second_parent)).unwrap();
-
-    assert_eq!(world.parent(child).unwrap(), Some(second_parent));
-    assert_eq!(world.children(first_parent).unwrap(), &[]);
-    assert_eq!(world.children(second_parent).unwrap(), &[child]);
-}
-
-#[test]
-fn parent_cycles_are_rejected() {
-    let mut world = World::new();
-    let parent = world.create_entity();
-    let child = world.create_entity();
-
-    world.set_parent(child, Some(parent)).unwrap();
-
-    assert_eq!(
-        world.set_parent(parent, Some(child)),
-        Err(WorldError::EntityHierarchyCycle {
-            child: parent,
-            parent: child
-        })
-    );
-    assert_eq!(
-        world.set_parent(parent, Some(parent)),
-        Err(WorldError::CannotParentEntityToItself(parent))
-    );
-}
-
-#[test]
-fn world_transforms_follow_parent_transforms() {
-    let mut world = World::new();
-    let parent = world.create_entity();
-    let child = world.create_entity();
-
-    world
-        .set_local_transform(
-            parent,
-            LocalTransform {
-                translation: Vec3::new(10.0, 2.0, -4.0),
-                rotation: Quat::IDENTITY,
-                scale: Vec3::new(2.0, 2.0, 2.0),
-            },
-        )
-        .unwrap();
-    world
-        .set_local_transform(
-            child,
-            LocalTransform {
-                translation: Vec3::new(1.0, 3.0, 5.0),
-                rotation: Quat::IDENTITY,
-                scale: Vec3::new(0.5, 1.0, 3.0),
-            },
-        )
-        .unwrap();
-    world.set_parent(child, Some(parent)).unwrap();
-    world.update_world_transforms();
-
-    assert_eq!(
-        world.world_transform(child).unwrap(),
-        WorldTransform {
-            translation: Vec3::new(12.0, 8.0, 6.0),
-            rotation: Quat::IDENTITY,
-            scale: Vec3::new(1.0, 2.0, 6.0),
-        }
-    );
-}
-
-#[test]
-fn world_transforms_follow_parent_rotation() {
-    let mut world = World::new();
-    let parent = world.create_entity();
-    let child = world.create_entity();
-
-    world
-        .set_local_transform(
-            parent,
-            LocalTransform {
-                translation: Vec3::ZERO,
-                rotation: Quat::from_yaw(std::f32::consts::FRAC_PI_2),
-                scale: Vec3::ONE,
-            },
-        )
-        .unwrap();
-    world
-        .set_local_transform(
-            child,
-            LocalTransform {
-                translation: Vec3::new(1.0, 0.0, 0.0),
-                rotation: Quat::IDENTITY,
-                scale: Vec3::ONE,
-            },
-        )
-        .unwrap();
-    world.set_parent(child, Some(parent)).unwrap();
-    world.update_world_transforms();
-
-    assert_vec3_near(
-        world.world_transform(child).unwrap().translation,
-        Vec3::new(0.0, 0.0, -1.0),
-    );
-}
+mod scene_tests;
 
 #[test]
 fn engine_updates_are_deterministic_for_identical_inputs() {
     let mut first = Engine::new();
     let mut second = Engine::new();
 
-    first.world_mut().create_entity();
-    second.world_mut().create_entity();
+    first.scene_mut().create_entity();
+    second.scene_mut().create_entity();
 
     let first_summary = first
         .update(EngineUpdateInput {
@@ -190,12 +47,119 @@ fn engine_rejects_non_finite_or_negative_delta_time() {
 }
 
 #[test]
+fn engine_reports_debug_snapshot_without_a_player() {
+    let mut engine = Engine::new();
+    let entity = engine.scene_mut().create_entity();
+
+    engine
+        .update(EngineUpdateInput {
+            delta_seconds: 0.25,
+        })
+        .unwrap();
+    let snapshot = engine.debug_snapshot();
+
+    assert_eq!(snapshot.version, ENGINE_CORE_VERSION);
+    assert_eq!(snapshot.tick, 1);
+    assert_eq!(snapshot.elapsed_seconds, 0.25);
+    assert_eq!(snapshot.entity_count, 1);
+    assert!(engine.scene().is_alive(entity));
+}
+
+#[test]
+fn engine_player_api_reports_missing_player_before_creation() {
+    let mut engine = Engine::new();
+
+    assert_eq!(engine.player_rig(), None);
+    assert_eq!(engine.player_mode(), Err(EngineError::MissingPlayer));
+    assert_eq!(
+        engine.set_player_mode(PlayerMode::DebugFly),
+        Err(EngineError::MissingPlayer)
+    );
+    assert_eq!(engine.toggle_player_mode(), Err(EngineError::MissingPlayer));
+    assert_eq!(
+        engine.set_player_movement_intent(PlayerMovementIntent::default()),
+        Err(EngineError::MissingPlayer)
+    );
+    assert_eq!(
+        engine.set_player_position(Vec3::ZERO),
+        Err(EngineError::MissingPlayer)
+    );
+    assert_eq!(
+        engine.set_player_view(0.0, 0.0),
+        Err(EngineError::MissingPlayer)
+    );
+    assert_eq!(
+        engine.set_debug_camera(Vec3::ZERO, 0.0, 0.0),
+        Err(EngineError::MissingPlayer)
+    );
+    assert_eq!(engine.player_position(), Err(EngineError::MissingPlayer));
+    assert_eq!(
+        engine.player_eye_transform(),
+        Err(EngineError::MissingPlayer)
+    );
+    assert_eq!(engine.render_snapshot(), Err(EngineError::MissingPlayer));
+    assert_eq!(
+        engine.preview_player_position(0.0),
+        Err(EngineError::MissingPlayer)
+    );
+    assert_eq!(
+        engine.update_player(0.0, None),
+        Err(EngineError::MissingPlayer)
+    );
+    assert!(engine.render_mesh_items().unwrap().is_empty());
+}
+
+#[test]
 fn engine_creates_player_and_camera_rig() {
     let mut engine = Engine::new();
     let rig = engine.create_player(Vec3::new(1.0, 2.0, 3.0));
 
     assert_eq!(engine.player_rig(), Some(rig));
-    assert_eq!(engine.world().entity_count(), 2);
+    assert_eq!(engine.scene().entity_count(), 2);
+    assert_eq!(engine.scene().player_id(), Some(rig.player_entity));
+    assert_eq!(engine.scene().active_camera_id(), Some(rig.camera_entity));
+    assert_eq!(
+        engine
+            .scene()
+            .entity(rig.player_entity)
+            .unwrap()
+            .player()
+            .unwrap()
+            .camera_entity,
+        rig.camera_entity
+    );
+    assert!(engine
+        .scene()
+        .entity(rig.camera_entity)
+        .unwrap()
+        .camera()
+        .is_some());
+    let player_renderer = engine
+        .scene()
+        .entity(rig.player_entity)
+        .unwrap()
+        .mesh_renderer()
+        .copied()
+        .unwrap();
+    assert!(!player_renderer.visible);
+    assert_eq!(
+        engine
+            .scene()
+            .resources()
+            .mesh(player_renderer.mesh)
+            .unwrap()
+            .label,
+        DEBUG_PLAYER_MARKER_MESH_LABEL
+    );
+    assert_eq!(
+        engine
+            .scene()
+            .resources()
+            .material(player_renderer.material)
+            .unwrap()
+            .label,
+        DEBUG_PLAYER_MARKER_MATERIAL_LABEL
+    );
     assert_eq!(engine.player_mode().unwrap(), PlayerMode::FirstPerson);
     assert_vec3_near(engine.player_position().unwrap(), Vec3::new(1.0, 2.0, 3.0));
 
@@ -203,7 +167,7 @@ fn engine_creates_player_and_camera_rig() {
     assert_vec3_near(eye.position, Vec3::new(1.0, 3.65, 3.0));
     assert_vec3_near(
         engine
-            .world()
+            .scene()
             .world_transform(rig.camera_entity)
             .unwrap()
             .translation,
@@ -336,37 +300,85 @@ fn player_camera_mode_toggles_between_first_person_and_debug_fly() {
 }
 
 #[test]
-fn render_snapshot_tracks_player_camera_light_and_debug_marker() {
+fn render_snapshot_tracks_player_camera_and_light() {
     let mut engine = Engine::new();
     engine.create_player(Vec3::new(1.0, 2.0, 3.0));
     engine.set_player_view(0.75, -0.25).unwrap();
 
-    let first_person = engine.render_snapshot().unwrap();
+    let snapshot = engine.render_snapshot().unwrap();
 
-    assert_vec3_near(first_person.camera.eye, Vec3::new(1.0, 3.65, 3.0));
-    assert_close(first_person.camera.yaw, 0.75);
-    assert_close(first_person.camera.pitch, -0.25);
-    assert_close(first_person.camera.fov_y_radians, 70.0_f32.to_radians());
-    assert_close(first_person.camera.near_plane, 0.05);
-    assert_close(first_person.camera.far_plane, 500.0);
+    assert_vec3_near(snapshot.camera.eye, Vec3::new(1.0, 3.65, 3.0));
+    assert_close(snapshot.camera.yaw, 0.75);
+    assert_close(snapshot.camera.pitch, -0.25);
+    assert_close(snapshot.camera.fov_y_radians, 70.0_f32.to_radians());
+    assert_close(snapshot.camera.near_plane, 0.05);
+    assert_close(snapshot.camera.far_plane, 500.0);
     assert_vec3_near(
-        first_person.main_light.direction,
+        snapshot.main_light.direction,
         Vec3::new(0.89, 0.25, 0.38).normalize(),
     );
-    assert_vec3_near(first_person.main_light.color, Vec3::new(1.0, 0.96, 0.88));
-    assert_close(first_person.main_light.intensity, 1.0);
-    assert_close(first_person.main_light.ambient, 0.34);
-    assert!(!first_person.player_marker.visible);
-    assert_vec3_near(
-        first_person.player_marker.position,
-        Vec3::new(1.0, 2.0, 3.0),
-    );
+    assert_vec3_near(snapshot.main_light.color, Vec3::new(1.0, 0.96, 0.88));
+    assert_close(snapshot.main_light.intensity, 1.0);
+    assert_close(snapshot.main_light.ambient, 0.34);
+}
+
+#[test]
+fn render_mesh_items_track_player_marker_visibility() {
+    let mut engine = Engine::new();
+    let rig = engine.create_player(Vec3::new(1.0, 2.0, 3.0));
+
+    assert!(engine.render_mesh_items().unwrap().is_empty());
 
     engine.set_player_mode(PlayerMode::DebugFly).unwrap();
-    let debug_fly = engine.render_snapshot().unwrap();
+    let items = engine.render_mesh_items().unwrap();
 
-    assert!(debug_fly.player_marker.visible);
-    assert_vec3_near(debug_fly.player_marker.position, Vec3::new(1.0, 2.0, 3.0));
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].entity, rig.player_entity);
+    assert_close(items[0].world_matrix[12], 1.0);
+    assert_close(items[0].world_matrix[13], 2.0);
+    assert_close(items[0].world_matrix[14], 3.0);
+    assert_eq!(
+        engine
+            .scene()
+            .resources()
+            .mesh(items[0].mesh)
+            .unwrap()
+            .label,
+        DEBUG_PLAYER_MARKER_MESH_LABEL
+    );
+
+    engine.set_player_mode(PlayerMode::FirstPerson).unwrap();
+
+    assert!(engine.render_mesh_items().unwrap().is_empty());
+}
+
+#[test]
+fn replacing_player_hides_previous_player_marker() {
+    let mut engine = Engine::new();
+    engine.create_player(Vec3::new(1.0, 2.0, 3.0));
+    engine.set_player_mode(PlayerMode::DebugFly).unwrap();
+
+    let next_rig = engine.create_player(Vec3::new(4.0, 5.0, 6.0));
+
+    assert_eq!(engine.player_rig(), Some(next_rig));
+    assert!(engine.render_mesh_items().unwrap().is_empty());
+}
+
+#[test]
+fn render_snapshot_can_be_built_directly_from_player_view() {
+    let mut values = [0.0; RENDER_SNAPSHOT_FLOAT_COUNT];
+    let snapshot = RenderSnapshot::from_player_view(Vec3::new(2.0, 3.0, 4.0), 0.5, -0.25);
+
+    snapshot.write_f32s(&mut values);
+
+    assert_eq!(values.len(), RENDER_SNAPSHOT_FLOAT_COUNT);
+    assert_close(values[0], 2.0);
+    assert_close(values[1], 3.0);
+    assert_close(values[2], 4.0);
+    assert_close(values[6], 0.5);
+    assert_close(values[7], -0.25);
+    assert_close(values[17], 1.0);
+    assert_close(values[18], 0.34);
 }
 
 #[test]
@@ -378,7 +390,7 @@ fn render_snapshot_writes_stable_f32_packet_layout() {
 
     engine.render_snapshot().unwrap().write_f32s(&mut values);
 
-    assert_eq!(values.len(), 24);
+    assert_eq!(values.len(), 19);
     assert_close(values[0], 1.0);
     assert_close(values[1], 3.65);
     assert_close(values[2], 3.0);
@@ -389,10 +401,6 @@ fn render_snapshot_writes_stable_f32_packet_layout() {
     assert_close(values[10], 500.0);
     assert_close(values[17], 1.0);
     assert_close(values[18], 0.34);
-    assert_close(values[19], 0.0);
-    assert_close(values[20], 1.0);
-    assert_close(values[21], 2.0);
-    assert_close(values[22], 3.0);
 }
 
 #[test]
@@ -406,7 +414,7 @@ fn wasm_facade_can_reset_engine_and_report_debug_state() {
     assert_eq!(ofg_engine_entity_count(), 0);
 
     let entity = EntityId::from_raw(ofg_engine_create_entity());
-    assert_eq!(entity.index(), 0);
+    assert_eq!(entity.index(), 1);
     assert_eq!(entity.generation(), 0);
     assert_eq!(ofg_engine_update(0.25), 1);
     assert_eq!(ofg_engine_update(f32::INFINITY), 0);
@@ -428,13 +436,20 @@ fn wasm_facade_exposes_player_state_and_controls() {
     let player = EntityId::from_raw(ofg_engine_create_player(0.0, 2.0, 0.0));
     let camera = EntityId::from_raw(ofg_engine_player_camera_entity());
 
-    assert_eq!(player.index(), 0);
-    assert_eq!(camera.index(), 1);
+    assert_eq!(player.index(), 1);
+    assert_eq!(camera.index(), 2);
     assert_eq!(ofg_engine_has_player(), 1);
     assert_eq!(ofg_engine_entity_count(), 2);
     assert_eq!(ofg_engine_player_mode(), PlayerMode::FirstPerson.code());
+    assert_eq!(ofg_engine_toggle_player_mode(), PlayerMode::DebugFly.code());
+    assert_eq!(
+        ofg_engine_toggle_player_mode(),
+        PlayerMode::FirstPerson.code()
+    );
 
     assert_eq!(ofg_engine_set_player_intent(1.0, 0.0, 0.0, 0, 0.0, 0.0), 1);
+    assert_close(ofg_engine_preview_player_x(1.0), 0.0);
+    assert_close(ofg_engine_preview_player_y(1.0), 2.0);
     assert_close(ofg_engine_preview_player_z(1.0), 5.5);
     assert_eq!(ofg_engine_update_player(1.0, 4.0, 1), 1);
     assert_close(ofg_engine_player_z(), 5.5);
@@ -467,7 +482,7 @@ fn wasm_facade_writes_render_snapshot_to_memory() {
 
     ofg_engine_create_player(1.0, 2.0, 3.0);
     assert_eq!(ofg_engine_set_player_view(0.5, -0.25), 1);
-    assert_eq!(ofg_engine_render_snapshot_f32_count(), 24);
+    assert_eq!(ofg_engine_render_snapshot_f32_count(), 19);
     assert_ne!(ofg_engine_render_snapshot_f32_ptr(), 0);
     assert_eq!(ofg_engine_write_render_snapshot(), 1);
 
@@ -477,12 +492,8 @@ fn wasm_facade_writes_render_snapshot_to_memory() {
     assert_close(values[2], 3.0);
     assert_close(values[6], 0.5);
     assert_close(values[7], -0.25);
-    assert_close(values[19], 0.0);
-
-    assert_eq!(ofg_engine_set_player_mode(PlayerMode::DebugFly.code()), 1);
-    assert_eq!(ofg_engine_write_render_snapshot(), 1);
-    let values = facade_render_snapshot_values();
-    assert_close(values[19], 1.0);
+    assert_close(values[17], 1.0);
+    assert_close(values[18], 0.34);
 }
 
 fn assert_vec3_near(actual: Vec3, expected: Vec3) {

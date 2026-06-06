@@ -10,6 +10,8 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 console_error_panic_hook = "0.1.7"
 engine_core = { path = "../engine_core" }
+base64 = "=0.13.1"
+gltf = { version = "=1.4.1", default-features = false, features = ["utils", "names"] }
 indexmap = "=2.7.0"
 js-sys = "=0.3.77"
 serde = { version = "=1.0.217", features = ["derive"] }
