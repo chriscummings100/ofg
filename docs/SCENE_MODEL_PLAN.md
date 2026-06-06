@@ -9,12 +9,13 @@ model described here has been removed from the compiled source tree. It should
 not be used as a current implementation plan.
 
 The current architecture direction is Rust-first and is tracked in
-[RUST_ENGINE_PLAN.md](RUST_ENGINE_PLAN.md). Runtime player/camera authority lives
-in `engine_core.wasm`; runtime terrain generation, streaming, density stores,
-worker-pool state, Dual Contouring mesh emission, and terrain mesh packet storage
-live in `terrain_core.wasm`. `RustPlayerController` and
-`TerrainCoreWorkerStreamer` are now plain browser bridge classes, not scene
-components.
+[RUST_ENGINE_PLAN.md](RUST_ENGINE_PLAN.md). Active browser player/camera
+authority now lives in `engine_web`, backed by `engine_core` as a Rust library.
+Runtime terrain generation, streaming, density stores, worker-pool state, Dual
+Contouring mesh emission, and terrain mesh packet storage live in
+`terrain_core`. `TerrainCoreWorkerStreamer` is now a browser bridge class, not a
+scene component. See [TYPESCRIPT_REDUCTION_AUDIT.md](TYPESCRIPT_REDUCTION_AUDIT.md)
+for the current TypeScript burn-down.
 
 The TypeScript `PlayerController`, `Scene`, `Entity`, `Component`, `Transform`,
 `ResourceStore`, `Material`, `Texture`, `MeshRenderer`, `SceneRenderExtractor`,
@@ -540,13 +541,15 @@ Responsibilities:
 - Historical only. This TypeScript component used to move the entity from input
   intent, ground first-person mode via `getScene().getTerrainHeight()`, and
   provide the camera eye transform.
-- Runtime player/camera behavior now lives in `engine_core.wasm`.
+- Runtime player/camera behavior now lives in `engine_web`, backed by
+  `engine_core` as a Rust library.
 
-Implementation note:
+Historical implementation note:
 
-- `RustPlayerController` consumes `PlayerMovementIntent` from `playerTypes.ts`,
-  forwards it into Rust, and mirrors Rust player state back to the scene while
-  the remaining render/terrain compatibility path exists.
+- `RustPlayerController` consumed `PlayerMovementIntent` from `playerTypes.ts`,
+  forwarded it into Rust, and mirrored Rust player state back to the scene while
+  the remaining render/terrain compatibility path existed. That adapter has been
+  deleted.
 
 ## Test Plan
 

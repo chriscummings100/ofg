@@ -133,6 +133,45 @@ to TypeScript every frame. The long-term browser loop should be close to
 `game.tick(frame)` or an equivalent single coarse call after TypeScript has
 collected browser input, resize, and UI events.
 
+## Current State, Boundary Contract, And TypeScript Burn-Down
+
+The target TypeScript/Rust API is defined in
+[BROWSER_RUST_API.md](BROWSER_RUST_API.md). The current TypeScript ownership map
+is maintained in [TYPESCRIPT_REDUCTION_AUDIT.md](TYPESCRIPT_REDUCTION_AUDIT.md).
+Treat those documents as the current-state companions to this chronological
+migration plan.
+
+As of 2026-06-06, Rust already owns the active player/camera tick, terrain
+sampling, terrain meshing, stream scheduling, retained density storage,
+worker-pool bookkeeping, WebGPU renderer, terrain GPU resources, frame draw
+submission, and active terrain draw set.
+
+The remaining TypeScript is not a terrain generator, scene graph, renderer, or
+simulation owner. It is concentrated in these categories:
+
+- Browser shell: app startup, DOM input, HUD/debug hooks, URL parameters, and
+  calls into the coarse browser game runtime.
+- Browser Worker transport: creating Workers, posting terrain-specific jobs,
+  routing results, and resetting Workers.
+- Density payload transfer: moving or sharing density buffers between the main
+  `terrain_core.wasm` instance and worker-local `terrain_core.wasm` instances.
+- Texture asset loading: fetching and decoding checked-in terrain image assets
+  before uploading arrays to Rust.
+- Compatibility/test adapters: standalone WASM wrappers and legacy packet or
+  mesh helpers that are not part of the playable runtime.
+
+The migration should not continue by repeatedly hiding half of the remaining
+terrain-aware TypeScript behind another wrapper. Each slice should delete or
+demote one named category from the audit. A category is demoted only when the
+compiled TypeScript left behind is a generic browser primitive with no terrain,
+render, world, or simulation semantics.
+
+Progress should be measured against the scorecard in
+`docs/BROWSER_RUST_API.md`: one Rust game facade, one frame call, command/snapshot
+lanes for UI and debug, no public terrain mesh/texture upload calls, no direct
+TypeScript `terrain_core.wasm` runtime calls, and opaque Rust-owned worker
+semantics.
+
 ## Migration Phases
 
 ### Phase 0: Document And Guard The Pivot
@@ -494,10 +533,12 @@ crates/engine_web
 Potential dependency shape:
 
 - `engine_core`: no browser dependencies.
-- `engine_web`: currently dependency-free for the first tested WASM resource
-  ledger. The next browser-renderer slice should add `wasm-bindgen`, `web-sys`,
-  `js-sys`, `wgpu`, and browser-only glue once the toolchain/dependency step is
-  explicit.
+- `engine_web`: browser-facing WASM crate using `wasm-bindgen`, `web-sys`,
+  `js-sys`, and `wgpu`. It owns the active browser game facade, renderer, GPU
+  resources, player/camera tick, terrain mesh handles, texture handles, and
+  draw submission.
+- `terrain_core`: browser-free terrain crate built both as a Rust dependency and
+  as `terrain_core.wasm` for the current temporary worker bridge.
 - Native test harnesses should depend on `engine_core`, not browser APIs.
 
 Renderer ownership rules:
@@ -543,21 +584,39 @@ New tests to add during migration:
 - Rust/wgpu resource lifetime bookkeeping tests.
 - Browser smoke that runs with TypeScript renderer disabled.
 
-## First Concrete Slice
+## Current Concrete Slices
 
-The next implementation slice should be small but architectural:
+The first Rust migration slices are complete: `engine_core`, `terrain_core`, and
+`engine_web` exist; active player/camera state is Rust-owned; the TypeScript
+scene/render world has been deleted; terrain generation and meshing are
+Rust-owned; and Rust/wgpu is the playable browser renderer.
 
-1. Add `crates/engine_core`.
-2. Define Rust-owned `Engine`, `World`, `EntityId`, and transform storage.
-3. Add Rust tests for create/destroy/stale IDs and transforms.
-4. Expose a minimal WASM facade that can create the engine and return a debug
-   snapshot.
-5. Keep the current runtime unchanged except for a smoke-hidden initialization
-   check if useful.
+The next slices should remove whole TypeScript categories named in
+`docs/TYPESCRIPT_REDUCTION_AUDIT.md` and move the public boundary toward
+`docs/BROWSER_RUST_API.md`:
 
-This establishes the new ownership direction without destabilizing terrain or
-rendering. The following slice can move player/camera state, then terrain
-streaming, then render packets, then Rust/wgpu.
+1. Split the tiny live terrain sink/packet type contract out of
+   `src/engine/render/TerrainCoreRenderPackets.ts`, then delete or demote the
+   old `TerrainCoreRenderPacketStore` class and tests if Rust/WASM coverage is
+   sufficient. Delete `src/engine/world/primitiveMesh.ts` and its test if no
+   runtime import appears.
+2. Collapse terrain Worker semantics behind Rust. The target is to delete
+   `TerrainCoreWorkerStreamer`, `terrainChunkWorkerClient`,
+   `terrainChunkWorkerTypes`, and `terrainDensityTransfer` as terrain-aware
+   TypeScript. Either use Rust-owned wasm threads or leave TypeScript with a
+   generic opaque worker utility that knows only request IDs and byte packets.
+3. Move terrain texture asset ownership behind Rust. TypeScript may remain a
+   generic browser fetch/decode primitive, but Rust should own material manifests,
+   layer ordering, texture-array validation, and upload decisions.
+4. Decide whether standalone `engine_core.wasm` remains a supported dev/test
+   artifact. If it is not part of the runtime or tooling strategy, remove the
+   wrapper, generated metadata, build output, and tests.
+5. Move terrain/debug status snapshots to Rust so TypeScript no longer tracks
+   live chunk keys or assembles terrain stream status for smoke tests.
+
+Each slice must include tests near the moved behavior. Any slice touching
+rendering, browser startup, workers, input, or terrain streaming must run
+`npm run smoke:browser` and inspect the screenshots.
 
 ## Decision Log
 
@@ -568,6 +627,8 @@ streaming, then render packets, then Rust/wgpu.
 | 2026-06-01 | Keep `engine_core` browser-free in the first slice | The core crate should stay easy to test natively. Browser bindings, `wasm-bindgen`, and `wgpu` belong in a later `engine_web` layer once render packets and ownership contracts exist. |
 | 2026-06-01 | Keep Rust core modules focused | `engine_core` is split into `math`, `world`, `player`, `engine`, and `facade` modules so Rust ownership can grow without recreating a monolithic engine file. |
 | 2026-06-01 | Split Rust terrain before Phase 3 growth | `terrain_core` now has focused modules for facade, field sampling, chunk storage, density generation, meshing, materials, noise, presets, and tests so the streaming migration does not grow another epic Rust file. |
+| 2026-06-06 | Track remaining TypeScript by category deletion | The migration had become hard to finish because each slice could hide only part of the remaining TypeScript. `docs/TYPESCRIPT_REDUCTION_AUDIT.md` is now the current-state burn-down map, and new migration slices should delete or demote whole categories. |
+| 2026-06-06 | Measure API progress against an exact browser/Rust contract | `docs/BROWSER_RUST_API.md` defines the target TypeScript-to-Rust functions and the allowed Rust-to-browser interactions. Migration progress should now be judged by closing that scorecard, not by vague TypeScript line-count reduction. |
 
 ## Progress Log
 
@@ -608,3 +669,5 @@ streaming, then render packets, then Rust/wgpu.
 | 2026-06-03 | App terrain pipeline wiring collapsed behind runtime facade | Added `RustBrowserGameRuntime`, a coarse TypeScript browser shell around `RustBrowserGame`, terrain worker transport, texture loading, stream status, and debug hooks. `src/app/game.ts` no longer constructs terrain schedulers, density stores, render packet stores, worker clients, texture uploads, or mirrored sinks directly; the frame loop now calls `game.tick(delta, intent)` and `game.renderFrame()`. This is a shell-boundary cleanup, not full Rust-owned worker spawning yet. |
 | 2026-06-03 | Playable terrain mesh packet-store mirror retired | `TerrainCoreWorkerStreamer` now writes completed worker mesh results straight to `RustBrowserGame` through the adapter sink. The adapter tracks live chunk keys for debug/smoke and Rust/wgpu owns the actual chunk mesh handles; the older `terrain_core.wasm` mesh packet store remains tested but is no longer part of the playable browser handoff. |
 | 2026-06-03 | Live TypeScript browser bridge moved out of game components | Moved `TerrainCoreWorkerStreamer` and shared browser game input types into `src/engine/web`, leaving `src/game/components` empty/deleted in the compiled source. This keeps remaining TypeScript as browser/WASM shell utility code rather than live game component architecture. |
+| 2026-06-06 | TypeScript reduction audit added | Added `docs/TYPESCRIPT_REDUCTION_AUDIT.md` and updated the current-state plan language so remaining work is framed as deleting named categories: terrain-aware Worker transport, density payload transfer, texture asset ownership, legacy/test adapters, and debug/status mirrors. |
+| 2026-06-06 | Browser/Rust API contract added | Added `docs/BROWSER_RUST_API.md` with the target public `create`/`tick`/`resize`/`command`/`debugSnapshot`/`save`/`load`/`dispose` shape, allowed Rust-to-browser interactions, current API gap, and progress scorecard. |

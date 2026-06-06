@@ -12,8 +12,13 @@
 The detailed migration path is tracked in
 [RUST_ENGINE_PLAN.md](RUST_ENGINE_PLAN.md). The TypeScript scene/component model
 has been retired from the compiled source tree, and Rust/wgpu is now the browser
-WebGPU renderer. The remaining TypeScript render code is a temporary packet and
-byte-upload adapter around a Rust-owned browser game/render facade.
+WebGPU renderer. The target browser boundary is defined in
+[BROWSER_RUST_API.md](BROWSER_RUST_API.md), and the current TypeScript burn-down
+is tracked in [TYPESCRIPT_REDUCTION_AUDIT.md](TYPESCRIPT_REDUCTION_AUDIT.md).
+Use those files before adding, deleting, or moving TypeScript around terrain,
+rendering, or engine ownership. The remaining TypeScript render-adjacent code is
+a temporary byte-upload, worker, asset, and debug adapter around a Rust-owned
+browser game/render facade.
 
 ## Current Layers
 
@@ -36,10 +41,10 @@ src/engine/math
   Small vector and matrix primitives.
 
 src/engine/render
-  CPU-side terrain texture decoding helpers and the temporary Rust/wgpu browser
-  adapter. Runtime terrain worker results enter this path as mesh bytes that are
-  handed directly to `RustBrowserGame` by chunk key. Actual browser WebGPU
-  resource creation and draw submission happen in Rust/wgpu through
+  CPU-side terrain texture decoding helpers, shader contract tests, and the
+  legacy/test `TerrainCoreRenderPacketStore` surface. Runtime terrain worker
+  results are handed directly to `RustBrowserGame` by chunk key. Actual browser
+  WebGPU resource creation and draw submission happen in Rust/wgpu through
   `crates/engine_web`; TypeScript only uploads terrain mesh bytes by chunk key
   and uploads the terrain texture arrays for the Rust browser game facade. Rust
   now constructs the terrain draw transforms internally.
@@ -54,8 +59,8 @@ src/engine/web
   is the browser-only Worker bridge over the Rust-owned terrain scheduler.
 
 src/engine/render/shaders
-  Shader source inputs. The current `uber.wgsl` is the single shader contract for
-  render items.
+  Shader source inputs. `uber.wgsl` is compiled into a TypeScript artifact for
+  shader contract tests, and the Rust renderer includes the shared WGSL source.
 
 src/generated
   Deterministically generated TypeScript artifacts used by runtime code.
@@ -126,8 +131,9 @@ still constructs browser Workers, but only below the runtime facade and through 
 generic transport utility; the dev/smoke runtime is cross-origin isolated and the
 playable bridge uses `SharedArrayBuffer`-backed density dependency payloads when
 available. Workers still copy those payloads into their local `terrain_core.wasm`
-density stores before contouring; Rust-managed wasm threads are still future
-work. Loaded density chunk keys remain fully 3D.
+density stores before contouring; Rust-managed wasm threads or an opaque
+Rust-owned worker job protocol are still future work. Loaded density chunk keys
+remain fully 3D.
 Runtime terrain meshes carry position, color, normal, uv, material layer indices,
 and material weights. A small mesh post-pass expands indexed triangles so each
 triangle has a coherent local four-material palette for interpolation.
