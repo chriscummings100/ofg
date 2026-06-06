@@ -79,7 +79,8 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   deleted the old packet-store module/tests plus the primitive mesh module/tests.
 - [x] (2026-06-06) Move app-facing calls toward the target API: one frame input
   object, command lane, and debug snapshot facade. The underlying wasm-bindgen
-  API still expands to scalar calls, and `renderFrame()` remains separate.
+  API still expands to scalar calls, and the adapter still calls the public wasm
+  `renderGameFrame(aspect)` method internally.
 - [x] (2026-06-06) Validated the app-facing boundary slice with `npm test` and
   `npm run smoke:browser`; inspected
   `artifacts/browser-smoke/2026-06-06T08-10-02-931Z/report.json` plus first
@@ -112,6 +113,14 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   `cargo test -p terrain_core`, `npm test`, and `npm run smoke:browser`;
   inspected
   `artifacts/browser-smoke/2026-06-06T08-45-02-188Z/report.json` plus first
+  person, debug-fly, and streamed first-person screenshots.
+- [x] (2026-06-06) Removed the app/runtime facade's separate
+  `game.renderFrame()` call. `game.tick(frame)` now performs Rust tick, terrain
+  stream update, and Rust render through the runtime facade; the lower
+  wasm-bindgen API still exposes `renderGameFrame(aspect)`.
+- [x] (2026-06-06) Validated the one-call frame loop with `npm test` and
+  `npm run smoke:browser`; inspected
+  `artifacts/browser-smoke/2026-06-06T08-51-28-528Z/report.json` plus first
   person, debug-fly, and streamed first-person screenshots.
 
 ## Surprises & Discoveries
@@ -221,16 +230,23 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   generation until Rust owns the full worker runtime, but the ownership boundary
   is cleaner and browser smoke confirms streaming still works.
   Date/Author: 2026-06-06 / Codex.
+- Decision: Let `RustBrowserGameRuntime.tick(frame)` own the full browser frame.
+  Rationale: The app should call one frame method now, even while the lower
+  adapter still bridges to separate wasm `tick(...)` and `renderGameFrame(...)`
+  calls. This removes the app-level split without blocking on the wasm-bindgen
+  API collapse.
+  Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
 
 The docs now separate completed Rust ownership from remaining TypeScript browser
 substrate, and this plan gives the exact target boundary. The main remaining
 implementation gap is terrain-aware Worker code in TypeScript, including
-terrain-specific worker payload construction, plus texture asset loading, split
-frame/render calls, the still scalar wasm-bindgen player/debug/status methods
-beneath the runtime facade, public terrain mesh and texture upload calls, and
-TypeScript density/material helpers.
+terrain-specific worker payload construction, plus texture asset loading, the
+still public wasm `renderGameFrame(aspect)` method beneath runtime `tick`, the
+still scalar wasm-bindgen player/debug/status methods beneath the runtime
+facade, public terrain mesh and texture upload calls, and TypeScript
+density/material helpers.
 
 The recommended next slice is to replace terrain-specific worker request/result
 payload construction with Rust-owned worker/threading support or a strictly
@@ -266,6 +282,11 @@ The density transfer deletion slice validated with:
     npm test
     npm run smoke:browser
 
+The one-call frame loop slice validated with:
+
+    npm test
+    npm run smoke:browser
+
 ## Context and Orientation
 
 The repository root is `C:\dev\ofg`. The current browser game is a lightweight
@@ -288,8 +309,8 @@ facade.
 `src/app` is the TypeScript browser shell. It creates the canvas, collects DOM
 input, owns the HUD/debug wiring, parses URL seed/preset values, sends compact
 frame input packets to `tick`, sends UI/debug actions through `command()`, reads
-HUD/debug state through `debugSnapshot()`, and still calls the transitional
-`renderFrame()` method until Rust can render from `tick()`.
+HUD/debug state through `debugSnapshot()`, and no longer calls a separate
+runtime render method.
 
 `src/engine/web` contains the remaining TypeScript browser/WASM shell around
 Rust. `RustBrowserGameRuntime` is the current coarse shell, but it still starts
@@ -490,7 +511,7 @@ Current runtime TypeScript that remains:
 
 | Group | Runtime role | Target fate |
 |---|---|---|
-| App shell | Starts game, tracks input, updates HUD, exposes debug hooks, reads URL params, calls `game.tick(frame)`, sends `game.command(...)`, reads `game.debugSnapshot()`, and still calls `game.renderFrame()`. | Keep as browser shell, but remove the separate render call once Rust can render from `tick()`. |
+| App shell | Starts game, tracks input, updates HUD, exposes debug hooks, reads URL params, calls `game.tick(frame)`, sends `game.command(...)`, and reads `game.debugSnapshot()`. | Keep as browser shell. |
 | WASM loading | Loads `engine_web` and `terrain_core.wasm` for the temporary worker bridge. | Keep only generic game module loading; remove runtime `terrain_core.wasm` calls. |
 | Terrain worker transport | `BrowserWorkerHost` owns Worker lifecycle and request-id envelopes; `TerrainChunkWorkerClient` still builds terrain-specific density/chunk payloads, but LOD chunk requests no longer include density buffers. | Replace terrain-specific payload construction with Rust-owned worker/threading runtime or an opaque byte protocol. |
 | Texture asset decode | Fetches checked-in JPGs, draws them to canvas, reads RGBA pixels, uploads arrays into Rust. | Move terrain asset ownership behind Rust; TS may remain generic byte/image helper only. |
@@ -502,7 +523,7 @@ Current runtime TypeScript that remains:
 | Target item | Current state | Status |
 |---|---|---|
 | TypeScript creates one Rust game facade | `createRustBrowserGameRuntime` wraps `RustBrowserGame` and other TS terrain systems. | Partial |
-| TypeScript calls one frame method | App calls `game.tick(frame)` and the transitional `game.renderFrame()`. | Partial |
+| TypeScript calls one frame method | App/runtime facade calls `game.tick(frame)` only; `RustBrowserGameAdapter` still calls wasm `renderGameFrame(aspect)` internally. | Partial |
 | Frame input is one object packet | App/runtime/adapter use `BrowserFrameInput`; the adapter still expands it into scalar wasm tick parameters. | Partial |
 | UI/debug uses command lane | App debug hooks send `game.command(...)`; the adapter still maps commands to narrow wasm methods. | Partial |
 | Debug/status uses one Rust snapshot | App reads `game.debugSnapshot()`, but the snapshot is still assembled by the TypeScript runtime facade. | Partial |
@@ -524,9 +545,10 @@ packet-store tests, primitive mesh module, and primitive mesh tests are deleted.
 
 Second, move app-facing calls to the target shape. This is complete at the
 TypeScript runtime facade: `src/app` sends `BrowserFrameInput` packets, uses the
-`GameCommand` lane for UI/debug actions, and reads `GameDebugSnapshot`. The
-remaining work is to move the underlying wasm-bindgen API to the same shape and
-stop calling separate `renderFrame()` once Rust can render from `tick()`.
+`GameCommand` lane for UI/debug actions, reads `GameDebugSnapshot`, and calls
+only `game.tick(frame)` for each frame. The remaining work is to move the
+underlying wasm-bindgen API to the same shape and delete the public
+`renderGameFrame(aspect)` method.
 
 Third, collapse terrain Worker semantics behind Rust. The generic browser host
 piece is partially complete: `BrowserWorkerHost` sees only request ids and
@@ -648,7 +670,6 @@ Stable target interface:
 Temporary or current interface elements that must disappear from the public
 TypeScript/Rust boundary:
 
-    game.renderFrame()
     renderGameFrame(aspect)
     resetGame(seed, preset)
     togglePlayerMode()

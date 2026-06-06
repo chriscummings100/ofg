@@ -42,7 +42,6 @@ describe("RustBrowserGameRuntime", () => {
     };
 
     runtime.tick(frame);
-    runtime.renderFrame();
     runtime.command({ type: "setPlayerPosition", x: 32, z: 16 });
     runtime.command({ type: "resetStreaming" });
     runtime.command({ type: "setPlayerMode", mode: "debugFly" });

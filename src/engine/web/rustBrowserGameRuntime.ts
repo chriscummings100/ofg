@@ -88,9 +88,6 @@ export class RustBrowserGameRuntime {
   tick(frame: BrowserFrameInput): void {
     this.dependencies.renderer.tick(frame);
     this.dependencies.terrainStreamer.update();
-  }
-
-  renderFrame(): void {
     this.dependencies.renderer.renderGameFrame();
   }
 

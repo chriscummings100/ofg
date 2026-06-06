@@ -107,7 +107,6 @@ export async function startGame(elements: GameElements): Promise<void> {
     );
 
     game.tick(frameInput);
-    game.renderFrame();
 
     const playerMode = game.debugSnapshot().playerMode;
     elements.cameraMode.textContent = playerMode === "firstPerson" ? "FIRST" : "FLY";
