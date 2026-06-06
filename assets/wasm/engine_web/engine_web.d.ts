@@ -8,7 +8,6 @@ export class RustBrowserGame {
   tick(frame: any): void;
   command(command: any): void;
   debugSnapshot(): any;
-  terrainHeightAt(x: number, z: number): number;
 }
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
@@ -44,7 +43,6 @@ export interface InitOutput {
   readonly rustbrowsergame_tick: (a: number, b: number, c: number) => void;
   readonly rustbrowsergame_command: (a: number, b: number, c: number) => void;
   readonly rustbrowsergame_debugSnapshot: (a: number, b: number) => void;
-  readonly rustbrowsergame_terrainHeightAt: (a: number, b: number, c: number, d: number) => void;
   readonly ofg_terrain_core_version: () => number;
   readonly ofg_terrain_core_preset_count: () => number;
   readonly ofg_density_chunk_store_max_entries: () => number;

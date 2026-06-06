@@ -30,7 +30,6 @@ export type EngineWebBrowserGame = {
   tick(frame: BrowserFrameInput): void;
   command(command: RustBrowserGameCommand): void;
   debugSnapshot(): RustBrowserGameDebugSnapshot;
-  terrainHeightAt(x: number, z: number): number;
 };
 
 export type EngineWebWasmModule = {

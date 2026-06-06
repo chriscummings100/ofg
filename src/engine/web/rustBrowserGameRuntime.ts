@@ -24,7 +24,6 @@ export type RustBrowserGameRenderer = {
   tick(frame: BrowserFrameInput): void;
   command(command: RustBrowserGameCommand): void;
   getDebugSnapshot(): RustBrowserGameDebugSnapshot;
-  terrainHeightAt(x: number, z: number): number;
 };
 
 export type RustBrowserGameRuntimeDependencies = {
@@ -46,10 +45,6 @@ export class RustBrowserGameRuntime {
 
   debugSnapshot(): GameDebugSnapshot {
     return this.dependencies.renderer.getDebugSnapshot();
-  }
-
-  getTerrainHeight(x: number, z: number): number {
-    return this.dependencies.renderer.terrainHeightAt(x, z);
   }
 }
 

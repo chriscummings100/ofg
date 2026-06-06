@@ -83,10 +83,6 @@ export class RustBrowserGameAdapter {
     };
   }
 
-  terrainHeightAt(x: number, z: number): number {
-    return this.game.terrainHeightAt(x, z);
-  }
-
   private computeDisplaySize(): { readonly width: number; readonly height: number } {
     const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
 

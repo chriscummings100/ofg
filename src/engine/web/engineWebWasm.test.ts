@@ -39,7 +39,7 @@ describe("engine web WASM", () => {
     equal(dtsText.includes("tick(delta_seconds"), false);
     ok(dtsText.includes("command(command: any): void"));
     ok(dtsText.includes("debugSnapshot(): any"));
-    ok(dtsText.includes("terrainHeightAt(x: number, z: number): number"));
+    equal(dtsText.includes("terrainHeightAt"), false);
     equal(dtsText.includes("togglePlayerMode"), false);
     equal(dtsText.includes("playerMode()"), false);
     equal(dtsText.includes("setPlayerMode"), false);
@@ -194,9 +194,6 @@ function fakeBrowserGame(): EngineWebBrowserGame {
         terrainWorkerCount: 6,
         playerControllerRuntime: "rust"
       };
-    },
-    terrainHeightAt() {
-      return 4;
     }
   };
 }

@@ -312,16 +312,6 @@ impl RustBrowserGame {
         Ok(snapshot.into())
     }
 
-    #[wasm_bindgen(js_name = terrainHeightAt)]
-    pub fn terrain_height_at(&self, x: f64, z: f64) -> Result<f64, JsValue> {
-        Ok(terrain_core::height_at(
-            self.game_state.terrain_seed(),
-            self.game_state.terrain_preset(),
-            x,
-            z,
-        ))
-    }
-
     fn render_frame(&mut self) -> Result<(), JsValue> {
         let engine_snapshot = self.game_state.render_snapshot_values().map_err(js_error)?;
         let aspect = self.renderer.aspect_ratio();

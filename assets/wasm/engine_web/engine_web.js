@@ -241,7 +241,7 @@ function __wbg_adapter_37(arg0, arg1, arg2) {
     wasm._dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h5dc9a98bc8edeb10(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wbg_adapter_380(arg0, arg1, arg2, arg3) {
+function __wbg_adapter_379(arg0, arg1, arg2, arg3) {
     wasm.wasm_bindgen__convert__closures__invoke2_mut__h3ff0595175ed627e(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
@@ -349,26 +349,6 @@ export class RustBrowserGame {
                 throw takeObject(r1);
             }
             return takeObject(r0);
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * @param {number} x
-     * @param {number} z
-     * @returns {number}
-     */
-    terrainHeightAt(x, z) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.rustbrowsergame_terrainHeightAt(retptr, this.__wbg_ptr, x, z);
-            var r0 = getDataViewMemory0().getFloat64(retptr + 8 * 0, true);
-            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
-            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
-            if (r3) {
-                throw takeObject(r2);
-            }
-            return r0;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
@@ -934,7 +914,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_380(a, state0.b, arg0, arg1);
+                    return __wbg_adapter_379(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -1180,15 +1160,15 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper1568 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper1566 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 276, __wbg_adapter_37);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper472 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper470 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 67, __wbg_adapter_32);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper474 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper472 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 67, __wbg_adapter_32);
         return addHeapObject(ret);
     };

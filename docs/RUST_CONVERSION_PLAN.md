@@ -346,8 +346,8 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
 - Observation: The public wasm-bindgen terrain texture upload API is gone.
   Evidence: `assets/wasm/engine_web/engine_web.d.ts` exposes
   `RustBrowserGame.create(canvas, asset_loader)`, `resize(viewport)`,
-  `tick(frame)`, `command(command)`, `debugSnapshot()`, and
-  `terrainHeightAt(x, z)`, with no `upsertTerrainTextures`.
+  `tick(frame)`, `command(command)`, and `debugSnapshot()`, with no
+  `upsertTerrainTextures`.
 
 ## Decision Log
 
@@ -841,7 +841,6 @@ resize(viewport)
 tick(frame)
 command(command)
 debugSnapshot()
-terrainHeightAt(x, z)
 ```
 
 Current runtime TypeScript that remains:

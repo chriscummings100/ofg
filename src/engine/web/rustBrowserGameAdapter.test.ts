@@ -52,7 +52,6 @@ describe("RustBrowserGameAdapter", () => {
     equal(snapshot.playerMode, "firstPerson");
     equal(snapshot.playerPosition.x, 96);
     equal(snapshot.loadedTerrainChunkKeys[0], "0,0,0");
-    equal(adapter.terrainHeightAt(4, 9), 12);
   });
 });
 
@@ -128,9 +127,6 @@ function fakeBrowserGame(): FakeBrowserGame {
         terrainWorkerCount: 6,
         playerControllerRuntime: "rust"
       };
-    },
-    terrainHeightAt(x, z) {
-      return x + z - 1;
     }
   };
 }

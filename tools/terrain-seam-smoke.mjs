@@ -130,27 +130,25 @@ async function placeSeamCamera(page, scenario) {
     { timeout: 10000 }
   );
 
-  const heights = await page.evaluate((cameraSetup) => {
-    const debug = window.__ofgDebug;
-    if (debug === undefined) {
-      throw new Error("Debug API is unavailable.");
-    }
+  const cameraGroundY = await sampleGroundedPlayerY(page, scenario.camera);
+  const targetGroundY = await sampleGroundedPlayerY(page, scenario.target);
+  await page.evaluate((player) => window.__ofgDebug?.setPlayerPosition(player.x, player.z), scenario.player);
+  await page.waitForFunction(
+    (player) => window.__ofgDebug
+      ?.getLoadedTerrainChunkKeys()
+      .some((key) => key.startsWith(`${Math.floor(player.x / 32)},`)),
+    scenario.player,
+    { timeout: 10000 }
+  );
 
-    return {
-      cameraY: debug.getTerrainHeight(cameraSetup.camera.x, cameraSetup.camera.z) +
-        cameraSetup.camera.heightOffset,
-      targetY: debug.getTerrainHeight(cameraSetup.target.x, cameraSetup.target.z) +
-        cameraSetup.target.heightOffset
-    };
-  }, scenario);
   const from = {
     x: scenario.camera.x,
-    y: heights.cameraY,
+    y: cameraGroundY + scenario.camera.heightOffset,
     z: scenario.camera.z
   };
   const target = {
     x: scenario.target.x,
-    y: heights.targetY,
+    y: targetGroundY + scenario.target.heightOffset,
     z: scenario.target.z
   };
   const orientation = lookAtYawPitch(from, target);
@@ -165,6 +163,24 @@ async function placeSeamCamera(page, scenario) {
     );
   }, { from, orientation });
   await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "FLY");
+}
+
+async function sampleGroundedPlayerY(page, point) {
+  const position = await page.evaluate((sample) => {
+    const debug = window.__ofgDebug;
+    if (debug === undefined) {
+      throw new Error("Debug API is unavailable.");
+    }
+
+    debug.setPlayerPosition(sample.x, sample.z);
+    return debug.getPlayerPosition();
+  }, point);
+
+  if (!Number.isFinite(position.y)) {
+    throw new Error(`Grounded player height is invalid: ${JSON.stringify(position)}`);
+  }
+
+  return position.y;
 }
 
 async function waitForRenderedFrame(page) {

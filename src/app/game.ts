@@ -40,8 +40,8 @@ declare global {
       getRendererStatus: () => EngineWebRendererStatus;
       getTerrainWorkerCount: () => number;
       getPlayerControllerRuntime: () => "rust";
+      getPlayerPosition: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerPosition"];
       resetTerrainStreaming: () => void;
-      getTerrainHeight: (x: number, z: number) => number;
       setCameraMode: (mode: PlayerMode) => void;
       setDebugCamera: (x: number, y: number, z: number, yaw: number, pitch: number) => void;
       setPlayerPosition: (x: number, z: number) => void;
@@ -69,11 +69,9 @@ export async function startGame(elements: GameElements): Promise<void> {
     getRendererStatus: () => game.debugSnapshot().rendererStatus,
     getTerrainWorkerCount: () => game.debugSnapshot().terrainWorkerCount,
     getPlayerControllerRuntime: () => game.debugSnapshot().playerControllerRuntime,
+    getPlayerPosition: () => game.debugSnapshot().playerPosition,
     resetTerrainStreaming() {
       game.command({ type: "resetStreaming" });
-    },
-    getTerrainHeight(x, z) {
-      return game.getTerrainHeight(x, z);
     },
     setCameraMode(mode) {
       game.command({ type: "setPlayerMode", mode: validatePlayerMode(mode) });

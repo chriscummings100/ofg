@@ -6,7 +6,7 @@ import {
 } from "./rustBrowserGameRuntime.js";
 
 describe("RustBrowserGameRuntime", () => {
-  it("delegates frame input, commands, snapshots, and debug height to Rust", () => {
+  it("delegates frame input, commands, and snapshots to Rust", () => {
     const renderer = fakeRenderer();
     const runtime = new RustBrowserGameRuntime({ renderer });
     const frame: BrowserFrameInput = {
@@ -35,7 +35,6 @@ describe("RustBrowserGameRuntime", () => {
     equal(snapshot.rendererStatus.runtime, "rust-wgpu");
     equal(snapshot.playerMode, "debugFly");
     deepEqual(snapshot.playerPosition, { x: 32, y: 8, z: 16 });
-    equal(runtime.getTerrainHeight(10, 4), 6);
   });
 });
 
@@ -103,9 +102,6 @@ function fakeRenderer(): FakeRenderer {
         terrainWorkerCount: 6,
         playerControllerRuntime: "rust"
       };
-    },
-    terrainHeightAt(x, z) {
-      return x - z;
     }
   };
 }
