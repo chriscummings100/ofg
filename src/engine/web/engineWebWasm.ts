@@ -24,7 +24,6 @@ export type EngineWebRendererStatus = {
 
 export type EngineWebBrowserGame = {
   resize(width: number, height: number): void;
-  resetGame(terrainSeed: number, terrainPreset: number): void;
   tick(frame: BrowserFrameInput): void;
   command(command: RustBrowserGameCommand): void;
   debugSnapshot(): RustBrowserGameDebugSnapshot;

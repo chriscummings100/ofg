@@ -64,10 +64,6 @@ export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
     this.upsertTerrainTexturesIfNeeded(textures);
   }
 
-  resetGame(terrainSeed: number, terrainPreset: number): void {
-    this.game.resetGame(terrainSeed, terrainPreset);
-  }
-
   tick(frame: BrowserFrameInput): void {
     this.game.tick(frame);
   }

@@ -94,7 +94,6 @@ function fakeRenderer(): FakeRenderer {
     commandCalls: [],
     renderCount: 0,
     setTerrainTextures(_textures: TerrainMaterialTextures) {},
-    resetGame(_terrainSeed: number, _terrainPreset: number) {},
     tick(frame) {
       this.tickCalls.push(frame);
     },

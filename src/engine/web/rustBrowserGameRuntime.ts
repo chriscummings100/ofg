@@ -39,7 +39,6 @@ type TerrainHeightSampler = (x: number, z: number) => number;
 export type RustBrowserGameRenderer = TerrainRenderChunkSink & {
   readonly runtime: "rust-wgpu";
   setTerrainTextures(textures: TerrainMaterialTextures): void;
-  resetGame(terrainSeed: number, terrainPreset: number): void;
   tick(frame: BrowserFrameInput): void;
   renderFrame(): void;
   command(command: RustBrowserGameCommand): void;
@@ -145,7 +144,11 @@ export async function createRustBrowserGameRuntime(
   const renderer = await RustBrowserGameAdapter.create(canvas);
   const terrainCore = await loadTerrainCoreWasm();
   const terrainPresetCode = terrainPresetToWasmCode(descriptor.terrainPreset);
-  renderer.resetGame(descriptor.seed, terrainPresetCode);
+  renderer.command({
+    type: "resetGame",
+    terrainSeed: descriptor.seed,
+    terrainPreset: terrainPresetCode
+  });
 
   const terrainWorker = createRequiredTerrainWorker(descriptor, terrainCore);
   const terrainStreamScheduler = createTerrainCoreStreamScheduler(terrainCore, {

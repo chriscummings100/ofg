@@ -5,7 +5,6 @@ export class RustBrowserGame {
   free(): void;
   static create(canvas: HTMLCanvasElement): Promise<RustBrowserGame>;
   resize(width: number, height: number): void;
-  resetGame(terrain_seed: number, terrain_preset: number): void;
   tick(frame: any): void;
   command(command: any): void;
   debugSnapshot(): any;
@@ -65,7 +64,6 @@ export interface InitOutput {
   readonly __wbg_rustbrowsergamestatus_free: (a: number, b: number) => void;
   readonly rustbrowsergame_create: (a: number) => number;
   readonly rustbrowsergame_resize: (a: number, b: number, c: number, d: number) => void;
-  readonly rustbrowsergame_resetGame: (a: number, b: number, c: number, d: number) => void;
   readonly rustbrowsergame_tick: (a: number, b: number, c: number) => void;
   readonly rustbrowsergame_command: (a: number, b: number, c: number) => void;
   readonly rustbrowsergame_debugSnapshot: (a: number, b: number) => void;

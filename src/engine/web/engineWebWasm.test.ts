@@ -32,7 +32,7 @@ describe("engine web WASM", () => {
     ok(moduleText.includes("export class RustBrowserGame"));
     ok(moduleText.includes("export class RustBrowserGameStatus"));
     ok(dtsText.includes("static create(canvas: HTMLCanvasElement): Promise<RustBrowserGame>"));
-    ok(dtsText.includes("resetGame(terrain_seed: number, terrain_preset: number): void"));
+    equal(dtsText.includes("resetGame"), false);
     ok(dtsText.includes("tick(frame: any): void"));
     equal(dtsText.includes("tick(delta_seconds"), false);
     ok(dtsText.includes("command(command: any): void"));
@@ -134,7 +134,6 @@ function fakeModule(
 function fakeBrowserGame(): EngineWebBrowserGame {
   return {
     resize() {},
-    resetGame() {},
     tick() {},
     command() {},
     debugSnapshot() {

@@ -39,7 +39,13 @@ export type GameCommand =
     }
   | { readonly type: "resetStreaming" };
 
-export type RustBrowserGameCommand = Exclude<
+export type RustBrowserGameResetCommand = {
+  readonly type: "resetGame";
+  readonly terrainSeed: number;
+  readonly terrainPreset: number;
+};
+
+export type RustBrowserGameCommand = RustBrowserGameResetCommand | Exclude<
   GameCommand,
   { readonly type: "resetStreaming" }
 >;

@@ -140,13 +140,6 @@ impl RustBrowserGame {
         self.renderer.resize(width, height)
     }
 
-    #[wasm_bindgen(js_name = resetGame)]
-    pub fn reset_game(&mut self, terrain_seed: u32, terrain_preset: u32) -> Result<(), JsValue> {
-        self.game_state
-            .reset_game(terrain_seed, terrain_preset)
-            .map_err(js_error)
-    }
-
     #[wasm_bindgen(js_name = tick)]
     pub fn tick(&mut self, frame: JsValue) -> Result<(), JsValue> {
         let input = browser_game_input_from_js(&frame)?;
@@ -157,6 +150,14 @@ impl RustBrowserGame {
     pub fn command(&mut self, command: JsValue) -> Result<(), JsValue> {
         let command_type = js_required_string(&command, "type", "command.type")?;
         match command_type.as_str() {
+            "resetGame" => {
+                let terrain_seed = js_required_u32(&command, "terrainSeed", "command.terrainSeed")?;
+                let terrain_preset =
+                    js_required_u32(&command, "terrainPreset", "command.terrainPreset")?;
+                self.game_state
+                    .reset_game(terrain_seed, terrain_preset)
+                    .map_err(js_error)?;
+            }
             "togglePlayerMode" => {
                 self.game_state.toggle_player_mode().map_err(js_error)?;
             }
@@ -1408,6 +1409,22 @@ fn js_required_f32(object: &JsValue, property: &str, path: &str) -> Result<f32, 
     }
 
     Ok(number as f32)
+}
+
+fn js_required_u32(object: &JsValue, property: &str, path: &str) -> Result<u32, JsValue> {
+    let value = js_required_property(object, property, path)?;
+    let Some(number) = value.as_f64() else {
+        return Err(js_error(format!(
+            "Rust browser game expected {path} to be a number."
+        )));
+    };
+    if !number.is_finite() || number.fract() != 0.0 || number < 0.0 || number > u32::MAX as f64 {
+        return Err(js_error(format!(
+            "Rust browser game expected {path} to be a u32."
+        )));
+    }
+
+    Ok(number as u32)
 }
 
 fn js_required_bool(object: &JsValue, property: &str, path: &str) -> Result<bool, JsValue> {

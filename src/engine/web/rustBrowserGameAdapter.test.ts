@@ -31,7 +31,7 @@ describe("RustBrowserGameAdapter", () => {
     const fake = fakeBrowserGame();
     const adapter = new RustBrowserGameAdapter(fakeCanvas(), fake);
 
-    adapter.resetGame(0x0F6, 1);
+    adapter.command({ type: "resetGame", terrainSeed: 0x0F6, terrainPreset: 1 });
     adapter.tick({
       deltaSeconds: 0.25,
       movement: {
@@ -51,16 +51,15 @@ describe("RustBrowserGameAdapter", () => {
     adapter.command({ type: "setDebugCamera", x: 1, y: 2, z: 3, yaw: 0.25, pitch: -0.5 });
     const snapshot = adapter.getDebugSnapshot();
 
-    equal(fake.resetGameCalls[0]?.terrainSeed, 0x0F6);
-    equal(fake.resetGameCalls[0]?.terrainPreset, 1);
+    equal(fake.commandCalls[0]?.type, "resetGame");
     equal(fake.tickCalls[0]?.deltaSeconds, 0.25);
     equal(fake.tickCalls[0]?.movement.forward, 1);
     equal(fake.tickCalls[0]?.movement.right, -1);
     equal(fake.tickCalls[0]?.movement.fast, true);
-    equal(fake.commandCalls[0]?.type, "togglePlayerMode");
-    equal(fake.commandCalls[1]?.type, "setPlayerMode");
-    equal(fake.commandCalls[2]?.type, "setPlayerPosition");
-    equal(fake.commandCalls[3]?.type, "setDebugCamera");
+    equal(fake.commandCalls[1]?.type, "togglePlayerMode");
+    equal(fake.commandCalls[2]?.type, "setPlayerMode");
+    equal(fake.commandCalls[3]?.type, "setPlayerPosition");
+    equal(fake.commandCalls[4]?.type, "setDebugCamera");
     equal(snapshot.playerMode, "firstPerson");
     equal(snapshot.playerPosition.x, 96);
   });
@@ -110,10 +109,6 @@ type FakeBrowserGame = EngineWebBrowserGame & {
     readonly height: number;
   }[];
   renderCount: number;
-  resetGameCalls: {
-    readonly terrainSeed: number;
-    readonly terrainPreset: number;
-  }[];
   tickCalls: BrowserFrameInput[];
   commandCalls: Array<Parameters<EngineWebBrowserGame["command"]>[0]>;
 };
@@ -127,14 +122,10 @@ function fakeBrowserGame(): FakeBrowserGame {
     clearedTerrainMeshes: 0,
     resizeCalls: [],
     renderCount: 0,
-    resetGameCalls: [],
     tickCalls: [],
     commandCalls: [],
     resize(width, height) {
       this.resizeCalls.push({ width, height });
-    },
-    resetGame(terrainSeed, terrainPreset) {
-      this.resetGameCalls.push({ terrainSeed, terrainPreset });
     },
     tick(frame) {
       this.tickCalls.push(frame);
