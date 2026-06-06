@@ -131,9 +131,6 @@ function fakeRenderer(): FakeRenderer {
       return fakeRendererStatus();
     },
     addChunk() {},
-    getChunk() {
-      return undefined;
-    },
     removeChunk() {
       return false;
     },

@@ -144,10 +144,6 @@ class RecordingTerrainRenderChunkSink implements TerrainRenderChunkSink {
     });
   }
 
-  getChunk(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainRenderChunkPacket | undefined {
-    return this.packets.get(toChunkKey(chunk));
-  }
-
   removeChunk(chunk: TerrainChunkKey | TerrainChunkCoord): boolean {
     return this.packets.delete(toChunkKey(chunk));
   }

@@ -143,6 +143,10 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   `npm test` and `npm run smoke:browser`; inspected
   `artifacts/browser-smoke/2026-06-06T09-11-13-602Z/report.json` plus first
   person, debug-fly, and streamed first-person screenshots.
+- [x] (2026-06-06) Trimmed unused TypeScript terrain adapter surface: removed
+  unused terrain-core density-window generator wrappers and the unused
+  `getChunk` read method from the temporary terrain render sink contract.
+- [x] (2026-06-06) Validated unused terrain adapter trim with `npm test`.
 
 ## Surprises & Discoveries
 
@@ -209,6 +213,12 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   calls `createTerrainChunkWorkerClient(descriptor, terrainCore)`, while the
   worker-client test injects `TerrainCoreWorkerPool` directly. The fallback
   `TypeScriptTerrainWorkerPool` had no live call site.
+- Observation: Some TypeScript terrain-core wrapper helpers and render-sink
+  methods were leftover adapter surface, not runtime behavior.
+  Evidence: `rg` found no call sites for
+  `prepareTerrainCoreDensityChunkWindow`,
+  `createTerrainCoreChunkMeshGenerator`,
+  `createTerrainCoreDensityChunkWindowGenerator`, or the sink `getChunk` method.
 - Observation: The active docs had become plan-shaped overlap: an engine plan,
   a reduction audit, an API contract, a scene-model plan, and a reduction
   ExecPlan were all close enough to confuse the source of truth.
@@ -294,6 +304,11 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   and was no longer used. Keeping it would make a broken non-Rust path look
   supported.
   Date/Author: 2026-06-06 / Codex.
+- Decision: Keep temporary TypeScript terrain contracts write-only where the
+  runtime only uploads or removes chunks.
+  Rationale: A read method on the browser-side terrain render sink preserved old
+  packet-store shape without helping the current worker-to-Rust upload path.
+  Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -357,6 +372,10 @@ The TypeScript worker-pool fallback deletion slice validated with:
 
     npm test
     npm run smoke:browser
+
+The unused terrain adapter trim validated with:
+
+    npm test
 
 ## Context and Orientation
 

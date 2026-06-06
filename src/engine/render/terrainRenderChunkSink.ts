@@ -29,7 +29,6 @@ export type TerrainRenderChunkInput =
 
 export type TerrainRenderChunkSink = {
   addChunk(chunk: TerrainRenderChunkInput): void;
-  getChunk(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainRenderChunkPacket | undefined;
   removeChunk(chunk: TerrainChunkKey | TerrainChunkCoord): boolean;
   clear(): void;
   retainChunks(chunks: readonly (TerrainChunkKey | TerrainChunkCoord)[]): void;

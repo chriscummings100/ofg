@@ -12,7 +12,6 @@ import {
 } from "./engineWebWasm.js";
 import type {
   TerrainRenderChunkInput,
-  TerrainRenderChunkPacket,
   TerrainRenderChunkSink
 } from "../render/terrainRenderChunkSink.js";
 import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
@@ -118,10 +117,6 @@ export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
     const mesh = "mesh" in chunk ? chunk.mesh : chunk;
     this.terrainChunkKeys.add(chunk.key);
     this.game.upsertTerrainMesh(chunk.key, mesh.vertices, mesh.indices);
-  }
-
-  getChunk(_chunk: TerrainChunkKey | TerrainChunkCoord): TerrainRenderChunkPacket | undefined {
-    return undefined;
   }
 
   removeChunk(chunk: TerrainChunkKey | TerrainChunkCoord): boolean {
