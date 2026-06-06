@@ -6,33 +6,48 @@ import {
 import { generateTerrainDensityChunkWithWasm } from "./terrainCoreDensityChunk.js";
 import { loadTerrainCoreWasm, type TerrainCoreWasmInstance } from "./terrainCoreWasm.js";
 import type {
+  BrowserWorkerCompletionEnvelope,
+  BrowserWorkerRequestEnvelope
+} from "../browser/browserWorkerHost.js";
+import type {
   TerrainChunkJobResult,
   TerrainDensityJobResult,
   TerrainWorkerChunkJobRequest,
   TerrainWorkerDensityJobRequest,
-  TerrainWorkerMessage,
-  TerrainWorkerRequestMessage
+  TerrainWorkerRequestPayload,
+  TerrainWorkerResultPayload
 } from "./terrainChunkWorkerTypes.js";
 
 let terrainCorePromise: Promise<TerrainCoreWasmInstance> | undefined;
 const workerSelf = self as unknown as {
   addEventListener(
     type: "message",
-    listener: (event: MessageEvent<TerrainWorkerRequestMessage>) => void
+    listener: (
+      event: MessageEvent<BrowserWorkerRequestEnvelope<TerrainWorkerRequestPayload>>
+    ) => void
   ): void;
-  postMessage(message: TerrainWorkerMessage, options?: { readonly transfer: Transferable[] }): void;
+  postMessage(
+    message: BrowserWorkerCompletionEnvelope<TerrainWorkerResultPayload>,
+    options?: { readonly transfer: Transferable[] }
+  ): void;
 };
 
-workerSelf.addEventListener("message", (event: MessageEvent<TerrainWorkerRequestMessage>) => {
+workerSelf.addEventListener("message", (
+  event: MessageEvent<BrowserWorkerRequestEnvelope<TerrainWorkerRequestPayload>>
+) => {
   const message = event.data;
+  const payload = message.payload;
 
-  if (message.type === "prepareDensityChunk") {
-    void prepareDensityChunk(message.request)
+  if (payload.type === "prepareDensityChunk") {
+    void prepareDensityChunk(payload.request)
       .then((result) => {
         workerSelf.postMessage({
-          type: "densityResult",
+          type: "complete",
           requestId: message.requestId,
-          result
+          payload: {
+            type: "densityResult",
+            result
+          }
         }, {
           transfer: [
             result.densities.buffer
@@ -49,12 +64,15 @@ workerSelf.addEventListener("message", (event: MessageEvent<TerrainWorkerRequest
     return;
   }
 
-  void generateChunk(message.request)
+  void generateChunk(payload.request)
     .then((result) => {
       workerSelf.postMessage({
-        type: "chunkResult",
+        type: "complete",
         requestId: message.requestId,
-        result
+        payload: {
+          type: "chunkResult",
+          result
+        }
       }, {
         transfer: [
           result.vertices.buffer,

@@ -158,12 +158,17 @@ src/engine/math
 src/engine/input
   DOM input tracker for keys, edge-triggered presses, pointer-lock mouse deltas.
 
+src/engine/browser
+  Generic browser substrate helpers. `BrowserWorkerHost` owns Worker lifecycle,
+  request-id envelopes, resets, disposal, and completion forwarding without
+  understanding terrain job payloads.
+
 src/engine/world
   Browser-side terrain descriptor/config types, 3D density chunk data contracts,
   Rust/WASM terrain adapters, generic browser worker transport, density transfer
-  helpers, terrain material metadata, terrain mesh vertex layout helpers, and
-  primitive box mesh. Compiled TypeScript no longer owns terrain generation,
-  noise, Dual Contouring, terrain streaming policy, or a terrain manager.
+  helpers, terrain material metadata, and terrain mesh vertex layout helpers.
+  Compiled TypeScript no longer owns terrain generation, noise, Dual
+  Contouring, terrain streaming policy, or a terrain manager.
 
 src/engine/render
   Browser-side texture loading helpers, shader metadata tests, and the temporary

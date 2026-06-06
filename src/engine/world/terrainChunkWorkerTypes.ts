@@ -64,41 +64,30 @@ export type TerrainChunkJobGenerator = {
   dispose?(): void;
 };
 
-export type TerrainWorkerDensityRequestMessage = {
+export type TerrainWorkerDensityRequestPayload = {
   readonly type: "prepareDensityChunk";
-  readonly requestId: number;
   readonly request: TerrainWorkerDensityJobRequest;
 };
 
-export type TerrainWorkerChunkRequestMessage = {
+export type TerrainWorkerChunkRequestPayload = {
   readonly type: "generateChunk";
-  readonly requestId: number;
   readonly request: TerrainWorkerChunkJobRequest;
 };
 
-export type TerrainWorkerRequestMessage =
-  | TerrainWorkerDensityRequestMessage
-  | TerrainWorkerChunkRequestMessage;
+export type TerrainWorkerRequestPayload =
+  | TerrainWorkerDensityRequestPayload
+  | TerrainWorkerChunkRequestPayload;
 
-export type TerrainWorkerDensityResultMessage = {
+export type TerrainWorkerDensityResultPayload = {
   readonly type: "densityResult";
-  readonly requestId: number;
   readonly result: TerrainDensityJobResult;
 };
 
-export type TerrainWorkerResultMessage = {
+export type TerrainWorkerChunkResultPayload = {
   readonly type: "chunkResult";
-  readonly requestId: number;
   readonly result: TerrainChunkJobResult;
 };
 
-export type TerrainWorkerErrorMessage = {
-  readonly type: "error";
-  readonly requestId: number;
-  readonly message: string;
-};
-
-export type TerrainWorkerMessage =
-  | TerrainWorkerDensityResultMessage
-  | TerrainWorkerResultMessage
-  | TerrainWorkerErrorMessage;
+export type TerrainWorkerResultPayload =
+  | TerrainWorkerDensityResultPayload
+  | TerrainWorkerChunkResultPayload;

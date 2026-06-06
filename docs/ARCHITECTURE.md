@@ -30,6 +30,11 @@ src/app
 src/engine/input
   DOM input tracking with edge-triggered key events and mouse deltas.
 
+src/engine/browser
+  Generic browser substrate helpers. `BrowserWorkerHost` owns Worker lifecycle,
+  request-id envelopes, resets, disposal, and completion forwarding without
+  understanding terrain job payloads.
+
 src/engine/world
   Terrain descriptor/config types, 3D density chunk contracts, Rust/WASM terrain
   adapters, worker transport, density transfer helpers, terrain materials, and
@@ -126,13 +131,14 @@ density/LOD0 sets, dependency coordinates, in-flight work, stale generation
 rejection, ready/empty state, density storage, mesh packet storage, packet
 pruning, and the worker-pool/request model. That worker model includes slot
 assignment, request IDs, reset generations, and completion validation. TypeScript
-still constructs browser Workers, but only below the runtime facade and through a
-generic transport utility; the dev/smoke runtime is cross-origin isolated and the
-playable bridge uses `SharedArrayBuffer`-backed density dependency payloads when
-available. Workers still copy those payloads into their local `terrain_core.wasm`
-density stores before contouring; Rust-managed wasm threads or an opaque
-Rust-owned worker job protocol are still future work. Loaded density chunk keys
-remain fully 3D.
+still constructs browser Workers, but only below the runtime facade and through
+the generic `BrowserWorkerHost` request envelope; the dev/smoke runtime is
+cross-origin isolated and the playable bridge uses `SharedArrayBuffer`-backed
+density dependency payloads when available. Workers still copy those payloads
+into their local `terrain_core.wasm` density stores before contouring, and the
+TypeScript terrain client still names density and chunk payloads. Rust-managed
+wasm threads or a Rust-owned opaque worker job protocol are still future work.
+Loaded density chunk keys remain fully 3D.
 Runtime terrain meshes carry position, color, normal, uv, material layer indices,
 and material weights. A small mesh post-pass expands indexed triangles so each
 triangle has a coherent local four-material palette for interpolation.

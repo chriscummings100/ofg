@@ -14,9 +14,13 @@ import {
   TerrainChunkWorkerClient
 } from "./terrainChunkWorkerClient.js";
 import type {
-  TerrainWorkerMessage,
-  TerrainWorkerRequestMessage
+  TerrainWorkerRequestPayload,
+  TerrainWorkerResultPayload
 } from "./terrainChunkWorkerTypes.js";
+import type {
+  BrowserWorkerCompletionEnvelope,
+  BrowserWorkerRequestEnvelope
+} from "../browser/browserWorkerHost.js";
 import { createSeedWorldDescriptor } from "./terrainDescriptor.js";
 import { TERRAIN_CORE_WASM_METADATA } from "../../generated/terrain/terrainCoreWasm.js";
 
@@ -52,8 +56,8 @@ describe("TerrainChunkWorkerClient", () => {
     equal(fakeWorkers.length, 2);
     equal(fakeWorkers[0].messages[0].requestId, 1);
     equal(fakeWorkers[1].messages[0].requestId, 2);
-    equal(fakeWorkers[0].messages[0].request.coord, firstCoord);
-    equal(fakeWorkers[1].messages[0].request.coord, secondCoord);
+    equal(fakeWorkers[0].messages[0].payload.request.coord, firstCoord);
+    equal(fakeWorkers[1].messages[0].payload.request.coord, secondCoord);
 
     fakeWorkers[0].emitMessage(densityResultMessage(1, 11, firstCoord));
     const firstResult = await first;
@@ -74,24 +78,30 @@ describe("TerrainChunkWorkerClient", () => {
 });
 
 class FakeTerrainWorker {
-  readonly messages: TerrainWorkerRequestMessage[] = [];
+  readonly messages: BrowserWorkerRequestEnvelope<TerrainWorkerRequestPayload>[] = [];
   terminated = false;
-  private readonly messageListeners: Array<(event: MessageEvent<TerrainWorkerMessage>) => void> = [];
+  private readonly messageListeners: Array<(
+    event: MessageEvent<BrowserWorkerCompletionEnvelope<TerrainWorkerResultPayload>>
+  ) => void> = [];
   private readonly errorListeners: Array<(event: ErrorEvent) => void> = [];
 
   addEventListener(
     type: "message" | "error",
-    listener: ((event: MessageEvent<TerrainWorkerMessage>) => void) |
+    listener: ((
+      event: MessageEvent<BrowserWorkerCompletionEnvelope<TerrainWorkerResultPayload>>
+    ) => void) |
       ((event: ErrorEvent) => void)
   ): void {
     if (type === "message") {
-      this.messageListeners.push(listener as (event: MessageEvent<TerrainWorkerMessage>) => void);
+      this.messageListeners.push(listener as (
+        event: MessageEvent<BrowserWorkerCompletionEnvelope<TerrainWorkerResultPayload>>
+      ) => void);
     } else {
       this.errorListeners.push(listener as (event: ErrorEvent) => void);
     }
   }
 
-  postMessage(message: TerrainWorkerRequestMessage): void {
+  postMessage(message: BrowserWorkerRequestEnvelope<TerrainWorkerRequestPayload>): void {
     this.messages.push(message);
   }
 
@@ -99,9 +109,11 @@ class FakeTerrainWorker {
     this.terminated = true;
   }
 
-  emitMessage(message: TerrainWorkerMessage): void {
+  emitMessage(message: BrowserWorkerCompletionEnvelope<TerrainWorkerResultPayload>): void {
     for (const listener of this.messageListeners) {
-      listener({ data: message } as MessageEvent<TerrainWorkerMessage>);
+      listener({
+        data: message
+      } as MessageEvent<BrowserWorkerCompletionEnvelope<TerrainWorkerResultPayload>>);
     }
   }
 }
@@ -110,16 +122,19 @@ function densityResultMessage(
   requestId: number,
   generation: number,
   coord: TerrainChunkCoord
-): TerrainWorkerMessage {
+): BrowserWorkerCompletionEnvelope<TerrainWorkerResultPayload> {
   return {
-    type: "densityResult",
+    type: "complete",
     requestId,
-    result: {
-      generation,
-      key: terrainChunkKey(coord),
-      coord,
-      densities: new Float32Array([1, 2, 3]),
-      stats: { totalMs: 1 }
+    payload: {
+      type: "densityResult",
+      result: {
+        generation,
+        key: terrainChunkKey(coord),
+        coord,
+        densities: new Float32Array([1, 2, 3]),
+        stats: { totalMs: 1 }
+      }
     }
   };
 }
