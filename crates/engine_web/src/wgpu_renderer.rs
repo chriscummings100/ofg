@@ -1,3 +1,5 @@
+// Browser-facing Rust/wgpu game facade. It owns WebGPU resources, terrain draw
+// submission, and render-facing GLTF model resources for the playable browser path.
 use std::borrow::Cow;
 use std::collections::HashMap;
 
@@ -27,9 +29,7 @@ use crate::resources::{ResourceHandle, ResourceStore};
 use crate::terrain_stream::{BrowserTerrainStream, BrowserTerrainStreamStatus, TerrainJobStats};
 use crate::terrain_textures::{load_terrain_texture_arrays, TerrainTextureArrays};
 use crate::ENGINE_WEB_VERSION;
-use engine_core::{
-    PlayerMode, Vec3, DEBUG_PLAYER_MARKER_MATERIAL_LABEL, DEBUG_PLAYER_MARKER_MESH_LABEL,
-};
+use engine_core::{PlayerMode, Vec3};
 use terrain_core::{terrain_chunk_key, TerrainChunkCoord, DEFAULT_TERRAIN_PRESET};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
@@ -133,15 +133,11 @@ impl MeshVertexLayout {
     }
 }
 
-const TERRAIN_MATERIAL_INDICES_OFFSET: usize = 11;
-const TERRAIN_MATERIAL_WEIGHTS_OFFSET: usize = 15;
 const IDENTITY_WORLD_MATRIX: [f32; WORLD_MATRIX_FLOATS] = [
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
 ];
 const PLAYER_CHARACTER_SCENE_SCALE: f32 = 1.0;
 const PLAYER_CHARACTER_HEIGHT_OFFSET: f32 = 0.0;
-const PLAYER_MARKER_MATERIAL_PACKET: [f32; MATERIAL_PACKET_FLOATS] =
-    [1.0, 1.0, 1.0, 1.0, 1.0, 0.92, 0.65, 0.45, 0.0, 1.0];
 
 #[wasm_bindgen]
 impl RustBrowserGame {
@@ -162,12 +158,6 @@ impl RustBrowserGame {
         let player_model = import_gltf_model_from_slice(&player_model_bytes).map_err(js_error)?;
         let player_character = PlayerCharacterModel::from_model(player_model).map_err(js_error)?;
         let player_character_vertices = player_character.current_vertices().map_err(js_error)?;
-        let (player_marker_vertices, player_marker_indices) = create_player_marker_mesh();
-        let player_marker_mesh = renderer.register_mesh(
-            &player_marker_vertices,
-            &player_marker_indices,
-            TERRAIN_VERTEX_FLOATS,
-        )?;
         let player_character_mesh = renderer.register_mesh(
             &player_character_vertices,
             player_character.indices(),
@@ -176,19 +166,11 @@ impl RustBrowserGame {
 
         let mut scene_mesh_handles_by_label = HashMap::new();
         scene_mesh_handles_by_label.insert(
-            DEBUG_PLAYER_MARKER_MESH_LABEL.to_string(),
-            player_marker_mesh,
-        );
-        scene_mesh_handles_by_label.insert(
             PLAYER_QUATERNIUS_UAL2_MESH_LABEL.to_string(),
             player_character_mesh,
         );
 
         let mut scene_material_packets_by_label = HashMap::new();
-        scene_material_packets_by_label.insert(
-            DEBUG_PLAYER_MARKER_MATERIAL_LABEL.to_string(),
-            PLAYER_MARKER_MATERIAL_PACKET,
-        );
         scene_material_packets_by_label.insert(
             PLAYER_QUATERNIUS_UAL2_MATERIAL_LABEL.to_string(),
             player_character.material_packet(),
@@ -196,7 +178,7 @@ impl RustBrowserGame {
 
         let mut game_state = BrowserGameState::new();
         game_state
-            .configure_scaled_static_model_scene(
+            .configure_player_character_scene(
                 PLAYER_QUATERNIUS_UAL2_MESH_LABEL,
                 PLAYER_QUATERNIUS_UAL2_MATERIAL_LABEL,
                 PLAYER_CHARACTER_SCENE_SCALE,
@@ -386,6 +368,32 @@ impl RustBrowserGame {
             "playerControllerRuntime",
             JsValue::from_str("rust"),
         )?;
+        if let Some(character_scene) = self
+            .game_state
+            .player_character_scene_snapshot()
+            .map_err(js_error)?
+        {
+            set_js_property(
+                &snapshot,
+                "playerCharacterRuntime",
+                JsValue::from_str(character_scene.runtime),
+            )?;
+            set_js_property(
+                &snapshot,
+                "playerCharacterVisible",
+                JsValue::from_bool(character_scene.visible),
+            )?;
+            set_js_property(
+                &snapshot,
+                "playerCharacterFollowsPlayer",
+                JsValue::from_bool(character_scene.follows_player),
+            )?;
+            set_js_property(
+                &snapshot,
+                "debugPlayerMarkerVisible",
+                JsValue::from_bool(character_scene.debug_marker_visible),
+            )?;
+        }
         let animation = self.player_character.animation_snapshot();
         set_js_property(
             &snapshot,
@@ -1883,62 +1891,4 @@ fn handle_from_js(handle: f64) -> Result<ResourceHandle, JsValue> {
 
 fn js_error(error: impl std::fmt::Display) -> JsValue {
     js_sys::Error::new(&error.to_string()).unchecked_into()
-}
-
-fn create_player_marker_mesh() -> (Vec<f32>, Vec<u32>) {
-    create_box_mesh([0.0, 0.9, 0.0], [0.28, 0.9, 0.22], [0.96, 0.7, 0.24])
-}
-
-fn create_box_mesh(center: [f32; 3], half_size: [f32; 3], color: [f32; 3]) -> (Vec<f32>, Vec<u32>) {
-    let corners = [
-        [-1.0, -1.0, -1.0],
-        [1.0, -1.0, -1.0],
-        [1.0, 1.0, -1.0],
-        [-1.0, 1.0, -1.0],
-        [-1.0, -1.0, 1.0],
-        [1.0, -1.0, 1.0],
-        [1.0, 1.0, 1.0],
-        [-1.0, 1.0, 1.0],
-    ];
-    let mut vertices = vec![0.0; corners.len() * TERRAIN_VERTEX_FLOATS as usize];
-    for (index, corner) in corners.iter().enumerate() {
-        let offset = index * TERRAIN_VERTEX_FLOATS as usize;
-        let normal = normalize3(*corner);
-
-        vertices[offset] = center[0] + corner[0] * half_size[0];
-        vertices[offset + 1] = center[1] + corner[1] * half_size[1];
-        vertices[offset + 2] = center[2] + corner[2] * half_size[2];
-        vertices[offset + 3] = color[0];
-        vertices[offset + 4] = color[1];
-        vertices[offset + 5] = color[2];
-        vertices[offset + 6] = normal[0];
-        vertices[offset + 7] = normal[1];
-        vertices[offset + 8] = normal[2];
-        vertices[offset + 9] = (corner[0] + 1.0) * 0.5;
-        vertices[offset + 10] = (corner[2] + 1.0) * 0.5;
-        vertices[offset + TERRAIN_MATERIAL_INDICES_OFFSET] = 0.0;
-        vertices[offset + TERRAIN_MATERIAL_INDICES_OFFSET + 1] = 0.0;
-        vertices[offset + TERRAIN_MATERIAL_INDICES_OFFSET + 2] = 0.0;
-        vertices[offset + TERRAIN_MATERIAL_INDICES_OFFSET + 3] = 0.0;
-        vertices[offset + TERRAIN_MATERIAL_WEIGHTS_OFFSET] = 1.0;
-        vertices[offset + TERRAIN_MATERIAL_WEIGHTS_OFFSET + 1] = 0.0;
-        vertices[offset + TERRAIN_MATERIAL_WEIGHTS_OFFSET + 2] = 0.0;
-        vertices[offset + TERRAIN_MATERIAL_WEIGHTS_OFFSET + 3] = 0.0;
-    }
-
-    let indices = vec![
-        0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6, 0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2, 2, 6, 7, 2, 7, 3,
-        3, 7, 4, 3, 4, 0,
-    ];
-
-    (vertices, indices)
-}
-
-fn normalize3(value: [f32; 3]) -> [f32; 3] {
-    let length = (value[0] * value[0] + value[1] * value[1] + value[2] * value[2]).sqrt();
-    if length <= f32::EPSILON {
-        return [0.0, 1.0, 0.0];
-    }
-
-    [value[0] / length, value[1] / length, value[2] / length]
 }

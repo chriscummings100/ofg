@@ -60,6 +60,10 @@ describe("RustBrowserGameAdapter", () => {
     equal(snapshot.modelAnimationBlendWeight, 0.5);
     equal(snapshot.modelSkinningRuntime, "rust-cpu");
     equal(snapshot.modelSkinningJointCount, 2);
+    equal(snapshot.playerCharacterRuntime, "rust");
+    equal(snapshot.playerCharacterVisible, true);
+    equal(snapshot.playerCharacterFollowsPlayer, true);
+    equal(snapshot.debugPlayerMarkerVisible, false);
   });
 });
 
@@ -134,6 +138,10 @@ function fakeBrowserGame(): FakeBrowserGame {
         },
         terrainWorkerCount: 6,
         playerControllerRuntime: "rust",
+        playerCharacterRuntime: "rust",
+        playerCharacterVisible: true,
+        playerCharacterFollowsPlayer: true,
+        debugPlayerMarkerVisible: false,
         modelAnimationRuntime: "rust",
         activeModelAnimationClip: "test-move",
         nextModelAnimationClip: "test-walk",

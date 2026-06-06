@@ -33,7 +33,7 @@ decisions.
 | OFG-API-007 | Raw linked WASM exports in `engine_web` | Unsupported | `assets/wasm/engine_web/engine_web.d.ts`, `crates/*/src/facade.rs` |
 | OFG-API-008 | Future game lifecycle and tuning surface | Future | This document until real behavior exists |
 | OFG-API-009 | Forbidden TypeScript ownership | Forbidden | This document and `docs/ARCHITECTURE.md` |
-| OFG-API-010 | GLTF model, animation, and skinning loading | Active | `docs/GLTF_CHARACTER_PLAN.md`, `crates/engine_web/src/model_assets.rs`, `crates/engine_web/src/model_animation.rs`, `crates/engine_web/src/model_skinning.rs`, `crates/engine_web/src/model_render_assets.rs`, `crates/engine_web/src/wgpu_renderer.rs` |
+| OFG-API-010 | GLTF model, animation, and skinning loading | Active | `docs/archived/GLTF_CHARACTER_PLAN.md`, `crates/engine_web/src/model_assets.rs`, `crates/engine_web/src/model_animation.rs`, `crates/engine_web/src/model_skinning.rs`, `crates/engine_web/src/model_render_assets.rs`, `crates/engine_web/src/wgpu_renderer.rs` |
 
 ## OFG-API-001: Browser Shell To Rust Browser Game
 
@@ -316,18 +316,21 @@ Allowed TypeScript responsibilities remain:
 
 ## OFG-API-010: GLTF Model And Animation Loading
 
-The active feature plan is `docs/GLTF_CHARACTER_PLAN.md`. The current supported
-slice loads checked-in GLB fixtures through the generic byte asset loader,
-parses them in Rust, registers static model mesh/material resources, attaches
-model nodes to the Rust scene, renders them through Rust/wgpu, samples
-non-skinned node animation clips for translation, rotation, and scale, imports
-skin joints/inverse bind matrices, CPU-skins rigged model vertices, updates a
-same-size model vertex buffer every frame, and selects/blends idle and walk
-clips from Rust horizontal movement input. The current live player asset is a
-selected Quaternius Universal Animation Library 2 GLB using
-`Idle_FoldArms_Loop` and `Walk_Carry_Loop`. GPU skinning, multi-primitive
-character assembly, and retargeting the separate Quaternius base-character GLB
-remain future milestones under the same boundary.
+The completed feature plan is archived at
+`docs/archived/GLTF_CHARACTER_PLAN.md`. The current supported slice loads
+checked-in GLB fixtures through the generic byte asset loader, parses them in
+Rust, registers model mesh/material resources, attaches model nodes to the Rust
+scene, renders them through Rust/wgpu, samples non-skinned node animation clips
+for translation, rotation, and scale, imports skin joints/inverse bind matrices,
+CPU-skins rigged model vertices, updates a same-size model vertex buffer every
+frame, and selects/blends idle and walk clips from Rust horizontal movement
+input. The current live player asset is a selected Quaternius Universal
+Animation Library 2 GLB using `Idle_FoldArms_Loop` and `Walk_Carry_Loop`. It is
+attached to a Rust-owned player character scene item that follows the Rust
+player transform, stays hidden in first-person, and replaces the old yellow
+debug marker as the browser debug-fly player representation. GPU skinning,
+multi-primitive character assembly, and retargeting the separate Quaternius
+base-character GLB remain future milestones under the same boundary.
 
 The intended runtime format is checked-in GLB for model and animation assets.
 Rust owns GLTF parsing, model resource registration, scene node/entity creation,
@@ -354,8 +357,8 @@ Contract rules:
 - TypeScript must not inspect meshes, nodes, skins, animation channels, clips,
   materials, or skeletons.
 - TypeScript must not create per-model or per-entity render calls.
-- Rust debug snapshots may expose active model, clip, blend, and skinning state
-  for HUD and smoke tests.
+- Rust debug snapshots may expose active model, player-character visibility,
+  clip, blend, and skinning state for HUD and smoke tests.
 - Static model meshes, skinned model meshes, and animation data should use
   explicit Rust-owned contracts rather than overloading the terrain vertex
   layout.

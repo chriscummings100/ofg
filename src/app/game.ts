@@ -40,6 +40,10 @@ declare global {
       getRendererStatus: () => EngineWebRendererStatus;
       getTerrainWorkerCount: () => number;
       getPlayerControllerRuntime: () => "rust";
+      getPlayerCharacterRuntime: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerCharacterRuntime"];
+      getPlayerCharacterVisible: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerCharacterVisible"];
+      getPlayerCharacterFollowsPlayer: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerCharacterFollowsPlayer"];
+      getDebugPlayerMarkerVisible: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["debugPlayerMarkerVisible"];
       getModelAnimationRuntime: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationRuntime"];
       getActiveModelAnimationClip: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["activeModelAnimationClip"];
       getNextModelAnimationClip: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["nextModelAnimationClip"];
@@ -77,6 +81,10 @@ export async function startGame(elements: GameElements): Promise<void> {
     getRendererStatus: () => game.debugSnapshot().rendererStatus,
     getTerrainWorkerCount: () => game.debugSnapshot().terrainWorkerCount,
     getPlayerControllerRuntime: () => game.debugSnapshot().playerControllerRuntime,
+    getPlayerCharacterRuntime: () => game.debugSnapshot().playerCharacterRuntime,
+    getPlayerCharacterVisible: () => game.debugSnapshot().playerCharacterVisible,
+    getPlayerCharacterFollowsPlayer: () => game.debugSnapshot().playerCharacterFollowsPlayer,
+    getDebugPlayerMarkerVisible: () => game.debugSnapshot().debugPlayerMarkerVisible,
     getModelAnimationRuntime: () => game.debugSnapshot().modelAnimationRuntime,
     getActiveModelAnimationClip: () => game.debugSnapshot().activeModelAnimationClip,
     getNextModelAnimationClip: () => game.debugSnapshot().nextModelAnimationClip,

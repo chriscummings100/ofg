@@ -1,3 +1,5 @@
+// Rust-owned browser game state: terrain/player setup plus render-facing scene
+// mesh items for imported GLTF models and the player character.
 use engine_core::{
     Engine, EngineError, EngineUpdateInput, EntityId, LocalTransform, MaterialId, MeshId,
     MeshRendererComponent, PlayerMode, PlayerMovementIntent, Quat, TerrainComponent, Vec3,
@@ -16,6 +18,7 @@ const INITIAL_STATIC_MODEL_X: f32 = 3.0;
 const INITIAL_STATIC_MODEL_Z: f32 = 6.0;
 const INITIAL_STATIC_MODEL_HEIGHT_OFFSET: f32 = 1.2;
 const INITIAL_STATIC_MODEL_SCALE: f32 = 2.0;
+const MODEL_FOLLOWS_PLAYER_EPSILON: f32 = 0.001;
 const INITIAL_DEBUG_X: f32 = 14.0;
 const INITIAL_DEBUG_Z: f32 = 18.0;
 const INITIAL_DEBUG_HEIGHT_OFFSET: f32 = 12.0;
@@ -38,8 +41,8 @@ pub enum BrowserGameStateError {
     Engine(EngineError),
     ModelAnimation(ModelAssetError),
     InvalidTerrainHeight { x: f32, z: f32 },
-    InvalidStaticModelScale(f32),
-    InvalidStaticModelHeightOffset(f32),
+    InvalidModelSceneScale(f32),
+    InvalidModelSceneHeightOffset(f32),
     MissingSceneMeshResource(MeshId),
     MissingSceneMaterialResource(MaterialId),
 }
@@ -62,13 +65,23 @@ pub struct BrowserModelAnimationSnapshot {
     pub duration_seconds: f32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BrowserPlayerCharacterSceneSnapshot {
+    pub runtime: &'static str,
+    pub visible: bool,
+    pub follows_player: bool,
+    pub debug_marker_visible: bool,
+}
+
 pub struct BrowserGameState {
     engine: Engine,
     terrain_seed: u32,
     terrain_preset: u32,
     static_model_scene: Option<StaticModelSceneConfig>,
-    static_model_scene_state: Option<StaticModelSceneState>,
+    static_model_scene_state: Option<ModelSceneState>,
     static_model_animation_time_seconds: f32,
+    player_character_scene: Option<PlayerCharacterSceneConfig>,
+    player_character_scene_state: Option<ModelSceneState>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -87,8 +100,16 @@ struct StaticModelAnimationConfig {
     node_base_transforms: Vec<ModelNodeTransform>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct PlayerCharacterSceneConfig {
+    mesh_label: String,
+    material_label: String,
+    scale: f32,
+    height_offset: f32,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct StaticModelSceneState {
+struct ModelSceneState {
     root_entity: EntityId,
     mesh_entity: EntityId,
 }
@@ -102,6 +123,8 @@ impl BrowserGameState {
             static_model_scene: None,
             static_model_scene_state: None,
             static_model_animation_time_seconds: 0.0,
+            player_character_scene: None,
+            player_character_scene_state: None,
         }
     }
 
@@ -115,6 +138,7 @@ impl BrowserGameState {
         self.terrain_preset = terrain_preset;
         self.static_model_scene_state = None;
         self.static_model_animation_time_seconds = 0.0;
+        self.player_character_scene_state = None;
 
         let terrain_entity = self.engine.scene_mut().create_entity();
         {
@@ -139,6 +163,7 @@ impl BrowserGameState {
             initial_height,
             INITIAL_PLAYER_Z,
         ));
+        self.remove_debug_player_marker_renderer()?;
         self.engine
             .set_player_view(INITIAL_PLAYER_YAW, INITIAL_PLAYER_PITCH)?;
         self.engine.set_debug_camera(
@@ -152,6 +177,7 @@ impl BrowserGameState {
         )?;
         self.engine.set_player_mode(PlayerMode::FirstPerson)?;
         self.spawn_configured_static_model()?;
+        self.spawn_configured_player_character()?;
 
         Ok(())
     }
@@ -225,6 +251,27 @@ impl BrowserGameState {
         self.configure_model_scene(mesh_label, material_label, scale, height_offset, None)
     }
 
+    pub fn configure_player_character_scene(
+        &mut self,
+        mesh_label: impl Into<String>,
+        material_label: impl Into<String>,
+        scale: f32,
+        height_offset: f32,
+    ) -> Result<(), BrowserGameStateError> {
+        validate_model_scene_transform(scale, height_offset)?;
+        self.player_character_scene = Some(PlayerCharacterSceneConfig {
+            mesh_label: mesh_label.into(),
+            material_label: material_label.into(),
+            scale,
+            height_offset,
+        });
+        if self.engine.player_rig().is_some() {
+            self.replace_configured_player_character()?;
+        }
+
+        Ok(())
+    }
+
     pub fn tick(&mut self, input: BrowserGameInput) -> Result<(), BrowserGameStateError> {
         self.ensure_player()?;
         self.engine
@@ -250,13 +297,16 @@ impl BrowserGameState {
             delta_seconds: input.delta_seconds,
         })?;
         self.advance_static_model_animation(input.delta_seconds)?;
+        self.sync_player_character_scene()?;
 
         Ok(())
     }
 
     pub fn toggle_player_mode(&mut self) -> Result<PlayerMode, BrowserGameStateError> {
         self.ensure_player()?;
-        Ok(self.engine.toggle_player_mode()?)
+        let mode = self.engine.toggle_player_mode()?;
+        self.sync_player_character_scene()?;
+        Ok(mode)
     }
 
     pub fn player_mode(&self) -> Result<PlayerMode, BrowserGameStateError> {
@@ -266,6 +316,7 @@ impl BrowserGameState {
     pub fn set_player_mode(&mut self, mode: PlayerMode) -> Result<(), BrowserGameStateError> {
         self.ensure_player()?;
         self.engine.set_player_mode(mode)?;
+        self.sync_player_character_scene()?;
         Ok(())
     }
 
@@ -290,6 +341,7 @@ impl BrowserGameState {
         let height = self.terrain_height_at(x, z)?;
         let position = Vec3::new(x, height, z);
         self.engine.set_player_position(position)?;
+        self.sync_player_character_scene()?;
         Ok(position)
     }
 
@@ -301,6 +353,7 @@ impl BrowserGameState {
     ) -> Result<(), BrowserGameStateError> {
         self.ensure_player()?;
         self.engine.set_debug_camera(position, yaw, pitch)?;
+        self.sync_player_character_scene()?;
         Ok(())
     }
 
@@ -358,6 +411,29 @@ impl BrowserGameState {
         })
     }
 
+    pub fn player_character_scene_snapshot(
+        &self,
+    ) -> Result<Option<BrowserPlayerCharacterSceneSnapshot>, BrowserGameStateError> {
+        let Some(state) = self.player_character_scene_state else {
+            return Ok(None);
+        };
+        let visible = self
+            .engine
+            .scene()
+            .entity(state.mesh_entity)
+            .map_err(EngineError::from)?
+            .mesh_renderer()
+            .map(|renderer| renderer.visible)
+            .unwrap_or(false);
+
+        Ok(Some(BrowserPlayerCharacterSceneSnapshot {
+            runtime: "rust",
+            visible,
+            follows_player: self.player_character_follows_player(state)?,
+            debug_marker_visible: self.debug_player_marker_visible()?,
+        }))
+    }
+
     #[cfg(test)]
     pub(crate) fn terrain_component(&self) -> Option<TerrainComponent> {
         let terrain = self.engine.scene().terrain_id()?;
@@ -370,6 +446,19 @@ impl BrowserGameState {
         }
 
         self.reset_game(self.terrain_seed, self.terrain_preset)
+    }
+
+    fn remove_debug_player_marker_renderer(&mut self) -> Result<(), BrowserGameStateError> {
+        let Some(rig) = self.engine.player_rig() else {
+            return Ok(());
+        };
+
+        self.engine
+            .scene_mut()
+            .entity_mut(rig.player_entity)
+            .map_err(EngineError::from)?
+            .remove_mesh_renderer();
+        Ok(())
     }
 
     fn spawn_configured_static_model(&mut self) -> Result<(), BrowserGameStateError> {
@@ -385,7 +474,7 @@ impl BrowserGameState {
             .and_then(|animation| animation.node_base_transforms.get(animation.node_index))
             .copied()
             .unwrap_or_default();
-        self.static_model_scene_state = Some(self.spawn_static_model(
+        self.static_model_scene_state = Some(self.spawn_model_scene_item(
             &config.mesh_label,
             &config.material_label,
             Vec3::new(
@@ -395,18 +484,40 @@ impl BrowserGameState {
             ),
             config.scale,
             node_transform,
+            true,
         )?);
         self.advance_static_model_animation(0.0)
     }
 
-    fn spawn_static_model(
+    fn spawn_configured_player_character(&mut self) -> Result<(), BrowserGameStateError> {
+        let Some(config) = self.player_character_scene.clone() else {
+            return Ok(());
+        };
+        let player_position = self.engine.player_position()?;
+        self.player_character_scene_state = Some(self.spawn_model_scene_item(
+            &config.mesh_label,
+            &config.material_label,
+            Vec3::new(
+                player_position.x,
+                player_position.y + config.height_offset,
+                player_position.z,
+            ),
+            config.scale,
+            ModelNodeTransform::default(),
+            false,
+        )?);
+        self.sync_player_character_scene()
+    }
+
+    fn spawn_model_scene_item(
         &mut self,
         mesh_label: &str,
         material_label: &str,
         position: Vec3,
         scale: f32,
         node_transform: ModelNodeTransform,
-    ) -> Result<StaticModelSceneState, BrowserGameStateError> {
+        visible: bool,
+    ) -> Result<ModelSceneState, BrowserGameStateError> {
         let mesh = self
             .engine
             .scene_mut()
@@ -443,7 +554,7 @@ impl BrowserGameState {
             entity_ref.add_mesh_renderer(MeshRendererComponent {
                 mesh,
                 material,
-                visible: true,
+                visible,
             });
         }
         self.engine
@@ -452,7 +563,7 @@ impl BrowserGameState {
             .map_err(EngineError::from)?;
         self.engine.scene_mut().update_world_transforms();
 
-        Ok(StaticModelSceneState {
+        Ok(ModelSceneState {
             root_entity,
             mesh_entity,
         })
@@ -460,15 +571,29 @@ impl BrowserGameState {
 
     fn replace_configured_static_model(&mut self) -> Result<(), BrowserGameStateError> {
         if let Some(state) = self.static_model_scene_state.take() {
-            if self.engine.scene().is_alive(state.root_entity) {
-                self.engine
-                    .scene_mut()
-                    .destroy_entity(state.root_entity)
-                    .map_err(EngineError::from)?;
-            }
+            self.destroy_model_scene(state)?;
         }
 
         self.spawn_configured_static_model()
+    }
+
+    fn replace_configured_player_character(&mut self) -> Result<(), BrowserGameStateError> {
+        if let Some(state) = self.player_character_scene_state.take() {
+            self.destroy_model_scene(state)?;
+        }
+
+        self.spawn_configured_player_character()
+    }
+
+    fn destroy_model_scene(&mut self, state: ModelSceneState) -> Result<(), BrowserGameStateError> {
+        if self.engine.scene().is_alive(state.root_entity) {
+            self.engine
+                .scene_mut()
+                .destroy_entity(state.root_entity)
+                .map_err(EngineError::from)?;
+        }
+
+        Ok(())
     }
 
     fn advance_static_model_animation(
@@ -511,6 +636,90 @@ impl BrowserGameState {
         self.engine.scene_mut().update_world_transforms();
 
         Ok(())
+    }
+
+    fn sync_player_character_scene(&mut self) -> Result<(), BrowserGameStateError> {
+        let Some(config) = self.player_character_scene.clone() else {
+            return Ok(());
+        };
+        let Some(state) = self.player_character_scene_state else {
+            return Ok(());
+        };
+        let rig = self.engine.player_rig().ok_or(EngineError::MissingPlayer)?;
+        let player_world = self
+            .engine
+            .scene()
+            .world_transform(rig.player_entity)
+            .map_err(EngineError::from)?;
+        let visible = self.engine.player_mode()? == PlayerMode::DebugFly;
+
+        self.engine
+            .scene_mut()
+            .set_local_transform(
+                state.root_entity,
+                LocalTransform {
+                    translation: Vec3::new(
+                        player_world.translation.x,
+                        player_world.translation.y + config.height_offset,
+                        player_world.translation.z,
+                    ),
+                    rotation: player_world.rotation,
+                    scale: Vec3::new(config.scale, config.scale, config.scale),
+                },
+            )
+            .map_err(EngineError::from)?;
+        {
+            let mut mesh_entity = self
+                .engine
+                .scene_mut()
+                .entity_mut(state.mesh_entity)
+                .map_err(EngineError::from)?;
+            if let Some(renderer) = mesh_entity.mesh_renderer_mut() {
+                renderer.visible = visible;
+            }
+        }
+        self.engine.scene_mut().update_world_transforms();
+
+        Ok(())
+    }
+
+    fn player_character_follows_player(
+        &self,
+        state: ModelSceneState,
+    ) -> Result<bool, BrowserGameStateError> {
+        let Some(config) = self.player_character_scene.as_ref() else {
+            return Ok(false);
+        };
+        let player_position = self.engine.player_position()?;
+        let root_position = self
+            .engine
+            .scene()
+            .world_transform(state.root_entity)
+            .map_err(EngineError::from)?
+            .translation;
+
+        Ok(
+            (root_position.x - player_position.x).abs() <= MODEL_FOLLOWS_PLAYER_EPSILON
+                && (root_position.y - (player_position.y + config.height_offset)).abs()
+                    <= MODEL_FOLLOWS_PLAYER_EPSILON
+                && (root_position.z - player_position.z).abs() <= MODEL_FOLLOWS_PLAYER_EPSILON,
+        )
+    }
+
+    fn debug_player_marker_visible(&self) -> Result<bool, BrowserGameStateError> {
+        let Some(rig) = self.engine.player_rig() else {
+            return Ok(false);
+        };
+        let player = self
+            .engine
+            .scene()
+            .entity(rig.player_entity)
+            .map_err(EngineError::from)?;
+
+        Ok(player
+            .mesh_renderer()
+            .map(|renderer| renderer.visible)
+            .unwrap_or(false))
     }
 
     fn terrain_height_at(&self, x: f32, z: f32) -> Result<f32, BrowserGameStateError> {
@@ -556,16 +765,16 @@ impl std::fmt::Display for BrowserGameStateError {
                     "Rust browser game terrain height was invalid at ({x}, {z})"
                 )
             }
-            Self::InvalidStaticModelScale(scale) => {
+            Self::InvalidModelSceneScale(scale) => {
                 write!(
                     formatter,
-                    "Rust browser game static model scale was invalid: {scale}"
+                    "Rust browser game model scene scale was invalid: {scale}"
                 )
             }
-            Self::InvalidStaticModelHeightOffset(height_offset) => {
+            Self::InvalidModelSceneHeightOffset(height_offset) => {
                 write!(
                     formatter,
-                    "Rust browser game static model height offset was invalid: {height_offset}"
+                    "Rust browser game model scene height offset was invalid: {height_offset}"
                 )
             }
             Self::MissingSceneMeshResource(mesh) => {
@@ -594,14 +803,7 @@ impl BrowserGameState {
         height_offset: f32,
         animation: Option<StaticModelAnimationConfig>,
     ) -> Result<(), BrowserGameStateError> {
-        if !scale.is_finite() || scale <= 0.0 {
-            return Err(BrowserGameStateError::InvalidStaticModelScale(scale));
-        }
-        if !height_offset.is_finite() {
-            return Err(BrowserGameStateError::InvalidStaticModelHeightOffset(
-                height_offset,
-            ));
-        }
+        validate_model_scene_transform(scale, height_offset)?;
 
         self.static_model_scene = Some(StaticModelSceneConfig {
             mesh_label: mesh_label.into(),
@@ -617,6 +819,22 @@ impl BrowserGameState {
 
         Ok(())
     }
+}
+
+fn validate_model_scene_transform(
+    scale: f32,
+    height_offset: f32,
+) -> Result<(), BrowserGameStateError> {
+    if !scale.is_finite() || scale <= 0.0 {
+        return Err(BrowserGameStateError::InvalidModelSceneScale(scale));
+    }
+    if !height_offset.is_finite() {
+        return Err(BrowserGameStateError::InvalidModelSceneHeightOffset(
+            height_offset,
+        ));
+    }
+
+    Ok(())
 }
 
 pub fn player_mode_code(mode: PlayerMode) -> u32 {

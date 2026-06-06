@@ -1,5 +1,9 @@
 # GLTF Character Loading And Animation
 
+Archive note: completed on 2026-06-06. The live GLTF/model/animation runtime
+contract now lives in `docs/API_CONTRACTS.md` under `OFG-API-010`, with current
+architecture context in `docs/ARCHITECTURE.md`.
+
 This ExecPlan is a living document. The sections Progress, Surprises &
 Discoveries, Decision Log, and Outcomes & Retrospective must stay up to date as
 work proceeds.
@@ -77,6 +81,11 @@ The staged outcome is:
   selection and blending, updates the CPU-skinned mesh vertices every frame,
   and extended browser smoke to verify `W` selects walk and release blends back
   to idle.
+- [x] (2026-06-06) Hardened milestone 5 completion: moved the Quaternius
+  runtime model from the fixed static-model showcase path to a Rust-owned player
+  character scene item that follows the Rust player transform, renders in
+  debug-fly, stays hidden in first-person, and keeps the old yellow debug marker
+  hidden in the browser path.
 
 ## Surprises & Discoveries
 
@@ -172,6 +181,15 @@ The staged outcome is:
   Evidence: browser smoke on 2026-06-06 rendered the Quaternius character,
   updated the model vertex buffer every frame through Rust/wgpu, and held
   steady at a reported `16.7 ms` frame time in the sampled smoke run.
+- Observation: The completion state needed a player-character scene item rather
+  than the milestone-2 static showcase placement.
+  Evidence: browser smoke artifacts in
+  `C:\dev\ofg\artifacts\browser-smoke\2026-06-06T21-30-29-705Z` report
+  `firstPlayerCharacter.visible == false`,
+  `flyPlayerCharacter.visible == true`,
+  `flyPlayerCharacter.followsPlayer == true`, and
+  `debugMarkerVisible == false`; the debug-fly screenshot shows the orange
+  Quaternius character at the player position with no yellow marker.
 
 ## Decision Log
 
@@ -307,6 +325,13 @@ The staged outcome is:
   Rationale: One primitive is enough to prove visible idle/walk behavior and
   same-size WebGPU vertex-buffer updates. Multi-primitive model assembly and GPU
   skinning are separable follow-ups.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Use the Quaternius model as the Rust player-character scene item,
+  not as a fixed static showcase model.
+  Rationale: the acceptance target is a character that represents the player
+  and reacts to player locomotion. First-person mode should not draw the model
+  into the camera, so the scene item is hidden there and shown in debug-fly as
+  the replacement for the old yellow marker.
   Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
@@ -495,7 +520,10 @@ converted from the Universal Base Characters standard `.gltf` plus `.bin`, and
 loads the UAL2 GLB through the generic byte loader, imports the skinned humanoid
 in Rust, samples `Idle_FoldArms_Loop` and `Walk_Carry_Loop`, crossfades between
 them from horizontal movement input, CPU-skins the selected primitive each
-frame, and updates the existing model vertex buffer through Rust/wgpu.
+frame, updates the existing model vertex buffer through Rust/wgpu, and attaches
+the character to a Rust-owned player character scene item that follows the Rust
+player transform. The scene item is hidden in first-person and visible in
+debug-fly, replacing the old yellow debug marker in the browser character path.
 
 Validation completed on 2026-06-06:
 
@@ -507,14 +535,14 @@ Validation completed on 2026-06-06:
 `npm run check:wasm` initially reported stale generated `engine_web` wasm
 artifacts after the Rust changes; `npm run build:wasm` regenerated them and the
 subsequent `npm test`/smoke builds completed cleanly. Browser smoke passed with
-artifacts in `C:\dev\ofg\artifacts\browser-smoke\2026-06-06T21-08-52-884Z`.
-The report showed Rust/wgpu runtime, 13 mesh resources, 12 objects, 12 frame
-draws, holding `W` reaching active `Walk_Carry_Loop`, releasing `W` selecting
-`Idle_FoldArms_Loop` as `nextClip` with blend weight `0.09333333`, settling
-back to active `Idle_FoldArms_Loop` with blend weight `0`, and Rust CPU skinning
-with 65 joints. First-person and debug-fly screenshots were inspected and show
-the orange Quaternius humanoid standing in the terrain; the yellow debug marker
-remains visible only in debug-fly mode.
+artifacts in `C:\dev\ofg\artifacts\browser-smoke\2026-06-06T21-30-29-705Z`.
+The report showed Rust/wgpu runtime, 12 mesh resources, 11 objects, 11
+first-person frame draws, holding `W` reaching active `Walk_Carry_Loop`,
+releasing `W` selecting `Idle_FoldArms_Loop` as `nextClip` with blend weight
+`0.09277777`, settling back to active `Idle_FoldArms_Loop` with blend weight
+`0`, Rust CPU skinning with 65 joints, and a Rust player character scene item
+that is hidden in first-person, visible in debug-fly, follows the player, and
+reports `debugMarkerVisible == false`.
 
 Milestone review:
 
@@ -530,22 +558,29 @@ Milestone review:
   active `Walk_Carry_Loop`, releasing `W` must select `Idle_FoldArms_Loop` as
   `nextClip`, and the animation must settle back to idle with blend weight `0`;
   renamed the selected player asset note to `assets/models/player/SOURCE.md`;
-  updated `docs/API_CONTRACTS.md` and `docs/ARCHITECTURE.md` so active docs
-  describe locomotion blending and per-frame CPU skinning as live.
+  moved the runtime Quaternius model to a player character scene item that
+  follows the Rust player transform; removed the old yellow marker GPU resource
+  from the browser renderer path; updated `docs/API_CONTRACTS.md` and
+  `docs/ARCHITECTURE.md` so active docs describe locomotion blending,
+  per-frame CPU skinning, and the player-character debug representation as
+  live.
 - Follow-ups recorded: `crates/engine_web/src/wgpu_renderer.rs` remains over
   1000 lines, `crates/engine_web/src/tests.rs` is now over 1000 lines, and
-  `crates/engine_web/src/model_assets.rs` remains over the 600-line
-  split-pressure threshold. Do not add the next model/rendering slice until the
-  renderer and model tests are split into focused modules. Multi-primitive
-  character assembly, retargeting the separate Quaternius base character, and
-  GPU skinning remain follow-up milestones.
+  `crates/engine_web/src/model_assets.rs` plus
+  `crates/engine_web/src/game_state.rs` remain over the 600-line split-pressure
+  threshold. Do not add the next model/rendering slice until the renderer,
+  model tests, and browser game-state model-scene logic are split into focused
+  modules. Multi-primitive character assembly, retargeting the separate
+  Quaternius base character, and GPU skinning remain follow-up milestones.
 - Rejected findings: none.
 - Validation rerun: `cargo test -p engine_core`, `cargo test -p engine_web`,
-  `npm run check:wasm`, `npm test`, `npm run smoke:browser`, and
-  `git -c safe.directory=C:/dev/ofg diff --check` all passed.
+  `npm run check:wasm`, `npm run check:shaders`, `npm test`,
+  `npm run smoke:browser`, and `git -c safe.directory=C:/dev/ofg diff --check`
+  all passed.
 - Remaining risk: the visible player path still skins one selected primitive on
   CPU and uses fallback material texture handles. It proves the idle/walk
-  locomotion behavior, but it is not a complete authored character pipeline yet.
+  locomotion behavior and player debug representation, but it is not a complete
+  authored character pipeline yet.
 
 ## Contract and Quality Baseline
 

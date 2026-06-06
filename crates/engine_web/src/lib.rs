@@ -26,7 +26,7 @@ pub use config::{
 pub use facade::*;
 pub use game_state::{
     player_mode_code, player_mode_from_code, BrowserGameInput, BrowserGameState,
-    BrowserGameStateError, BrowserSceneMeshItem,
+    BrowserGameStateError, BrowserPlayerCharacterSceneSnapshot, BrowserSceneMeshItem,
 };
 pub use materials::{
     build_material_packet, MaterialPacketError, DEFAULT_MATERIAL_PACKET, TERRAIN_MATERIAL_ID,

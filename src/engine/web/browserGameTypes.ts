@@ -94,6 +94,10 @@ export type RustBrowserGameDebugSnapshot = {
   readonly rendererStatus: EngineWebRendererStatus;
   readonly terrainWorkerCount: number;
   readonly playerControllerRuntime: "rust";
+  readonly playerCharacterRuntime?: "rust";
+  readonly playerCharacterVisible?: boolean;
+  readonly playerCharacterFollowsPlayer?: boolean;
+  readonly debugPlayerMarkerVisible?: boolean;
   readonly modelAnimationRuntime?: "rust";
   readonly activeModelAnimationClip?: string;
   readonly nextModelAnimationClip?: string;

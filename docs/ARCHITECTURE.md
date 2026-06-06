@@ -185,16 +185,20 @@ specular model. Rust interprets the checked-in terrain texture manifest, request
 generic browser RGBA texture arrays, validates the returned arrays, and installs
 the GPU texture handles. Rust/wgpu builds compact frame packets from its
 Rust-owned browser game state, owns shader material packets and
-material-to-texture selection, owns the debug player-marker mesh/material and
-GPU resource mapping, validates per-chunk terrain draw transforms inside the
-browser game facade, consumes scene mesh world matrices extracted by
+material-to-texture selection, keeps the low-level debug player marker in
+`engine_core` rather than the browser renderer path, validates per-chunk terrain
+draw transforms inside the browser game facade, consumes scene mesh world
+matrices extracted by
 `engine_core`, computes object normal matrices, and packs the WGSL
 camera/object uniform buffers. Static and CPU-skinned model meshes use a
 separate 12-float vertex layout and `modelVertexMain` pipeline entry point
 instead of pretending to be terrain vertices. The current player-character
 prototype loads a selected Quaternius GLB, samples idle/walk clips in Rust,
-CPU-skins one selected humanoid primitive each frame, and updates the existing
-model vertex buffer before drawing.
+CPU-skins one selected humanoid primitive each frame, updates the existing model
+vertex buffer before drawing, and attaches the model to a Rust-owned player
+character scene item that follows the Rust player transform. The browser path no
+longer draws the old yellow marker as the normal debug-fly player
+representation.
 
 Terrain uses checked-in Poly Haven CC0 materials imported into 16-layer global
 texture arrays. The runtime currently loads albedo, normal, and roughness arrays;
@@ -216,8 +220,9 @@ direction of the Rust-owned main light.
   contract.
 - Browser smoke tests cover canvas rendering, input toggles, resize behavior, and
   basic chunk streaming after moving the player across chunk columns. The smoke
-  path also verifies the Rust-owned GLTF player animation clock, CPU skinning
-  state, movement-driven walk selection, and release-driven idle transition.
+  path also verifies the Rust-owned GLTF player character scene item, hidden
+  marker state, animation clock, CPU skinning state, movement-driven walk
+  selection, and release-driven idle transition.
 - Rust/WASM terrain tests cover height/density determinism, density chunk fill,
   mesh buffers, retained stores, stream scheduling, and worker-pool fixtures.
 - Performance tests should be explicit scripts with stable scene seeds, not hidden

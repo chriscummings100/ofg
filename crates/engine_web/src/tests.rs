@@ -16,10 +16,7 @@ use crate::{
     TERRAIN_MATERIAL_TEXTURE_ARRAY_ID, TERRAIN_NORMAL_TEXTURE_ARRAY_ID, TERRAIN_VERTEX_FLOATS,
     TEXTURE_FORMAT_RGBA8_UNORM, WORLD_MATRIX_FLOATS,
 };
-use engine_core::{
-    PlayerMode, TerrainComponent, Vec3, DEBUG_PLAYER_MARKER_MATERIAL_LABEL,
-    DEBUG_PLAYER_MARKER_MESH_LABEL,
-};
+use engine_core::{PlayerMode, TerrainComponent, Vec3};
 use terrain_core::DEFAULT_TERRAIN_PRESET;
 
 const STATIC_BOX_GLB: &[u8] = include_bytes!("../../../assets/models/test-fixtures/static-box.glb");
@@ -838,6 +835,44 @@ fn browser_game_state_attaches_configured_static_model_scene_item() {
 }
 
 #[test]
+fn browser_game_state_attaches_player_character_scene_to_player() {
+    let mut state = BrowserGameState::new();
+    state
+        .configure_player_character_scene("player.mesh", "player.material", 1.25, 0.5)
+        .unwrap();
+
+    state.reset_game(0x0F6, 1).unwrap();
+
+    let player_position = state.player_position().unwrap();
+    let first_snapshot = state.player_character_scene_snapshot().unwrap().unwrap();
+    assert_eq!(first_snapshot.runtime, "rust");
+    assert!(!first_snapshot.visible);
+    assert!(first_snapshot.follows_player);
+    assert!(!first_snapshot.debug_marker_visible);
+    assert!(state.render_mesh_items().unwrap().is_empty());
+
+    state.set_player_mode(PlayerMode::DebugFly).unwrap();
+    let debug_items = state.render_mesh_items().unwrap();
+
+    assert_eq!(debug_items.len(), 1);
+    assert_eq!(debug_items[0].mesh_label, "player.mesh");
+    assert_eq!(debug_items[0].material_label, "player.material");
+    assert_close(debug_items[0].world_matrix[12], player_position.x);
+    assert_close(debug_items[0].world_matrix[13], player_position.y + 0.5);
+    assert_close(debug_items[0].world_matrix[14], player_position.z);
+    let debug_snapshot = state.player_character_scene_snapshot().unwrap().unwrap();
+    assert!(debug_snapshot.visible);
+    assert!(debug_snapshot.follows_player);
+    assert!(!debug_snapshot.debug_marker_visible);
+
+    let moved = state.set_player_position_xz(12.0, -8.0).unwrap();
+    let moved_item = &state.render_mesh_items().unwrap()[0];
+    assert_close(moved_item.world_matrix[12], moved.x);
+    assert_close(moved_item.world_matrix[13], moved.y + 0.5);
+    assert_close(moved_item.world_matrix[14], moved.z);
+}
+
+#[test]
 fn browser_game_state_applies_configured_model_animation_to_scene_item() {
     let mut state = BrowserGameState::new();
     state
@@ -920,7 +955,7 @@ fn browser_game_state_rejects_invalid_scaled_static_model_scene_item() {
             0,
             vec![ModelNodeTransform::default()],
         ),
-        Err(BrowserGameStateError::InvalidStaticModelScale(0.0))
+        Err(BrowserGameStateError::InvalidModelSceneScale(0.0))
     );
 }
 
@@ -988,8 +1023,11 @@ fn browser_game_state_public_controls_cover_player_and_debug_camera_api() {
 }
 
 #[test]
-fn browser_game_state_debug_fly_moves_camera_without_moving_player_marker() {
+fn browser_game_state_debug_fly_moves_camera_without_moving_player_character() {
     let mut state = BrowserGameState::new();
+    state
+        .configure_player_character_scene("player.mesh", "player.material", 1.0, 0.0)
+        .unwrap();
     state.reset_game(0x0F6, 1).unwrap();
     let player_position = state.player_position().unwrap();
 
@@ -1009,11 +1047,15 @@ fn browser_game_state_debug_fly_moves_camera_without_moving_player_marker() {
     assert_eq!(state.player_position().unwrap(), player_position);
     let items = state.render_mesh_items().unwrap();
     assert_eq!(items.len(), 1);
-    assert_eq!(items[0].mesh_label, DEBUG_PLAYER_MARKER_MESH_LABEL);
-    assert_eq!(items[0].material_label, DEBUG_PLAYER_MARKER_MATERIAL_LABEL);
+    assert_eq!(items[0].mesh_label, "player.mesh");
+    assert_eq!(items[0].material_label, "player.material");
     assert_close(items[0].world_matrix[12], player_position.x);
     assert_close(items[0].world_matrix[13], player_position.y);
     assert_close(items[0].world_matrix[14], player_position.z);
+    let snapshot = state.player_character_scene_snapshot().unwrap().unwrap();
+    assert!(snapshot.visible);
+    assert!(snapshot.follows_player);
+    assert!(!snapshot.debug_marker_visible);
 }
 
 #[test]

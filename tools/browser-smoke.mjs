@@ -81,7 +81,9 @@ async function runBrowserSmoke(url) {
     assertTerrainRenderPacketRuntime(terrainRenderPacketRuntime);
     const rendererRuntime = await readRendererRuntime(page);
     assertRendererRuntime(rendererRuntime);
-    assertStaticModelRendererResources(rendererRuntime, initialTerrain);
+    assertPlayerCharacterRendererResources(rendererRuntime, initialTerrain, false);
+    const firstPlayerCharacter = await readPlayerCharacterDebug(page);
+    assertPlayerCharacterDebug(firstPlayerCharacter, false);
     const firstModelAnimation = await readModelAnimationDebug(page);
     assertModelAnimationDebug(firstModelAnimation);
     await page.waitForTimeout(300);
@@ -130,7 +132,9 @@ async function runBrowserSmoke(url) {
     assertTerrainRenderPacketRuntime(refreshedTerrainRenderPacketRuntime);
     const refreshedRendererRuntime = await readRendererRuntime(page);
     assertRendererRuntime(refreshedRendererRuntime);
-    assertStaticModelRendererResources(refreshedRendererRuntime, refreshedTerrain);
+    assertPlayerCharacterRendererResources(refreshedRendererRuntime, refreshedTerrain, false);
+    const refreshedPlayerCharacter = await readPlayerCharacterDebug(page);
+    assertPlayerCharacterDebug(refreshedPlayerCharacter, false);
 
     const beforeResetStreamStatus = await readTerrainStreamStatus(page);
     await page.evaluate(() => window.__ofgDebug?.resetTerrainStreaming());
@@ -156,6 +160,13 @@ async function runBrowserSmoke(url) {
     const flyScreenshot = await saveScreenshot(page, "debug-fly.png");
     screenshots.push(flyScreenshot.path);
     assertPixelStats(flyScreenshot.stats, "debug-fly", consoleMessages);
+    const flyPlayerCharacter = await readPlayerCharacterDebug(page);
+    assertPlayerCharacterDebug(flyPlayerCharacter, true);
+    const flyRendererRuntime = await readRendererRuntime(page);
+    assertRendererRuntime(flyRendererRuntime);
+    const flyTerrain = await readTerrainDebug(page);
+    assertTerrainDebug(flyTerrain, "debug fly terrain");
+    assertPlayerCharacterRendererResources(flyRendererRuntime, flyTerrain, true);
 
     await page.keyboard.press("KeyC");
     await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "FIRST");
@@ -200,6 +211,9 @@ async function runBrowserSmoke(url) {
       returnedModelAnimation,
       settledModelAnimation,
       modelSkinning,
+      firstPlayerCharacter,
+      refreshedPlayerCharacter,
+      flyPlayerCharacter,
       terrainStreamRuntime: refreshedTerrainStreamRuntime,
       initialTerrain,
       refreshedTerrain,
@@ -307,6 +321,19 @@ async function readModelSkinningDebug(page) {
   });
 }
 
+async function readPlayerCharacterDebug(page) {
+  return page.evaluate(() => {
+    const debug = window.__ofgDebug;
+
+    return {
+      runtime: debug?.getPlayerCharacterRuntime?.() ?? "missing",
+      visible: debug?.getPlayerCharacterVisible?.(),
+      followsPlayer: debug?.getPlayerCharacterFollowsPlayer?.(),
+      debugMarkerVisible: debug?.getDebugPlayerMarkerVisible?.()
+    };
+  });
+}
+
 async function readTerrainStreamRuntime(page) {
   return page.evaluate(() => {
     return {
@@ -401,6 +428,21 @@ function assertModelSkinningDebug(skinning) {
   }
 }
 
+function assertPlayerCharacterDebug(character, expectedVisible) {
+  if (character.runtime !== "rust") {
+    throw new Error(`Expected Rust player character scene runtime, saw '${character.runtime}'.`);
+  }
+  if (character.visible !== expectedVisible) {
+    throw new Error(`Unexpected player character visibility: ${JSON.stringify({ character, expectedVisible })}`);
+  }
+  if (character.followsPlayer !== true) {
+    throw new Error(`Expected player character to follow the Rust player transform: ${JSON.stringify(character)}`);
+  }
+  if (character.debugMarkerVisible !== false) {
+    throw new Error(`Expected old debug player marker to stay hidden: ${JSON.stringify(character)}`);
+  }
+}
+
 function assertPlayerControllerRuntime(runtime) {
   if (runtime !== "rust") {
     throw new Error(`Expected Rust player controller runtime, saw '${runtime}'.`);
@@ -451,20 +493,20 @@ function assertRendererRuntime(runtime) {
   }
 }
 
-function assertStaticModelRendererResources(runtime, terrainDebug) {
+function assertPlayerCharacterRendererResources(runtime, terrainDebug, expectedVisible) {
   const status = runtime.rendererStatus;
   if (status === undefined) {
     throw new Error(`Rust/wgpu renderer status is unavailable: ${JSON.stringify(runtime)}`);
   }
 
   const terrainDrawCount = terrainDebug.renderChunkKeys.length;
-  const expectedMeshCount = terrainDrawCount + 2; // terrain chunks plus marker and imported model meshes.
-  const expectedDrawCount = terrainDrawCount + 1; // first-person terrain chunks plus imported model.
+  const expectedMeshCount = terrainDrawCount + 1; // terrain chunks plus imported player character mesh.
+  const expectedDrawCount = terrainDrawCount + (expectedVisible ? 1 : 0);
   if (status.meshCount < expectedMeshCount) {
-    throw new Error(`Expected imported model mesh resource: ${JSON.stringify({ status, terrainDrawCount })}`);
+    throw new Error(`Expected imported player character mesh resource: ${JSON.stringify({ status, terrainDrawCount })}`);
   }
   if (status.objectCount < expectedDrawCount || status.frameDrawCount < expectedDrawCount) {
-    throw new Error(`Expected imported model object draw: ${JSON.stringify({ status, terrainDrawCount })}`);
+    throw new Error(`Expected imported player character draw state: ${JSON.stringify({ status, terrainDrawCount, expectedVisible })}`);
   }
 }
 
