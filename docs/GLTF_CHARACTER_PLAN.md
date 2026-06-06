@@ -46,9 +46,9 @@ The staged outcome is:
   texcoords, joints, and weights plus animation readers; Quaternius provides
   CC0 base characters and a CC0 GLB animation library.
 - [x] (2026-06-06) Updated `docs/API_CONTRACTS.md` with `OFG-API-010`, a
-  future GLTF/model asset boundary that keeps TypeScript limited to generic
-  byte fetching and keeps GLTF parsing, animation, skinning, and renderer
-  resource resolution in Rust.
+  GLTF/model asset boundary that keeps TypeScript limited to generic byte
+  fetching and keeps GLTF parsing, animation, skinning, and renderer resource
+  resolution in Rust.
 - [x] (2026-06-06) Added the asset acquisition rule: download small Khronos
   glTF Sample Assets for importer/render/animation/skinning tests, and download
   the Quaternius Universal Base Characters pack for the real humanoid character
@@ -58,8 +58,10 @@ The staged outcome is:
   loader with opaque byte requests, added a Rust-owned GLB/glTF importer
   foundation in `crates/engine_web/src/model_assets.rs`, and covered it with
   unit tests.
-- [ ] Implement milestone 2: render imported static GLB mesh primitives through
-  scene mesh renderer items.
+- [x] (2026-06-06) Implemented milestone 2: the browser runtime fetches the
+  Khronos `Box.glb` fixture through `loadBytes`, imports it in Rust, registers
+  a static model mesh/material, attaches it to a Rust scene mesh renderer item,
+  and draws it through a dedicated model vertex pipeline.
 - [ ] Implement milestone 3: sample non-skinned GLTF node animation.
 - [ ] Implement milestone 4: evaluate skinned animation and render a posed
   skinned character.
@@ -96,6 +98,16 @@ The staged outcome is:
   Evidence: `animated-cube.gltf` references `AnimatedCube.bin`; the test
   `gltf_importer_rejects_file_relative_external_buffers` verifies this returns
   `UnsupportedExternalBuffer`.
+- Observation: The first rendered static GLB can be validated through existing
+  renderer debug counts without adding TypeScript model semantics.
+  Evidence: `tools/browser-smoke.mjs` now compares terrain render chunk count
+  to Rust/wgpu mesh, object, and draw counts, expecting terrain chunks plus the
+  marker mesh and imported model mesh.
+- Observation: The GLTF loader/parser split should stay narrow as animation
+  work begins.
+  Evidence: milestone 2 moved the wasm `assetLoader.loadBytes` bridge into
+  `crates/engine_web/src/model_asset_loader.rs`, keeping
+  `crates/engine_web/src/model_assets.rs` focused on model import and packing.
 
 ## Decision Log
 
@@ -159,6 +171,18 @@ The staged outcome is:
   animation data can move toward `engine_core` once the runtime ownership split
   is clearer.
   Date/Author: 2026-06-06 / Codex.
+- Decision: Give static GLB meshes a dedicated model vertex layout and pipeline
+  entry point.
+  Rationale: Packing model primitives into the terrain 19-float vertex layout
+  would blur the terrain contract and make skinning harder. A 12-float
+  position/normal/uv/color layout with `modelVertexMain` keeps the current
+  static model path explicit and testable.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Keep the first visible runtime fixture as Khronos `Box.glb`.
+  Rationale: It is tiny, checked in, deterministic, and already covered by the
+  importer tests. The Quaternius humanoid pack remains the right source for the
+  later player character once animation and skinning paths exist.
+  Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -198,6 +222,50 @@ Milestone review:
 - Rejected findings: none.
 - Remaining risk: `crates/engine_web/src/wgpu_renderer.rs` is still oversized,
   and model rendering should be split rather than growing that file further.
+
+Milestone 2 is complete. The runtime now loads
+`/assets/models/test-fixtures/static-box.glb` through the generic browser
+`loadBytes` lane, imports the GLB in Rust, packs the first primitive into a
+12-float static model vertex buffer, registers a Rust/wgpu model mesh and
+material packet, and resolves it from a Rust scene mesh renderer item. The
+terrain-shaped pipeline remains unchanged for terrain and the debug marker;
+static models draw through `modelVertexMain` and a separate model vertex buffer
+layout.
+
+Validation completed on 2026-06-06:
+
+    cargo test -p engine_core
+    cargo test -p engine_web
+    npm run check:shaders
+    npm test
+    npm run smoke:browser
+    git -c safe.directory=C:/dev/ofg diff --check
+
+Browser smoke passed with artifacts in
+`C:\dev\ofg\artifacts\browser-smoke\2026-06-06T19-55-47-524Z`. The report
+showed Rust/wgpu runtime, 11 terrain render chunks, 13 mesh resources, 12
+objects, and 12 frame draws, which covers terrain plus the marker/model
+resources. The first-person and debug-fly screenshots were inspected and show
+the imported red GLB box in the terrain scene, with the yellow marker still
+available in debug-fly mode.
+
+Milestone review:
+
+- Scope: milestone 2 static GLB runtime loading, scene attachment, shader
+  layout, renderer registration/draw, generated artifacts, and browser smoke.
+- Reviewers: contract, code quality, legacy, correctness, and validation passes
+  were done locally. Sub-agents were not used because the user did not
+  explicitly ask for delegated review.
+- Required findings fixed: updated `docs/API_CONTRACTS.md` and
+  `docs/ARCHITECTURE.md` so active docs describe static GLB loading/rendering
+  as live, and split the wasm byte-loader bridge out of `model_assets.rs`.
+- Follow-ups recorded: `crates/engine_web/src/wgpu_renderer.rs` remains over
+  the preferred file size and must be split before adding substantial
+  animation/skinning renderer code.
+- Rejected findings: none.
+- Remaining risk: milestone 2 renders only the first primitive/material from a
+  small fixture. Multi-primitive models, material textures, node hierarchies as
+  scene children, and real humanoid assets remain future milestones.
 
 ## Contract and Quality Baseline
 

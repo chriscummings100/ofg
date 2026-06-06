@@ -32,6 +32,13 @@ struct VertexInput {
   @location(5) materialWeights: vec4<f32>,
 };
 
+struct ModelVertexInput {
+  @location(0) position: vec3<f32>,
+  @location(1) normal: vec3<f32>,
+  @location(2) uv: vec2<f32>,
+  @location(3) color: vec4<f32>,
+};
+
 struct VertexOutput {
   @builtin(position) clipPosition: vec4<f32>,
   @location(0) color: vec3<f32>,
@@ -53,6 +60,20 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
   output.uv = input.uv;
   output.materialIndices = input.materialIndices;
   output.materialWeights = input.materialWeights;
+  return output;
+}
+
+@vertex
+fn modelVertexMain(input: ModelVertexInput) -> VertexOutput {
+  var output: VertexOutput;
+  let worldPosition = object.world * vec4<f32>(input.position, 1.0);
+  output.clipPosition = camera.viewProjection * worldPosition;
+  output.color = input.color.rgb;
+  output.worldPosition = worldPosition.xyz;
+  output.worldNormal = normalize((object.normalWorld * vec4<f32>(input.normal, 0.0)).xyz);
+  output.uv = input.uv;
+  output.materialIndices = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+  output.materialWeights = vec4<f32>(1.0, 0.0, 0.0, 0.0);
   return output;
 }
 

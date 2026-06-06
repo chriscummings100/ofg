@@ -1,5 +1,6 @@
 use crate::config::{
-    RendererConfig, RendererConfigError, TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
+    RendererConfig, RendererConfigError, MODEL_VERTEX_FLOATS, TERRAIN_VERTEX_FLOATS,
+    TEXTURE_FORMAT_RGBA8_UNORM,
 };
 use crate::resources::{ResourceHandle, ResourceStore, ResourceStoreError};
 
@@ -59,8 +60,10 @@ impl MeshResource {
         index_count: u32,
         floats_per_vertex: u32,
     ) -> Result<Self, RendererStateError> {
-        if floats_per_vertex != TERRAIN_VERTEX_FLOATS
-            || vertex_float_count == 0
+        if !matches!(
+            floats_per_vertex,
+            TERRAIN_VERTEX_FLOATS | MODEL_VERTEX_FLOATS
+        ) || vertex_float_count == 0
             || index_count == 0
             || vertex_float_count % floats_per_vertex != 0
             || index_count % 3 != 0

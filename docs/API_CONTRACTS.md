@@ -33,7 +33,7 @@ decisions.
 | OFG-API-007 | Raw linked WASM exports in `engine_web` | Unsupported | `assets/wasm/engine_web/engine_web.d.ts`, `crates/*/src/facade.rs` |
 | OFG-API-008 | Future game lifecycle and tuning surface | Future | This document until real behavior exists |
 | OFG-API-009 | Forbidden TypeScript ownership | Forbidden | This document and `docs/ARCHITECTURE.md` |
-| OFG-API-010 | Future GLTF model and animation loading | Future | `docs/GLTF_CHARACTER_PLAN.md` |
+| OFG-API-010 | GLTF static model loading and future animation | Active | `docs/GLTF_CHARACTER_PLAN.md`, `crates/engine_web/src/model_assets.rs`, `crates/engine_web/src/wgpu_renderer.rs` |
 
 ## OFG-API-001: Browser Shell To Rust Browser Game
 
@@ -118,8 +118,8 @@ The active terrain texture path calls:
 
     assetLoader.loadTextureArrays(requests)
 
-The same browser asset-loader object may also expose the future GLTF/model byte
-fetch lane described by `OFG-API-010`:
+The same browser asset-loader object exposes the GLTF/model byte fetch lane
+described by `OFG-API-010`:
 
     assetLoader.loadBytes(requests)
 
@@ -312,13 +312,21 @@ Allowed TypeScript responsibilities remain:
 - URL seed/preset parsing.
 - HTML HUD/debug UI and smoke-test hooks.
 - Generic browser image decoding for Rust-provided texture-array requests.
+- Generic opaque byte fetching for Rust-provided model asset requests.
 
-## OFG-API-010: Future GLTF Model And Animation Loading
+## OFG-API-010: GLTF Model And Animation Loading
 
-The active feature plan is `docs/GLTF_CHARACTER_PLAN.md`. The intended runtime
-format is checked-in GLB for model and animation assets. Rust owns GLTF parsing,
-model resource registration, scene node/entity creation, animation clips,
-skeletons, skinning, animation blending, and renderer resource resolution.
+The active feature plan is `docs/GLTF_CHARACTER_PLAN.md`. The current supported
+slice loads one checked-in static GLB fixture through the generic byte asset
+loader, parses it in Rust, registers a static model mesh/material, attaches it
+to the Rust scene, and renders it through Rust/wgpu. Animation clips, skeletons,
+skinning, animation blending, and player locomotion selection are still future
+milestones under the same boundary.
+
+The intended runtime format is checked-in GLB for model and animation assets.
+Rust owns GLTF parsing, model resource registration, scene node/entity creation,
+animation clips, skeletons, skinning, animation blending, and renderer resource
+resolution.
 
 TypeScript may provide only generic browser substrate:
 
@@ -362,5 +370,5 @@ These are known contract risks for milestone reviewers:
 - `crates/engine_web/src/wgpu_renderer.rs` and
   `crates/terrain_core/src/facade.rs` are over the preferred file size and need
   future split plans before they grow further.
-- The future GLTF path needs a generic byte asset loader; keep it generic and do
-  not let TypeScript grow model or animation semantics while adding it.
+- The GLTF path uses the generic byte asset loader; keep it generic and do not
+  let TypeScript grow model or animation semantics while expanding it.

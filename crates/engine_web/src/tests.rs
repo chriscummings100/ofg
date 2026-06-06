@@ -1,13 +1,14 @@
 use crate::{
     build_frame_packet_from_engine_snapshot, build_frame_uniform_values, build_material_packet,
-    build_object_uniform_values, import_gltf_model_from_slice, BrowserGameInput, BrowserGameState,
-    BrowserTerrainStream, MaterialPacketError, ModelAssetError, RenderPacketError,
-    RenderUniformError, RendererState, RendererStateError, ResourceHandle, RgbaTextureArrayAsset,
-    TerrainTextureArrays, TerrainTextureError, ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS,
-    MATERIAL_PACKET_FLOATS, REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_ALBEDO_TEXTURE_ARRAY_ID,
-    TERRAIN_MATERIAL_ID, TERRAIN_MATERIAL_PACKET, TERRAIN_MATERIAL_TEXTURE_ARRAY_ID,
-    TERRAIN_NORMAL_TEXTURE_ARRAY_ID, TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
-    WORLD_MATRIX_FLOATS,
+    build_object_uniform_values, import_gltf_model_from_slice, model_primitive_vertex_floats,
+    BrowserGameInput, BrowserGameState, BrowserTerrainStream, MaterialPacketError, ModelAssetError,
+    RenderPacketError, RenderUniformError, RendererState, RendererStateError, ResourceHandle,
+    RgbaTextureArrayAsset, TerrainTextureArrays, TerrainTextureError,
+    ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS, MATERIAL_PACKET_FLOATS,
+    MODEL_VERTEX_FLOATS, REQUIRED_TEXTURE_ARRAY_LAYERS, SAMPLE_STATIC_BOX_MATERIAL_LABEL,
+    SAMPLE_STATIC_BOX_MESH_LABEL, TERRAIN_ALBEDO_TEXTURE_ARRAY_ID, TERRAIN_MATERIAL_ID,
+    TERRAIN_MATERIAL_PACKET, TERRAIN_MATERIAL_TEXTURE_ARRAY_ID, TERRAIN_NORMAL_TEXTURE_ARRAY_ID,
+    TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM, WORLD_MATRIX_FLOATS,
 };
 use engine_core::{
     PlayerMode, TerrainComponent, Vec3, DEBUG_PLAYER_MARKER_MATERIAL_LABEL,
@@ -15,8 +16,7 @@ use engine_core::{
 };
 use terrain_core::DEFAULT_TERRAIN_PRESET;
 
-const STATIC_BOX_GLB: &[u8] =
-    include_bytes!("../../../assets/models/test-fixtures/static-box.glb");
+const STATIC_BOX_GLB: &[u8] = include_bytes!("../../../assets/models/test-fixtures/static-box.glb");
 const ANIMATED_CUBE_GLTF: &[u8] =
     include_bytes!("../../../assets/models/test-fixtures/animated-cube.gltf");
 const SIMPLE_SKIN_GLTF: &[u8] =
@@ -70,6 +70,12 @@ fn mesh_handles_are_generational_and_stale_handles_are_rejected() {
 #[test]
 fn mesh_registration_validates_the_renderer_vertex_contract() {
     let mut renderer = configured_renderer();
+
+    let model_mesh = renderer
+        .register_mesh(MODEL_VERTEX_FLOATS * 3, 3, MODEL_VERTEX_FLOATS)
+        .unwrap();
+    assert_eq!(renderer.resource_counts().meshes, 1);
+    assert!(renderer.unregister_mesh(model_mesh).is_ok());
 
     assert_eq!(
         renderer.register_mesh(18, 3, 18),
@@ -296,6 +302,23 @@ fn gltf_importer_loads_static_box_glb_mesh_primitives() {
 }
 
 #[test]
+fn gltf_importer_packs_static_model_vertices_for_renderer_upload() {
+    let model = import_gltf_model_from_slice(STATIC_BOX_GLB).unwrap();
+    let primitive = &model.primitives[0];
+
+    let vertices = model_primitive_vertex_floats(primitive);
+
+    assert_eq!(
+        vertices.len(),
+        primitive.vertices.len() * MODEL_VERTEX_FLOATS as usize
+    );
+    assert_eq!(&vertices[0..3], &primitive.vertices[0].position);
+    assert_eq!(&vertices[3..6], &primitive.vertices[0].normal);
+    assert_eq!(&vertices[6..8], &primitive.vertices[0].texcoord0);
+    assert_eq!(&vertices[8..12], &primitive.vertices[0].color0);
+}
+
+#[test]
 fn gltf_importer_rejects_file_relative_external_buffers() {
     assert_eq!(
         import_gltf_model_from_slice(ANIMATED_CUBE_GLTF),
@@ -450,6 +473,27 @@ fn browser_game_state_resets_with_a_rust_owned_grounded_player() {
         })
     );
     assert!(state.render_mesh_items().unwrap().is_empty());
+}
+
+#[test]
+fn browser_game_state_attaches_configured_static_model_scene_item() {
+    let mut state = BrowserGameState::new();
+    state
+        .configure_static_model_scene(
+            SAMPLE_STATIC_BOX_MESH_LABEL,
+            SAMPLE_STATIC_BOX_MATERIAL_LABEL,
+        )
+        .unwrap();
+
+    state.reset_game(0x0F6, 1).unwrap();
+
+    let items = state.render_mesh_items().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].mesh_label, SAMPLE_STATIC_BOX_MESH_LABEL);
+    assert_eq!(items[0].material_label, SAMPLE_STATIC_BOX_MATERIAL_LABEL);
+    assert_close(items[0].world_matrix[12], 3.0);
+    assert!(items[0].world_matrix[13].is_finite());
+    assert_close(items[0].world_matrix[14], 6.0);
 }
 
 #[test]

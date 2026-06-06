@@ -10,6 +10,7 @@ describe("uber shader build", () => {
     equal(UBER_SHADER_METADATA.language, "wgsl");
     equal(UBER_SHADER_METADATA.sourcePath, "src/engine/render/shaders/uber.wgsl");
     equal(UBER_SHADER_METADATA.vertexEntryPoint, "vertexMain");
+    equal(UBER_SHADER_METADATA.modelVertexEntryPoint, "modelVertexMain");
     equal(UBER_SHADER_METADATA.fragmentEntryPoint, "fragmentMain");
     equal(UBER_SHADER_METADATA.skyVertexEntryPoint, "skyVertexMain");
     equal(UBER_SHADER_METADATA.skyFragmentEntryPoint, "skyFragmentMain");
@@ -29,6 +30,16 @@ describe("uber shader build", () => {
     ok(UBER_SHADER_SOURCE.includes("@location(4) materialIndices: vec4<f32>"));
     ok(UBER_SHADER_SOURCE.includes("@location(4) @interpolate(flat) materialIndices: vec4<f32>"));
     ok(UBER_SHADER_SOURCE.includes("@location(5) materialWeights: vec4<f32>"));
+  });
+
+  it("contains the static model vertex layout contract", () => {
+    ok(UBER_SHADER_SOURCE.includes("fn modelVertexMain"));
+    ok(UBER_SHADER_SOURCE.includes("struct ModelVertexInput"));
+    ok(UBER_SHADER_SOURCE.includes("@location(0) position: vec3<f32>"));
+    ok(UBER_SHADER_SOURCE.includes("@location(1) normal: vec3<f32>"));
+    ok(UBER_SHADER_SOURCE.includes("@location(2) uv: vec2<f32>"));
+    ok(UBER_SHADER_SOURCE.includes("@location(3) color: vec4<f32>"));
+    ok(UBER_SHADER_SOURCE.includes("output.materialWeights = vec4<f32>(1.0, 0.0, 0.0, 0.0)"));
   });
 
   it("contains the basic material lighting contract", () => {

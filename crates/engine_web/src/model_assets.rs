@@ -4,6 +4,14 @@
 
 use std::fmt;
 
+use crate::config::MODEL_VERTEX_FLOATS;
+
+pub const SAMPLE_STATIC_BOX_MODEL_ID: &str = "model.test-fixtures.static-box";
+pub const SAMPLE_STATIC_BOX_MODEL_URL: &str = "/assets/models/test-fixtures/static-box.glb";
+pub const SAMPLE_STATIC_BOX_MESH_LABEL: &str = "model.test-fixtures.static-box.primitive0.mesh";
+pub const SAMPLE_STATIC_BOX_MATERIAL_LABEL: &str =
+    "model.test-fixtures.static-box.primitive0.material";
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModelAsset {
     pub nodes: Vec<ModelNode>,
@@ -81,25 +89,47 @@ pub struct ModelMaterial {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ModelAssetError {
     GltfParse(String),
-    MissingBinaryBuffer { buffer_index: usize },
+    MissingBinaryBuffer {
+        buffer_index: usize,
+    },
     InvalidBufferLength {
         buffer_index: usize,
         actual: usize,
         expected: usize,
     },
-    UnsupportedDataUri { buffer_index: usize, uri: String },
-    DataUriDecode { buffer_index: usize, message: String },
-    UnsupportedExternalBuffer { buffer_index: usize, uri: String },
-    UnsupportedPrimitiveMode { mesh_index: usize, mode: String },
-    MissingPositions { mesh_index: usize },
+    UnsupportedDataUri {
+        buffer_index: usize,
+        uri: String,
+    },
+    DataUriDecode {
+        buffer_index: usize,
+        message: String,
+    },
+    UnsupportedExternalBuffer {
+        buffer_index: usize,
+        uri: String,
+    },
+    UnsupportedPrimitiveMode {
+        mesh_index: usize,
+        mode: String,
+    },
+    MissingPositions {
+        mesh_index: usize,
+    },
     InvalidAttributeLength {
         mesh_index: usize,
         attribute: &'static str,
         actual: usize,
         expected: usize,
     },
-    InvalidTriangleIndexCount { mesh_index: usize, index_count: usize },
-    InvalidFloatData { mesh_index: usize, attribute: &'static str },
+    InvalidTriangleIndexCount {
+        mesh_index: usize,
+        index_count: usize,
+    },
+    InvalidFloatData {
+        mesh_index: usize,
+        attribute: &'static str,
+    },
 }
 
 impl fmt::Display for ModelAssetError {
@@ -172,8 +202,8 @@ impl std::error::Error for ModelAssetError {}
 
 /// Imports a glTF or GLB byte slice into engine-owned model asset data.
 pub fn import_gltf_model_from_slice(bytes: &[u8]) -> Result<ModelAsset, ModelAssetError> {
-    let parsed =
-        gltf::Gltf::from_slice(bytes).map_err(|error| ModelAssetError::GltfParse(error.to_string()))?;
+    let parsed = gltf::Gltf::from_slice(bytes)
+        .map_err(|error| ModelAssetError::GltfParse(error.to_string()))?;
     let buffers = import_buffers(&parsed.document, parsed.blob.as_deref())?;
     let document = parsed.document;
 
@@ -190,6 +220,19 @@ pub fn import_gltf_model_from_slice(bytes: &[u8]) -> Result<ModelAsset, ModelAss
     })
 }
 
+/// Packs one imported primitive into the static model renderer vertex layout.
+pub fn model_primitive_vertex_floats(primitive: &ModelPrimitive) -> Vec<f32> {
+    let mut values = Vec::with_capacity(primitive.vertices.len() * MODEL_VERTEX_FLOATS as usize);
+    for vertex in &primitive.vertices {
+        values.extend_from_slice(&vertex.position);
+        values.extend_from_slice(&vertex.normal);
+        values.extend_from_slice(&vertex.texcoord0);
+        values.extend_from_slice(&vertex.color0);
+    }
+
+    values
+}
+
 /// Resolves GLB binary chunks and base64 data URI buffers into owned byte arrays.
 fn import_buffers(
     document: &gltf::Document,
@@ -199,13 +242,11 @@ fn import_buffers(
         .buffers()
         .map(|buffer| {
             let mut data = match buffer.source() {
-                gltf::buffer::Source::Bin => {
-                    binary_blob
-                        .ok_or(ModelAssetError::MissingBinaryBuffer {
-                            buffer_index: buffer.index(),
-                        })?
-                        .to_vec()
-                }
+                gltf::buffer::Source::Bin => binary_blob
+                    .ok_or(ModelAssetError::MissingBinaryBuffer {
+                        buffer_index: buffer.index(),
+                    })?
+                    .to_vec(),
                 gltf::buffer::Source::Uri(uri) if uri.starts_with("data:") => {
                     decode_data_uri_buffer(buffer.index(), uri)?
                 }
@@ -444,9 +485,10 @@ fn ensure_finite_vec3(
     attribute: &'static str,
     values: &[[f32; 3]],
 ) -> Result<(), ModelAssetError> {
-    if values.iter().any(|value| {
-        !value[0].is_finite() || !value[1].is_finite() || !value[2].is_finite()
-    }) {
+    if values
+        .iter()
+        .any(|value| !value[0].is_finite() || !value[1].is_finite() || !value[2].is_finite())
+    {
         return Err(ModelAssetError::InvalidFloatData {
             mesh_index,
             attribute,

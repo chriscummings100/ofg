@@ -2,6 +2,7 @@ mod config;
 mod facade;
 mod game_state;
 mod materials;
+mod model_asset_loader;
 mod model_assets;
 mod render_packets;
 mod render_uniforms;
@@ -15,8 +16,8 @@ mod wgpu_renderer;
 pub const ENGINE_WEB_VERSION: u32 = 1;
 
 pub use config::{
-    RendererConfig, RendererConfigError, REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_VERTEX_FLOATS,
-    TEXTURE_FORMAT_RGBA8_UNORM,
+    RendererConfig, RendererConfigError, MODEL_VERTEX_FLOATS, REQUIRED_TEXTURE_ARRAY_LAYERS,
+    TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
 };
 pub use facade::*;
 pub use game_state::{
@@ -27,9 +28,13 @@ pub use materials::{
     build_material_packet, MaterialPacketError, DEFAULT_MATERIAL_PACKET, TERRAIN_MATERIAL_ID,
     TERRAIN_MATERIAL_PACKET,
 };
+#[cfg(target_arch = "wasm32")]
+pub use model_asset_loader::load_model_asset_bytes;
 pub use model_assets::{
-    import_gltf_model_from_slice, ModelAsset, ModelAssetError, ModelMaterial, ModelNode,
-    ModelNodeTransform, ModelPrimitive, ModelVertex,
+    import_gltf_model_from_slice, model_primitive_vertex_floats, ModelAsset, ModelAssetError,
+    ModelMaterial, ModelNode, ModelNodeTransform, ModelPrimitive, ModelVertex,
+    SAMPLE_STATIC_BOX_MATERIAL_LABEL, SAMPLE_STATIC_BOX_MESH_LABEL, SAMPLE_STATIC_BOX_MODEL_ID,
+    SAMPLE_STATIC_BOX_MODEL_URL,
 };
 pub use render_packets::{
     build_frame_packet_from_engine_snapshot, RenderPacketError, ENGINE_RENDER_SNAPSHOT_FLOATS,

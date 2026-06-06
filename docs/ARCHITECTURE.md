@@ -78,8 +78,9 @@ as a browser shell plus generic browser image decoder.
 - `engine_web` composes `engine_core` and `terrain_core` as Rust libraries for
   the active browser game facade. It owns player/camera movement, terrain-height
   grounding, camera mode switching, scene mesh item resolution for the debug
-  player marker, frame packet construction, terrain stream advancement, terrain
-  mesh upload/pruning, and Rust/wgpu draw submission.
+  player marker and imported static model items, frame packet construction,
+  terrain stream advancement, terrain mesh upload/pruning, and Rust/wgpu draw
+  submission.
 - `engine_core` remains the browser-free Rust logic crate for engine/player/world
   behavior and native tests. It owns the Rust scene/component model: one
   scene tree of entities addressed by stable generational `EntityId` handles,
@@ -97,12 +98,13 @@ as a browser shell plus generic browser image decoder.
   fixtures, not runtime TypeScript terrain ownership.
 - `engine_web` owns the Rust/wgpu browser renderer: WebGPU canvas surface,
   adapter/device/queue, surface configuration, depth texture, shader modules,
-  pipelines, buffers, texture arrays, samplers, bind groups, render-pass
-  submission, frame/resource counts, and GPU resource pruning.
+  terrain and static-model pipelines, buffers, texture arrays, samplers, bind
+  groups, render-pass submission, frame/resource counts, and GPU resource
+  pruning.
 - TypeScript collects DOM input, parses URL seed/preset values, starts WASM,
   exposes debug hooks, decodes Rust-provided generic texture-array URL requests
-  into RGBA arrays, and can fetch Rust-provided opaque byte asset requests for
-  future model loading. `src/app` no longer constructs the terrain
+  into RGBA arrays, and fetches Rust-provided opaque byte asset requests for
+  model loading. `src/app` no longer constructs the terrain
   scheduler, density store, render packet store, worker client, mirrored terrain
   sink, texture upload path, or terrain height sampler directly. Rust owns the
   terrain renderer vertex stride, terrain texture layer requests, stream
@@ -184,7 +186,9 @@ material-to-texture selection, owns the debug player-marker mesh/material and
 GPU resource mapping, validates per-chunk terrain draw transforms inside the
 browser game facade, consumes scene mesh world matrices extracted by
 `engine_core`, computes object normal matrices, and packs the WGSL
-camera/object uniform buffers.
+camera/object uniform buffers. Static model meshes use a separate 12-float
+vertex layout and `modelVertexMain` pipeline entry point instead of pretending
+to be terrain vertices.
 
 Terrain uses checked-in Poly Haven CC0 materials imported into 16-layer global
 texture arrays. The runtime currently loads albedo, normal, and roughness arrays;

@@ -6,10 +6,17 @@ use wasm_bindgen::JsCast;
 use wgpu::util::DeviceExt;
 
 use crate::config::{
-    REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
+    MODEL_VERTEX_FLOATS, REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_VERTEX_FLOATS,
+    TEXTURE_FORMAT_RGBA8_UNORM,
 };
 use crate::game_state::{BrowserGameInput, BrowserGameState};
-use crate::materials::TERRAIN_MATERIAL_PACKET;
+use crate::materials::{build_material_packet, TERRAIN_MATERIAL_PACKET};
+use crate::model_asset_loader::load_model_asset_bytes;
+use crate::model_assets::{
+    import_gltf_model_from_slice, model_primitive_vertex_floats, ModelAsset, ModelMaterial,
+    SAMPLE_STATIC_BOX_MATERIAL_LABEL, SAMPLE_STATIC_BOX_MESH_LABEL, SAMPLE_STATIC_BOX_MODEL_ID,
+    SAMPLE_STATIC_BOX_MODEL_URL,
+};
 use crate::render_packets::build_frame_packet_from_engine_snapshot;
 use crate::render_uniforms::{
     build_frame_uniform_values, build_object_uniform_values, FRAME_PACKET_FLOATS,
@@ -35,8 +42,8 @@ pub struct RustBrowserGame {
     terrain_mesh_handles_by_key: HashMap<String, ResourceHandle>,
     terrain_textures: Option<TerrainTextureHandles>,
     object_handles_by_id: HashMap<String, ResourceHandle>,
-    player_marker_mesh: ResourceHandle,
-    player_marker_material_packet: [f32; MATERIAL_PACKET_FLOATS],
+    scene_mesh_handles_by_label: HashMap<String, ResourceHandle>,
+    scene_material_packets_by_label: HashMap<String, [f32; MATERIAL_PACKET_FLOATS]>,
 }
 
 #[derive(Debug)]
@@ -67,6 +74,7 @@ struct BrowserWgpuRenderer {
     sampler: wgpu::Sampler,
     sky_pipeline: wgpu::RenderPipeline,
     pipeline: wgpu::RenderPipeline,
+    model_pipeline: wgpu::RenderPipeline,
     max_texture_array_layers: u32,
     meshes: ResourceStore<GpuMesh>,
     textures: ResourceStore<GpuTexture>,
@@ -82,6 +90,7 @@ struct GpuMesh {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     index_count: u32,
+    vertex_layout: MeshVertexLayout,
 }
 
 struct GpuTexture {
@@ -103,6 +112,22 @@ struct TerrainTextureHandles {
     material: ResourceHandle,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum MeshVertexLayout {
+    Terrain,
+    Model,
+}
+
+impl MeshVertexLayout {
+    fn from_floats_per_vertex(floats_per_vertex: u32) -> Option<Self> {
+        match floats_per_vertex {
+            TERRAIN_VERTEX_FLOATS => Some(Self::Terrain),
+            MODEL_VERTEX_FLOATS => Some(Self::Model),
+            _ => None,
+        }
+    }
+}
+
 const TERRAIN_MATERIAL_INDICES_OFFSET: usize = 11;
 const TERRAIN_MATERIAL_WEIGHTS_OFFSET: usize = 15;
 const IDENTITY_WORLD_MATRIX: [f32; WORLD_MATRIX_FLOATS] = [
@@ -121,23 +146,63 @@ impl RustBrowserGame {
         console_error_panic_hook::set_once();
         let mut renderer = BrowserWgpuRenderer::new(canvas).await?;
         let terrain_texture_arrays = load_terrain_texture_arrays(&asset_loader).await?;
+        let static_model_bytes = load_model_asset_bytes(
+            &asset_loader,
+            SAMPLE_STATIC_BOX_MODEL_ID,
+            SAMPLE_STATIC_BOX_MODEL_URL,
+        )
+        .await?;
+        let static_model = import_gltf_model_from_slice(&static_model_bytes).map_err(js_error)?;
+        let (static_model_vertices, static_model_indices, static_model_material_packet) =
+            static_model_renderer_assets(&static_model)?;
         let (player_marker_vertices, player_marker_indices) = create_player_marker_mesh();
         let player_marker_mesh = renderer.register_mesh(
             &player_marker_vertices,
             &player_marker_indices,
             TERRAIN_VERTEX_FLOATS,
         )?;
+        let static_model_mesh = renderer.register_mesh(
+            &static_model_vertices,
+            &static_model_indices,
+            MODEL_VERTEX_FLOATS,
+        )?;
+
+        let mut scene_mesh_handles_by_label = HashMap::new();
+        scene_mesh_handles_by_label.insert(
+            DEBUG_PLAYER_MARKER_MESH_LABEL.to_string(),
+            player_marker_mesh,
+        );
+        scene_mesh_handles_by_label
+            .insert(SAMPLE_STATIC_BOX_MESH_LABEL.to_string(), static_model_mesh);
+
+        let mut scene_material_packets_by_label = HashMap::new();
+        scene_material_packets_by_label.insert(
+            DEBUG_PLAYER_MARKER_MATERIAL_LABEL.to_string(),
+            PLAYER_MARKER_MATERIAL_PACKET,
+        );
+        scene_material_packets_by_label.insert(
+            SAMPLE_STATIC_BOX_MATERIAL_LABEL.to_string(),
+            static_model_material_packet,
+        );
+
+        let mut game_state = BrowserGameState::new();
+        game_state
+            .configure_static_model_scene(
+                SAMPLE_STATIC_BOX_MESH_LABEL,
+                SAMPLE_STATIC_BOX_MATERIAL_LABEL,
+            )
+            .map_err(js_error)?;
 
         let mut game = Self {
-            game_state: BrowserGameState::new(),
+            game_state,
             terrain_stream: BrowserTerrainStream::new(0, DEFAULT_TERRAIN_PRESET)
                 .map_err(js_error)?,
             renderer,
             terrain_mesh_handles_by_key: HashMap::new(),
             terrain_textures: None,
             object_handles_by_id: HashMap::new(),
-            player_marker_mesh,
-            player_marker_material_packet: PLAYER_MARKER_MATERIAL_PACKET,
+            scene_mesh_handles_by_label,
+            scene_material_packets_by_label,
         };
         game.install_terrain_textures(terrain_texture_arrays)?;
 
@@ -384,21 +449,25 @@ impl RustBrowserGame {
 
 impl RustBrowserGame {
     fn scene_mesh_handle(&self, label: &str) -> Result<ResourceHandle, JsValue> {
-        match label {
-            DEBUG_PLAYER_MARKER_MESH_LABEL => Ok(self.player_marker_mesh),
-            _ => Err(js_error(format!(
-                "Rust WebGPU renderer cannot resolve scene mesh '{label}'."
-            ))),
-        }
+        self.scene_mesh_handles_by_label
+            .get(label)
+            .copied()
+            .ok_or_else(|| {
+                js_error(format!(
+                    "Rust WebGPU renderer cannot resolve scene mesh '{label}'."
+                ))
+            })
     }
 
     fn scene_material_packet(&self, label: &str) -> Result<[f32; MATERIAL_PACKET_FLOATS], JsValue> {
-        match label {
-            DEBUG_PLAYER_MARKER_MATERIAL_LABEL => Ok(self.player_marker_material_packet),
-            _ => Err(js_error(format!(
-                "Rust WebGPU renderer cannot resolve scene material '{label}'."
-            ))),
-        }
+        self.scene_material_packets_by_label
+            .get(label)
+            .copied()
+            .ok_or_else(|| {
+                js_error(format!(
+                    "Rust WebGPU renderer cannot resolve scene material '{label}'."
+                ))
+            })
     }
 
     fn install_terrain_textures(&mut self, textures: TerrainTextureArrays) -> Result<(), JsValue> {
@@ -677,6 +746,7 @@ impl BrowserWgpuRenderer {
             push_constant_ranges: &[],
         });
         let pipeline = create_main_pipeline(&device, &pipeline_layout, &shader, format);
+        let model_pipeline = create_model_pipeline(&device, &pipeline_layout, &shader, format);
         let sky_pipeline = create_sky_pipeline(&device, &sky_pipeline_layout, &shader, format);
         let mut renderer = Self {
             canvas,
@@ -691,6 +761,7 @@ impl BrowserWgpuRenderer {
             sampler,
             sky_pipeline,
             pipeline,
+            model_pipeline,
             max_texture_array_layers,
             meshes: ResourceStore::new(),
             textures: ResourceStore::new(),
@@ -735,10 +806,13 @@ impl BrowserWgpuRenderer {
         indices: &[u32],
         floats_per_vertex: u32,
     ) -> Result<ResourceHandle, JsValue> {
-        if floats_per_vertex != TERRAIN_VERTEX_FLOATS
-            || vertices.is_empty()
+        let Some(vertex_layout) = MeshVertexLayout::from_floats_per_vertex(floats_per_vertex)
+        else {
+            return Err(js_error("Rust WebGPU renderer rejected an invalid mesh."));
+        };
+        if vertices.is_empty()
             || indices.is_empty()
-            || vertices.len() % TERRAIN_VERTEX_FLOATS as usize != 0
+            || vertices.len() % floats_per_vertex as usize != 0
             || indices.len() % 3 != 0
         {
             return Err(js_error("Rust WebGPU renderer rejected an invalid mesh."));
@@ -763,6 +837,7 @@ impl BrowserWgpuRenderer {
             vertex_buffer,
             index_buffer,
             index_count: indices.len() as u32,
+            vertex_layout,
         }))
     }
 
@@ -957,7 +1032,7 @@ impl BrowserWgpuRenderer {
             pass.set_pipeline(&self.sky_pipeline);
             pass.draw(0..3, 0..1);
 
-            pass.set_pipeline(&self.pipeline);
+            let mut active_vertex_layout = None;
             for (mesh_handle, object_handle) in render_items {
                 let mesh = self.meshes.get(mesh_handle).ok_or_else(|| {
                     js_error("Rust WebGPU renderer received a stale mesh handle.")
@@ -969,6 +1044,13 @@ impl BrowserWgpuRenderer {
                     js_error("Rust WebGPU renderer object bind group was not prepared.")
                 })?;
 
+                if active_vertex_layout != Some(mesh.vertex_layout) {
+                    match mesh.vertex_layout {
+                        MeshVertexLayout::Terrain => pass.set_pipeline(&self.pipeline),
+                        MeshVertexLayout::Model => pass.set_pipeline(&self.model_pipeline),
+                    }
+                    active_vertex_layout = Some(mesh.vertex_layout);
+                }
                 pass.set_bind_group(1, bind_group, &[]);
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
@@ -1233,6 +1315,76 @@ fn create_main_pipeline(
         vertex: wgpu::VertexState {
             module: shader,
             entry_point: "vertexMain",
+            compilation_options: Default::default(),
+            buffers: &vertex_buffers,
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: "fragmentMain",
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            cull_mode: Some(wgpu::Face::Back),
+            ..Default::default()
+        },
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::Less,
+            stencil: Default::default(),
+            bias: Default::default(),
+        }),
+        multisample: Default::default(),
+        multiview: None,
+    })
+}
+
+fn create_model_pipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    shader: &wgpu::ShaderModule,
+    format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
+    const ATTRIBUTES: [wgpu::VertexAttribute; 4] = [
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x3,
+            offset: 0,
+            shader_location: 0,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x3,
+            offset: 3 * 4,
+            shader_location: 1,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x2,
+            offset: 6 * 4,
+            shader_location: 2,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x4,
+            offset: 8 * 4,
+            shader_location: 3,
+        },
+    ];
+    let vertex_buffers = [wgpu::VertexBufferLayout {
+        array_stride: MODEL_VERTEX_FLOATS as wgpu::BufferAddress * 4,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &ATTRIBUTES,
+    }];
+
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("static model pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: "modelVertexMain",
             compilation_options: Default::default(),
             buffers: &vertex_buffers,
         },
@@ -1625,6 +1777,33 @@ fn handle_from_js(handle: f64) -> Result<ResourceHandle, JsValue> {
 
 fn js_error(error: impl std::fmt::Display) -> JsValue {
     js_sys::Error::new(&error.to_string()).unchecked_into()
+}
+
+fn static_model_renderer_assets(
+    model: &ModelAsset,
+) -> Result<(Vec<f32>, Vec<u32>, [f32; MATERIAL_PACKET_FLOATS]), JsValue> {
+    let primitive = model
+        .primitives
+        .first()
+        .ok_or_else(|| js_error("Rust GLTF importer found no static model primitives."))?;
+    let vertices = model_primitive_vertex_floats(primitive);
+    let indices = primitive.indices.clone();
+    let material = primitive
+        .material
+        .and_then(|material_index| model.materials.get(material_index));
+    let material_packet = static_model_material_packet(material)?;
+
+    Ok((vertices, indices, material_packet))
+}
+
+fn static_model_material_packet(
+    material: Option<&ModelMaterial>,
+) -> Result<[f32; MATERIAL_PACKET_FLOATS], JsValue> {
+    let albedo = material
+        .map(|material| material.base_color_factor)
+        .unwrap_or([1.0, 1.0, 1.0, 1.0]);
+
+    build_material_packet(albedo, [0.08, 0.08, 0.08], 0.18, 0.0, 1.0).map_err(js_error)
 }
 
 fn create_player_marker_mesh() -> (Vec<f32>, Vec<u32>) {

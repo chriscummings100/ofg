@@ -1,6 +1,7 @@
 use engine_core::{
-    Engine, EngineError, EngineUpdateInput, EntityId, MaterialId, MeshId, PlayerMode,
-    PlayerMovementIntent, TerrainComponent, Vec3, RENDER_SNAPSHOT_FLOAT_COUNT,
+    Engine, EngineError, EngineUpdateInput, EntityId, LocalTransform, MaterialId, MeshId,
+    MeshRendererComponent, PlayerMode, PlayerMovementIntent, Quat, TerrainComponent, Vec3,
+    RENDER_SNAPSHOT_FLOAT_COUNT,
 };
 use terrain_core::{height_at, DEFAULT_TERRAIN_PRESET};
 
@@ -8,6 +9,10 @@ const INITIAL_PLAYER_X: f32 = 0.0;
 const INITIAL_PLAYER_Z: f32 = 0.0;
 const INITIAL_PLAYER_YAW: f32 = std::f32::consts::PI * 0.18;
 const INITIAL_PLAYER_PITCH: f32 = -0.08;
+const INITIAL_STATIC_MODEL_X: f32 = 3.0;
+const INITIAL_STATIC_MODEL_Z: f32 = 6.0;
+const INITIAL_STATIC_MODEL_HEIGHT_OFFSET: f32 = 1.2;
+const INITIAL_STATIC_MODEL_SCALE: f32 = 2.0;
 const INITIAL_DEBUG_X: f32 = 14.0;
 const INITIAL_DEBUG_Z: f32 = 18.0;
 const INITIAL_DEBUG_HEIGHT_OFFSET: f32 = 12.0;
@@ -47,6 +52,13 @@ pub struct BrowserGameState {
     engine: Engine,
     terrain_seed: u32,
     terrain_preset: u32,
+    static_model_scene: Option<StaticModelSceneConfig>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct StaticModelSceneConfig {
+    mesh_label: String,
+    material_label: String,
 }
 
 impl BrowserGameState {
@@ -55,6 +67,7 @@ impl BrowserGameState {
             engine: Engine::new(),
             terrain_seed: 0,
             terrain_preset: DEFAULT_TERRAIN_PRESET,
+            static_model_scene: None,
         }
     }
 
@@ -102,6 +115,23 @@ impl BrowserGameState {
             INITIAL_DEBUG_PITCH,
         )?;
         self.engine.set_player_mode(PlayerMode::FirstPerson)?;
+        self.spawn_configured_static_model()?;
+
+        Ok(())
+    }
+
+    pub fn configure_static_model_scene(
+        &mut self,
+        mesh_label: impl Into<String>,
+        material_label: impl Into<String>,
+    ) -> Result<(), BrowserGameStateError> {
+        self.static_model_scene = Some(StaticModelSceneConfig {
+            mesh_label: mesh_label.into(),
+            material_label: material_label.into(),
+        });
+        if self.engine.player_rig().is_some() {
+            self.spawn_configured_static_model()?;
+        }
 
         Ok(())
     }
@@ -236,6 +266,71 @@ impl BrowserGameState {
         }
 
         self.reset_game(self.terrain_seed, self.terrain_preset)
+    }
+
+    fn spawn_configured_static_model(&mut self) -> Result<(), BrowserGameStateError> {
+        let Some(config) = self.static_model_scene.clone() else {
+            return Ok(());
+        };
+
+        let terrain_height =
+            self.terrain_height_at(INITIAL_STATIC_MODEL_X, INITIAL_STATIC_MODEL_Z)?;
+        self.spawn_static_model(
+            &config.mesh_label,
+            &config.material_label,
+            Vec3::new(
+                INITIAL_STATIC_MODEL_X,
+                terrain_height + INITIAL_STATIC_MODEL_HEIGHT_OFFSET,
+                INITIAL_STATIC_MODEL_Z,
+            ),
+            INITIAL_STATIC_MODEL_SCALE,
+        )
+    }
+
+    fn spawn_static_model(
+        &mut self,
+        mesh_label: &str,
+        material_label: &str,
+        position: Vec3,
+        scale: f32,
+    ) -> Result<(), BrowserGameStateError> {
+        let mesh = self
+            .engine
+            .scene_mut()
+            .resources_mut()
+            .register_mesh(mesh_label);
+        let material = self
+            .engine
+            .scene_mut()
+            .resources_mut()
+            .register_material(material_label);
+        let entity = self.engine.scene_mut().create_entity();
+        {
+            let mut entity_ref = self
+                .engine
+                .scene_mut()
+                .entity_mut(entity)
+                .map_err(EngineError::from)?;
+            entity_ref.add_mesh_renderer(MeshRendererComponent {
+                mesh,
+                material,
+                visible: true,
+            });
+        }
+        self.engine
+            .scene_mut()
+            .set_local_transform(
+                entity,
+                LocalTransform {
+                    translation: position,
+                    rotation: Quat::IDENTITY,
+                    scale: Vec3::new(scale, scale, scale),
+                },
+            )
+            .map_err(EngineError::from)?;
+        self.engine.scene_mut().update_world_transforms();
+
+        Ok(())
     }
 
     fn terrain_height_at(&self, x: f32, z: f32) -> Result<f32, BrowserGameStateError> {

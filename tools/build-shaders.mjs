@@ -15,6 +15,7 @@ const shaders = [
     sourceExport: "UBER_SHADER_SOURCE",
     metadataExport: "UBER_SHADER_METADATA",
     vertexEntryPoint: "vertexMain",
+    modelVertexEntryPoint: "modelVertexMain",
     fragmentEntryPoint: "fragmentMain",
     skyVertexEntryPoint: "skyVertexMain",
     skyFragmentEntryPoint: "skyFragmentMain"
@@ -64,6 +65,7 @@ function buildTypeScriptModule(shader, source) {
     language: shader.language,
     sourceHash: `sha256-${sourceHash}`,
     vertexEntryPoint: shader.vertexEntryPoint,
+    modelVertexEntryPoint: shader.modelVertexEntryPoint,
     fragmentEntryPoint: shader.fragmentEntryPoint,
     skyVertexEntryPoint: shader.skyVertexEntryPoint,
     skyFragmentEntryPoint: shader.skyFragmentEntryPoint
@@ -80,6 +82,7 @@ function buildTypeScriptModule(shader, source) {
     "  readonly language: ShaderLanguage;",
     "  readonly sourceHash: string;",
     "  readonly vertexEntryPoint: string;",
+    "  readonly modelVertexEntryPoint: string;",
     "  readonly fragmentEntryPoint: string;",
     "  readonly skyVertexEntryPoint: string;",
     "  readonly skyFragmentEntryPoint: string;",

@@ -81,6 +81,7 @@ async function runBrowserSmoke(url) {
     assertTerrainRenderPacketRuntime(terrainRenderPacketRuntime);
     const rendererRuntime = await readRendererRuntime(page);
     assertRendererRuntime(rendererRuntime);
+    assertStaticModelRendererResources(rendererRuntime, initialTerrain);
 
     await page.reload({ waitUntil: "load" });
     await waitForPlayableTerrain(page);
@@ -100,6 +101,7 @@ async function runBrowserSmoke(url) {
     assertTerrainRenderPacketRuntime(refreshedTerrainRenderPacketRuntime);
     const refreshedRendererRuntime = await readRendererRuntime(page);
     assertRendererRuntime(refreshedRendererRuntime);
+    assertStaticModelRendererResources(refreshedRendererRuntime, refreshedTerrain);
 
     const beforeResetStreamStatus = await readTerrainStreamStatus(page);
     await page.evaluate(() => window.__ofgDebug?.resetTerrainStreaming());
@@ -320,6 +322,23 @@ function assertRendererRuntime(runtime) {
 
   if (Number.parseInt(status.frameIndex, 10) <= 0 || status.frameDrawCount <= 0) {
     throw new Error(`Rust/wgpu renderer did not track frame draws: ${JSON.stringify(runtime)}`);
+  }
+}
+
+function assertStaticModelRendererResources(runtime, terrainDebug) {
+  const status = runtime.rendererStatus;
+  if (status === undefined) {
+    throw new Error(`Rust/wgpu renderer status is unavailable: ${JSON.stringify(runtime)}`);
+  }
+
+  const terrainDrawCount = terrainDebug.renderChunkKeys.length;
+  const expectedMeshCount = terrainDrawCount + 2; // terrain chunks plus marker and imported model meshes.
+  const expectedDrawCount = terrainDrawCount + 1; // first-person terrain chunks plus imported model.
+  if (status.meshCount < expectedMeshCount) {
+    throw new Error(`Expected imported model mesh resource: ${JSON.stringify({ status, terrainDrawCount })}`);
+  }
+  if (status.objectCount < expectedDrawCount || status.frameDrawCount < expectedDrawCount) {
+    throw new Error(`Expected imported model object draw: ${JSON.stringify({ status, terrainDrawCount })}`);
   }
 }
 
