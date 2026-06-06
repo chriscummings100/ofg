@@ -18,7 +18,6 @@ import {
   type TerrainWorkerTaskPool
 } from "./terrainCoreWorkerPool.js";
 import type { TerrainCoreWasmInstance } from "./terrainCoreWasm.js";
-import { terrainDensityChunkTransferList } from "./terrainDensityTransfer.js";
 
 type PendingRequest = {
   readonly kind: TerrainWorkerTaskKind;
@@ -133,10 +132,7 @@ export class TerrainChunkWorkerClient implements TerrainChunkJobGenerator {
         resolve: (result) => resolve(result as TerrainChunkJobResult),
         reject
       });
-      const transfer = request.densityBufferTransfer === "move"
-        ? terrainDensityChunkTransferList(request.densityChunks)
-        : [];
-      this.workerHost.post(task.workerIndex, task.requestId, payload, transfer);
+      this.workerHost.post(task.workerIndex, task.requestId, payload);
     });
   }
 

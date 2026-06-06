@@ -37,9 +37,9 @@ src/engine/browser
 
 src/engine/world
   Terrain descriptor/config types, 3D density chunk contracts, Rust/WASM terrain
-  adapters, worker transport, density transfer helpers, terrain materials, and
-  terrain mesh layout helpers. Runtime terrain generation and meshing are
-  Rust-owned.
+  adapters, worker transport, terrain materials, and terrain mesh layout
+  helpers. Runtime terrain generation, meshing, and worker density dependency
+  generation are Rust-owned.
 
 src/engine/math
   Small vector and matrix primitives.

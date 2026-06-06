@@ -189,7 +189,6 @@ function fakeStreamer(): FakeStreamer {
         inFlightChunkCount: 0,
         missingChunkCount: 0,
         maxConcurrentChunkJobs: 4,
-        densityTransferMode: "shared",
         workerPoolRuntime: "rust"
       };
     }

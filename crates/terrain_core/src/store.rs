@@ -82,10 +82,6 @@ impl DensityChunkStore {
         None
     }
 
-    pub(crate) fn contains(&self, key: DensityChunkStoreKey) -> bool {
-        self.entries.iter().any(|entry| entry.key == key)
-    }
-
     pub(crate) fn insert(&mut self, key: DensityChunkStoreKey, densities: Vec<f32>) {
         self.tick = self.tick.wrapping_add(1);
         for entry in &mut self.entries {

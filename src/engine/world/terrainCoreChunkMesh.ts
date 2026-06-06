@@ -1,6 +1,5 @@
 import type { TerrainChunkCoord } from "./terrainChunk.js";
 import {
-  readTerrainCoreDensityChunkBuffer,
   readTerrainCoreMeshIndexBuffer,
   readTerrainCoreMeshVertexBuffer,
   terrainPresetToWasmCode,
@@ -8,11 +7,6 @@ import {
 } from "./terrainCoreWasm.js";
 import type { WorldDescriptor } from "./terrainDescriptor.js";
 import type { MeshData } from "./terrainMesh.js";
-
-export type TerrainCoreDensityChunkPayload = {
-  readonly coord: TerrainChunkCoord;
-  readonly densities: Float32Array;
-};
 
 export function generateTerrainChunkMeshWithWasm(
   terrainCore: TerrainCoreWasmInstance,
@@ -33,30 +27,6 @@ export function generateTerrainChunkMeshWithWasm(
     vertices: new Float32Array(readTerrainCoreMeshVertexBuffer(terrainCore.exports)),
     indices: new Uint32Array(readTerrainCoreMeshIndexBuffer(terrainCore.exports))
   };
-}
-
-export function installTerrainCoreDensityChunk(
-  terrainCore: TerrainCoreWasmInstance,
-  descriptor: WorldDescriptor,
-  chunk: TerrainCoreDensityChunkPayload,
-  cellSize = 1
-): void {
-  const buffer = readTerrainCoreDensityChunkBuffer(terrainCore.exports);
-  if (chunk.densities.length !== buffer.length) {
-    throw new Error(
-      `Terrain density chunk has ${chunk.densities.length} samples; expected ${buffer.length}.`
-    );
-  }
-
-  buffer.set(chunk.densities);
-  terrainCore.exports.ofg_store_density_chunk_buffer(
-    descriptor.seed,
-    terrainPresetToWasmCode(descriptor.terrainPreset),
-    chunk.coord.x,
-    chunk.coord.y,
-    chunk.coord.z,
-    cellSize
-  );
 }
 
 export function prepareTerrainCoreDensityChunkWindow(

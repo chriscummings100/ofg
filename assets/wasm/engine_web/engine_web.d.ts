@@ -173,8 +173,6 @@ export interface InitOutput {
   readonly ofg_density_chunk_store_eviction_count: () => number;
   readonly ofg_reset_density_chunk_store: () => void;
   readonly ofg_store_density_chunk_buffer: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
-  readonly ofg_density_chunk_store_contains: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
-  readonly ofg_load_density_chunk_buffer: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
   readonly ofg_retain_density_chunk_store_window: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => number;
   readonly ofg_prepare_density_chunk_window: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => number;
   readonly ofg_density_chunk_sample_count: () => number;

@@ -6,6 +6,21 @@ fn test_lock() -> std::sync::MutexGuard<'static, ()> {
     TEST_MUTEX.lock().expect("terrain core test lock poisoned")
 }
 
+fn density_store_contains(
+    seed: u32,
+    preset: u32,
+    coord: TerrainChunkCoord,
+    cell_size: f64,
+) -> bool {
+    let key = density_chunk_store_key(seed, preset, coord, cell_size);
+
+    density_chunk_store()
+        .lock()
+        .expect("density chunk store lock poisoned")
+        .get(key)
+        .is_some()
+}
+
 #[test]
 fn exported_version_is_stable() {
     let _lock = test_lock();
@@ -307,31 +322,6 @@ fn stores_density_chunk_buffer_for_mesh_reuse() {
 }
 
 #[test]
-fn loads_stored_density_chunk_buffer_by_key() {
-    let _lock = test_lock();
-    ofg_reset_density_chunk_store();
-    ofg_fill_density_chunk(0x0F6, 1, -1, 0, 2, 1.0);
-    let expected_first = unsafe { *ofg_density_chunk_buffer_ptr() };
-
-    assert_eq!(ofg_store_density_chunk_buffer(0x0F6, 1, -1, 0, 2, 1.0), 1);
-    assert_eq!(ofg_density_chunk_store_contains(0x0F6, 1, -1, 0, 2, 1.0), 1);
-    assert_eq!(ofg_density_chunk_store_contains(0x0F6, 1, 0, 0, 2, 1.0), 0);
-
-    ofg_fill_density_chunk(0x0F6, 1, 4, 0, 4, 1.0);
-    assert_ne!(
-        unsafe { *ofg_density_chunk_buffer_ptr() }.to_bits(),
-        expected_first.to_bits()
-    );
-
-    assert_eq!(ofg_load_density_chunk_buffer(0x0F6, 1, -1, 0, 2, 1.0), 1);
-    assert_eq!(
-        unsafe { *ofg_density_chunk_buffer_ptr() }.to_bits(),
-        expected_first.to_bits()
-    );
-    assert_eq!(ofg_load_density_chunk_buffer(0x0F6, 1, 9, 0, 9, 1.0), 0);
-}
-
-#[test]
 fn prunes_stored_density_chunks_to_window() {
     let _lock = test_lock();
     ofg_reset_density_chunk_store();
@@ -345,8 +335,8 @@ fn prunes_stored_density_chunks_to_window() {
         ofg_retain_density_chunk_store_window(0x0F6, 1, 0, 0, 0, 1, 1, 1, 1.0),
         1
     );
-    assert_eq!(ofg_density_chunk_store_contains(0x0F6, 1, 0, 0, 0, 1.0), 1);
-    assert_eq!(ofg_density_chunk_store_contains(0x0F6, 1, 4, 0, 0, 1.0), 0);
+    assert!(density_store_contains(0x0F6, 1, coord(0, 0, 0), 1.0));
+    assert!(!density_store_contains(0x0F6, 1, coord(4, 0, 0), 1.0));
 }
 
 #[test]

@@ -4,8 +4,6 @@ import type { WorldDescriptor } from "./terrainDescriptor.js";
 export type TerrainChunkJobRequest = {
   readonly generation: number;
   readonly coord: TerrainChunkCoord;
-  readonly densityChunks: readonly TerrainDensityChunkPayload[];
-  readonly densityBufferTransfer?: "clone" | "move";
   readonly cellSize: number;
 };
 
@@ -39,12 +37,6 @@ export type TerrainDensityJobResult = {
   readonly coord: TerrainChunkCoord;
   readonly densities: Float32Array;
   readonly stats: TerrainDensityJobStats;
-};
-
-export type TerrainDensityChunkPayload = {
-  readonly key: TerrainChunkKey;
-  readonly coord: TerrainChunkCoord;
-  readonly densities: Float32Array;
 };
 
 export type TerrainChunkJobResult = {

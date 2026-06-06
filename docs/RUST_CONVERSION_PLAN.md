@@ -103,6 +103,16 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   and through `engine_web`.
 - [x] (2026-06-06) Validated the standalone `engine_core.wasm` deletion with
   `npm test`, `cargo test -p engine_core`, and `npm run check:wasm`.
+- [x] (2026-06-06) Deleted the TypeScript density transfer path between main
+  and worker `terrain_core.wasm` instances. LOD worker requests no longer carry
+  density chunks or transfer-mode flags; worker meshing relies on Rust
+  `ofg_build_chunk_mesh` to generate/reuse its own neighbor density apron. Also
+  removed the now-unused public density-store contains/load WASM exports.
+- [x] (2026-06-06) Validated density transfer deletion with
+  `cargo test -p terrain_core`, `npm test`, and `npm run smoke:browser`;
+  inspected
+  `artifacts/browser-smoke/2026-06-06T08-45-02-188Z/report.json` plus first
+  person, debug-fly, and streamed first-person screenshots.
 
 ## Surprises & Discoveries
 
@@ -144,6 +154,12 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   Evidence: `rg` found live references only in its TypeScript wrapper, generated
   metadata, tests, build script, package scripts, and docs; the playable app
   reaches `engine_core` through `engine_web`.
+- Observation: The LOD0 worker density dependency payloads were redundant for
+  the current Rust mesh export.
+  Evidence: `ofg_build_chunk_mesh` already calls `generate_neighbor_apron_chunks`
+  from seed, preset, coord, and cell size inside the worker WASM instance, so
+  the TypeScript bridge did not need to load main-thread density chunks and
+  transfer them to the worker before meshing.
 - Observation: The active docs had become plan-shaped overlap: an engine plan,
   a reduction audit, an API contract, a scene-model plan, and a reduction
   ExecPlan were all close enough to confuse the source of truth.
@@ -197,20 +213,28 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   Rationale: The playable runtime uses `engine_web`, and `engine_core` is better
   covered directly by native Rust tests plus `engine_web` integration tests.
   Date/Author: 2026-06-06 / Codex.
+- Decision: Delete the TypeScript density transfer path and let worker meshing
+  generate/reuse dependency chunks inside Rust.
+  Rationale: This removes shared/transfer density buffer policy, density chunk
+  payloads, main-to-worker density store reads from TypeScript, and the unused
+  public density-store contains/load WASM exports. It may duplicate some density
+  generation until Rust owns the full worker runtime, but the ownership boundary
+  is cleaner and browser smoke confirms streaming still works.
+  Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
 
 The docs now separate completed Rust ownership from remaining TypeScript browser
 substrate, and this plan gives the exact target boundary. The main remaining
-implementation gap is terrain-aware Worker and density transfer code in
-TypeScript, including terrain-specific worker payload construction, plus texture
-asset loading, split frame/render calls, the still scalar wasm-bindgen
-player/debug/status methods beneath the runtime facade, public terrain mesh and
-texture upload calls, and TypeScript density/material helpers.
+implementation gap is terrain-aware Worker code in TypeScript, including
+terrain-specific worker payload construction, plus texture asset loading, split
+frame/render calls, the still scalar wasm-bindgen player/debug/status methods
+beneath the runtime facade, public terrain mesh and texture upload calls, and
+TypeScript density/material helpers.
 
-The recommended next slice is to move terrain-specific worker payload
-construction and density transfer behind Rust or into a strictly opaque byte
-protocol.
+The recommended next slice is to replace terrain-specific worker request/result
+payload construction with Rust-owned worker/threading support or a strictly
+opaque byte protocol.
 
 The previous docs cleanup validated with:
 
@@ -235,6 +259,12 @@ The standalone `engine_core.wasm` deletion slice validated with:
     npm test
     cargo test -p engine_core
     npm run check:wasm
+
+The density transfer deletion slice validated with:
+
+    cargo test -p terrain_core
+    npm test
+    npm run smoke:browser
 
 ## Context and Orientation
 
@@ -420,12 +450,12 @@ Already Rust-owned:
 | System | Rust owner | Current TypeScript status |
 |---|---|---|
 | Terrain height/density sampling | `crates/terrain_core` | Runtime TypeScript generator/noise code deleted. |
-| Density chunk filling | `crates/terrain_core` | Browser bridge still copies density payloads between WASM instances. |
+| Density chunk filling | `crates/terrain_core` | Browser bridge stores completed density jobs in Rust for scheduler bookkeeping, but no longer copies density chunks between main and worker WASM instances. |
 | Dual Contouring mesh emission | `crates/terrain_core` | Runtime TypeScript meshing code deleted. |
 | Terrain material/biome classification | `crates/terrain_core` | Runtime classification is Rust-owned; TypeScript still has material asset metadata. |
 | Terrain stream scheduling | `crates/terrain_core/src/stream.rs` | TypeScript bridge calls the scheduler but does not choose jobs itself. |
-| Terrain retained density store | `crates/terrain_core/src/store.rs` | TypeScript adapter still moves buffers between main and worker WASM instances. |
-| Terrain worker-pool bookkeeping | `crates/terrain_core/src/worker_pool.rs` | TypeScript still constructs browser Workers; `BrowserWorkerHost` is payload-opaque but `TerrainChunkWorkerClient` still builds terrain-specific payloads. |
+| Terrain retained density store | `crates/terrain_core/src/store.rs` | TypeScript adapter writes density job results and retains desired windows; it no longer reads chunks back for worker transfer. |
+| Terrain worker-pool bookkeeping | `crates/terrain_core/src/worker_pool.rs` | TypeScript still constructs browser Workers; `BrowserWorkerHost` is payload-opaque but `TerrainChunkWorkerClient` still builds terrain-specific density/chunk request payloads. |
 | Player/camera tick state | `crates/engine_web`, backed by `crates/engine_core` | Playable app no longer loads or builds a standalone `engine_core.wasm` artifact. |
 | WebGPU renderer | `crates/engine_web/src/wgpu_renderer.rs` | TypeScript no longer creates devices, pipelines, buffers, render passes, or draw calls. |
 | Terrain GPU mesh/texture handles | `crates/engine_web` | TypeScript still uploads terrain mesh bytes and decoded texture arrays into Rust. |
@@ -462,8 +492,7 @@ Current runtime TypeScript that remains:
 |---|---|---|
 | App shell | Starts game, tracks input, updates HUD, exposes debug hooks, reads URL params, calls `game.tick(frame)`, sends `game.command(...)`, reads `game.debugSnapshot()`, and still calls `game.renderFrame()`. | Keep as browser shell, but remove the separate render call once Rust can render from `tick()`. |
 | WASM loading | Loads `engine_web` and `terrain_core.wasm` for the temporary worker bridge. | Keep only generic game module loading; remove runtime `terrain_core.wasm` calls. |
-| Terrain worker transport | `BrowserWorkerHost` owns Worker lifecycle and request-id envelopes; `TerrainChunkWorkerClient` still builds terrain-specific density/chunk payloads. | Replace terrain-specific payload construction with Rust-owned worker/threading runtime or an opaque byte protocol. |
-| Density payload movement | Moves/shared-buffers density chunks between main and worker `terrain_core.wasm` instances. | Delete when worker memory/job payload ownership is Rust-managed. |
+| Terrain worker transport | `BrowserWorkerHost` owns Worker lifecycle and request-id envelopes; `TerrainChunkWorkerClient` still builds terrain-specific density/chunk payloads, but LOD chunk requests no longer include density buffers. | Replace terrain-specific payload construction with Rust-owned worker/threading runtime or an opaque byte protocol. |
 | Texture asset decode | Fetches checked-in JPGs, draws them to canvas, reads RGBA pixels, uploads arrays into Rust. | Move terrain asset ownership behind Rust; TS may remain generic byte/image helper only. |
 | Debug/smoke mirrors | `window.__ofgDebug` now reads `game.debugSnapshot()` and sends `game.command(...)`, but the snapshot is still assembled by the TypeScript runtime facade. | Replace with a Rust-assembled `debugSnapshot()`. |
 | Legacy/test adapters | TS density/material helpers and test-only support code. | Delete or demote to explicit test support. |
@@ -480,7 +509,7 @@ Current runtime TypeScript that remains:
 | No public terrain mesh upload calls | `upsertTerrainMesh` and retention calls remain. | Pending |
 | No public terrain texture upload calls | `upsertTerrainTextures` remains. | Pending |
 | No direct TypeScript `terrain_core.wasm` runtime calls | `RustBrowserGameRuntime` and Workers still load/call `terrain_core.wasm`. | Pending |
-| Worker semantics are Rust-owned and opaque to TS | Rust owns scheduler/pool and `BrowserWorkerHost` is payload-opaque, but TS terrain payloads still name density and chunk jobs. | Partial |
+| Worker semantics are Rust-owned and opaque to TS | Rust owns scheduler/pool and `BrowserWorkerHost` is payload-opaque; TS no longer moves density buffers, but terrain payloads still name density and chunk jobs. | Partial |
 | Rust owns WebGPU directly | Rust/wgpu owns browser rendering. | Complete |
 
 ## Plan of Work
@@ -501,10 +530,10 @@ stop calling separate `renderFrame()` once Rust can render from `tick()`.
 
 Third, collapse terrain Worker semantics behind Rust. The generic browser host
 piece is partially complete: `BrowserWorkerHost` sees only request ids and
-opaque payloads. Remaining work is to replace `TerrainCoreWorkerStreamer`,
-`terrainChunkWorkerClient`, `terrainChunkWorkerTypes`, and density-transfer
-wrappers with Rust-owned wasm-thread/Worker support or a byte protocol where
-TypeScript sees no density, LOD, chunk-key, or mesh semantics.
+opaque payloads, and the density-transfer wrapper has been deleted. Remaining
+work is to replace `TerrainCoreWorkerStreamer`, `terrainChunkWorkerClient`, and
+`terrainChunkWorkerTypes` with Rust-owned wasm-thread/Worker support or a byte
+protocol where TypeScript sees no density, LOD, chunk-key, or mesh semantics.
 
 Fourth, move terrain texture asset ownership behind Rust. Delete
 `upsertTerrainTextures` from the public TypeScript-to-Rust API. Rust should own

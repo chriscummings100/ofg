@@ -1,8 +1,5 @@
 import { terrainChunkKey } from "./terrainChunk.js";
-import {
-  generateTerrainChunkMeshWithWasm,
-  installTerrainCoreDensityChunk
-} from "./terrainCoreChunkMesh.js";
+import { generateTerrainChunkMeshWithWasm } from "./terrainCoreChunkMesh.js";
 import { generateTerrainDensityChunkWithWasm } from "./terrainCoreDensityChunk.js";
 import { loadTerrainCoreWasm, type TerrainCoreWasmInstance } from "./terrainCoreWasm.js";
 import type {
@@ -118,16 +115,6 @@ async function generateChunk(
 ): Promise<TerrainChunkJobResult> {
   const terrainCore = await loadWorkerTerrainCore();
   const startedAt = performance.now();
-  terrainCore.exports.ofg_reset_density_chunk_store();
-  for (const densityChunk of request.densityChunks) {
-    installTerrainCoreDensityChunk(
-      terrainCore,
-      request.descriptor,
-      densityChunk,
-      request.cellSize
-    );
-  }
-
   const mesh = generateTerrainChunkMeshWithWasm(
     terrainCore,
     request.descriptor,

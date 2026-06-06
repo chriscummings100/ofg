@@ -1,8 +1,7 @@
 import {
-  terrainChunkKey,
-  type TerrainChunkCoord
+  type TerrainChunkCoord,
+  type TerrainChunkKey
 } from "./terrainChunk.js";
-import type { TerrainDensityChunkPayload } from "./terrainChunkWorkerTypes.js";
 import {
   readTerrainCoreDensityChunkBuffer,
   terrainPresetToWasmCode,
@@ -10,14 +9,18 @@ import {
 } from "./terrainCoreWasm.js";
 import type { WorldDescriptor } from "./terrainDescriptor.js";
 
+export type TerrainDensityChunkInput = {
+  readonly key: TerrainChunkKey;
+  readonly coord: TerrainChunkCoord;
+  readonly densities: Float32Array;
+};
+
 export type TerrainDensityChunkStore = {
   readonly runtime: "rust" | "typescript";
   clear(): void;
   size(): number;
   retainOnly(coords: readonly TerrainChunkCoord[], cellSize: number): void;
-  has(coord: TerrainChunkCoord, cellSize: number): boolean;
-  store(chunk: TerrainDensityChunkPayload, cellSize: number): void;
-  get(coord: TerrainChunkCoord, cellSize: number): TerrainDensityChunkPayload | undefined;
+  store(chunk: TerrainDensityChunkInput, cellSize: number): void;
 };
 
 export class TerrainCoreDensityChunkStore implements TerrainDensityChunkStore {
@@ -56,18 +59,7 @@ export class TerrainCoreDensityChunkStore implements TerrainDensityChunkStore {
     );
   }
 
-  has(coord: TerrainChunkCoord, cellSize: number): boolean {
-    return this.terrainCore.exports.ofg_density_chunk_store_contains(
-      this.descriptor.seed,
-      terrainPresetToWasmCode(this.descriptor.terrainPreset),
-      coord.x,
-      coord.y,
-      coord.z,
-      cellSize
-    ) === 1;
-  }
-
-  store(chunk: TerrainDensityChunkPayload, cellSize: number): void {
+  store(chunk: TerrainDensityChunkInput, cellSize: number): void {
     const buffer = readTerrainCoreDensityChunkBuffer(this.terrainCore.exports);
     if (chunk.densities.length !== buffer.length) {
       throw new Error(
@@ -88,26 +80,6 @@ export class TerrainCoreDensityChunkStore implements TerrainDensityChunkStore {
     if (stored !== 1) {
       throw new Error(`Rust terrain density store rejected chunk '${chunk.key}'.`);
     }
-  }
-
-  get(coord: TerrainChunkCoord, cellSize: number): TerrainDensityChunkPayload | undefined {
-    const loaded = this.terrainCore.exports.ofg_load_density_chunk_buffer(
-      this.descriptor.seed,
-      terrainPresetToWasmCode(this.descriptor.terrainPreset),
-      coord.x,
-      coord.y,
-      coord.z,
-      cellSize
-    );
-    if (loaded !== 1) {
-      return undefined;
-    }
-
-    return {
-      key: terrainChunkKey(coord),
-      coord,
-      densities: new Float32Array(readTerrainCoreDensityChunkBuffer(this.terrainCore.exports))
-    };
   }
 }
 

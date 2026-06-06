@@ -14,15 +14,8 @@ import type {
 import {
   type TerrainChunkJobGenerator,
   type TerrainChunkJobStats,
-  type TerrainDensityChunkPayload,
   type TerrainDensityJobStats
 } from "../world/terrainChunkWorkerTypes.js";
-import {
-  prepareTerrainDensityChunkForWorkerTransfer,
-  resolveTerrainDensityTransferMode,
-  type TerrainDensityTransferMode,
-  type TerrainDensityTransferModeRequest
-} from "../world/terrainDensityTransfer.js";
 
 export type TerrainCoreWorkerStreamStatus = {
   readonly generation: number;
@@ -38,7 +31,6 @@ export type TerrainCoreWorkerStreamStatus = {
   readonly inFlightChunkCount: number;
   readonly missingChunkCount: number;
   readonly maxConcurrentChunkJobs: number;
-  readonly densityTransferMode: TerrainDensityTransferMode;
   readonly workerPoolRuntime: "rust" | "typescript" | "unknown";
   readonly lastDensityJobStats?: TerrainDensityJobStats;
   readonly lastChunkJobStats?: TerrainChunkJobStats;
@@ -47,7 +39,6 @@ export type TerrainCoreWorkerStreamStatus = {
 export type TerrainCoreWorkerStreamerOptions = {
   readonly getTargetPosition?: () => Vec3 | undefined;
   readonly cellSize?: number;
-  readonly densityTransferMode?: TerrainDensityTransferModeRequest;
 };
 
 export class TerrainCoreWorkerStreamer {
@@ -55,7 +46,6 @@ export class TerrainCoreWorkerStreamer {
   enabled = true;
   getTargetPosition?: () => Vec3 | undefined;
   cellSize: number;
-  densityTransferMode: TerrainDensityTransferMode;
 
   private lastCenterCoord?: TerrainChunkCoord;
   private lastDensityJobStats?: TerrainDensityJobStats;
@@ -70,7 +60,6 @@ export class TerrainCoreWorkerStreamer {
   ) {
     this.getTargetPosition = options.getTargetPosition;
     this.cellSize = options.cellSize ?? 1;
-    this.densityTransferMode = resolveTerrainDensityTransferMode(options.densityTransferMode);
     validateCellSize(this.cellSize);
   }
 
@@ -143,7 +132,6 @@ export class TerrainCoreWorkerStreamer {
       inFlightChunkCount: status.inFlightLodCount,
       missingChunkCount: status.missingLod0Count,
       maxConcurrentChunkJobs: status.maxInFlightJobs,
-      densityTransferMode: this.densityTransferMode,
       workerPoolRuntime: this.worker.workerPoolRuntime ?? "unknown",
       lastDensityJobStats: this.lastDensityJobStats,
       lastChunkJobStats: this.lastChunkJobStats
@@ -221,18 +209,9 @@ export class TerrainCoreWorkerStreamer {
   }
 
   private submitLod0Job(generation: number, coord: TerrainChunkCoord): void {
-    const densityChunks = this.densityDependenciesForLod0(coord);
-    if (densityChunks === undefined) {
-      this.streamScheduler.failLod0(generation, coord);
-      this.pumpJobs();
-      return;
-    }
-
     void this.worker.generateChunk({
       generation,
       coord,
-      densityChunks,
-      densityBufferTransfer: this.densityTransferMode === "transfer" ? "move" : "clone",
       cellSize: this.cellSize
     }).then((result) => {
       const key = terrainChunkKey(coord);
@@ -268,25 +247,6 @@ export class TerrainCoreWorkerStreamer {
       }
       this.pumpJobs();
     });
-  }
-
-  private densityDependenciesForLod0(
-    coord: TerrainChunkCoord
-  ): readonly TerrainDensityChunkPayload[] | undefined {
-    const chunks: TerrainDensityChunkPayload[] = [];
-    for (const dependency of this.streamScheduler.lod0DependencyCoords(coord)) {
-      const chunk = this.densityChunkStore.get(dependency, this.cellSize);
-      if (chunk === undefined) {
-        return undefined;
-      }
-
-      chunks.push(prepareTerrainDensityChunkForWorkerTransfer(
-        chunk,
-        this.densityTransferMode
-      ));
-    }
-
-    return chunks;
   }
 }
 

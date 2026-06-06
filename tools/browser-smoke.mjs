@@ -246,14 +246,11 @@ async function readRendererRuntime(page) {
 
 async function readTerrainStreamRuntime(page) {
   return page.evaluate(() => {
-    const status = window.__ofgDebug?.getTerrainStreamStatus?.();
-
     return {
       streamerRuntime: window.__ofgDebug?.getTerrainStreamerRuntime?.() ?? "missing",
       schedulerRuntime: window.__ofgDebug?.getTerrainStreamSchedulerRuntime?.() ?? "missing",
       densityStoreRuntime: window.__ofgDebug?.getTerrainDensityStoreRuntime?.() ?? "missing",
       workerPoolRuntime: window.__ofgDebug?.getTerrainWorkerPoolRuntime?.() ?? "missing",
-      densityTransferMode: status?.densityTransferMode ?? "missing",
       crossOriginIsolated: globalThis.crossOriginIsolated === true,
       sharedArrayBufferAvailable: typeof SharedArrayBuffer !== "undefined",
       workerCount: window.__ofgDebug?.getTerrainWorkerCount?.() ?? 0
@@ -353,12 +350,6 @@ function assertTerrainStreamRuntime(runtime) {
 
   if (!runtime.sharedArrayBufferAvailable) {
     throw new Error(`Expected SharedArrayBuffer to be available: ${JSON.stringify(runtime)}`);
-  }
-
-  if (runtime.densityTransferMode !== "shared") {
-    throw new Error(
-      `Expected shared density transfer mode, saw '${runtime.densityTransferMode}'.`
-    );
   }
 }
 

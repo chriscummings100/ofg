@@ -161,22 +161,6 @@ export type TerrainCoreWasmExports = {
     chunkZ: number,
     cellSize: number
   ) => number;
-  readonly ofg_density_chunk_store_contains: (
-    seed: number,
-    preset: number,
-    chunkX: number,
-    chunkY: number,
-    chunkZ: number,
-    cellSize: number
-  ) => number;
-  readonly ofg_load_density_chunk_buffer: (
-    seed: number,
-    preset: number,
-    chunkX: number,
-    chunkY: number,
-    chunkZ: number,
-    cellSize: number
-  ) => number;
   readonly ofg_retain_density_chunk_store_window: (
     seed: number,
     preset: number,
@@ -430,8 +414,6 @@ function assertTerrainCoreExports(exports: WebAssembly.Exports): asserts exports
     "ofg_density_chunk_store_eviction_count",
     "ofg_reset_density_chunk_store",
     "ofg_store_density_chunk_buffer",
-    "ofg_density_chunk_store_contains",
-    "ofg_load_density_chunk_buffer",
     "ofg_retain_density_chunk_store_window",
     "ofg_prepare_density_chunk_window",
     "ofg_density_chunk_sample_count",

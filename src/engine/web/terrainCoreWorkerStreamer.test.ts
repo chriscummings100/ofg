@@ -1,4 +1,4 @@
-import { equal, ok } from "node:assert/strict";
+import { equal } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { vec3 } from "../math/vec3.js";
 import type {
@@ -23,7 +23,6 @@ import {
 } from "../world/terrainChunk.js";
 import type {
   TerrainChunkJobGenerator,
-  TerrainDensityChunkPayload,
   TerrainDensityJobResult
 } from "../world/terrainChunkWorkerTypes.js";
 import { createSeedWorldDescriptor } from "../world/terrainDescriptor.js";
@@ -48,7 +47,7 @@ describe("TerrainCoreWorkerStreamer", () => {
     await flushMicrotasks(8);
 
     equal(worker.chunkRequests.length, 1);
-    equal(worker.chunkRequests[0].densityChunks.length, 8);
+    equal(terrainChunkKey(worker.chunkRequests[0]), "0,0,0");
     equal(renderPackets.size(), 1);
     equal(renderPackets.chunks[0].key, "0,0,0");
     equal(densityStore.size(), 8);
@@ -95,29 +94,6 @@ describe("TerrainCoreWorkerStreamer", () => {
     equal(densityStore.size(), 4);
     equal(streamer.getLoadedChunkKeys().includes("1,0,0"), true);
     equal(streamer.getLoadedChunkKeys().includes("0,0,0"), false);
-  });
-
-  it("can send LOD dependencies through shared density buffers", async () => {
-    if (typeof SharedArrayBuffer === "undefined") {
-      return;
-    }
-
-    const terrainCore = await loadTerrainCore();
-    const worker = createImmediateWorker();
-    const { streamer } = createStreamer(terrainCore, worker, {
-      densityTransferMode: "shared"
-    });
-
-    streamer.syncAround(vec3(0, 0, 0));
-    await flushMicrotasks(8);
-
-    equal(streamer.getStreamStatus().densityTransferMode, "shared");
-    equal(worker.chunkRequests.length, 1);
-    equal(worker.chunkRequests[0].densityChunks.length, 8);
-    for (const chunk of worker.chunkRequests[0].densityChunks) {
-      ok(chunk.densities.buffer instanceof SharedArrayBuffer);
-      equal(chunk.densities[0], densitySampleMarker(chunk.coord));
-    }
   });
 });
 
@@ -200,10 +176,10 @@ function toChunkKey(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainChunkKey
 
 function createImmediateWorker(): TerrainChunkJobGenerator & {
   readonly densityRequests: TerrainDensityJobResult[];
-  readonly chunkRequests: Array<{ readonly densityChunks: readonly TerrainDensityChunkPayload[] }>;
+  readonly chunkRequests: TerrainChunkCoord[];
 } {
   const densityRequests: TerrainDensityJobResult[] = [];
-  const chunkRequests: Array<{ readonly densityChunks: readonly TerrainDensityChunkPayload[] }> = [];
+  const chunkRequests: TerrainChunkCoord[] = [];
 
   return {
     workerCount: 8,
@@ -221,7 +197,7 @@ function createImmediateWorker(): TerrainChunkJobGenerator & {
       return result;
     },
     async generateChunk(request) {
-      chunkRequests.push({ densityChunks: request.densityChunks });
+      chunkRequests.push(request.coord);
       return {
         generation: request.generation,
         key: terrainChunkKey(request.coord),
