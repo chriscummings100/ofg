@@ -1072,17 +1072,12 @@ pub extern "C" fn ofg_build_chunk_mesh(
         return 0;
     }
 
-    let noise = SimplexNoise3D::new(seed);
-    let preset_id = terrain_preset_index(preset);
-    let preset = terrain_preset(preset_id);
     let center_coord = TerrainChunkCoord {
         x: chunk_x,
         y: chunk_y,
         z: chunk_z,
     };
-    let chunks =
-        generate_neighbor_apron_chunks(&noise, preset, preset_id, seed, center_coord, cell_size);
-    let mesh = build_neighbor_aware_chunk_mesh(&noise, preset, seed, &chunks, center_coord);
+    let mesh = build_chunk_mesh(seed, preset, center_coord, cell_size);
 
     unsafe {
         MESH_VERTEX_BUFFER = mesh.vertices;

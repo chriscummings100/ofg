@@ -28,14 +28,6 @@ export type EngineWebBrowserGame = {
   tick(frame: BrowserFrameInput): void;
   command(command: RustBrowserGameCommand): void;
   debugSnapshot(): RustBrowserGameDebugSnapshot;
-  upsertTerrainMesh(
-    chunkKey: string,
-    vertices: Float32Array,
-    indices: Uint32Array
-  ): void;
-  destroyTerrainMesh(chunkKey: string): void;
-  retainTerrainMeshes(chunkKeys: string[]): void;
-  clearTerrainMeshes(): void;
   upsertTerrainTextures(
     width: number,
     height: number,
@@ -45,7 +37,7 @@ export type EngineWebBrowserGame = {
     normalData: Uint8Array,
     materialData: Uint8Array
   ): void;
-  renderFrame(): void;
+  terrainHeightAt(x: number, z: number): number;
 };
 
 export type EngineWebWasmModule = {

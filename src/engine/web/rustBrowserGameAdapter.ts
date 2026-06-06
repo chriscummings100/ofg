@@ -1,18 +1,9 @@
-import {
-  terrainChunkKey,
-  type TerrainChunkCoord,
-  type TerrainChunkKey
-} from "../world/terrainChunk.js";
 import { vec3, type Vec3 } from "../math/vec3.js";
 import {
   createEngineWebBrowserGame,
   ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM,
   type EngineWebBrowserGame
 } from "./engineWebWasm.js";
-import type {
-  TerrainRenderChunkInput,
-  TerrainRenderChunkSink
-} from "../render/terrainRenderChunkSink.js";
 import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
 import type {
   BrowserFrameInput,
@@ -21,10 +12,9 @@ import type {
   RustBrowserGameDebugSnapshot,
 } from "./browserGameTypes.js";
 
-export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
+export class RustBrowserGameAdapter {
   readonly runtime = "rust-wgpu" as const;
   private uploadedTerrainTextures?: TerrainMaterialTextures;
-  private readonly terrainChunkKeys = new Set<TerrainChunkKey>();
   private width = 1;
   private height = 1;
 
@@ -60,6 +50,7 @@ export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
   }
 
   tick(frame: BrowserFrameInput): void {
+    this.resize();
     this.game.tick(frame);
   }
 
@@ -77,46 +68,26 @@ export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
         snapshot.playerPosition.y,
         snapshot.playerPosition.z
       ),
+      loadedTerrainChunkKeys: [...snapshot.loadedTerrainChunkKeys],
+      terrainChunkKeys: [...snapshot.terrainChunkKeys],
+      terrainPreset: snapshot.terrainPreset,
+      terrainSeed: snapshot.terrainSeed,
+      terrainStreamStatus: snapshot.terrainStreamStatus,
+      terrainStreamerRuntime: snapshot.terrainStreamerRuntime,
+      terrainStreamSchedulerRuntime: snapshot.terrainStreamSchedulerRuntime,
+      terrainDensityStoreRuntime: snapshot.terrainDensityStoreRuntime,
+      terrainWorkerPoolRuntime: snapshot.terrainWorkerPoolRuntime,
+      renderPacketRuntime: snapshot.renderPacketRuntime,
+      terrainRenderPacketRuntime: snapshot.terrainRenderPacketRuntime,
+      rendererRuntime: snapshot.rendererRuntime,
+      terrainWorkerCount: snapshot.terrainWorkerCount,
+      playerControllerRuntime: snapshot.playerControllerRuntime,
       rendererStatus: snapshot.rendererStatus
     };
   }
 
-  addChunk(chunk: TerrainRenderChunkInput): void {
-    const mesh = "mesh" in chunk ? chunk.mesh : chunk;
-    this.terrainChunkKeys.add(chunk.key);
-    this.game.upsertTerrainMesh(chunk.key, mesh.vertices, mesh.indices);
-  }
-
-  removeChunk(chunk: TerrainChunkKey | TerrainChunkCoord): boolean {
-    const key = toChunkKey(chunk);
-    const existed = this.terrainChunkKeys.delete(key);
-    this.game.destroyTerrainMesh(key);
-    return existed;
-  }
-
-  clear(): void {
-    this.terrainChunkKeys.clear();
-    this.game.clearTerrainMeshes();
-  }
-
-  retainChunks(chunks: readonly (TerrainChunkKey | TerrainChunkCoord)[]): void {
-    const keys = chunks.map(toChunkKey);
-    const retainSet = new Set(keys);
-    for (const key of this.terrainChunkKeys) {
-      if (!retainSet.has(key)) {
-        this.terrainChunkKeys.delete(key);
-      }
-    }
-    this.game.retainTerrainMeshes(keys);
-  }
-
-  chunkKeys(): TerrainChunkKey[] {
-    return [...this.terrainChunkKeys].sort();
-  }
-
-  renderFrame(): void {
-    this.resize();
-    this.game.renderFrame();
+  terrainHeightAt(x: number, z: number): number {
+    return this.game.terrainHeightAt(x, z);
   }
 
   private upsertTerrainTexturesIfNeeded(textures: TerrainMaterialTextures | undefined): void {
@@ -145,10 +116,6 @@ export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
       height: Math.max(1, Math.floor(this.canvas.clientHeight * pixelRatio))
     };
   }
-}
-
-function toChunkKey(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainChunkKey {
-  return typeof chunk === "string" ? chunk : terrainChunkKey(chunk);
 }
 
 function validatePlayerMode(mode: PlayerMode): PlayerMode {

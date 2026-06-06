@@ -4,10 +4,10 @@ use std::sync::{Mutex, OnceLock};
 use crate::*;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct TerrainStreamConfig {
-    pub(crate) horizontal_radius: i32,
-    pub(crate) vertical_chunk_offsets: Vec<i32>,
-    pub(crate) max_in_flight_jobs: usize,
+pub struct TerrainStreamConfig {
+    pub horizontal_radius: i32,
+    pub vertical_chunk_offsets: Vec<i32>,
+    pub max_in_flight_jobs: usize,
 }
 
 impl Default for TerrainStreamConfig {
@@ -21,7 +21,7 @@ impl Default for TerrainStreamConfig {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum TerrainStreamJob {
+pub enum TerrainStreamJob {
     Density {
         generation: u64,
         coord: TerrainChunkCoord,
@@ -45,30 +45,43 @@ pub(crate) enum TerrainChunkStage {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum TerrainStreamError {
+pub enum TerrainStreamError {
     NegativeHorizontalRadius,
     EmptyVerticalOffsets,
     DuplicateVerticalOffsets,
     ZeroMaxInFlightJobs,
 }
 
+impl std::fmt::Display for TerrainStreamError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let message = match self {
+            Self::NegativeHorizontalRadius => "negative terrain stream horizontal radius",
+            Self::EmptyVerticalOffsets => "empty terrain stream vertical offsets",
+            Self::DuplicateVerticalOffsets => "duplicate terrain stream vertical offsets",
+            Self::ZeroMaxInFlightJobs => "zero terrain stream max in-flight jobs",
+        };
+
+        formatter.write_str(message)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct TerrainStreamStatus {
-    pub(crate) generation: u64,
-    pub(crate) desired_density_count: usize,
-    pub(crate) desired_lod0_count: usize,
-    pub(crate) density_ready_count: usize,
-    pub(crate) lod0_ready_count: usize,
-    pub(crate) lod0_empty_count: usize,
-    pub(crate) in_flight_density_count: usize,
-    pub(crate) in_flight_lod_count: usize,
-    pub(crate) missing_density_count: usize,
-    pub(crate) missing_lod0_count: usize,
-    pub(crate) max_in_flight_jobs: usize,
+pub struct TerrainStreamStatus {
+    pub generation: u64,
+    pub desired_density_count: usize,
+    pub desired_lod0_count: usize,
+    pub density_ready_count: usize,
+    pub lod0_ready_count: usize,
+    pub lod0_empty_count: usize,
+    pub in_flight_density_count: usize,
+    pub in_flight_lod_count: usize,
+    pub missing_density_count: usize,
+    pub missing_lod0_count: usize,
+    pub max_in_flight_jobs: usize,
 }
 
 #[derive(Default)]
-pub(crate) struct TerrainStreamScheduler {
+pub struct TerrainStreamScheduler {
     config: TerrainStreamConfig,
     generation: u64,
     center_coord: Option<TerrainChunkCoord>,
@@ -115,7 +128,7 @@ enum LodStage {
 }
 
 impl TerrainStreamScheduler {
-    pub(crate) fn new(config: TerrainStreamConfig) -> Result<Self, TerrainStreamError> {
+    pub fn new(config: TerrainStreamConfig) -> Result<Self, TerrainStreamError> {
         validate_stream_config(&config)?;
 
         Ok(Self {
@@ -128,11 +141,11 @@ impl TerrainStreamScheduler {
         })
     }
 
-    pub(crate) fn generation(&self) -> u64 {
+    pub fn generation(&self) -> u64 {
         self.generation
     }
 
-    pub(crate) fn sync_center(&mut self, center_coord: TerrainChunkCoord) {
+    pub fn sync_center(&mut self, center_coord: TerrainChunkCoord) {
         self.center_coord = Some(center_coord);
         self.desired_lod0 = self
             .build_render_chunk_coords(center_coord)
@@ -146,7 +159,7 @@ impl TerrainStreamScheduler {
         self.prune_outside_desired_sets();
     }
 
-    pub(crate) fn reset(&mut self, center_coord: TerrainChunkCoord) {
+    pub fn reset(&mut self, center_coord: TerrainChunkCoord) {
         self.generation = self.generation.wrapping_add(1);
         self.center_coord = None;
         self.desired_density.clear();
@@ -155,7 +168,7 @@ impl TerrainStreamScheduler {
         self.sync_center(center_coord);
     }
 
-    pub(crate) fn invalidate_all(&mut self) {
+    pub fn invalidate_all(&mut self) {
         self.generation = self.generation.wrapping_add(1);
         self.center_coord = None;
         self.desired_density.clear();
@@ -163,7 +176,7 @@ impl TerrainStreamScheduler {
         self.chunks.clear();
     }
 
-    pub(crate) fn tick(&mut self) -> Vec<TerrainStreamJob> {
+    pub fn tick(&mut self) -> Vec<TerrainStreamJob> {
         let mut jobs = Vec::new();
 
         while self.active_job_count() < self.config.max_in_flight_jobs {
@@ -196,7 +209,7 @@ impl TerrainStreamScheduler {
         jobs
     }
 
-    pub(crate) fn complete_density(&mut self, generation: u64, coord: TerrainChunkCoord) -> bool {
+    pub fn complete_density(&mut self, generation: u64, coord: TerrainChunkCoord) -> bool {
         if generation != self.generation || !self.desired_density.contains(&coord) {
             return false;
         }
@@ -210,7 +223,7 @@ impl TerrainStreamScheduler {
         true
     }
 
-    pub(crate) fn fail_density(&mut self, generation: u64, coord: TerrainChunkCoord) -> bool {
+    pub fn fail_density(&mut self, generation: u64, coord: TerrainChunkCoord) -> bool {
         if generation != self.generation || !self.desired_density.contains(&coord) {
             return false;
         }
@@ -224,7 +237,7 @@ impl TerrainStreamScheduler {
         true
     }
 
-    pub(crate) fn complete_lod0(
+    pub fn complete_lod0(
         &mut self,
         generation: u64,
         coord: TerrainChunkCoord,
@@ -247,7 +260,7 @@ impl TerrainStreamScheduler {
         true
     }
 
-    pub(crate) fn fail_lod0(&mut self, generation: u64, coord: TerrainChunkCoord) -> bool {
+    pub fn fail_lod0(&mut self, generation: u64, coord: TerrainChunkCoord) -> bool {
         if generation != self.generation || !self.desired_lod0.contains(&coord) {
             return false;
         }
@@ -285,15 +298,15 @@ impl TerrainStreamScheduler {
         }
     }
 
-    pub(crate) fn desired_density_coords(&self) -> Vec<TerrainChunkCoord> {
+    pub fn desired_density_coords(&self) -> Vec<TerrainChunkCoord> {
         self.desired_density.iter().copied().collect()
     }
 
-    pub(crate) fn desired_lod0_coords(&self) -> Vec<TerrainChunkCoord> {
+    pub fn desired_lod0_coords(&self) -> Vec<TerrainChunkCoord> {
         self.desired_lod0.iter().copied().collect()
     }
 
-    pub(crate) fn density_dependencies(&self, coord: TerrainChunkCoord) -> Vec<TerrainChunkCoord> {
+    pub fn density_dependencies(&self, coord: TerrainChunkCoord) -> Vec<TerrainChunkCoord> {
         let mut coords = Vec::with_capacity(8);
         for z in coord.z..=coord.z + 1 {
             for y in coord.y..=coord.y + 1 {
@@ -306,7 +319,7 @@ impl TerrainStreamScheduler {
         coords
     }
 
-    pub(crate) fn status(&self) -> TerrainStreamStatus {
+    pub fn status(&self) -> TerrainStreamStatus {
         let in_flight_density_count = self
             .chunks
             .values()

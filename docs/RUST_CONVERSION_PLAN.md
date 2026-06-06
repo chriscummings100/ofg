@@ -92,12 +92,15 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   `npm run smoke:browser`; inspected
   `artifacts/browser-smoke/2026-06-06T08-17-21-018Z/report.json` plus first
   person, debug-fly, and streamed first-person screenshots.
-- [ ] Collapse terrain Worker semantics behind Rust or an opaque generic browser
-  worker host.
+- [x] (2026-06-06) Collapsed the playable terrain Worker semantics behind
+  `engine_web`. Rust `BrowserTerrainStream` now uses `terrain_core` as a
+  library to advance stream state, generate LOD0 meshes, upload/prune
+  `RustBrowserGame` terrain meshes, and assemble terrain stream debug status.
 - [ ] Move terrain texture asset ownership behind Rust and delete public
   terrain texture upload calls.
-- [ ] Remove public terrain mesh upload calls by making Rust terrain streaming
-  own mesh upload, retention, pruning, and debug visibility.
+- [x] (2026-06-06) Removed public terrain mesh upload calls by making
+  `engine_web` own mesh upload, retention, pruning, render visibility, and
+  terrain chunk debug keys.
 - [x] (2026-06-06) Deleted the unsupported standalone `engine_core.wasm`
   TypeScript wrapper, generated metadata, build script, package-script entries,
   and checked-in artifact; `engine_core` remains covered as a native Rust crate
@@ -210,6 +213,21 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   `npm run smoke:browser`; inspected
   `artifacts/browser-smoke/2026-06-06T10-22-21-510Z/report.json` plus first
   person, debug-fly, and streamed first-person screenshots.
+- [x] (2026-06-06) Moved playable terrain streaming and mesh upload inside
+  `engine_web.wasm`. `tick(frame)` now advances player/camera, advances the Rust
+  terrain stream, uploads/prunes terrain meshes, and submits the frame. The
+  generated wasm-bindgen API no longer exposes `renderFrame()`,
+  `upsertTerrainMesh()`, `destroyTerrainMesh()`, `retainTerrainMeshes()`, or
+  `clearTerrainMeshes()`.
+- [x] (2026-06-06) Deleted the TypeScript playable terrain worker bridge:
+  `TerrainCoreWorkerStreamer`, `terrainChunkWorkerClient`,
+  `terrainChunkWorkerTypes`, `terrainChunkWorker`, `terrainCoreWorkerPool`, and
+  the temporary `terrainRenderChunkSink` contract.
+- [x] (2026-06-06) Validated the Rust-owned terrain stream slice with
+  `cargo test -p terrain_core`, `cargo test -p engine_web`, `npm test`, and
+  `npm run smoke:browser`; inspected
+  `artifacts/browser-smoke/2026-06-06T10-42-32-192Z/report.json` plus first
+  person, debug-fly, and streamed first-person screenshots.
 
 ## Surprises & Discoveries
 
@@ -297,6 +315,18 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   Evidence: the active docs were consolidated on 2026-06-06 into
   `ARCHITECTURE.md`, `RUST_CONVERSION_PLAN.md`, `TERRAIN_PLAN.md`, and
   `TERRAIN_GEN_RESEARCH.md`, with retired docs moved under `docs/archived/`.
+- Observation: `engine_web` already depends on `terrain_core` as a Rust library,
+  so playable terrain streaming did not need to wait for browser Worker/thread
+  support to leave TypeScript.
+  Evidence: `crates/engine_web/Cargo.toml` links `terrain_core`, and
+  `crates/engine_web/src/terrain_stream.rs` now uses
+  `TerrainStreamScheduler` plus `build_chunk_mesh` directly.
+- Observation: Once terrain streaming moved into `engine_web`, the TypeScript
+  terrain worker bridge became fully removable.
+  Evidence: `rg` found no live source references to `TerrainCoreWorkerStreamer`,
+  `terrainChunkWorkerClient`, `terrainChunkWorkerTypes`, or
+  `terrainRenderChunkSink`; the generated `engine_web.d.ts` exposes no terrain
+  mesh upload or `renderFrame()` methods.
 
 ## Decision Log
 
@@ -429,23 +459,31 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   a growing scalar method. The browser shell can still compute display pixels
   until Rust owns more viewport policy.
   Date/Author: 2026-06-06 / Codex.
+- Decision: Move playable terrain streaming into `engine_web` through the
+  `terrain_core` Rust library instead of preserving a TypeScript Worker bridge.
+  Rationale: This removes public terrain mesh upload calls, direct runtime
+  `terrain_core.wasm` instantiation, TypeScript terrain worker payload schemas,
+  and the separate `renderFrame()` wasm method in one coherent slice. It keeps
+  texture asset loading as the next distinct browser/Rust boundary.
+  Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
 
 The docs now separate completed Rust ownership from remaining TypeScript browser
-substrate, and this plan gives the exact target boundary. The main remaining
-implementation gap is terrain-aware Worker code in TypeScript, including
-terrain-specific worker payload construction, plus texture asset loading, the
-still public wasm `renderFrame()` method beneath runtime `tick`, public terrain
-mesh and texture upload calls, and TypeScript terrain-specific worker result
-contracts. Frame input, reset,
-player/debug commands, player mode/position, and render submission now cross the
-wasm-bindgen boundary as object-shaped or no-argument calls rather than growing
-scalar lists.
+substrate, and this plan gives the exact target boundary. Terrain-aware Worker
+code, public terrain mesh upload calls, direct runtime `terrain_core.wasm`
+instantiation, and the separate exported `renderFrame()` method are removed from
+the playable browser runtime. Frame input, reset, reset-streaming,
+player/debug commands, terrain stream status, player mode/position, terrain
+chunk debug keys, renderer status, and render submission now cross the
+wasm-bindgen boundary through `tick(frame)`, `command(command)`, and
+`debugSnapshot()`.
 
-The recommended next slice is to replace terrain-specific worker request/result
-payload construction with Rust-owned worker/threading support or a strictly
-opaque byte protocol.
+The main remaining implementation gap is terrain texture asset loading:
+TypeScript still reads the Poly Haven manifest/JPGs, decodes them to RGBA arrays,
+and calls `upsertTerrainTextures(...)`. The recommended next slice is to move
+terrain texture asset ownership behind Rust or replace the texture-specific
+TypeScript path with a generic browser asset/image service.
 
 The previous docs cleanup validated with:
 
@@ -551,6 +589,13 @@ The viewport resize slice validated with:
     npm run check:wasm
     npm run smoke:browser
 
+The Rust-owned terrain stream and mesh upload slice validated with:
+
+    cargo test -p terrain_core
+    cargo test -p engine_web
+    npm test
+    npm run smoke:browser
+
 ## Context and Orientation
 
 The repository root is `C:\dev\ofg`. The current browser game is a lightweight
@@ -565,10 +610,10 @@ and a legacy mesh packet store.
 player, camera, world ID, transform, and render snapshot logic.
 
 `crates/engine_web` is the browser-facing Rust/WASM crate. It composes
-`engine_core` and `terrain_core` for the active playable runtime, owns the active
-player/camera tick, owns Rust/wgpu WebGPU resources and draw submission, owns
-terrain mesh/texture handles, and exposes the `RustBrowserGame` wasm-bindgen
-facade.
+`engine_core` and `terrain_core` for the active playable runtime, owns the
+active player/camera tick, owns the playable terrain stream and terrain mesh
+upload/pruning, owns Rust/wgpu WebGPU resources and draw submission, owns terrain
+mesh/texture handles, and exposes the `RustBrowserGame` wasm-bindgen facade.
 
 `src/app` is the TypeScript browser shell. It creates the canvas, collects DOM
 input, owns the HUD/debug wiring, parses URL seed/preset values, sends compact
@@ -577,14 +622,15 @@ HUD/debug state through `debugSnapshot()`, and no longer calls a separate
 runtime render method.
 
 `src/engine/web` contains the remaining TypeScript browser/WASM shell around
-Rust. `RustBrowserGameRuntime` is the current coarse shell, but it still starts
-terrain workers, loads texture assets, and wires worker mesh results into
+Rust. `RustBrowserGameRuntime` is the current coarse shell: it loads
+`RustBrowserGame`, forwards frame/command/debug calls, uploads decoded terrain
+texture arrays, and exposes browser debug hooks. It no longer starts terrain
+workers, loads `terrain_core.wasm` at runtime, or wires mesh bytes into
 `RustBrowserGame`.
 
 `src/engine/world` contains terrain descriptor types, chunk-key utilities, and
-thin TypeScript adapters to `terrain_core.wasm`. It also still contains terrain
-worker request/response types, plain worker density result contracts, and
-worker transport code.
+thin TypeScript adapters to `terrain_core.wasm` for tests, benchmarks, and
+compatibility fixtures.
 
 The key architectural goal is that TypeScript should eventually call something
 close to `game.tick(frame)` and should not understand terrain scheduling,
@@ -736,18 +782,18 @@ Already Rust-owned:
 | System | Rust owner | Current TypeScript status |
 |---|---|---|
 | Terrain height/density sampling | `crates/terrain_core` | Runtime TypeScript generator/noise code deleted. |
-| Density chunk filling | `crates/terrain_core` | Browser bridge stores completed density jobs in Rust for scheduler bookkeeping, but no longer copies density chunks between main and worker WASM instances. |
+| Density chunk filling | `crates/terrain_core` | The playable browser path no longer transports density chunks through TypeScript. |
 | Dual Contouring mesh emission | `crates/terrain_core` | Runtime TypeScript meshing code deleted. |
 | Terrain material/biome classification | `crates/terrain_core` | Runtime classification is Rust-owned; the duplicated TypeScript material list is deleted, but TypeScript still reads the checked-in texture asset manifest for browser image decode. |
-| Terrain stream scheduling | `crates/terrain_core/src/stream.rs` | TypeScript bridge calls the scheduler but does not choose jobs itself. |
-| Terrain retained density store | `crates/terrain_core/src/store.rs` | TypeScript adapter writes density job results and retains desired windows; it no longer reads chunks back for worker transfer. |
-| Terrain worker-pool bookkeeping | `crates/terrain_core/src/worker_pool.rs` | TypeScript still constructs browser Workers; `BrowserWorkerHost` is payload-opaque and there is no TypeScript worker-pool fallback, but `TerrainChunkWorkerClient` still builds terrain-specific density/chunk request payloads. |
+| Terrain stream scheduling | `crates/terrain_core/src/stream.rs`, composed by `crates/engine_web/src/terrain_stream.rs` | TypeScript no longer calls the terrain scheduler at runtime. |
+| Terrain retained density store | `crates/terrain_core/src/store.rs` | Retained-store behavior remains covered by Rust/WASM tests; the playable runtime no longer has a TypeScript density-store adapter. |
+| Terrain worker-pool bookkeeping | `crates/terrain_core/src/worker_pool.rs` | No playable TypeScript worker bridge remains; worker-pool logic is currently a Rust-tested fixture rather than a browser runtime owner. |
 | Player/camera tick state | `crates/engine_web`, backed by `crates/engine_core` | Playable app no longer loads or builds a standalone `engine_core.wasm` artifact. |
 | WebGPU renderer | `crates/engine_web/src/wgpu_renderer.rs` | TypeScript no longer creates devices, pipelines, buffers, render passes, or draw calls. |
-| Terrain GPU mesh/texture handles | `crates/engine_web` | TypeScript still uploads terrain mesh bytes and decoded texture arrays into Rust. |
-| Active terrain draw set | `crates/engine_web` | TypeScript adapter mirrors chunk keys for debug/smoke only. |
+| Terrain GPU mesh/texture handles | `crates/engine_web` | Rust owns terrain mesh upload/pruning and texture GPU handles; TypeScript still uploads decoded texture arrays into Rust. |
+| Active terrain draw set | `crates/engine_web` | Rust owns active chunk keys and returns them through `debugSnapshot()`. |
 | Debug player marker mesh/material | `crates/engine_web` | TypeScript primitive marker mesh is no longer runtime-used. |
-| Player/debug commands and player snapshot | `crates/engine_web`, backed by `crates/engine_core` | TypeScript sends player/debug command objects into Rust and reads player mode/position from Rust `debugSnapshot()`. |
+| Player/debug commands and debug snapshot | `crates/engine_web`, backed by `crates/engine_core` | TypeScript sends command objects into Rust and reads player, terrain stream, and renderer status from Rust `debugSnapshot()`. |
 
 Current public browser-facing Rust API in `src/engine/web/engineWebWasm.ts`:
 
@@ -757,12 +803,8 @@ resize(viewport)
 tick(frame)
 command(command)
 debugSnapshot()
-upsertTerrainMesh(chunkKey, vertices, indices)
-destroyTerrainMesh(chunkKey)
-retainTerrainMeshes(chunkKeys)
-clearTerrainMeshes()
+terrainHeightAt(x, z)
 upsertTerrainTextures(width, height, layers, formatCode, albedo, normal, material)
-renderFrame()
 ```
 
 Current runtime TypeScript that remains:
@@ -770,24 +812,23 @@ Current runtime TypeScript that remains:
 | Group | Runtime role | Target fate |
 |---|---|---|
 | App shell | Starts game, tracks input, updates HUD, exposes debug hooks, reads URL params, calls `game.tick(frame)`, sends `game.command(...)`, and reads `game.debugSnapshot()`. | Keep as browser shell. |
-| WASM loading | Loads `engine_web` and `terrain_core.wasm` for the temporary worker bridge. | Keep only generic game module loading; remove runtime `terrain_core.wasm` calls. |
-| Terrain worker transport | `BrowserWorkerHost` owns Worker lifecycle and request-id envelopes; `TerrainChunkWorkerClient` still builds terrain-specific density/chunk payloads, but worker results no longer carry string chunk keys, LOD chunk requests no longer include density buffers, and worker-pool bookkeeping has no TypeScript fallback. | Replace terrain-specific payload construction with Rust-owned worker/threading runtime or an opaque byte protocol. |
+| WASM loading | Loads `engine_web.wasm` for the playable browser game; `terrain_core.wasm` remains for tests/benchmarks, not runtime terrain ownership. | Keep only generic game module loading. |
 | Texture asset decode | Fetches the checked-in Poly Haven manifest and JPGs, draws them to canvas, reads RGBA pixels, uploads arrays into Rust. | Move terrain asset ownership behind Rust; TS may remain generic byte/image helper only. |
-| Debug/smoke mirrors | `window.__ofgDebug` reads the TypeScript runtime `debugSnapshot()` and sends `game.command(...)`; player mode/position now come from Rust `debugSnapshot()`, while terrain stream/debug fields are still assembled by TypeScript. | Replace with a fully Rust-assembled `debugSnapshot()`. |
+| Debug/smoke hooks | `window.__ofgDebug` reads the Rust runtime `debugSnapshot()` and sends `game.command(...)`; terrain stream/debug fields are Rust-assembled. | Keep as browser HUD/smoke shell while Rust owns snapshot content. |
 
 ## Current Scorecard
 
 | Target item | Current state | Status |
 |---|---|---|
-| TypeScript creates one Rust game facade | `createRustBrowserGameRuntime` wraps `RustBrowserGame` and other TS terrain systems. | Partial |
-| TypeScript calls one frame method | App/runtime facade calls `game.tick(frame)` only; `RustBrowserGameAdapter` still calls wasm `renderFrame()` internally after terrain streaming. | Partial |
+| TypeScript creates one Rust game facade | `createRustBrowserGameRuntime` wraps only `RustBrowserGame` and texture loading; no TS terrain streamer/worker/runtime terrain core remains. | Complete |
+| TypeScript calls one frame method | App/runtime/adapter call `game.tick(frame)`; Rust ticks player/camera, advances terrain, uploads/prunes meshes, and renders. | Complete |
 | Frame input is one object packet | App/runtime/adapter and the `engine_web` wasm-bindgen API use `BrowserFrameInput`; wasm-bindgen currently types the raw JS argument as `any` in generated d.ts. | Complete |
-| UI/debug uses command lane | App/runtime/adapter and `engine_web.wasm` use object-shaped `command(command)` for player/debug actions; `resetStreaming` remains TypeScript-owned until terrain streaming moves behind Rust. | Partial |
-| Debug/status uses one Rust snapshot | App reads `game.debugSnapshot()`; player mode, player position, and renderer status come from Rust `debugSnapshot()`, but terrain stream/debug fields are still assembled by the TypeScript runtime facade. | Partial |
-| No public terrain mesh upload calls | `upsertTerrainMesh` and retention calls remain. | Pending |
+| UI/debug uses command lane | App/runtime/adapter and `engine_web.wasm` use object-shaped `command(command)` for player/debug and `resetStreaming`. | Complete |
+| Debug/status uses one Rust snapshot | App reads `game.debugSnapshot()`; player, terrain stream, chunk keys, renderer, and runtime fields come from Rust. | Complete |
+| No public terrain mesh upload calls | Generated `engine_web.d.ts` exposes no `upsertTerrainMesh`, `destroyTerrainMesh`, `retainTerrainMeshes`, or `clearTerrainMeshes`. | Complete |
 | No public terrain texture upload calls | `upsertTerrainTextures` remains. | Pending |
-| No direct TypeScript `terrain_core.wasm` runtime calls | `RustBrowserGameRuntime` and Workers still load/call `terrain_core.wasm`. | Pending |
-| Worker semantics are Rust-owned and opaque to TS | Rust owns scheduler/pool and `BrowserWorkerHost` is payload-opaque; TS no longer moves density buffers, but terrain payloads still name density and chunk jobs. | Partial |
+| No direct TypeScript `terrain_core.wasm` runtime calls | Runtime code loads only `engine_web.wasm`; `terrain_core.wasm` remains for tests/benchmarks. | Complete |
+| Worker semantics are Rust-owned and opaque to TS | The playable runtime has no terrain-specific TypeScript Worker protocol. | Complete |
 | Rust owns WebGPU directly | Rust/wgpu owns browser rendering. | Complete |
 
 ## Plan of Work
@@ -796,27 +837,25 @@ Work from the scorecard. Each slice should remove a named TypeScript category or
 move one public call category to the target API.
 
 First, delete test-only compiled TypeScript. This slice is complete: the live
-terrain sink/packet types now live in
-`src/engine/render/terrainRenderChunkSink.ts`, and the old packet-store module,
-packet-store tests, primitive mesh module, primitive mesh tests, legacy
-TypeScript material packing/mesh expansion helpers, and legacy TypeScript
-density source/edit helpers are deleted.
+terrain sink/packet types were later retired entirely after Rust-owned terrain
+streaming moved into `engine_web`. The old packet-store module, packet-store
+tests, primitive mesh module, primitive mesh tests, legacy TypeScript material
+packing/mesh expansion helpers, and legacy TypeScript density source/edit
+helpers are deleted.
 
 Second, move app-facing calls to the target shape. This is complete at the
 TypeScript runtime facade: `src/app` sends `BrowserFrameInput` packets, uses the
 `GameCommand` lane for UI/debug actions, reads `GameDebugSnapshot`, and calls
 only `game.tick(frame)` for each frame. The lower wasm-bindgen `tick` method now
-accepts the same object-shaped frame packet; the remaining work in this area is
-to delete the public `renderFrame()` method once Rust owns the terrain streaming
-step that must currently run between tick and render.
+accepts the same object-shaped frame packet and owns render submission; the
+public `renderFrame()` method is deleted.
 
-Third, collapse terrain Worker semantics behind Rust. The generic browser host
-piece is partially complete: `BrowserWorkerHost` sees only request ids and
-opaque payloads, the density-transfer wrapper has been deleted, and the
-TypeScript worker-pool fallback is gone. Remaining work is to replace
-`TerrainCoreWorkerStreamer`, `terrainChunkWorkerClient`, and
-`terrainChunkWorkerTypes` with Rust-owned wasm-thread/Worker support or a byte
-protocol where TypeScript sees no density, LOD, chunk-key, or mesh semantics.
+Third, collapse terrain Worker semantics behind Rust. This is complete for the
+playable runtime: `engine_web` owns the terrain stream, uses `terrain_core` as a
+Rust library, and the TypeScript worker bridge files are deleted. Future
+threading/performance work can add Rust-managed wasm threads or another
+Rust-owned job system without reintroducing TypeScript terrain payload
+semantics.
 
 Fourth, move terrain texture asset ownership behind Rust. Delete
 `upsertTerrainTextures` from the public TypeScript-to-Rust API. Rust should own
@@ -824,10 +863,10 @@ material manifests, layer ordering, texture-array validation, and upload
 decisions. TypeScript may remain only as a generic browser asset helper if Rust
 cannot directly perform one browser-only step.
 
-Fifth, remove public terrain mesh upload calls. Delete `upsertTerrainMesh`,
-`destroyTerrainMesh`, `retainTerrainMeshes`, and `clearTerrainMeshes` from the
-public API by making Rust terrain streaming own mesh upload, retention, pruning,
-and debug visibility.
+Fifth, remove public terrain mesh upload calls. This is complete:
+`upsertTerrainMesh`, `destroyTerrainMesh`, `retainTerrainMeshes`, and
+`clearTerrainMeshes` are gone from the generated wasm-bindgen API, and Rust
+terrain streaming owns mesh upload, retention, pruning, and debug visibility.
 
 Sixth, demote or delete standalone WASM wrappers that are not playable runtime.
 This is complete for `engine_core.wasm`: the wrapper, generated metadata, build
@@ -838,7 +877,7 @@ script, package-script entries, checked-in artifact, and tests are deleted.
 Re-audit current TypeScript from `C:\dev\ofg` before deleting files:
 
     rg --files src | Sort-Object
-    rg -n "TerrainCoreRenderPacket|primitiveMesh|engineCoreWasm|TerrainCoreWorkerStreamer" src docs AGENTS.md
+    rg -n "TerrainCoreWorkerStreamer|terrainChunkWorker|terrainRenderChunkSink|upsertTerrainMesh|renderFrame|upsertTerrainTextures" src docs AGENTS.md assets/wasm/engine_web/engine_web.d.ts
 
 For docs-only edits:
 
@@ -928,14 +967,9 @@ Stable target interface:
     game.load(saveBytes)
     game.dispose()
 
-Temporary or current interface elements that must disappear from the public
+Temporary or current interface elements that must still disappear from the public
 TypeScript/Rust boundary:
 
-    renderFrame()
-    upsertTerrainMesh(chunkKey, vertices, indices)
-    destroyTerrainMesh(chunkKey)
-    retainTerrainMeshes(chunkKeys)
-    clearTerrainMeshes()
     upsertTerrainTextures(width, height, layers, formatCode, albedo, normal, material)
 
 New TypeScript files must not become terrain schedulers, terrain mesh stores,

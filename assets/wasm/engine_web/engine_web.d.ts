@@ -8,12 +8,8 @@ export class RustBrowserGame {
   tick(frame: any): void;
   command(command: any): void;
   debugSnapshot(): any;
-  upsertTerrainMesh(chunk_key: string, vertices: Float32Array, indices: Uint32Array): void;
-  destroyTerrainMesh(chunk_key: string): void;
-  retainTerrainMeshes(chunk_keys: Array<any>): void;
-  clearTerrainMeshes(): void;
+  terrainHeightAt(x: number, z: number): number;
   upsertTerrainTextures(width: number, height: number, layers: number, format_code: number, albedo_data: Uint8Array, normal_data: Uint8Array, material_data: Uint8Array): void;
-  renderFrame(): void;
 }
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
@@ -49,12 +45,8 @@ export interface InitOutput {
   readonly rustbrowsergame_tick: (a: number, b: number, c: number) => void;
   readonly rustbrowsergame_command: (a: number, b: number, c: number) => void;
   readonly rustbrowsergame_debugSnapshot: (a: number, b: number) => void;
-  readonly rustbrowsergame_upsertTerrainMesh: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
-  readonly rustbrowsergame_destroyTerrainMesh: (a: number, b: number, c: number, d: number) => void;
-  readonly rustbrowsergame_retainTerrainMeshes: (a: number, b: number, c: number) => void;
-  readonly rustbrowsergame_clearTerrainMeshes: (a: number, b: number) => void;
+  readonly rustbrowsergame_terrainHeightAt: (a: number, b: number, c: number, d: number) => void;
   readonly rustbrowsergame_upsertTerrainTextures: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => void;
-  readonly rustbrowsergame_renderFrame: (a: number, b: number) => void;
   readonly ofg_terrain_core_version: () => number;
   readonly ofg_terrain_core_preset_count: () => number;
   readonly ofg_density_chunk_store_max_entries: () => number;

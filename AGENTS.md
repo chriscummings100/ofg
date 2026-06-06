@@ -15,12 +15,14 @@ The current playable seed is still simple:
 - Chunk-streamed generated terrain from 3D density chunks.
 - Runtime terrain meshed as per-chunk neighbor-aware Dual Contouring chunks.
 - Poly Haven terrain materials rendered from global WebGPU texture arrays.
-- Rust/WASM terrain core artifact that owns terrain height/density sampling,
+- Rust terrain core library/artifact that owns terrain height/density sampling,
   chunk meshing, stream scheduling, density storage, and mesh packet storage.
 - Rust-owned first-person camera/player movement through `engine_web.wasm`,
   backed by `engine_core`.
 - Rust/wgpu WebGPU renderer through `engine_web.wasm`; Rust owns browser draw
   submission, terrain mesh handles, texture handles, and renderer pruning.
+- Rust-owned browser terrain stream inside `engine_web.wasm`, backed by
+  `terrain_core` as a Rust library.
 - Debug fly camera toggled with `C` or `F1`.
 - A yellow player marker visible in debug fly mode.
 - WebGPU renderer using generated WGSL shader artifacts.
@@ -158,26 +160,23 @@ src/engine/input
   DOM input tracker for keys, edge-triggered presses, pointer-lock mouse deltas.
 
 src/engine/browser
-  Generic browser substrate helpers. `BrowserWorkerHost` owns Worker lifecycle,
-  request-id envelopes, resets, disposal, and completion forwarding without
-  understanding terrain job payloads.
+  Generic browser substrate helpers. `BrowserWorkerHost` remains as tested
+  generic worker substrate, but the playable terrain path no longer uses a
+  TypeScript terrain worker bridge.
 
 src/engine/world
-  Browser-side terrain descriptor/config types, 3D density job result contracts,
-  Rust/WASM terrain adapters, generic browser worker transport, and the terrain
-  mesh data/stride contract. Compiled TypeScript no longer owns terrain
-  generation, noise, Dual Contouring, terrain streaming policy, terrain edits,
-  material manifests, density transfer between worker WASM instances, or a
-  terrain manager.
+  Browser-side terrain descriptor/config types, 3D chunk coordinate/key helpers,
+  Rust/WASM terrain artifact test adapters, and the terrain mesh data/stride
+  contract. Compiled TypeScript no longer owns terrain generation, noise, Dual
+  Contouring, terrain streaming policy, terrain workers, terrain edits, material
+  manifests, density transfer between WASM instances, or a terrain manager.
 
 src/engine/render
   Browser-side texture loading helpers that read the checked-in Poly Haven
-  manifest, shader metadata tests, and the temporary terrain render chunk sink
-  contract used by the browser Worker bridge. The playable browser path no
-  longer has a TypeScript WebGPU renderer or
-  `RenderWorld`; runtime worker mesh results are handed to `RustBrowserGame` by
-  chunk key, and Rust/wgpu owns
-  actual WebGPU resources and draw submission.
+  manifest and shader metadata tests. The playable browser path no longer has a
+  TypeScript WebGPU renderer, `RenderWorld`, terrain render sink, or terrain
+  mesh upload bridge; Rust owns mesh generation, GPU handles, active draw sets,
+  and draw submission.
   Terrain rendering uses global 16-layer albedo, normal, and roughness texture
   arrays. Normal maps are loaded but not yet applied in shading.
 
@@ -196,25 +195,26 @@ crates/engine_core
   `engine_web`; no standalone `engine_core.wasm` browser artifact is built.
 
 crates/terrain_core
-  Rust terrain core built to wasm32-unknown-unknown. It owns macro base
-  elevation, density, compatibility height sampling, density chunk filling,
-  browser runtime chunk mesh generation, stream scheduling, density storage,
-  worker-pool state, and the tested legacy terrain mesh packet store. It is now
-  the browser terrain source of truth; the playable mesh handoff currently goes
-  from worker results straight into `engine_web`/Rust-wgpu terrain mesh handles.
+  Rust terrain core built as both an rlib and a wasm32-unknown-unknown test/dev
+  artifact. It owns macro base elevation, density, compatibility height
+  sampling, density chunk filling, chunk mesh generation, stream scheduling,
+  density storage, worker-pool state tests, and the tested legacy terrain mesh
+  packet store. The playable browser app reaches it through `engine_web` as a
+  Rust library, not through runtime TypeScript `terrain_core.wasm` calls.
 
 crates/engine_web
   Browser-facing Rust game/render bridge built to wasm32-unknown-unknown. It
-  owns the active browser player/camera tick state, Rust/wgpu renderer, WebGPU
-  resource handles, terrain texture handles, terrain mesh handles, live terrain
-  draw set, and frame draw submission.
+  owns the active browser player/camera tick state, Rust-owned terrain stream,
+  terrain mesh generation/upload/pruning, Rust/wgpu renderer, WebGPU resource
+  handles, terrain texture handles, terrain mesh handles, live terrain draw set,
+  and frame draw submission.
 
 src/engine/web
   Browser-facing TypeScript shell around Rust/WASM systems. It loads
-  `RustBrowserGame`, hosts the temporary terrain Worker transport, forwards
-  input/debug commands, uploads decoded terrain texture arrays and worker mesh
-  bytes to Rust, and keeps browser-only compatibility shims. It should keep
-  shrinking toward a generic browser shell with no terrain semantics.
+  `RustBrowserGame`, forwards input/debug commands, uploads decoded terrain
+  texture arrays to Rust, reads Rust debug snapshots, and keeps browser-only
+  compatibility shims. It should keep shrinking toward a generic browser shell
+  with no terrain semantics.
 
 tools
   Local scripts, including shader generation, Poly Haven terrain texture import,
@@ -230,14 +230,13 @@ step.
 - Rust owns active browser player/camera state through `engine_web.wasm`, using
   `engine_core` as a Rust library.
 - Rust owns generated terrain sampling, Dual Contouring mesh emission, stream
-  scheduling, density stores, worker-pool state, and terrain mesh packet stores
-  through `terrain_core.wasm`.
+  scheduling, density stores, and terrain mesh packet stores through
+  `terrain_core` and `engine_web`.
 - Rust owns browser WebGPU resource creation and draw submission through
   `engine_web.wasm` and `wgpu`.
 - TypeScript currently owns browser startup, DOM input collection, URL parameter
-  parsing, debug hooks, browser Worker transport, terrain mesh/texture byte
-  upload adaptation, and terrain status/debug mirrors below the browser runtime
-  facade.
+  parsing, debug hooks, decoded terrain texture array upload adaptation, and the
+  browser runtime facade.
 - New high-volume world, terrain streaming, simulation, render extraction, and
   WebGPU ownership should follow `docs/RUST_CONVERSION_PLAN.md`.
 - Use `docs/RUST_CONVERSION_PLAN.md` before deleting or adding TypeScript around

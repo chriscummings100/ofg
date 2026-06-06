@@ -6,6 +6,7 @@ mod render_packets;
 mod render_uniforms;
 mod renderer;
 mod resources;
+mod terrain_stream;
 #[cfg(target_arch = "wasm32")]
 mod wgpu_renderer;
 
@@ -37,6 +38,10 @@ pub use renderer::{
     MeshResource, RendererResourceCounts, RendererState, RendererStateError, TextureResource,
 };
 pub use resources::{ResourceHandle, ResourceStoreError};
+pub use terrain_stream::{
+    BrowserTerrainMeshUpdate, BrowserTerrainStream, BrowserTerrainStreamStatus,
+    BrowserTerrainStreamUpdate, TerrainJobStats,
+};
 #[cfg(target_arch = "wasm32")]
 pub use wgpu_renderer::*;
 

@@ -1,10 +1,10 @@
 use crate::*;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct TerrainChunkCoord {
-    pub(crate) x: i32,
-    pub(crate) y: i32,
-    pub(crate) z: i32,
+pub struct TerrainChunkCoord {
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
 }
 
 #[derive(Clone, Copy)]
@@ -88,6 +88,25 @@ pub(crate) fn terrain_chunk_origin(coord: TerrainChunkCoord, cell_size: f64) -> 
         y: coord.y as f64 * chunk_size,
         z: coord.z as f64 * chunk_size,
     }
+}
+
+pub fn terrain_chunk_coord_containing_position(
+    x: f32,
+    y: f32,
+    z: f32,
+    cell_size: f64,
+) -> TerrainChunkCoord {
+    let chunk_size = TERRAIN_CHUNK_CELLS_PER_AXIS as f64 * cell_size;
+
+    TerrainChunkCoord {
+        x: (f64::from(x) / chunk_size).floor() as i32,
+        y: (f64::from(y) / chunk_size).floor() as i32,
+        z: (f64::from(z) / chunk_size).floor() as i32,
+    }
+}
+
+pub fn terrain_chunk_key(coord: TerrainChunkCoord) -> String {
+    format!("{},{},{}", coord.x, coord.y, coord.z)
 }
 
 pub(crate) fn terrain_chunk_sample_index(x: usize, y: usize, z: usize) -> usize {

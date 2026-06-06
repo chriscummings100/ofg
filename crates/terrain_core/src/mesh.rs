@@ -6,9 +6,30 @@ pub(crate) struct HermiteIntersection {
     pub(crate) normal: Vec3,
 }
 
-pub(crate) struct MeshData {
-    pub(crate) vertices: Vec<f32>,
-    pub(crate) indices: Vec<u32>,
+pub struct MeshData {
+    pub vertices: Vec<f32>,
+    pub indices: Vec<u32>,
+}
+
+pub fn build_chunk_mesh(
+    seed: u32,
+    preset: u32,
+    coord: TerrainChunkCoord,
+    cell_size: f64,
+) -> MeshData {
+    if cell_size <= 0.0 {
+        return MeshData {
+            vertices: Vec::new(),
+            indices: Vec::new(),
+        };
+    }
+
+    let noise = SimplexNoise3D::new(seed);
+    let preset_id = terrain_preset_index(preset);
+    let preset = terrain_preset(preset_id);
+    let chunks = generate_neighbor_apron_chunks(&noise, preset, preset_id, seed, coord, cell_size);
+
+    build_neighbor_aware_chunk_mesh(&noise, preset, seed, &chunks, coord)
 }
 
 pub(crate) const CELL_CORNERS: [TerrainSampleCoord; 8] = [

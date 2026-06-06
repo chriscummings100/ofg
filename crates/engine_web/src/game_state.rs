@@ -124,6 +124,14 @@ impl BrowserGameState {
         Ok(self.engine.player_position()?)
     }
 
+    pub fn terrain_seed(&self) -> u32 {
+        self.terrain_seed
+    }
+
+    pub fn terrain_preset(&self) -> u32 {
+        self.terrain_preset
+    }
+
     pub fn set_player_position_xz(
         &mut self,
         x: f32,

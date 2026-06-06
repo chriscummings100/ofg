@@ -1,13 +1,13 @@
 use crate::{
     build_frame_packet_from_engine_snapshot, build_frame_uniform_values, build_material_packet,
     build_object_uniform_values, build_player_marker_world_matrix, BrowserGameInput,
-    BrowserGameState, MaterialPacketError, RenderPacketError, RenderUniformError, RendererState,
-    RendererStateError, ResourceHandle, ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS,
-    MATERIAL_PACKET_FLOATS, REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_MATERIAL_ID,
-    TERRAIN_MATERIAL_PACKET, TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
-    WORLD_MATRIX_FLOATS,
+    BrowserGameState, BrowserTerrainStream, MaterialPacketError, RenderPacketError,
+    RenderUniformError, RendererState, RendererStateError, ResourceHandle,
+    ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS, MATERIAL_PACKET_FLOATS,
+    REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_MATERIAL_ID, TERRAIN_MATERIAL_PACKET,
+    TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM, WORLD_MATRIX_FLOATS,
 };
-use engine_core::PlayerMode;
+use engine_core::{PlayerMode, Vec3};
 
 #[test]
 fn config_rejects_canvas_and_texture_limits_that_webgpu_terrain_cannot_use() {
@@ -363,6 +363,30 @@ fn browser_game_state_debug_fly_moves_camera_without_moving_player_marker() {
     assert_close(snapshot[20], player_position.x);
     assert_close(snapshot[21], player_position.y);
     assert_close(snapshot[22], player_position.z);
+}
+
+#[test]
+fn browser_terrain_stream_generates_and_prunes_meshes_in_rust() {
+    let mut stream = BrowserTerrainStream::new(0x0F6, 1).unwrap();
+    let origin = Vec3::new(0.0, 0.0, 0.0);
+    stream.reset_around(origin);
+
+    let mut uploaded_mesh_count = 0;
+    for _ in 0..20 {
+        uploaded_mesh_count += stream.tick(origin).upserted_meshes.len();
+    }
+
+    assert!(uploaded_mesh_count > 0);
+    assert!(stream.loaded_chunk_keys().contains(&"0,0,0".to_string()));
+    assert!(stream.render_chunk_keys().contains(&"0,0,0".to_string()));
+    assert!(stream.status().rendered_chunk_count > 0);
+
+    let moved = Vec3::new(96.0, 0.0, 0.0);
+    let update = stream.tick(moved);
+
+    assert!(update.removed_coords.iter().any(|coord| coord.x == 0));
+    assert!(stream.loaded_chunk_keys().contains(&"3,0,0".to_string()));
+    assert!(!stream.render_chunk_keys().contains(&"0,0,0".to_string()));
 }
 
 fn sample_engine_render_snapshot(marker_visible: bool) -> [f32; ENGINE_RENDER_SNAPSHOT_FLOATS] {

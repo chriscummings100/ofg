@@ -4,7 +4,7 @@ pub(crate) const SURFACE_SEARCH_MIN_Y: f64 = -96.0;
 pub(crate) const SURFACE_SEARCH_MAX_Y: f64 = 96.0;
 pub(crate) const SURFACE_SEARCH_STEP: f64 = 1.0;
 pub(crate) const SURFACE_REFINE_STEPS: usize = 12;
-pub(crate) const TERRAIN_CHUNK_CELLS_PER_AXIS: usize = 32;
+pub const TERRAIN_CHUNK_CELLS_PER_AXIS: usize = 32;
 pub(crate) const TERRAIN_CHUNK_SAMPLES_PER_AXIS: usize = TERRAIN_CHUNK_CELLS_PER_AXIS + 1;
 pub(crate) const TERRAIN_CHUNK_SAMPLE_COUNT: usize = TERRAIN_CHUNK_SAMPLES_PER_AXIS
     * TERRAIN_CHUNK_SAMPLES_PER_AXIS

@@ -2,7 +2,6 @@ import type { Vec3 } from "../math/vec3.js";
 import type { TerrainChunkKey } from "../world/terrainChunk.js";
 import type { TerrainPresetId } from "../world/terrainDescriptor.js";
 import type { EngineWebRendererStatus } from "./engineWebWasm.js";
-import type { TerrainCoreWorkerStreamStatus } from "./terrainCoreWorkerStreamer.js";
 
 export type PlayerMode = "firstPerson" | "debugFly";
 
@@ -50,25 +49,41 @@ export type RustBrowserGameResetCommand = {
   readonly terrainPreset: number;
 };
 
-export type RustBrowserGameCommand = RustBrowserGameResetCommand | Exclude<
-  GameCommand,
-  { readonly type: "resetStreaming" }
->;
+export type RustBrowserGameCommand = RustBrowserGameResetCommand | GameCommand;
 
-export type RustBrowserGameDebugSnapshot = {
-  readonly playerMode: PlayerMode;
-  readonly playerPosition: Vec3;
-  readonly rendererStatus: EngineWebRendererStatus;
+export type TerrainStreamJobStats = {
+  readonly totalMs: number;
+  readonly vertexCount?: number;
+  readonly indexCount?: number;
 };
 
-export type GameDebugSnapshot = {
+export type TerrainStreamStatus = {
+  readonly generation: number;
+  readonly pending: boolean;
+  readonly loadedChunkCount: number;
+  readonly densityReadyChunkCount: number;
+  readonly sharedDensityChunkCount: number;
+  readonly inFlightDensityCount: number;
+  readonly missingDensityCount: number;
+  readonly desiredRenderChunkCount: number;
+  readonly renderedChunkCount: number;
+  readonly emptyChunkCount: number;
+  readonly inFlightChunkCount: number;
+  readonly missingChunkCount: number;
+  readonly maxConcurrentChunkJobs: number;
+  readonly workerPoolRuntime: "rust";
+  readonly lastDensityJobStats?: TerrainStreamJobStats;
+  readonly lastChunkJobStats?: TerrainStreamJobStats;
+};
+
+export type RustBrowserGameDebugSnapshot = {
   readonly playerMode: PlayerMode;
   readonly playerPosition: Vec3;
   readonly loadedTerrainChunkKeys: TerrainChunkKey[];
   readonly terrainChunkKeys: TerrainChunkKey[];
   readonly terrainPreset: TerrainPresetId;
   readonly terrainSeed: number;
-  readonly terrainStreamStatus: TerrainCoreWorkerStreamStatus;
+  readonly terrainStreamStatus: TerrainStreamStatus;
   readonly terrainStreamerRuntime: "rust";
   readonly terrainStreamSchedulerRuntime: "rust";
   readonly terrainDensityStoreRuntime: "rust";
@@ -80,6 +95,8 @@ export type GameDebugSnapshot = {
   readonly terrainWorkerCount: number;
   readonly playerControllerRuntime: "rust";
 };
+
+export type GameDebugSnapshot = RustBrowserGameDebugSnapshot;
 
 export type TransformSnapshot = {
   readonly position: Vec3;

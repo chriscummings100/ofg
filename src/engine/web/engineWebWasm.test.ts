@@ -40,6 +40,7 @@ describe("engine web WASM", () => {
     equal(dtsText.includes("tick(delta_seconds"), false);
     ok(dtsText.includes("command(command: any): void"));
     ok(dtsText.includes("debugSnapshot(): any"));
+    ok(dtsText.includes("terrainHeightAt(x: number, z: number): number"));
     equal(dtsText.includes("togglePlayerMode"), false);
     equal(dtsText.includes("playerMode()"), false);
     equal(dtsText.includes("setPlayerMode"), false);
@@ -48,12 +49,12 @@ describe("engine web WASM", () => {
     equal(dtsText.includes("playerZ"), false);
     equal(dtsText.includes("setPlayerPosition"), false);
     equal(dtsText.includes("setDebugCamera"), false);
-    ok(dtsText.includes("upsertTerrainMesh(chunk_key: string, vertices: Float32Array, indices: Uint32Array): void"));
-    ok(dtsText.includes("destroyTerrainMesh"));
-    ok(dtsText.includes("retainTerrainMeshes(chunk_keys: Array<any>): void"));
-    ok(dtsText.includes("clearTerrainMeshes(): void"));
+    equal(dtsText.includes("upsertTerrainMesh"), false);
+    equal(dtsText.includes("destroyTerrainMesh"), false);
+    equal(dtsText.includes("retainTerrainMeshes"), false);
+    equal(dtsText.includes("clearTerrainMeshes"), false);
     ok(dtsText.includes("upsertTerrainTextures"));
-    ok(dtsText.includes("renderFrame(): void"));
+    equal(dtsText.includes("renderFrame(): void"), false);
     equal(dtsText.includes("renderGameFrame"), false);
     equal(dtsText.includes("status()"), false);
     equal(dtsText.includes("RustBrowserGameStatus"), false);
@@ -144,6 +145,33 @@ function fakeBrowserGame(): EngineWebBrowserGame {
       return {
         playerMode: "firstPerson",
         playerPosition: { x: 0, y: 0, z: 0 },
+        loadedTerrainChunkKeys: ["0,0,0"],
+        terrainChunkKeys: ["0,0,0"],
+        terrainPreset: "rollingHills",
+        terrainSeed: 0x0F6,
+        terrainStreamStatus: {
+          generation: 0,
+          pending: false,
+          loadedChunkCount: 1,
+          densityReadyChunkCount: 1,
+          sharedDensityChunkCount: 1,
+          inFlightDensityCount: 0,
+          missingDensityCount: 0,
+          desiredRenderChunkCount: 1,
+          renderedChunkCount: 1,
+          emptyChunkCount: 0,
+          inFlightChunkCount: 0,
+          missingChunkCount: 0,
+          maxConcurrentChunkJobs: 6,
+          workerPoolRuntime: "rust"
+        },
+        terrainStreamerRuntime: "rust",
+        terrainStreamSchedulerRuntime: "rust",
+        terrainDensityStoreRuntime: "rust",
+        terrainWorkerPoolRuntime: "rust",
+        renderPacketRuntime: "rust",
+        terrainRenderPacketRuntime: "rust",
+        rendererRuntime: "rust-wgpu",
         rendererStatus: {
           version: 1,
           runtime: "rust-wgpu",
@@ -157,14 +185,14 @@ function fakeBrowserGame(): EngineWebBrowserGame {
           objectCount: 1,
           frameIndex: 0,
           frameDrawCount: 0
-        }
+        },
+        terrainWorkerCount: 6,
+        playerControllerRuntime: "rust"
       };
     },
-    upsertTerrainMesh() {},
-    destroyTerrainMesh() {},
-    retainTerrainMeshes() {},
-    clearTerrainMeshes() {},
     upsertTerrainTextures() {},
-    renderFrame() {}
+    terrainHeightAt() {
+      return 4;
+    }
   };
 }

@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -18,8 +18,10 @@ use crate::render_uniforms::{
     FRAME_UNIFORM_FLOATS, MATERIAL_PACKET_FLOATS, OBJECT_UNIFORM_FLOATS, WORLD_MATRIX_FLOATS,
 };
 use crate::resources::{ResourceHandle, ResourceStore};
+use crate::terrain_stream::{BrowserTerrainStream, BrowserTerrainStreamStatus, TerrainJobStats};
 use crate::ENGINE_WEB_VERSION;
 use engine_core::{PlayerMode, Vec3};
+use terrain_core::{terrain_chunk_key, TerrainChunkCoord, DEFAULT_TERRAIN_PRESET};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
 const SHADER_SOURCE: &str = include_str!("../../../src/engine/render/shaders/uber.wgsl");
@@ -27,6 +29,7 @@ const SHADER_SOURCE: &str = include_str!("../../../src/engine/render/shaders/ube
 #[wasm_bindgen]
 pub struct RustBrowserGame {
     game_state: BrowserGameState,
+    terrain_stream: BrowserTerrainStream,
     renderer: BrowserWgpuRenderer,
     terrain_mesh_handles_by_key: HashMap<String, ResourceHandle>,
     terrain_textures: Option<TerrainTextureHandles>,
@@ -124,6 +127,8 @@ impl RustBrowserGame {
 
         Ok(Self {
             game_state: BrowserGameState::new(),
+            terrain_stream: BrowserTerrainStream::new(0, DEFAULT_TERRAIN_PRESET)
+                .map_err(js_error)?,
             renderer,
             terrain_mesh_handles_by_key: HashMap::new(),
             terrain_textures: None,
@@ -144,7 +149,9 @@ impl RustBrowserGame {
     #[wasm_bindgen(js_name = tick)]
     pub fn tick(&mut self, frame: JsValue) -> Result<(), JsValue> {
         let input = browser_game_input_from_js(&frame)?;
-        self.game_state.tick(input).map_err(js_error)
+        self.game_state.tick(input).map_err(js_error)?;
+        self.update_terrain_stream()?;
+        self.render_frame()
     }
 
     #[wasm_bindgen(js_name = command)]
@@ -158,6 +165,15 @@ impl RustBrowserGame {
                 self.game_state
                     .reset_game(terrain_seed, terrain_preset)
                     .map_err(js_error)?;
+                let player_position = self.game_state.player_position().map_err(js_error)?;
+                self.clear_terrain_meshes()?;
+                self.terrain_stream
+                    .reset_game(terrain_seed, terrain_preset, player_position);
+            }
+            "resetStreaming" => {
+                let player_position = self.game_state.player_position().map_err(js_error)?;
+                self.clear_terrain_meshes()?;
+                self.terrain_stream.reset_around(player_position);
             }
             "togglePlayerMode" => {
                 self.game_state.toggle_player_mode().map_err(js_error)?;
@@ -219,65 +235,79 @@ impl RustBrowserGame {
         set_js_property(&snapshot, "playerPosition", position.into())?;
         set_js_property(
             &snapshot,
+            "loadedTerrainChunkKeys",
+            string_vec_to_js_array(self.terrain_stream.loaded_chunk_keys()).into(),
+        )?;
+        set_js_property(
+            &snapshot,
+            "terrainChunkKeys",
+            string_vec_to_js_array(self.terrain_stream.render_chunk_keys()).into(),
+        )?;
+        set_js_property(
+            &snapshot,
+            "terrainSeed",
+            JsValue::from_f64(self.game_state.terrain_seed() as f64),
+        )?;
+        set_js_property(
+            &snapshot,
+            "terrainPreset",
+            JsValue::from_str(terrain_preset_to_js_name(self.game_state.terrain_preset())),
+        )?;
+        set_js_property(
+            &snapshot,
+            "terrainStreamStatus",
+            terrain_stream_status_to_js(self.terrain_stream.status())?,
+        )?;
+        set_js_property(&snapshot, "terrainStreamerRuntime", JsValue::from_str("rust"))?;
+        set_js_property(
+            &snapshot,
+            "terrainStreamSchedulerRuntime",
+            JsValue::from_str("rust"),
+        )?;
+        set_js_property(
+            &snapshot,
+            "terrainDensityStoreRuntime",
+            JsValue::from_str("rust"),
+        )?;
+        set_js_property(
+            &snapshot,
+            "terrainWorkerPoolRuntime",
+            JsValue::from_str("rust"),
+        )?;
+        set_js_property(&snapshot, "renderPacketRuntime", JsValue::from_str("rust"))?;
+        set_js_property(
+            &snapshot,
+            "terrainRenderPacketRuntime",
+            JsValue::from_str("rust"),
+        )?;
+        set_js_property(&snapshot, "rendererRuntime", JsValue::from_str("rust-wgpu"))?;
+        set_js_property(
+            &snapshot,
             "rendererStatus",
             renderer_status_to_js(self.renderer.status())?,
+        )?;
+        set_js_property(
+            &snapshot,
+            "terrainWorkerCount",
+            JsValue::from_f64(self.terrain_stream.worker_count() as f64),
+        )?;
+        set_js_property(
+            &snapshot,
+            "playerControllerRuntime",
+            JsValue::from_str("rust"),
         )?;
 
         Ok(snapshot.into())
     }
 
-    #[wasm_bindgen(js_name = upsertTerrainMesh)]
-    pub fn upsert_terrain_mesh(
-        &mut self,
-        chunk_key: &str,
-        vertices: &[f32],
-        indices: &[u32],
-    ) -> Result<(), JsValue> {
-        if let Some(handle) = self.terrain_mesh_handles_by_key.remove(chunk_key) {
-            self.renderer.destroy_mesh(handle)?;
-        }
-
-        let handle = self
-            .renderer
-            .register_mesh(vertices, indices, TERRAIN_VERTEX_FLOATS)?;
-        self.terrain_mesh_handles_by_key
-            .insert(chunk_key.to_string(), handle);
-        Ok(())
-    }
-
-    #[wasm_bindgen(js_name = destroyTerrainMesh)]
-    pub fn destroy_terrain_mesh(&mut self, chunk_key: &str) -> Result<(), JsValue> {
-        let Some(handle) = self.terrain_mesh_handles_by_key.remove(chunk_key) else {
-            return Ok(());
-        };
-        self.renderer.destroy_mesh(handle)?;
-
-        if let Some(object_handle) = self.object_handles_by_id.remove(chunk_key) {
-            self.renderer.destroy_object(object_handle)?;
-        }
-
-        Ok(())
-    }
-
-    #[wasm_bindgen(js_name = retainTerrainMeshes)]
-    pub fn retain_terrain_meshes(&mut self, chunk_keys: js_sys::Array) -> Result<(), JsValue> {
-        let seen_chunk_keys = string_array_values(&chunk_keys)?
-            .into_iter()
-            .collect::<HashSet<_>>();
-
-        self.retain_terrain_mesh_keys(&seen_chunk_keys)?;
-        self.retain_object_keys(&seen_chunk_keys)?;
-        Ok(())
-    }
-
-    #[wasm_bindgen(js_name = clearTerrainMeshes)]
-    pub fn clear_terrain_meshes(&mut self) -> Result<(), JsValue> {
-        let chunk_keys = sorted_terrain_chunk_keys(&self.terrain_mesh_handles_by_key);
-        for chunk_key in chunk_keys {
-            self.destroy_terrain_mesh(&chunk_key)?;
-        }
-
-        Ok(())
+    #[wasm_bindgen(js_name = terrainHeightAt)]
+    pub fn terrain_height_at(&self, x: f64, z: f64) -> Result<f64, JsValue> {
+        Ok(terrain_core::height_at(
+            self.game_state.terrain_seed(),
+            self.game_state.terrain_preset(),
+            x,
+            z,
+        ))
     }
 
     #[wasm_bindgen(js_name = upsertTerrainTextures)]
@@ -330,8 +360,7 @@ impl RustBrowserGame {
         Ok(())
     }
 
-    #[wasm_bindgen(js_name = renderFrame)]
-    pub fn render_frame(&mut self) -> Result<(), JsValue> {
+    fn render_frame(&mut self) -> Result<(), JsValue> {
         let engine_snapshot = self.game_state.render_snapshot_values().map_err(js_error)?;
         let aspect = self.renderer.aspect_ratio();
         let chunk_keys = sorted_terrain_chunk_keys(&self.terrain_mesh_handles_by_key);
@@ -394,6 +423,69 @@ impl RustBrowserGame {
 }
 
 impl RustBrowserGame {
+    fn update_terrain_stream(&mut self) -> Result<(), JsValue> {
+        let player_position = self.game_state.player_position().map_err(js_error)?;
+        let update = self.terrain_stream.tick(player_position);
+
+        for coord in update.removed_coords {
+            self.destroy_terrain_mesh(coord)?;
+        }
+
+        for mesh_update in update.upserted_meshes {
+            self.upsert_terrain_mesh(
+                mesh_update.coord,
+                &mesh_update.mesh.vertices,
+                &mesh_update.mesh.indices,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn upsert_terrain_mesh(
+        &mut self,
+        coord: TerrainChunkCoord,
+        vertices: &[f32],
+        indices: &[u32],
+    ) -> Result<(), JsValue> {
+        let chunk_key = terrain_chunk_key(coord);
+        if let Some(handle) = self.terrain_mesh_handles_by_key.remove(&chunk_key) {
+            self.renderer.destroy_mesh(handle)?;
+        }
+
+        let handle = self
+            .renderer
+            .register_mesh(vertices, indices, TERRAIN_VERTEX_FLOATS)?;
+        self.terrain_mesh_handles_by_key.insert(chunk_key, handle);
+        Ok(())
+    }
+
+    fn destroy_terrain_mesh(&mut self, coord: TerrainChunkCoord) -> Result<(), JsValue> {
+        self.destroy_terrain_mesh_by_key(&terrain_chunk_key(coord))
+    }
+
+    fn destroy_terrain_mesh_by_key(&mut self, chunk_key: &str) -> Result<(), JsValue> {
+        let Some(handle) = self.terrain_mesh_handles_by_key.remove(chunk_key) else {
+            return Ok(());
+        };
+        self.renderer.destroy_mesh(handle)?;
+
+        if let Some(object_handle) = self.object_handles_by_id.remove(chunk_key) {
+            self.renderer.destroy_object(object_handle)?;
+        }
+
+        Ok(())
+    }
+
+    fn clear_terrain_meshes(&mut self) -> Result<(), JsValue> {
+        let chunk_keys = sorted_terrain_chunk_keys(&self.terrain_mesh_handles_by_key);
+        for chunk_key in chunk_keys {
+            self.destroy_terrain_mesh_by_key(&chunk_key)?;
+        }
+
+        Ok(())
+    }
+
     fn object_handle_for_id(&mut self, id: &str) -> Result<ResourceHandle, JsValue> {
         if let Some(handle) = self.object_handles_by_id.get(id) {
             return Ok(*handle);
@@ -408,39 +500,6 @@ impl RustBrowserGame {
         self.renderer.destroy_texture(handles.albedo)?;
         self.renderer.destroy_texture(handles.normal)?;
         self.renderer.destroy_texture(handles.material)?;
-        Ok(())
-    }
-
-    fn retain_terrain_mesh_keys(
-        &mut self,
-        seen_chunk_keys: &HashSet<String>,
-    ) -> Result<(), JsValue> {
-        let stale_ids = self
-            .terrain_mesh_handles_by_key
-            .keys()
-            .filter(|id| !seen_chunk_keys.contains(*id))
-            .cloned()
-            .collect::<Vec<_>>();
-        for id in stale_ids {
-            if let Some(handle) = self.terrain_mesh_handles_by_key.remove(&id) {
-                self.renderer.destroy_mesh(handle)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn retain_object_keys(&mut self, seen_chunk_keys: &HashSet<String>) -> Result<(), JsValue> {
-        let stale_ids = self
-            .object_handles_by_id
-            .keys()
-            .filter(|id| !seen_chunk_keys.contains(*id))
-            .cloned()
-            .collect::<Vec<_>>();
-        for id in stale_ids {
-            if let Some(handle) = self.object_handles_by_id.remove(&id) {
-                self.renderer.destroy_object(handle)?;
-            }
-        }
         Ok(())
     }
 }
@@ -1297,17 +1356,6 @@ fn u32_as_bytes(values: &[u32]) -> &[u8] {
     }
 }
 
-fn string_array_values(values: &js_sys::Array) -> Result<Vec<String>, JsValue> {
-    values
-        .iter()
-        .map(|value| {
-            value
-                .as_string()
-                .ok_or_else(|| js_error("Rust browser game expected terrain chunk keys."))
-        })
-        .collect()
-}
-
 fn browser_game_input_from_js(frame: &JsValue) -> Result<BrowserGameInput, JsValue> {
     let movement = js_required_property(frame, "movement", "frame.movement")?;
     let look = js_required_property(frame, "look", "frame.look")?;
@@ -1441,6 +1489,112 @@ fn renderer_status_to_js(status: RustBrowserGameStatus) -> Result<JsValue, JsVal
     Ok(object.into())
 }
 
+fn terrain_stream_status_to_js(status: BrowserTerrainStreamStatus) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    set_js_property(
+        &object,
+        "generation",
+        JsValue::from_f64(status.generation as f64),
+    )?;
+    set_js_property(&object, "pending", JsValue::from_bool(status.pending))?;
+    set_js_property(
+        &object,
+        "loadedChunkCount",
+        JsValue::from_f64(status.loaded_chunk_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "densityReadyChunkCount",
+        JsValue::from_f64(status.density_ready_chunk_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "sharedDensityChunkCount",
+        JsValue::from_f64(status.shared_density_chunk_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "inFlightDensityCount",
+        JsValue::from_f64(status.in_flight_density_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "missingDensityCount",
+        JsValue::from_f64(status.missing_density_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "desiredRenderChunkCount",
+        JsValue::from_f64(status.desired_render_chunk_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "renderedChunkCount",
+        JsValue::from_f64(status.rendered_chunk_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "emptyChunkCount",
+        JsValue::from_f64(status.empty_chunk_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "inFlightChunkCount",
+        JsValue::from_f64(status.in_flight_chunk_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "missingChunkCount",
+        JsValue::from_f64(status.missing_chunk_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "maxConcurrentChunkJobs",
+        JsValue::from_f64(status.max_concurrent_chunk_jobs as f64),
+    )?;
+    set_js_property(&object, "workerPoolRuntime", JsValue::from_str("rust"))?;
+    if let Some(stats) = status.last_density_job_stats {
+        set_js_property(
+            &object,
+            "lastDensityJobStats",
+            terrain_job_stats_to_js(stats)?,
+        )?;
+    }
+    if let Some(stats) = status.last_chunk_job_stats {
+        set_js_property(
+            &object,
+            "lastChunkJobStats",
+            terrain_job_stats_to_js(stats)?,
+        )?;
+    }
+
+    Ok(object.into())
+}
+
+fn terrain_job_stats_to_js(stats: TerrainJobStats) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    set_js_property(&object, "totalMs", JsValue::from_f64(stats.total_ms))?;
+    set_js_property(
+        &object,
+        "vertexCount",
+        JsValue::from_f64(stats.vertex_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "indexCount",
+        JsValue::from_f64(stats.index_count as f64),
+    )?;
+
+    Ok(object.into())
+}
+
+fn string_vec_to_js_array(values: Vec<String>) -> js_sys::Array {
+    values
+        .into_iter()
+        .map(|value| JsValue::from_str(&value))
+        .collect()
+}
+
 fn player_mode_to_js_name(mode: PlayerMode) -> &'static str {
     match mode {
         PlayerMode::FirstPerson => "firstPerson",
@@ -1453,6 +1607,16 @@ fn player_mode_from_js_name(mode: &str) -> Option<PlayerMode> {
         "firstPerson" => Some(PlayerMode::FirstPerson),
         "debugFly" => Some(PlayerMode::DebugFly),
         _ => None,
+    }
+}
+
+fn terrain_preset_to_js_name(preset: u32) -> &'static str {
+    match preset {
+        0 => "seed",
+        1 => "rollingHills",
+        2 => "mountainValley",
+        3 => "rockyHighland",
+        _ => "rollingHills",
     }
 }
 
