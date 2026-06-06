@@ -148,8 +148,9 @@ important.
 ```text
 src/app
   Browser setup, game loop, HUD, URL seed/preset parsing, input forwarding,
-  debug hooks, and calls into the coarse `RustBrowserGameRuntime` facade for
-  `tick` and `renderFrame`.
+  debug hooks, and calls into the `RustBrowserGameRuntime` facade through frame
+  input packets, commands, debug snapshots, and the transitional `renderFrame`
+  call.
 
 src/engine/math
   Vec3, Vec4, Quat, Mat4 primitives.

@@ -29,13 +29,18 @@ describe("RustBrowserGameAdapter", () => {
     const adapter = new RustBrowserGameAdapter(fakeCanvas(), fake);
 
     adapter.resetGame(0x0F6, 1);
-    adapter.tick(0.25, {
-      forward: 1,
-      right: -1,
-      up: 0,
-      fast: true,
-      lookDeltaX: 3,
-      lookDeltaY: -2
+    adapter.tick({
+      deltaSeconds: 0.25,
+      movement: {
+        forward: 1,
+        right: -1,
+        up: 0,
+        fast: true
+      },
+      look: {
+        deltaX: 3,
+        deltaY: -2
+      }
     });
     equal(adapter.toggleCameraMode(), "debugFly");
     adapter.setPlayerMode("firstPerson");

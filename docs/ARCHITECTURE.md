@@ -23,8 +23,9 @@ game/render facade.
 ```text
 src/app
   Browser lifecycle, canvas setup, frame loop, HUD state, URL terrain
-  descriptor parsing, debug hooks, input forwarding, and calls into the coarse
-  browser game runtime facade for `tick` and `renderFrame`.
+  descriptor parsing, debug hooks, input forwarding, and calls into the browser
+  game runtime facade through frame input packets, commands, debug snapshots, and
+  the transitional `renderFrame` call.
 
 src/engine/input
   DOM input tracking with edge-triggered key events and mouse deltas.

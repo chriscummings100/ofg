@@ -12,8 +12,8 @@ import {
   type WorldDescriptor
 } from "../engine/world/terrainDescriptor.js";
 import {
-  type PlayerMode,
-  type PlayerMovementIntent
+  type BrowserFrameInput,
+  type PlayerMode
 } from "../engine/web/browserGameTypes.js";
 
 type GameElements = {
@@ -29,7 +29,7 @@ declare global {
       getTerrainChunkKeys: () => string[];
       getTerrainPreset: () => TerrainPresetId;
       getTerrainSeed: () => number;
-      getTerrainStreamStatus: () => ReturnType<RustBrowserGameRuntime["getTerrainStreamStatus"]>;
+      getTerrainStreamStatus: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["terrainStreamStatus"];
       getTerrainStreamerRuntime: () => "rust";
       getTerrainStreamSchedulerRuntime: () => "rust";
       getTerrainDensityStoreRuntime: () => "rust";
@@ -54,35 +54,35 @@ export async function startGame(elements: GameElements): Promise<void> {
   const descriptor = readWorldDescriptor();
   const game = await createRustBrowserGameRuntime(elements.canvas, descriptor);
   window.__ofgDebug = {
-    getLoadedTerrainChunkKeys: () => game.getLoadedTerrainChunkKeys(),
-    getTerrainChunkKeys: () => game.getTerrainChunkKeys(),
-    getTerrainPreset: () => game.getTerrainPreset(),
-    getTerrainSeed: () => game.getTerrainSeed(),
-    getTerrainStreamStatus: () => game.getTerrainStreamStatus(),
-    getTerrainStreamerRuntime: () => game.getTerrainStreamerRuntime(),
-    getTerrainStreamSchedulerRuntime: () => game.terrainStreamSchedulerRuntime,
-    getTerrainDensityStoreRuntime: () => game.getTerrainDensityStoreRuntime(),
-    getTerrainWorkerPoolRuntime: () => game.getTerrainWorkerPoolRuntime(),
-    getRenderPacketRuntime: () => game.renderPacketRuntime,
-    getTerrainRenderPacketRuntime: () => game.terrainRenderPacketRuntime,
-    getRendererRuntime: () => game.rendererRuntime,
-    getRendererStatus: () => game.getRendererStatus(),
-    getTerrainWorkerCount: () => game.getTerrainWorkerCount(),
-    getPlayerControllerRuntime: () => game.playerControllerRuntime,
+    getLoadedTerrainChunkKeys: () => game.debugSnapshot().loadedTerrainChunkKeys,
+    getTerrainChunkKeys: () => game.debugSnapshot().terrainChunkKeys,
+    getTerrainPreset: () => game.debugSnapshot().terrainPreset,
+    getTerrainSeed: () => game.debugSnapshot().terrainSeed,
+    getTerrainStreamStatus: () => game.debugSnapshot().terrainStreamStatus,
+    getTerrainStreamerRuntime: () => game.debugSnapshot().terrainStreamerRuntime,
+    getTerrainStreamSchedulerRuntime: () => game.debugSnapshot().terrainStreamSchedulerRuntime,
+    getTerrainDensityStoreRuntime: () => game.debugSnapshot().terrainDensityStoreRuntime,
+    getTerrainWorkerPoolRuntime: () => game.debugSnapshot().terrainWorkerPoolRuntime,
+    getRenderPacketRuntime: () => game.debugSnapshot().renderPacketRuntime,
+    getTerrainRenderPacketRuntime: () => game.debugSnapshot().terrainRenderPacketRuntime,
+    getRendererRuntime: () => game.debugSnapshot().rendererRuntime,
+    getRendererStatus: () => game.debugSnapshot().rendererStatus,
+    getTerrainWorkerCount: () => game.debugSnapshot().terrainWorkerCount,
+    getPlayerControllerRuntime: () => game.debugSnapshot().playerControllerRuntime,
     resetTerrainStreaming() {
-      game.resetTerrainStreaming();
+      game.command({ type: "resetStreaming" });
     },
     getTerrainHeight(x, z) {
       return game.getTerrainHeight(x, z);
     },
     setCameraMode(mode) {
-      game.setPlayerMode(validatePlayerMode(mode));
+      game.command({ type: "setPlayerMode", mode: validatePlayerMode(mode) });
     },
     setDebugCamera(x, y, z, yaw, pitch) {
-      game.setDebugCamera(x, y, z, yaw, pitch);
+      game.command({ type: "setDebugCamera", x, y, z, yaw, pitch });
     },
     setPlayerPosition(x, z) {
-      game.setPlayerPosition(x, z);
+      game.command({ type: "setPlayerPosition", x, z });
     }
   };
 
@@ -95,16 +95,21 @@ export async function startGame(elements: GameElements): Promise<void> {
     lastTimestamp = timestamp;
 
     if (input.consumePress("KeyC") || input.consumePress("F1")) {
-      game.toggleCameraMode();
+      game.command({ type: "togglePlayerMode" });
     }
 
     const snapshot = input.consumeFrameSnapshot();
-    const intent = readMovementIntent(input, snapshot.mouseDeltaX, snapshot.mouseDeltaY);
+    const frameInput = readFrameInput(
+      input,
+      deltaSeconds,
+      snapshot.mouseDeltaX,
+      snapshot.mouseDeltaY
+    );
 
-    game.tick(deltaSeconds, intent);
+    game.tick(frameInput);
     game.renderFrame();
 
-    const playerMode = game.getPlayerMode();
+    const playerMode = game.debugSnapshot().playerMode;
     elements.cameraMode.textContent = playerMode === "firstPerson" ? "FIRST" : "FLY";
     elements.cameraMode.dataset.mode = playerMode;
     elements.frameTime.textContent = `${(deltaSeconds * 1000).toFixed(1)} ms`;
@@ -161,18 +166,24 @@ function validatePlayerMode(mode: string): PlayerMode {
   throw new Error(`Unknown player camera mode '${mode}'.`);
 }
 
-function readMovementIntent(
+function readFrameInput(
   input: InputTracker,
+  deltaSeconds: number,
   lookDeltaX: number,
   lookDeltaY: number
-): PlayerMovementIntent {
+): BrowserFrameInput {
   return {
-    forward: axis(input, "KeyW", "KeyS"),
-    right: axis(input, "KeyD", "KeyA"),
-    up: axis(input, "Space", "ControlLeft"),
-    fast: input.isDown("ShiftLeft") || input.isDown("ShiftRight"),
-    lookDeltaX,
-    lookDeltaY
+    deltaSeconds,
+    movement: {
+      forward: axis(input, "KeyW", "KeyS"),
+      right: axis(input, "KeyD", "KeyA"),
+      up: axis(input, "Space", "ControlLeft"),
+      fast: input.isDown("ShiftLeft") || input.isDown("ShiftRight")
+    },
+    look: {
+      deltaX: lookDeltaX,
+      deltaY: lookDeltaY
+    }
   };
 }
 

@@ -17,8 +17,8 @@ import type {
 } from "../render/terrainRenderChunkSink.js";
 import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
 import type {
+  BrowserFrameInput,
   PlayerMode,
-  PlayerMovementIntent
 } from "./browserGameTypes.js";
 
 const FIRST_PERSON_MODE = 0;
@@ -74,15 +74,15 @@ export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
     this.game.resetGame(terrainSeed, terrainPreset);
   }
 
-  tick(deltaSeconds: number, intent: PlayerMovementIntent): void {
+  tick(frame: BrowserFrameInput): void {
     this.game.tick(
-      deltaSeconds,
-      intent.forward,
-      intent.right,
-      intent.up,
-      intent.fast,
-      intent.lookDeltaX,
-      intent.lookDeltaY
+      frame.deltaSeconds,
+      frame.movement.forward,
+      frame.movement.right,
+      frame.movement.up,
+      frame.movement.fast,
+      frame.look.deltaX,
+      frame.look.deltaY
     );
   }
 
