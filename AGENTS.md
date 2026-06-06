@@ -31,25 +31,28 @@ far-field terrain are still future terrain architecture work.
 ## Read These When Needed
 
 - [README.md](README.md): setup, commands, and high-level project shape.
-- [docs/ROADMAP.md](docs/ROADMAP.md): milestone direction.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): current architecture overview.
-- [docs/RUST_ENGINE_PLAN.md](docs/RUST_ENGINE_PLAN.md): Rust-first engine
-  migration, including Rust-owned WebGPU through `wgpu`.
-- [docs/BROWSER_RUST_API.md](docs/BROWSER_RUST_API.md): target
-  TypeScript-to-Rust browser API and Rust-to-browser interaction contract.
-- [docs/TYPESCRIPT_REDUCTION_AUDIT.md](docs/TYPESCRIPT_REDUCTION_AUDIT.md):
-  current TypeScript ownership audit, redundancy map, and deletion paths.
-- [docs/SCENE_MODEL_PLAN.md](docs/SCENE_MODEL_PLAN.md): scene/entity/component model
-  and its intended test coverage. This is now historical/transitional guidance,
-  not the target architecture for high-volume world systems.
-- [docs/BROWSER_VERIFICATION.md](docs/BROWSER_VERIFICATION.md): screenshot and
-  browser interaction verification.
-- [docs/AI_WORKFLOW.md](docs/AI_WORKFLOW.md): expected agent loop and testing habits.
+- [docs/RUST_CONVERSION_PLAN.md](docs/RUST_CONVERSION_PLAN.md): single active
+  plan for making the app almost entirely Rust-owned, including the target
+  TypeScript/Rust boundary and scorecard.
+- [docs/TERRAIN_PLAN.md](docs/TERRAIN_PLAN.md): living terrain realism plan.
+- [docs/TERRAIN_GEN_RESEARCH.md](docs/TERRAIN_GEN_RESEARCH.md): terrain
+  generation research reference.
 - [PLANS.md](PLANS.md): OpenAI/Codex ExecPlan standard for substantial
   multi-step work.
 
 If context is compacted or you are unsure about engine ownership, reread
-`docs/RUST_ENGINE_PLAN.md` and `docs/terrainplan.md` before continuing.
+`docs/RUST_CONVERSION_PLAN.md`. If terrain realism or terrain generation is
+involved, also reread `docs/TERRAIN_PLAN.md`.
+
+## Archived Docs
+
+`docs/archived/` contains retired plans and reference snapshots. Documents in
+that folder are not active instructions. Use them only for historical context
+when explicitly needed.
+
+When an active plan finishes or is replaced, move it to `docs/archived/` and add
+a short note explaining where the active source of truth moved.
 
 ## ExecPlans
 
@@ -85,6 +88,42 @@ input, camera behavior, HUD behavior, or browser integration changes.
 `npm run smoke:browser` launches installed Chrome/Edge through Playwright Core,
 saves screenshots in `artifacts/browser-smoke/`, samples pixels, and verifies the
 `FIRST -> FLY` camera toggle.
+
+## Agent Workflow
+
+1. Read the nearest module and test before changing behavior.
+2. Make the smallest coherent change.
+3. Run `npm test` for logic changes.
+4. Run `npm run build` when build output or generated artifacts may be affected.
+5. Run `npm run smoke:browser` for visual, browser, input, camera, HUD, worker,
+   or rendering changes.
+6. Summarize what changed, what was verified, and any remaining risk.
+
+Prefer behavior-focused test names such as `grounds first-person player on sampled
+terrain` or `rejects stale worker completions after reset`.
+
+## Browser Verification
+
+`npm run smoke:browser`:
+
+- Builds the TypeScript app.
+- Starts a temporary local dev server.
+- Launches installed Chrome/Edge through Playwright Core.
+- Saves screenshots under `artifacts/browser-smoke/`.
+- Reads HUD state and samples screenshot pixels to catch blank or solid frames.
+- Reloads the page and fails on black or blank refresh frames.
+- Presses `C` and verifies the camera mode changes from `FIRST` to `FLY`.
+- Moves the player across terrain chunk columns through debug hooks and verifies
+  chunk streaming.
+
+Useful environment variables:
+
+- `OFG_SMOKE_PORT`: preferred local port. Defaults to `5174`.
+- `OFG_BROWSER_PATH`: explicit Chromium-based browser executable path.
+- `OFG_SMOKE_HEADED=1`: launch a visible browser for debugging.
+
+This is a smoke test, not a full visual diff. Extend it as interactions become
+important.
 
 ## Code style
 
@@ -192,11 +231,9 @@ step.
   upload adaptation, and terrain status/debug mirrors below the browser runtime
   facade.
 - New high-volume world, terrain streaming, simulation, render extraction, and
-  WebGPU ownership should follow `docs/RUST_ENGINE_PLAN.md`.
-- Use `docs/TYPESCRIPT_REDUCTION_AUDIT.md` before deleting or adding TypeScript
-  around terrain, rendering, or engine ownership.
-- Use `docs/BROWSER_RUST_API.md` to judge whether a TypeScript/Rust boundary
-  change moves toward or away from the exact target API.
+  WebGPU ownership should follow `docs/RUST_CONVERSION_PLAN.md`.
+- Use `docs/RUST_CONVERSION_PLAN.md` before deleting or adding TypeScript around
+  terrain, rendering, or engine ownership.
 
 ## Testing Expectations
 
@@ -219,21 +256,6 @@ Current test areas include:
 When adding behavior, add tests near the behavior first or in the same change.
 Prefer behavior names such as `rejects stale worker completions after reset`.
 
-## Browser Verification Workflow
-
-For visual or interactive work:
-
-1. Run `npm test`.
-2. Run `npm run smoke:browser`.
-3. Inspect screenshots in `artifacts/browser-smoke/<run-id>/` when behavior or
-   framing matters.
-4. Check `report.json` for HUD state, WebGPU availability, pixel stats, and console
-   messages.
-
-The smoke test is designed to catch blank frames, solid-color regressions, broken
-WebGPU startup, and camera toggle failures. Extend it as new interactions become
-important.
-
 ## Design Bias
 
 - Keep the engine lightweight and browser-native.
@@ -246,8 +268,8 @@ important.
   extraction, and eventually WebGPU rendering. Migrate by tested vertical slices
   that remove TypeScript ownership rather than by adding parallel systems.
 - Prefer deleting or demoting whole TypeScript categories named in
-  `docs/TYPESCRIPT_REDUCTION_AUDIT.md` rather than repeatedly shrinking wrappers
-  while preserving terrain-aware TypeScript.
+  `docs/RUST_CONVERSION_PLAN.md` rather than repeatedly shrinking wrappers while
+  preserving terrain-aware TypeScript.
 - Keep shader work in plain WGSL behind `tools/build-shaders.mjs`. Do not introduce
   alternate shader languages unless the project direction changes again.
 

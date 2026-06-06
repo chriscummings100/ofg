@@ -17,12 +17,11 @@ The first playable milestone is intentionally small:
 
 The current seed implements chunk-streamed generated terrain with a Rust/WASM
 runtime terrain path, Poly Haven terrain texture arrays, and Rust-owned
-camera/player state. It also has the first Rust/WASM WebGPU renderer bridge for
-resource-lifetime tracking; actual WebGPU draw submission is still TypeScript for
-now. The forward architecture is Rust-first: Rust should own world state,
-simulation, terrain streaming, render extraction, and WebGPU rendering, while
-TypeScript becomes browser shell, UI, worker transport, and temporary renderer
-glue.
+camera/player state. Rust/wgpu now owns browser WebGPU rendering and draw
+submission through `engine_web`. The forward architecture is Rust-first: Rust
+should own world state, simulation, terrain streaming, render extraction, asset
+ownership, and WebGPU rendering, while TypeScript becomes browser shell, UI, and
+only genuinely browser-specific utility code.
 
 ## Commands
 
@@ -54,13 +53,14 @@ chunk mesh generation, then writes a JSON report under
   WASM terrain metadata.
 - `crates/terrain_core`: Rust terrain code built to WebAssembly for hot terrain
   generation paths.
-- `crates/engine_web`: browser-facing Rust/WASM renderer bridge. It currently
-  owns CPU-side WebGPU resource lifetime tracking before the full Rust/wgpu port.
+- `crates/engine_web`: browser-facing Rust/WASM game and Rust/wgpu renderer
+  bridge.
 - `assets/wasm`: checked-in generated WebAssembly artifacts used by the browser.
-- `docs`: roadmap, architecture notes, and AI workflow guidance.
+- `docs`: active architecture, Rust conversion, terrain plan, and terrain
+  research docs. Retired plans live under `docs/archived/`.
 - `tools`: small repository scripts with no framework dependency.
 
-See [docs/ROADMAP.md](docs/ROADMAP.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
-[docs/RUST_ENGINE_PLAN.md](docs/RUST_ENGINE_PLAN.md), and
-[docs/AI_WORKFLOW.md](docs/AI_WORKFLOW.md) for the working direction. Browser
-verification is documented in [docs/BROWSER_VERIFICATION.md](docs/BROWSER_VERIFICATION.md).
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
+[docs/RUST_CONVERSION_PLAN.md](docs/RUST_CONVERSION_PLAN.md), and
+[docs/TERRAIN_PLAN.md](docs/TERRAIN_PLAN.md) for the working direction. Agent
+workflow and browser verification expectations live in [AGENTS.md](AGENTS.md).

@@ -9,16 +9,14 @@
 - Move long-lived world, simulation, terrain, render extraction, and WebGPU
   ownership into Rust.
 
-The detailed migration path is tracked in
-[RUST_ENGINE_PLAN.md](RUST_ENGINE_PLAN.md). The TypeScript scene/component model
-has been retired from the compiled source tree, and Rust/wgpu is now the browser
-WebGPU renderer. The target browser boundary is defined in
-[BROWSER_RUST_API.md](BROWSER_RUST_API.md), and the current TypeScript burn-down
-is tracked in [TYPESCRIPT_REDUCTION_AUDIT.md](TYPESCRIPT_REDUCTION_AUDIT.md).
-Use those files before adding, deleting, or moving TypeScript around terrain,
-rendering, or engine ownership. The remaining TypeScript render-adjacent code is
-a temporary byte-upload, worker, asset, and debug adapter around a Rust-owned
-browser game/render facade.
+The detailed Rust conversion path is tracked in
+[RUST_CONVERSION_PLAN.md](RUST_CONVERSION_PLAN.md). The TypeScript
+scene/component model has been retired from the compiled source tree, and
+Rust/wgpu is now the browser WebGPU renderer. Use the Rust conversion plan before
+adding, deleting, or moving TypeScript around terrain, rendering, or engine
+ownership. The remaining TypeScript render-adjacent code is a temporary
+byte-upload, worker, asset, and debug adapter around a Rust-owned browser
+game/render facade.
 
 ## Current Layers
 
@@ -102,9 +100,8 @@ temporary terrain worker/asset transport.
   material packets, camera frames, light packets, player-marker mesh/material
   data, player-marker world matrices, or normal matrices.
 
-[SCENE_MODEL_PLAN.md](SCENE_MODEL_PLAN.md) is now historical documentation of the
-deleted TypeScript scene model. Future large-scale world state should move into
-Rust rather than recreating that graph.
+The retired TypeScript scene model is archived under `docs/archived/`. Future
+large-scale world state should move into Rust rather than recreating that graph.
 
 ## Terrain Direction
 

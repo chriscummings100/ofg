@@ -8,7 +8,7 @@ This file defines how to write and maintain an ExecPlan: a self-contained, livin
 
 ## How to Use This File
 - Authoring: read this file end to end before drafting; start from the skeleton; embed all context (paths, commands, definitions) so no external docs are needed.
-- Implementing: move directly to the next milestone without asking for next steps; keep the living sections current at every stopping point.
+- Implementing: move directly to the next milestone without asking for next steps; proceed independently for as long as possible, returning to the user only for critical input that cannot be safely inferred or when the plan is complete; keep the living sections current at every stopping point.
 - Discussing: record decisions and rationale inside the plan so work can be resumed later using only the ExecPlan.
 
 ## Non-Negotiable Requirements
@@ -50,6 +50,8 @@ This file defines how to write and maintain an ExecPlan: a self-contained, livin
 # <Short, action-oriented description>
 
 This ExecPlan is a living document. The sections Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective must stay up to date as work proceeds.
+
+Once this plan is started, proceed independently for as long as possible. Return to the user only for critical input that cannot be safely inferred, or when the plan is complete.
 
 If PLANS.md is present in the repo, maintain this document in accordance with it and link back to it by path.
 

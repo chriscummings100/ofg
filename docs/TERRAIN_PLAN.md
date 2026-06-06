@@ -2,12 +2,12 @@
 
 This is the living implementation plan for taking OFG from its current seed
 terrain to a high-grade procedural terrain system. It is based on
-[terraingenresearch.md](terraingenresearch.md), especially:
+[TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md), especially:
 
-- [Survey of algorithms and techniques](terraingenresearch.md#survey-of-algorithms-and-techniques)
-- [Biomes, distribution, and blending](terraingenresearch.md#biomes-distribution-and-blending)
-- [Erosion, rivers, caves, materials, texturing, and art layers](terraingenresearch.md#erosion-rivers-caves-materials-texturing-and-art-layers)
-- [Implementation plan and validation](terraingenresearch.md#implementation-plan-and-validation)
+- [Survey of algorithms and techniques](TERRAIN_GEN_RESEARCH.md#survey-of-algorithms-and-techniques)
+- [Biomes, distribution, and blending](TERRAIN_GEN_RESEARCH.md#biomes-distribution-and-blending)
+- [Erosion, rivers, caves, materials, texturing, and art layers](TERRAIN_GEN_RESEARCH.md#erosion-rivers-caves-materials-texturing-and-art-layers)
+- [Implementation plan and validation](TERRAIN_GEN_RESEARCH.md#implementation-plan-and-validation)
 
 This document is the continuity source for terrain work. Treat it as a cared-for
 shared memory: progress notes must be updated as milestones are started, changed,
@@ -16,15 +16,12 @@ AI agent resumes after context compaction, or is unsure what terrain work was la
 planned, it must reread this plan before continuing implementation.
 
 The engine ownership direction is now Rust-first and is tracked in
-[RUST_ENGINE_PLAN.md](RUST_ENGINE_PLAN.md). Terrain work should align with that
-plan: TypeScript may remain browser/UI glue during migration, but terrain
-streaming, scheduling, world state, render extraction, and eventually WebGPU
+[RUST_CONVERSION_PLAN.md](RUST_CONVERSION_PLAN.md). Terrain work should align
+with that plan: TypeScript may remain browser/UI glue during migration, but
+terrain streaming, scheduling, world state, render extraction, and WebGPU
 rendering should move into Rust rather than growing new TypeScript-side
-workarounds. The target browser API is defined in
-[BROWSER_RUST_API.md](BROWSER_RUST_API.md), and the current TypeScript
-terrain/render boundary is audited in
-[TYPESCRIPT_REDUCTION_AUDIT.md](TYPESCRIPT_REDUCTION_AUDIT.md). Use both before
-adding or deleting TypeScript around terrain.
+workarounds. Use the Rust conversion plan before adding or deleting TypeScript
+around terrain.
 
 The core lesson from the research is that high quality terrain is a layered world
 generation architecture, not a single better noise function. The target is a
@@ -170,7 +167,7 @@ Supported:
   shares density payloads between WASM instances, decodes terrain texture assets,
   and exposes debug/smoke mirrors. The next Rust migration terrain slice should
   remove a whole terrain-aware TypeScript category from
-  [TYPESCRIPT_REDUCTION_AUDIT.md](TYPESCRIPT_REDUCTION_AUDIT.md), not merely
+  [RUST_CONVERSION_PLAN.md](RUST_CONVERSION_PLAN.md), not merely
   wrap it more tightly.
 
 Partially supported or placeholder-only:
@@ -488,7 +485,7 @@ Research basis:
 
 - The research recommends simplex-style coherent fields, ridged fractals, domain
   warping, and Worley/cellular secondary structure rather than plain fBm
-  [terraingenresearch.md](terraingenresearch.md#survey-of-algorithms-and-techniques).
+  [TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md#survey-of-algorithms-and-techniques).
 
 Implementation:
 
@@ -537,7 +534,7 @@ Goal: make every terrain layer inspectable before adding more complexity.
 Research basis:
 
 - The research calls isolated debug overlays the most important validation strategy
-  [terraingenresearch.md](terraingenresearch.md#implementation-plan-and-validation).
+  [TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md#implementation-plan-and-validation).
 
 Implementation:
 
@@ -580,7 +577,7 @@ Research basis:
 
 - The research identifies Dual Contouring as a good Hermite-data basis but warns
   that chunk and LOD seams need explicit engineering
-  [terraingenresearch.md](terraingenresearch.md#implementation-plan-and-validation).
+  [TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md#implementation-plan-and-validation).
 
 Implementation:
 
@@ -627,7 +624,7 @@ Research basis:
 
 - The research recommends climate fields plus spatial provinces, then continuous
   blending with local terrain-condition overrides
-  [terraingenresearch.md](terraingenresearch.md#biomes-distribution-and-blending).
+  [TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md#biomes-distribution-and-blending).
 
 Implementation:
 
@@ -681,7 +678,7 @@ Research basis:
 
 - The research recommends a larger global material library but limiting each
   planet/chunk/draw to a smaller set of blended materials
-  [terraingenresearch.md](terraingenresearch.md#erosion-rivers-caves-materials-texturing-and-art-layers).
+  [TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md#erosion-rivers-caves-materials-texturing-and-art-layers).
 
 Implementation:
 
@@ -733,7 +730,7 @@ Research basis:
 
 - The research recommends separating rivers into hydrology graph, carve field, and
   visible water representation
-  [terraingenresearch.md](terraingenresearch.md#erosion-rivers-caves-materials-texturing-and-art-layers).
+  [TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md#erosion-rivers-caves-materials-texturing-and-art-layers).
 
 Implementation:
 
@@ -774,7 +771,7 @@ Research basis:
 
 - The research recommends hybrid cave generation: structural tunnel graphs plus
   3D noise/metaball-style wall richness, with cave material logic
-  [terraingenresearch.md](terraingenresearch.md#erosion-rivers-caves-materials-texturing-and-art-layers).
+  [TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md#erosion-rivers-caves-materials-texturing-and-art-layers).
 
 Implementation:
 
@@ -815,7 +812,7 @@ Research basis:
 
 - The research recommends dense active chunks early, sparse or paged hierarchy
   later, and explicit seam/transition systems at chunk/LOD boundaries
-  [terraingenresearch.md](terraingenresearch.md#implementation-plan-and-validation).
+  [TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md#implementation-plan-and-validation).
 
 Implementation:
 
@@ -859,7 +856,7 @@ Research basis:
 - The research notes that perceived high-end terrain quality depends heavily on
   vegetation, cloudscape, aerial perspective, wetness, shadows, and palette
   discipline
-  [terraingenresearch.md](terraingenresearch.md#erosion-rivers-caves-materials-texturing-and-art-layers).
+  [TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md#erosion-rivers-caves-materials-texturing-and-art-layers).
 
 Implementation:
 
@@ -989,7 +986,7 @@ Progress notes:
 | 2026-06-03 | App terrain wiring hidden behind browser game runtime | Added `RustBrowserGameRuntime` so `src/app/game.ts` no longer constructs the terrain stream scheduler, density store, mesh packet store, worker client, mirrored terrain sink, texture upload path, or height sampler directly. The app now creates one runtime and calls `tick`/`renderFrame`, while the remaining TypeScript terrain worker and asset transport live below that shell boundary. |
 | 2026-06-03 | Playable mesh packet-store mirror retired | Completed terrain worker mesh results now go straight to `RustBrowserGame` through the adapter sink. The adapter tracks live terrain chunk keys for debug/smoke, while Rust/wgpu owns the actual mesh handles and active draw set. The older `terrain_core.wasm` mesh packet store remains tested but is no longer used by the playable browser handoff. |
 | 2026-06-03 | Browser bridge moved out of game components | Moved `TerrainCoreWorkerStreamer` and browser game input types into `src/engine/web`, deleting the live `src/game/components` source files. Remaining TypeScript terrain code is now framed as browser/WASM shell utility code, not scene/game component architecture. |
-| 2026-06-06 | TypeScript terrain boundary clarified | Added `docs/TYPESCRIPT_REDUCTION_AUDIT.md` and updated the terrain plan to frame the remaining TypeScript as browser Worker transport, density payload movement, texture asset decode, and debug/smoke mirrors. Terrain generation, meshing, scheduling, density storage, and WebGPU rendering are Rust-owned; the next cleanup should delete a whole terrain-aware TypeScript category rather than add another wrapper. |
+| 2026-06-06 | TypeScript terrain boundary clarified | Added `docs/RUST_CONVERSION_PLAN.md` and updated the terrain plan to frame the remaining TypeScript as browser Worker transport, density payload movement, texture asset decode, and debug/smoke mirrors. Terrain generation, meshing, scheduling, density storage, and WebGPU rendering are Rust-owned; the next cleanup should delete a whole terrain-aware TypeScript category rather than add another wrapper. |
 
 ## Cross-Cutting Validation
 
