@@ -1,5 +1,9 @@
 import { ENGINE_WEB_WASM_METADATA } from "../../generated/web/engineWebWasm.js";
-import type { BrowserFrameInput } from "./browserGameTypes.js";
+import type {
+  BrowserFrameInput,
+  RustBrowserGameCommand,
+  RustBrowserGameDebugSnapshot
+} from "./browserGameTypes.js";
 
 export const ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM = 1;
 
@@ -22,14 +26,8 @@ export type EngineWebBrowserGame = {
   resize(width: number, height: number): void;
   resetGame(terrainSeed: number, terrainPreset: number): void;
   tick(frame: BrowserFrameInput): void;
-  togglePlayerMode(): number;
-  playerMode(): number;
-  setPlayerMode(mode: number): void;
-  playerX(): number;
-  playerY(): number;
-  playerZ(): number;
-  setPlayerPosition(x: number, z: number): void;
-  setDebugCamera(x: number, y: number, z: number, yaw: number, pitch: number): void;
+  command(command: RustBrowserGameCommand): void;
+  debugSnapshot(): RustBrowserGameDebugSnapshot;
   upsertTerrainMesh(
     chunkKey: string,
     vertices: Float32Array,

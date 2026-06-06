@@ -1,4 +1,4 @@
-import { vec3, type Vec3 } from "../math/vec3.js";
+import type { Vec3 } from "../math/vec3.js";
 import type { TerrainRenderChunkSink } from "../render/terrainRenderChunkSink.js";
 import { loadTerrainMaterialTextures, type TerrainMaterialTextures } from "../render/terrainTextures.js";
 import { createTerrainCoreDensityChunkStore } from "../world/terrainCoreDensityChunkStore.js";
@@ -18,7 +18,8 @@ import type {
   BrowserFrameInput,
   GameCommand,
   GameDebugSnapshot,
-  PlayerMode
+  RustBrowserGameCommand,
+  RustBrowserGameDebugSnapshot
 } from "./browserGameTypes.js";
 import {
   TerrainCoreWorkerStreamer,
@@ -41,12 +42,8 @@ export type RustBrowserGameRenderer = TerrainRenderChunkSink & {
   resetGame(terrainSeed: number, terrainPreset: number): void;
   tick(frame: BrowserFrameInput): void;
   renderGameFrame(): void;
-  toggleCameraMode(): PlayerMode;
-  getPlayerMode(): PlayerMode;
-  setPlayerMode(mode: PlayerMode): void;
-  getPlayerPosition(): Vec3;
-  setPlayerPosition(x: number, z: number): void;
-  setDebugCamera(position: Vec3, yaw: number, pitch: number): void;
+  command(command: RustBrowserGameCommand): void;
+  getDebugSnapshot(): RustBrowserGameDebugSnapshot;
   getStatus(): EngineWebRendererStatus;
   chunkKeys(): TerrainChunkKey[];
 };
@@ -94,36 +91,30 @@ export class RustBrowserGameRuntime {
   command(command: GameCommand): void {
     switch (command.type) {
       case "togglePlayerMode":
-        this.dependencies.renderer.toggleCameraMode();
-        return;
       case "setPlayerMode":
-        this.dependencies.renderer.setPlayerMode(command.mode);
+      case "setDebugCamera":
+        this.dependencies.renderer.command(command);
         return;
       case "setPlayerPosition":
-        this.dependencies.renderer.setPlayerPosition(command.x, command.z);
+        this.dependencies.renderer.command(command);
         this.dependencies.terrainStreamer.syncAround(
-          this.dependencies.renderer.getPlayerPosition()
-        );
-        return;
-      case "setDebugCamera":
-        this.dependencies.renderer.setDebugCamera(
-          vec3(command.x, command.y, command.z),
-          command.yaw,
-          command.pitch
+          this.dependencies.renderer.getDebugSnapshot().playerPosition
         );
         return;
       case "resetStreaming":
         this.dependencies.terrainStreamer.resetStreaming(
-          this.dependencies.renderer.getPlayerPosition()
+          this.dependencies.renderer.getDebugSnapshot().playerPosition
         );
         return;
     }
   }
 
   debugSnapshot(): GameDebugSnapshot {
+    const rendererSnapshot = this.dependencies.renderer.getDebugSnapshot();
+
     return {
-      playerMode: this.dependencies.renderer.getPlayerMode(),
-      playerPosition: this.dependencies.renderer.getPlayerPosition(),
+      playerMode: rendererSnapshot.playerMode,
+      playerPosition: rendererSnapshot.playerPosition,
       loadedTerrainChunkKeys: this.dependencies.terrainStreamer.getLoadedChunkKeys(),
       terrainChunkKeys: this.dependencies.renderer.chunkKeys(),
       terrainPreset: this.dependencies.descriptor.terrainPreset,
@@ -172,12 +163,12 @@ export async function createRustBrowserGameRuntime(
     terrainDensityChunkStore,
     terrainWorker,
     {
-      getTargetPosition: () => renderer.getPlayerPosition(),
+      getTargetPosition: () => renderer.getDebugSnapshot().playerPosition,
       cellSize: DEFAULT_TERRAIN_STREAM_CONFIG.cellSize
     }
   );
 
-  terrainStreamer.syncAround(renderer.getPlayerPosition());
+  terrainStreamer.syncAround(renderer.getDebugSnapshot().playerPosition);
 
   return new RustBrowserGameRuntime({
     descriptor,

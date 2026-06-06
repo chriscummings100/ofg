@@ -8,7 +8,7 @@ import {
 } from "./rustBrowserGameRuntime.js";
 import { createSeedWorldDescriptor } from "../world/terrainDescriptor.js";
 import type { Vec3 } from "../math/vec3.js";
-import type { BrowserFrameInput } from "./browserGameTypes.js";
+import type { BrowserFrameInput, RustBrowserGameCommand } from "./browserGameTypes.js";
 
 describe("RustBrowserGameRuntime", () => {
   it("coordinates Rust ticking, terrain streaming, rendering, and debug hooks", () => {
@@ -52,16 +52,19 @@ describe("RustBrowserGameRuntime", () => {
     deepEqual(renderer.tickCalls[0], frame);
     equal(streamer.updateCount, 1);
     equal(renderer.renderCount, 1);
-    deepEqual(renderer.setPlayerPositionCalls[0], { x: 32, z: 16 });
+    deepEqual(renderer.commandCalls[0], { type: "setPlayerPosition", x: 32, z: 16 });
     deepEqual(streamer.syncCenters[0], { x: 32, y: 8, z: 16 });
     deepEqual(streamer.resetCenters[0], { x: 32, y: 8, z: 16 });
-    equal(renderer.setPlayerModes.join(","), "debugFly");
-    deepEqual(renderer.debugCameraCalls[0], {
-      position: { x: 1, y: 2, z: 3 },
+    deepEqual(renderer.commandCalls[1], { type: "setPlayerMode", mode: "debugFly" });
+    deepEqual(renderer.commandCalls[2], {
+      type: "setDebugCamera",
+      x: 1,
+      y: 2,
+      z: 3,
       yaw: 0.5,
       pitch: -0.25
     });
-    equal(renderer.toggleCount, 1);
+    deepEqual(renderer.commandCalls[3], { type: "togglePlayerMode" });
     deepEqual(snapshot.loadedTerrainChunkKeys, ["0,0,0"]);
     deepEqual(snapshot.terrainChunkKeys, ["0,0,0", "1,0,0"]);
     equal(snapshot.terrainPreset, "rockyHighland");
@@ -80,26 +83,16 @@ describe("RustBrowserGameRuntime", () => {
 
 type FakeRenderer = RustBrowserGameRenderer & {
   readonly tickCalls: BrowserFrameInput[];
-  readonly setPlayerPositionCalls: Array<{ readonly x: number; readonly z: number }>;
-  readonly setPlayerModes: string[];
-  readonly debugCameraCalls: Array<{
-    readonly position: Vec3;
-    readonly yaw: number;
-    readonly pitch: number;
-  }>;
+  readonly commandCalls: RustBrowserGameCommand[];
   renderCount: number;
-  toggleCount: number;
 };
 
 function fakeRenderer(): FakeRenderer {
   const renderer: FakeRenderer = {
     runtime: "rust-wgpu",
     tickCalls: [],
-    setPlayerPositionCalls: [],
-    setPlayerModes: [],
-    debugCameraCalls: [],
+    commandCalls: [],
     renderCount: 0,
-    toggleCount: 0,
     setTerrainTextures(_textures: TerrainMaterialTextures) {},
     resetGame(_terrainSeed: number, _terrainPreset: number) {},
     tick(frame) {
@@ -108,24 +101,14 @@ function fakeRenderer(): FakeRenderer {
     renderGameFrame() {
       this.renderCount += 1;
     },
-    toggleCameraMode() {
-      this.toggleCount += 1;
-      return "firstPerson";
+    command(command) {
+      this.commandCalls.push(command);
     },
-    getPlayerMode() {
-      return "debugFly";
-    },
-    setPlayerMode(mode) {
-      this.setPlayerModes.push(mode);
-    },
-    getPlayerPosition() {
-      return { x: 32, y: 8, z: 16 };
-    },
-    setPlayerPosition(x, z) {
-      this.setPlayerPositionCalls.push({ x, z });
-    },
-    setDebugCamera(position, yaw, pitch) {
-      this.debugCameraCalls.push({ position, yaw, pitch });
+    getDebugSnapshot() {
+      return {
+        playerMode: "debugFly",
+        playerPosition: { x: 32, y: 8, z: 16 }
+      };
     },
     getStatus() {
       return fakeRendererStatus();

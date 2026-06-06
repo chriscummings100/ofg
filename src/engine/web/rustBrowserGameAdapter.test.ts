@@ -43,10 +43,11 @@ describe("RustBrowserGameAdapter", () => {
         deltaY: -2
       }
     });
-    equal(adapter.toggleCameraMode(), "debugFly");
-    adapter.setPlayerMode("firstPerson");
-    adapter.setPlayerPosition(96, 12);
-    adapter.setDebugCamera({ x: 1, y: 2, z: 3 }, 0.25, -0.5);
+    adapter.command({ type: "togglePlayerMode" });
+    adapter.command({ type: "setPlayerMode", mode: "firstPerson" });
+    adapter.command({ type: "setPlayerPosition", x: 96, z: 12 });
+    adapter.command({ type: "setDebugCamera", x: 1, y: 2, z: 3, yaw: 0.25, pitch: -0.5 });
+    const snapshot = adapter.getDebugSnapshot();
 
     equal(fake.resetGameCalls[0]?.terrainSeed, 0x0F6);
     equal(fake.resetGameCalls[0]?.terrainPreset, 1);
@@ -54,11 +55,12 @@ describe("RustBrowserGameAdapter", () => {
     equal(fake.tickCalls[0]?.movement.forward, 1);
     equal(fake.tickCalls[0]?.movement.right, -1);
     equal(fake.tickCalls[0]?.movement.fast, true);
-    equal(fake.setPlayerModeCalls.join(","), "0");
-    equal(fake.setPlayerPositionCalls[0]?.x, 96);
-    equal(fake.setDebugCameraCalls[0]?.z, 3);
-    equal(adapter.getPlayerMode(), "firstPerson");
-    equal(adapter.getPlayerPosition().x, 96);
+    equal(fake.commandCalls[0]?.type, "togglePlayerMode");
+    equal(fake.commandCalls[1]?.type, "setPlayerMode");
+    equal(fake.commandCalls[2]?.type, "setPlayerPosition");
+    equal(fake.commandCalls[3]?.type, "setDebugCamera");
+    equal(snapshot.playerMode, "firstPerson");
+    equal(snapshot.playerPosition.x, 96);
   });
 
   it("acts as a terrain chunk sink over the Rust browser game facade", () => {
@@ -106,15 +108,7 @@ type FakeBrowserGame = EngineWebBrowserGame & {
     readonly terrainPreset: number;
   }[];
   tickCalls: BrowserFrameInput[];
-  setPlayerModeCalls: number[];
-  setPlayerPositionCalls: { readonly x: number; readonly z: number }[];
-  setDebugCameraCalls: {
-    readonly x: number;
-    readonly y: number;
-    readonly z: number;
-    readonly yaw: number;
-    readonly pitch: number;
-  }[];
+  commandCalls: Array<Parameters<EngineWebBrowserGame["command"]>[0]>;
   lastRender?: {
     readonly aspect: number;
   };
@@ -129,9 +123,7 @@ function fakeBrowserGame(): FakeBrowserGame {
     clearedTerrainMeshes: 0,
     resetGameCalls: [],
     tickCalls: [],
-    setPlayerModeCalls: [],
-    setPlayerPositionCalls: [],
-    setDebugCameraCalls: [],
+    commandCalls: [],
     resize() {},
     resetGame(terrainSeed, terrainPreset) {
       this.resetGameCalls.push({ terrainSeed, terrainPreset });
@@ -139,29 +131,18 @@ function fakeBrowserGame(): FakeBrowserGame {
     tick(frame) {
       this.tickCalls.push(frame);
     },
-    togglePlayerMode() {
-      return 1;
+    command(command) {
+      this.commandCalls.push(command);
     },
-    playerMode() {
-      return 0;
-    },
-    setPlayerMode(mode) {
-      this.setPlayerModeCalls.push(mode);
-    },
-    playerX() {
-      return 96;
-    },
-    playerY() {
-      return 7;
-    },
-    playerZ() {
-      return 12;
-    },
-    setPlayerPosition(x, z) {
-      this.setPlayerPositionCalls.push({ x, z });
-    },
-    setDebugCamera(x, y, z, yaw, pitch) {
-      this.setDebugCameraCalls.push({ x, y, z, yaw, pitch });
+    debugSnapshot() {
+      return {
+        playerMode: "firstPerson",
+        playerPosition: {
+          x: 96,
+          y: 7,
+          z: 12
+        }
+      };
     },
     upsertTerrainMesh(chunkKey) {
       this.upsertedTerrainMeshes.push({ chunkKey });

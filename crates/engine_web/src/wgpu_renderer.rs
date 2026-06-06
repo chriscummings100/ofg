@@ -8,9 +8,7 @@ use wgpu::util::DeviceExt;
 use crate::config::{
     REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
 };
-use crate::game_state::{
-    player_mode_code, player_mode_from_code, BrowserGameInput, BrowserGameState,
-};
+use crate::game_state::{BrowserGameInput, BrowserGameState};
 use crate::materials::TERRAIN_MATERIAL_PACKET;
 use crate::render_packets::{
     build_frame_packet_from_engine_snapshot, build_player_marker_world_matrix,
@@ -21,7 +19,7 @@ use crate::render_uniforms::{
 };
 use crate::resources::{ResourceHandle, ResourceStore};
 use crate::ENGINE_WEB_VERSION;
-use engine_core::Vec3;
+use engine_core::{PlayerMode, Vec3};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
 const SHADER_SOURCE: &str = include_str!("../../../src/engine/render/shaders/uber.wgsl");
@@ -155,73 +153,70 @@ impl RustBrowserGame {
         self.game_state.tick(input).map_err(js_error)
     }
 
-    #[wasm_bindgen(js_name = togglePlayerMode)]
-    pub fn toggle_player_mode(&mut self) -> Result<u32, JsValue> {
-        self.game_state
-            .toggle_player_mode()
-            .map(player_mode_code)
-            .map_err(js_error)
+    #[wasm_bindgen(js_name = command)]
+    pub fn command(&mut self, command: JsValue) -> Result<(), JsValue> {
+        let command_type = js_required_string(&command, "type", "command.type")?;
+        match command_type.as_str() {
+            "togglePlayerMode" => {
+                self.game_state.toggle_player_mode().map_err(js_error)?;
+            }
+            "setPlayerMode" => {
+                let mode_name = js_required_string(&command, "mode", "command.mode")?;
+                let mode = player_mode_from_js_name(&mode_name).ok_or_else(|| {
+                    js_error(format!(
+                        "Rust browser game received unknown player mode '{mode_name}'."
+                    ))
+                })?;
+                self.game_state.set_player_mode(mode).map_err(js_error)?;
+            }
+            "setPlayerPosition" => {
+                let x = js_required_f32(&command, "x", "command.x")?;
+                let z = js_required_f32(&command, "z", "command.z")?;
+                self.game_state
+                    .set_player_position_xz(x, z)
+                    .map(|_| ())
+                    .map_err(js_error)?;
+            }
+            "setDebugCamera" => {
+                let position = Vec3::new(
+                    js_required_f32(&command, "x", "command.x")?,
+                    js_required_f32(&command, "y", "command.y")?,
+                    js_required_f32(&command, "z", "command.z")?,
+                );
+                let yaw = js_required_f32(&command, "yaw", "command.yaw")?;
+                let pitch = js_required_f32(&command, "pitch", "command.pitch")?;
+                self.game_state
+                    .set_debug_camera(position, yaw, pitch)
+                    .map_err(js_error)?;
+            }
+            _ => {
+                return Err(js_error(format!(
+                    "Rust browser game received unknown command '{command_type}'."
+                )));
+            }
+        }
+
+        Ok(())
     }
 
-    #[wasm_bindgen(js_name = playerMode)]
-    pub fn player_mode(&self) -> Result<u32, JsValue> {
-        self.game_state
-            .player_mode()
-            .map(player_mode_code)
-            .map_err(js_error)
-    }
+    #[wasm_bindgen(js_name = debugSnapshot)]
+    pub fn debug_snapshot(&self) -> Result<JsValue, JsValue> {
+        let player_mode = self.game_state.player_mode().map_err(js_error)?;
+        let player_position = self.game_state.player_position().map_err(js_error)?;
+        let position = js_sys::Object::new();
+        set_js_property(&position, "x", JsValue::from_f64(player_position.x as f64))?;
+        set_js_property(&position, "y", JsValue::from_f64(player_position.y as f64))?;
+        set_js_property(&position, "z", JsValue::from_f64(player_position.z as f64))?;
 
-    #[wasm_bindgen(js_name = setPlayerMode)]
-    pub fn set_player_mode(&mut self, mode: u32) -> Result<(), JsValue> {
-        let mode = player_mode_from_code(mode)
-            .ok_or_else(|| js_error(format!("Unknown Rust browser game player mode '{mode}'.")))?;
-        self.game_state.set_player_mode(mode).map_err(js_error)
-    }
+        let snapshot = js_sys::Object::new();
+        set_js_property(
+            &snapshot,
+            "playerMode",
+            JsValue::from_str(player_mode_to_js_name(player_mode)),
+        )?;
+        set_js_property(&snapshot, "playerPosition", position.into())?;
 
-    #[wasm_bindgen(js_name = playerX)]
-    pub fn player_x(&self) -> Result<f32, JsValue> {
-        self.game_state
-            .player_position()
-            .map(|position| position.x)
-            .map_err(js_error)
-    }
-
-    #[wasm_bindgen(js_name = playerY)]
-    pub fn player_y(&self) -> Result<f32, JsValue> {
-        self.game_state
-            .player_position()
-            .map(|position| position.y)
-            .map_err(js_error)
-    }
-
-    #[wasm_bindgen(js_name = playerZ)]
-    pub fn player_z(&self) -> Result<f32, JsValue> {
-        self.game_state
-            .player_position()
-            .map(|position| position.z)
-            .map_err(js_error)
-    }
-
-    #[wasm_bindgen(js_name = setPlayerPosition)]
-    pub fn set_player_position(&mut self, x: f32, z: f32) -> Result<(), JsValue> {
-        self.game_state
-            .set_player_position_xz(x, z)
-            .map(|_| ())
-            .map_err(js_error)
-    }
-
-    #[wasm_bindgen(js_name = setDebugCamera)]
-    pub fn set_debug_camera(
-        &mut self,
-        x: f32,
-        y: f32,
-        z: f32,
-        yaw: f32,
-        pitch: f32,
-    ) -> Result<(), JsValue> {
-        self.game_state
-            .set_debug_camera(Vec3::new(x, y, z), yaw, pitch)
-            .map_err(js_error)
+        Ok(snapshot.into())
     }
 
     #[wasm_bindgen(js_name = upsertTerrainMesh)]
@@ -1370,27 +1365,25 @@ fn string_array_values(values: &js_sys::Array) -> Result<Vec<String>, JsValue> {
 }
 
 fn browser_game_input_from_js(frame: &JsValue) -> Result<BrowserGameInput, JsValue> {
-    let movement = js_required_property(frame, "movement", "movement")?;
-    let look = js_required_property(frame, "look", "look")?;
+    let movement = js_required_property(frame, "movement", "frame.movement")?;
+    let look = js_required_property(frame, "look", "frame.look")?;
 
     Ok(BrowserGameInput {
-        delta_seconds: js_required_f32(frame, "deltaSeconds", "deltaSeconds")?,
-        forward: js_required_f32(&movement, "forward", "movement.forward")?,
-        right: js_required_f32(&movement, "right", "movement.right")?,
-        up: js_required_f32(&movement, "up", "movement.up")?,
-        fast: js_required_bool(&movement, "fast", "movement.fast")?,
-        look_delta_x: js_required_f32(&look, "deltaX", "look.deltaX")?,
-        look_delta_y: js_required_f32(&look, "deltaY", "look.deltaY")?,
+        delta_seconds: js_required_f32(frame, "deltaSeconds", "frame.deltaSeconds")?,
+        forward: js_required_f32(&movement, "forward", "frame.movement.forward")?,
+        right: js_required_f32(&movement, "right", "frame.movement.right")?,
+        up: js_required_f32(&movement, "up", "frame.movement.up")?,
+        fast: js_required_bool(&movement, "fast", "frame.movement.fast")?,
+        look_delta_x: js_required_f32(&look, "deltaX", "frame.look.deltaX")?,
+        look_delta_y: js_required_f32(&look, "deltaY", "frame.look.deltaY")?,
     })
 }
 
 fn js_required_property(object: &JsValue, property: &str, path: &str) -> Result<JsValue, JsValue> {
     let value = js_sys::Reflect::get(object, &JsValue::from_str(property))
-        .map_err(|_| js_error(format!("Rust browser game could not read frame.{path}.")))?;
+        .map_err(|_| js_error(format!("Rust browser game could not read {path}.")))?;
     if value.is_null() || value.is_undefined() {
-        return Err(js_error(format!(
-            "Rust browser game expected frame.{path}."
-        )));
+        return Err(js_error(format!("Rust browser game expected {path}.")));
     }
 
     Ok(value)
@@ -1400,12 +1393,12 @@ fn js_required_f32(object: &JsValue, property: &str, path: &str) -> Result<f32, 
     let value = js_required_property(object, property, path)?;
     let Some(number) = value.as_f64() else {
         return Err(js_error(format!(
-            "Rust browser game expected frame.{path} to be a number."
+            "Rust browser game expected {path} to be a number."
         )));
     };
     if !number.is_finite() || number < f32::MIN as f64 || number > f32::MAX as f64 {
         return Err(js_error(format!(
-            "Rust browser game expected frame.{path} to be a finite f32."
+            "Rust browser game expected {path} to be a finite f32."
         )));
     }
 
@@ -1416,9 +1409,37 @@ fn js_required_bool(object: &JsValue, property: &str, path: &str) -> Result<bool
     let value = js_required_property(object, property, path)?;
     value.as_bool().ok_or_else(|| {
         js_error(format!(
-            "Rust browser game expected frame.{path} to be a boolean."
+            "Rust browser game expected {path} to be a boolean."
         ))
     })
+}
+
+fn js_required_string(object: &JsValue, property: &str, path: &str) -> Result<String, JsValue> {
+    let value = js_required_property(object, property, path)?;
+    value
+        .as_string()
+        .ok_or_else(|| js_error(format!("Rust browser game expected {path} to be a string.")))
+}
+
+fn set_js_property(object: &js_sys::Object, property: &str, value: JsValue) -> Result<(), JsValue> {
+    js_sys::Reflect::set(object, &JsValue::from_str(property), &value)
+        .map_err(|_| js_error(format!("Rust browser game could not set '{property}'.")))?;
+    Ok(())
+}
+
+fn player_mode_to_js_name(mode: PlayerMode) -> &'static str {
+    match mode {
+        PlayerMode::FirstPerson => "firstPerson",
+        PlayerMode::DebugFly => "debugFly",
+    }
+}
+
+fn player_mode_from_js_name(mode: &str) -> Option<PlayerMode> {
+    match mode {
+        "firstPerson" => Some(PlayerMode::FirstPerson),
+        "debugFly" => Some(PlayerMode::DebugFly),
+        _ => None,
+    }
 }
 
 fn sorted_terrain_chunk_keys(handles: &HashMap<String, ResourceHandle>) -> Vec<String> {

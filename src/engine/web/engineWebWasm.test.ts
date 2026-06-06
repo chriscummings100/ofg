@@ -35,14 +35,16 @@ describe("engine web WASM", () => {
     ok(dtsText.includes("resetGame(terrain_seed: number, terrain_preset: number): void"));
     ok(dtsText.includes("tick(frame: any): void"));
     equal(dtsText.includes("tick(delta_seconds"), false);
-    ok(dtsText.includes("togglePlayerMode(): number"));
-    ok(dtsText.includes("playerMode(): number"));
-    ok(dtsText.includes("setPlayerMode(mode: number): void"));
-    ok(dtsText.includes("playerX(): number"));
-    ok(dtsText.includes("playerY(): number"));
-    ok(dtsText.includes("playerZ(): number"));
-    ok(dtsText.includes("setPlayerPosition(x: number, z: number): void"));
-    ok(dtsText.includes("setDebugCamera(x: number, y: number, z: number, yaw: number, pitch: number): void"));
+    ok(dtsText.includes("command(command: any): void"));
+    ok(dtsText.includes("debugSnapshot(): any"));
+    equal(dtsText.includes("togglePlayerMode"), false);
+    equal(dtsText.includes("playerMode()"), false);
+    equal(dtsText.includes("setPlayerMode"), false);
+    equal(dtsText.includes("playerX"), false);
+    equal(dtsText.includes("playerY"), false);
+    equal(dtsText.includes("playerZ"), false);
+    equal(dtsText.includes("setPlayerPosition"), false);
+    equal(dtsText.includes("setDebugCamera"), false);
     ok(dtsText.includes("upsertTerrainMesh(chunk_key: string, vertices: Float32Array, indices: Uint32Array): void"));
     ok(dtsText.includes("destroyTerrainMesh"));
     ok(dtsText.includes("retainTerrainMeshes(chunk_keys: Array<any>): void"));
@@ -133,24 +135,13 @@ function fakeBrowserGame(): EngineWebBrowserGame {
     resize() {},
     resetGame() {},
     tick() {},
-    togglePlayerMode() {
-      return 0;
+    command() {},
+    debugSnapshot() {
+      return {
+        playerMode: "firstPerson",
+        playerPosition: { x: 0, y: 0, z: 0 }
+      };
     },
-    playerMode() {
-      return 0;
-    },
-    setPlayerMode() {},
-    playerX() {
-      return 0;
-    },
-    playerY() {
-      return 0;
-    },
-    playerZ() {
-      return 0;
-    },
-    setPlayerPosition() {},
-    setDebugCamera() {},
     upsertTerrainMesh() {},
     destroyTerrainMesh() {},
     retainTerrainMeshes() {},

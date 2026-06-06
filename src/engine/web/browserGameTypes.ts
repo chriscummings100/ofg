@@ -39,6 +39,16 @@ export type GameCommand =
     }
   | { readonly type: "resetStreaming" };
 
+export type RustBrowserGameCommand = Exclude<
+  GameCommand,
+  { readonly type: "resetStreaming" }
+>;
+
+export type RustBrowserGameDebugSnapshot = {
+  readonly playerMode: PlayerMode;
+  readonly playerPosition: Vec3;
+};
+
 export type GameDebugSnapshot = {
   readonly playerMode: PlayerMode;
   readonly playerPosition: Vec3;

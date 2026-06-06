@@ -18,10 +18,9 @@ import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
 import type {
   BrowserFrameInput,
   PlayerMode,
+  RustBrowserGameCommand,
+  RustBrowserGameDebugSnapshot,
 } from "./browserGameTypes.js";
-
-const FIRST_PERSON_MODE = 0;
-const DEBUG_FLY_MODE = 1;
 
 export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
   readonly runtime = "rust-wgpu" as const;
@@ -77,32 +76,21 @@ export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
     this.game.tick(frame);
   }
 
-  toggleCameraMode(): PlayerMode {
-    return playerModeFromCode(this.game.togglePlayerMode());
+  command(command: RustBrowserGameCommand): void {
+    this.game.command(command);
   }
 
-  getPlayerMode(): PlayerMode {
-    return playerModeFromCode(this.game.playerMode());
-  }
+  getDebugSnapshot(): RustBrowserGameDebugSnapshot {
+    const snapshot = this.game.debugSnapshot();
 
-  setPlayerMode(mode: PlayerMode): void {
-    this.game.setPlayerMode(playerModeToCode(mode));
-  }
-
-  getPlayerPosition(): Vec3 {
-    return vec3(
-      this.game.playerX(),
-      this.game.playerY(),
-      this.game.playerZ()
-    );
-  }
-
-  setPlayerPosition(x: number, z: number): void {
-    this.game.setPlayerPosition(x, z);
-  }
-
-  setDebugCamera(position: Vec3, yaw: number, pitch: number): void {
-    this.game.setDebugCamera(position.x, position.y, position.z, yaw, pitch);
+    return {
+      playerMode: validatePlayerMode(snapshot.playerMode),
+      playerPosition: vec3(
+        snapshot.playerPosition.x,
+        snapshot.playerPosition.y,
+        snapshot.playerPosition.z
+      )
+    };
   }
 
   addChunk(chunk: TerrainRenderChunkInput): void {
@@ -175,20 +163,12 @@ function toChunkKey(chunk: TerrainChunkKey | TerrainChunkCoord): TerrainChunkKey
   return typeof chunk === "string" ? chunk : terrainChunkKey(chunk);
 }
 
-function playerModeToCode(mode: PlayerMode): number {
-  return mode === "firstPerson" ? FIRST_PERSON_MODE : DEBUG_FLY_MODE;
-}
-
-function playerModeFromCode(code: number): PlayerMode {
-  if (code === FIRST_PERSON_MODE) {
-    return "firstPerson";
+function validatePlayerMode(mode: PlayerMode): PlayerMode {
+  if (mode === "firstPerson" || mode === "debugFly") {
+    return mode;
   }
 
-  if (code === DEBUG_FLY_MODE) {
-    return "debugFly";
-  }
-
-  throw new Error(`Rust browser game returned unknown player mode '${code}'.`);
+  throw new Error(`Rust browser game returned unknown player mode '${mode}'.`);
 }
 
 function validateTerrainTextureArrays(textures: TerrainMaterialTextures): void {
