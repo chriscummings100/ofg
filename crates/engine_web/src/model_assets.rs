@@ -12,11 +12,21 @@ pub const SAMPLE_ANIMATED_BOX_MODEL_URL: &str = "/assets/models/test-fixtures/bo
 pub const SAMPLE_ANIMATED_BOX_MESH_LABEL: &str = "model.test-fixtures.animated-box.primitive0.mesh";
 pub const SAMPLE_ANIMATED_BOX_MATERIAL_LABEL: &str =
     "model.test-fixtures.animated-box.primitive0.material";
+pub const SAMPLE_RIGGED_SIMPLE_MODEL_ID: &str = "model.test-fixtures.rigged-simple";
+pub const SAMPLE_RIGGED_SIMPLE_MODEL_URL: &str = "/assets/models/test-fixtures/rigged-simple.glb";
+pub const SAMPLE_RIGGED_SIMPLE_MESH_LABEL: &str =
+    "model.test-fixtures.rigged-simple.primitive0.mesh";
+pub const SAMPLE_RIGGED_SIMPLE_MATERIAL_LABEL: &str =
+    "model.test-fixtures.rigged-simple.primitive0.material";
 pub const SAMPLE_STATIC_BOX_MODEL_ID: &str = "model.test-fixtures.static-box";
 pub const SAMPLE_STATIC_BOX_MODEL_URL: &str = "/assets/models/test-fixtures/static-box.glb";
 pub const SAMPLE_STATIC_BOX_MESH_LABEL: &str = "model.test-fixtures.static-box.primitive0.mesh";
 pub const SAMPLE_STATIC_BOX_MATERIAL_LABEL: &str =
     "model.test-fixtures.static-box.primitive0.material";
+
+const IDENTITY_MATRIX: [f32; 16] = [
+    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModelAsset {
@@ -24,7 +34,7 @@ pub struct ModelAsset {
     pub primitives: Vec<ModelPrimitive>,
     pub materials: Vec<ModelMaterial>,
     pub animations: Vec<ModelAnimationClip>,
-    pub skin_count: usize,
+    pub skins: Vec<ModelSkin>,
 }
 
 impl ModelAsset {
@@ -52,6 +62,11 @@ impl ModelAsset {
     /// Returns the number of imported animation clips.
     pub fn animation_count(&self) -> usize {
         self.animations.len()
+    }
+
+    /// Returns the number of imported skin bindings.
+    pub fn skin_count(&self) -> usize {
+        self.skins.len()
     }
 }
 
@@ -97,6 +112,8 @@ pub struct ModelVertex {
     pub normal: [f32; 3],
     pub texcoord0: [f32; 2],
     pub color0: [f32; 4],
+    pub joints0: [u16; 4],
+    pub weights0: [f32; 4],
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -105,6 +122,13 @@ pub struct ModelMaterial {
     pub base_color_factor: [f32; 4],
     pub metallic_factor: f32,
     pub roughness_factor: f32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModelSkin {
+    pub name: Option<String>,
+    pub joints: Vec<usize>,
+    pub inverse_bind_matrices: Vec<[f32; 16]>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -184,6 +208,32 @@ pub enum ModelAssetError {
         node_index: usize,
     },
     InvalidAnimationTime,
+    InvalidSkinIndex {
+        skin_index: usize,
+    },
+    InvalidSkinJoint {
+        skin_index: usize,
+        joint_index: usize,
+        node_index: usize,
+    },
+    InvalidSkinInverseBindCount {
+        skin_index: usize,
+        joint_count: usize,
+        inverse_bind_count: usize,
+    },
+    InvalidSkinData {
+        skin_index: usize,
+        attribute: &'static str,
+    },
+    InvalidSkinVertexJoint {
+        mesh_index: usize,
+        vertex_index: usize,
+        joint_index: usize,
+    },
+    InvalidSkinNodeTransformCount {
+        node_count: usize,
+        transform_count: usize,
+    },
 }
 
 impl fmt::Display for ModelAssetError {
@@ -302,6 +352,47 @@ impl fmt::Display for ModelAssetError {
             Self::InvalidAnimationTime => {
                 write!(formatter, "glTF animation sampling time was not finite")
             }
+            Self::InvalidSkinIndex { skin_index } => {
+                write!(formatter, "glTF skin {skin_index} does not exist")
+            }
+            Self::InvalidSkinJoint {
+                skin_index,
+                joint_index,
+                node_index,
+            } => write!(
+                formatter,
+                "glTF skin {skin_index} joint {joint_index} references missing node {node_index}"
+            ),
+            Self::InvalidSkinInverseBindCount {
+                skin_index,
+                joint_count,
+                inverse_bind_count,
+            } => write!(
+                formatter,
+                "glTF skin {skin_index} has {joint_count} joints and {inverse_bind_count} inverse bind matrices"
+            ),
+            Self::InvalidSkinData {
+                skin_index,
+                attribute,
+            } => write!(
+                formatter,
+                "glTF skin {skin_index} contains invalid {attribute} data"
+            ),
+            Self::InvalidSkinVertexJoint {
+                mesh_index,
+                vertex_index,
+                joint_index,
+            } => write!(
+                formatter,
+                "glTF mesh {mesh_index} vertex {vertex_index} references missing skin joint {joint_index}"
+            ),
+            Self::InvalidSkinNodeTransformCount {
+                node_count,
+                transform_count,
+            } => write!(
+                formatter,
+                "glTF skinning received {transform_count} node transforms for {node_count} model nodes"
+            ),
         }
     }
 }
@@ -319,13 +410,14 @@ pub fn import_gltf_model_from_slice(bytes: &[u8]) -> Result<ModelAsset, ModelAss
     let materials = import_materials(&document);
     let primitives = import_primitives(&document, &buffers)?;
     let animations = import_animations(&document, &buffers)?;
+    let skins = import_skins(&document, &buffers)?;
 
     Ok(ModelAsset {
         nodes,
         primitives,
         materials,
         animations,
-        skin_count: document.skins().len(),
+        skins,
     })
 }
 
@@ -453,6 +545,86 @@ fn import_materials(document: &gltf::Document) -> Vec<ModelMaterial> {
         .collect()
 }
 
+/// Converts glTF skins into joint lists and inverse bind matrices.
+fn import_skins(
+    document: &gltf::Document,
+    buffers: &[Vec<u8>],
+) -> Result<Vec<ModelSkin>, ModelAssetError> {
+    let node_count = document.nodes().len();
+    let mut skins = Vec::new();
+
+    for skin in document.skins() {
+        let skin_index = skin.index();
+        let joints: Vec<usize> = skin.joints().map(|node| node.index()).collect();
+        for (joint_index, node_index) in joints.iter().copied().enumerate() {
+            if node_index >= node_count {
+                return Err(ModelAssetError::InvalidSkinJoint {
+                    skin_index,
+                    joint_index,
+                    node_index,
+                });
+            }
+        }
+
+        let reader = skin.reader(|buffer| {
+            buffers
+                .get(buffer.index())
+                .map(|buffer_data| buffer_data.as_slice())
+        });
+        let inverse_bind_matrices: Vec<[f32; 16]> = reader
+            .read_inverse_bind_matrices()
+            .map(|matrices| matrices.map(flatten_gltf_matrix).collect())
+            .unwrap_or_else(|| vec![IDENTITY_MATRIX; joints.len()]);
+        if inverse_bind_matrices.len() != joints.len() {
+            return Err(ModelAssetError::InvalidSkinInverseBindCount {
+                skin_index,
+                joint_count: joints.len(),
+                inverse_bind_count: inverse_bind_matrices.len(),
+            });
+        }
+        if inverse_bind_matrices
+            .iter()
+            .flat_map(|matrix| matrix.iter())
+            .any(|value| !value.is_finite())
+        {
+            return Err(ModelAssetError::InvalidSkinData {
+                skin_index,
+                attribute: "inverse bind matrix",
+            });
+        }
+
+        skins.push(ModelSkin {
+            name: skin.name().map(str::to_owned),
+            joints,
+            inverse_bind_matrices,
+        });
+    }
+
+    Ok(skins)
+}
+
+/// Flattens a glTF matrix into OFG's column-major 16-float matrix convention.
+fn flatten_gltf_matrix(matrix: [[f32; 4]; 4]) -> [f32; 16] {
+    [
+        matrix[0][0],
+        matrix[0][1],
+        matrix[0][2],
+        matrix[0][3],
+        matrix[1][0],
+        matrix[1][1],
+        matrix[1][2],
+        matrix[1][3],
+        matrix[2][0],
+        matrix[2][1],
+        matrix[2][2],
+        matrix[2][3],
+        matrix[3][0],
+        matrix[3][1],
+        matrix[3][2],
+        matrix[3][3],
+    ]
+}
+
 /// Converts supported glTF mesh primitives into indexed vertex buffers.
 fn import_primitives(
     document: &gltf::Document,
@@ -517,6 +689,19 @@ fn import_primitive(
     ensure_attribute_len(mesh.index(), "COLOR_0", colors.len(), positions.len())?;
     ensure_finite_vec4(mesh.index(), "COLOR_0", &colors)?;
 
+    let joints: Vec<[u16; 4]> = reader
+        .read_joints(0)
+        .map(|values| values.into_u16().collect())
+        .unwrap_or_else(|| vec![[0, 0, 0, 0]; positions.len()]);
+    ensure_attribute_len(mesh.index(), "JOINTS_0", joints.len(), positions.len())?;
+
+    let weights: Vec<[f32; 4]> = reader
+        .read_weights(0)
+        .map(|values| values.into_f32().collect())
+        .unwrap_or_else(|| vec![[0.0, 0.0, 0.0, 0.0]; positions.len()]);
+    ensure_attribute_len(mesh.index(), "WEIGHTS_0", weights.len(), positions.len())?;
+    ensure_finite_vec4(mesh.index(), "WEIGHTS_0", &weights)?;
+
     let indices: Vec<u32> = reader
         .read_indices()
         .map(|values| values.into_u32().collect())
@@ -533,12 +718,18 @@ fn import_primitive(
         .zip(normals)
         .zip(texcoords)
         .zip(colors)
-        .map(|(((position, normal), texcoord0), color0)| ModelVertex {
-            position,
-            normal,
-            texcoord0,
-            color0,
-        })
+        .zip(joints)
+        .zip(weights)
+        .map(
+            |(((((position, normal), texcoord0), color0), joints0), weights0)| ModelVertex {
+                position,
+                normal,
+                texcoord0,
+                color0,
+                joints0,
+                weights0,
+            },
+        )
         .collect();
 
     Ok(ModelPrimitive {

@@ -10,13 +10,13 @@ use crate::config::{
     TEXTURE_FORMAT_RGBA8_UNORM,
 };
 use crate::game_state::{BrowserGameInput, BrowserGameState};
-use crate::materials::{build_material_packet, TERRAIN_MATERIAL_PACKET};
+use crate::materials::TERRAIN_MATERIAL_PACKET;
 use crate::model_asset_loader::load_model_asset_bytes;
 use crate::model_assets::{
-    import_gltf_model_from_slice, model_primitive_vertex_floats, ModelAsset, ModelMaterial,
-    SAMPLE_ANIMATED_BOX_MATERIAL_LABEL, SAMPLE_ANIMATED_BOX_MESH_LABEL,
-    SAMPLE_ANIMATED_BOX_MODEL_ID, SAMPLE_ANIMATED_BOX_MODEL_URL,
+    import_gltf_model_from_slice, SAMPLE_RIGGED_SIMPLE_MATERIAL_LABEL,
+    SAMPLE_RIGGED_SIMPLE_MESH_LABEL, SAMPLE_RIGGED_SIMPLE_MODEL_ID, SAMPLE_RIGGED_SIMPLE_MODEL_URL,
 };
+use crate::model_render_assets::skinned_model_render_assets;
 use crate::render_packets::build_frame_packet_from_engine_snapshot;
 use crate::render_uniforms::{
     build_frame_uniform_values, build_object_uniform_values, FRAME_PACKET_FLOATS,
@@ -44,6 +44,8 @@ pub struct RustBrowserGame {
     object_handles_by_id: HashMap<String, ResourceHandle>,
     scene_mesh_handles_by_label: HashMap<String, ResourceHandle>,
     scene_material_packets_by_label: HashMap<String, [f32; MATERIAL_PACKET_FLOATS]>,
+    model_skinning_runtime: Option<&'static str>,
+    model_skinning_joint_count: usize,
 }
 
 #[derive(Debug)]
@@ -133,6 +135,7 @@ const TERRAIN_MATERIAL_WEIGHTS_OFFSET: usize = 15;
 const IDENTITY_WORLD_MATRIX: [f32; WORLD_MATRIX_FLOATS] = [
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
 ];
+const SAMPLE_RIGGED_SIMPLE_SCENE_SCALE: f32 = 0.45;
 const PLAYER_MARKER_MATERIAL_PACKET: [f32; MATERIAL_PACKET_FLOATS] =
     [1.0, 1.0, 1.0, 1.0, 1.0, 0.92, 0.65, 0.45, 0.0, 1.0];
 
@@ -148,24 +151,33 @@ impl RustBrowserGame {
         let terrain_texture_arrays = load_terrain_texture_arrays(&asset_loader).await?;
         let sample_model_bytes = load_model_asset_bytes(
             &asset_loader,
-            SAMPLE_ANIMATED_BOX_MODEL_ID,
-            SAMPLE_ANIMATED_BOX_MODEL_URL,
+            SAMPLE_RIGGED_SIMPLE_MODEL_ID,
+            SAMPLE_RIGGED_SIMPLE_MODEL_URL,
         )
         .await?;
         let sample_model = import_gltf_model_from_slice(&sample_model_bytes).map_err(js_error)?;
-        let (sample_model_vertices, sample_model_indices, sample_model_material_packet) =
-            static_model_renderer_assets(&sample_model)?;
-        let sample_model_node = first_primitive_node_index(&sample_model)?;
         let sample_model_animation = sample_model
             .animations
             .first()
             .cloned()
             .ok_or_else(|| js_error("Rust GLTF importer found no sample animation clips."))?;
-        let sample_model_node_base_transforms = sample_model
+        let sample_model_node_base_transforms: Vec<_> = sample_model
             .nodes
             .iter()
             .map(|node| node.local_transform)
             .collect();
+        let sample_model_pose_time = if sample_model_animation.duration_seconds > f32::EPSILON {
+            sample_model_animation.duration_seconds * 0.5
+        } else {
+            0.0
+        };
+        let sample_model_render_assets = skinned_model_render_assets(
+            &sample_model,
+            &sample_model_animation,
+            &sample_model_node_base_transforms,
+            sample_model_pose_time,
+        )
+        .map_err(js_error)?;
         let (player_marker_vertices, player_marker_indices) = create_player_marker_mesh();
         let player_marker_mesh = renderer.register_mesh(
             &player_marker_vertices,
@@ -173,8 +185,8 @@ impl RustBrowserGame {
             TERRAIN_VERTEX_FLOATS,
         )?;
         let sample_model_mesh = renderer.register_mesh(
-            &sample_model_vertices,
-            &sample_model_indices,
+            &sample_model_render_assets.vertices,
+            &sample_model_render_assets.indices,
             MODEL_VERTEX_FLOATS,
         )?;
 
@@ -184,7 +196,7 @@ impl RustBrowserGame {
             player_marker_mesh,
         );
         scene_mesh_handles_by_label.insert(
-            SAMPLE_ANIMATED_BOX_MESH_LABEL.to_string(),
+            SAMPLE_RIGGED_SIMPLE_MESH_LABEL.to_string(),
             sample_model_mesh,
         );
 
@@ -194,17 +206,18 @@ impl RustBrowserGame {
             PLAYER_MARKER_MATERIAL_PACKET,
         );
         scene_material_packets_by_label.insert(
-            SAMPLE_ANIMATED_BOX_MATERIAL_LABEL.to_string(),
-            sample_model_material_packet,
+            SAMPLE_RIGGED_SIMPLE_MATERIAL_LABEL.to_string(),
+            sample_model_render_assets.material_packet,
         );
 
         let mut game_state = BrowserGameState::new();
         game_state
-            .configure_animated_static_model_scene(
-                SAMPLE_ANIMATED_BOX_MESH_LABEL,
-                SAMPLE_ANIMATED_BOX_MATERIAL_LABEL,
+            .configure_scaled_animated_static_model_scene(
+                SAMPLE_RIGGED_SIMPLE_MESH_LABEL,
+                SAMPLE_RIGGED_SIMPLE_MATERIAL_LABEL,
+                SAMPLE_RIGGED_SIMPLE_SCENE_SCALE,
                 sample_model_animation,
-                sample_model_node,
+                sample_model_render_assets.mesh_node_index,
                 sample_model_node_base_transforms,
             )
             .map_err(js_error)?;
@@ -219,6 +232,8 @@ impl RustBrowserGame {
             object_handles_by_id: HashMap::new(),
             scene_mesh_handles_by_label,
             scene_material_packets_by_label,
+            model_skinning_runtime: Some("rust-cpu"),
+            model_skinning_joint_count: sample_model_render_assets.skin_joint_count,
         };
         game.install_terrain_textures(terrain_texture_arrays)?;
 
@@ -408,6 +423,18 @@ impl RustBrowserGame {
                 &snapshot,
                 "modelAnimationDurationSeconds",
                 JsValue::from_f64(animation.duration_seconds as f64),
+            )?;
+        }
+        if let Some(runtime) = self.model_skinning_runtime {
+            set_js_property(
+                &snapshot,
+                "modelSkinningRuntime",
+                JsValue::from_str(runtime),
+            )?;
+            set_js_property(
+                &snapshot,
+                "modelSkinningJointCount",
+                JsValue::from_f64(self.model_skinning_joint_count as f64),
             )?;
         }
 
@@ -1817,51 +1844,6 @@ fn handle_from_js(handle: f64) -> Result<ResourceHandle, JsValue> {
 
 fn js_error(error: impl std::fmt::Display) -> JsValue {
     js_sys::Error::new(&error.to_string()).unchecked_into()
-}
-
-fn static_model_renderer_assets(
-    model: &ModelAsset,
-) -> Result<(Vec<f32>, Vec<u32>, [f32; MATERIAL_PACKET_FLOATS]), JsValue> {
-    let primitive = model
-        .primitives
-        .first()
-        .ok_or_else(|| js_error("Rust GLTF importer found no static model primitives."))?;
-    let vertices = model_primitive_vertex_floats(primitive);
-    let indices = primitive.indices.clone();
-    let material = primitive
-        .material
-        .and_then(|material_index| model.materials.get(material_index));
-    let material_packet = static_model_material_packet(material)?;
-
-    Ok((vertices, indices, material_packet))
-}
-
-fn first_primitive_node_index(model: &ModelAsset) -> Result<usize, JsValue> {
-    let primitive = model
-        .primitives
-        .first()
-        .ok_or_else(|| js_error("Rust GLTF importer found no static model primitives."))?;
-
-    model
-        .nodes
-        .iter()
-        .position(|node| node.mesh == Some(primitive.mesh_index))
-        .ok_or_else(|| {
-            js_error(format!(
-                "Rust GLTF importer could not find a node for mesh {}.",
-                primitive.mesh_index
-            ))
-        })
-}
-
-fn static_model_material_packet(
-    material: Option<&ModelMaterial>,
-) -> Result<[f32; MATERIAL_PACKET_FLOATS], JsValue> {
-    let albedo = material
-        .map(|material| material.base_color_factor)
-        .unwrap_or([1.0, 1.0, 1.0, 1.0]);
-
-    build_material_packet(albedo, [0.08, 0.08, 0.08], 0.18, 0.0, 1.0).map_err(js_error)
 }
 
 fn create_player_marker_mesh() -> (Vec<f32>, Vec<u32>) {

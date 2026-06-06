@@ -87,6 +87,8 @@ async function runBrowserSmoke(url) {
     await page.waitForTimeout(300);
     const advancedModelAnimation = await readModelAnimationDebug(page);
     assertModelAnimationAdvanced(firstModelAnimation, advancedModelAnimation);
+    const modelSkinning = await readModelSkinningDebug(page);
+    assertModelSkinningDebug(modelSkinning);
 
     await page.reload({ waitUntil: "load" });
     await waitForPlayableTerrain(page);
@@ -172,6 +174,7 @@ async function runBrowserSmoke(url) {
       refreshedRendererRuntime,
       firstModelAnimation,
       advancedModelAnimation,
+      modelSkinning,
       terrainStreamRuntime: refreshedTerrainStreamRuntime,
       initialTerrain,
       refreshedTerrain,
@@ -266,6 +269,17 @@ async function readModelAnimationDebug(page) {
   });
 }
 
+async function readModelSkinningDebug(page) {
+  return page.evaluate(() => {
+    const debug = window.__ofgDebug;
+
+    return {
+      runtime: debug?.getModelSkinningRuntime?.() ?? "missing",
+      jointCount: debug?.getModelSkinningJointCount?.() ?? Number.NaN
+    };
+  });
+}
+
 async function readTerrainStreamRuntime(page) {
   return page.evaluate(() => {
     return {
@@ -320,6 +334,15 @@ function assertModelAnimationAdvanced(before, after) {
     after.timeSeconds < before.durationSeconds * 0.2;
   if (!advancedWithoutWrap && !advancedWithWrap) {
     throw new Error(`Expected model animation time to advance: ${JSON.stringify({ before, after })}`);
+  }
+}
+
+function assertModelSkinningDebug(skinning) {
+  if (skinning.runtime !== "rust-cpu") {
+    throw new Error(`Expected Rust CPU model skinning runtime, saw '${skinning.runtime}'.`);
+  }
+  if (!Number.isFinite(skinning.jointCount) || skinning.jointCount <= 0) {
+    throw new Error(`Expected positive model skinning joint count: ${JSON.stringify(skinning)}`);
   }
 }
 

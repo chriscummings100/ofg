@@ -5,6 +5,8 @@ mod materials;
 mod model_animation;
 mod model_asset_loader;
 mod model_assets;
+mod model_render_assets;
+mod model_skinning;
 mod render_packets;
 mod render_uniforms;
 mod renderer;
@@ -37,11 +39,19 @@ pub use model_animation::{
 pub use model_asset_loader::load_model_asset_bytes;
 pub use model_assets::{
     import_gltf_model_from_slice, model_primitive_vertex_floats, ModelAsset, ModelAssetError,
-    ModelMaterial, ModelNode, ModelNodeTransform, ModelPrimitive, ModelVertex,
+    ModelMaterial, ModelNode, ModelNodeTransform, ModelPrimitive, ModelSkin, ModelVertex,
     SAMPLE_ANIMATED_BOX_MATERIAL_LABEL, SAMPLE_ANIMATED_BOX_MESH_LABEL,
-    SAMPLE_ANIMATED_BOX_MODEL_ID, SAMPLE_ANIMATED_BOX_MODEL_URL, SAMPLE_STATIC_BOX_MATERIAL_LABEL,
-    SAMPLE_STATIC_BOX_MESH_LABEL, SAMPLE_STATIC_BOX_MODEL_ID, SAMPLE_STATIC_BOX_MODEL_URL,
+    SAMPLE_ANIMATED_BOX_MODEL_ID, SAMPLE_ANIMATED_BOX_MODEL_URL,
+    SAMPLE_RIGGED_SIMPLE_MATERIAL_LABEL, SAMPLE_RIGGED_SIMPLE_MESH_LABEL,
+    SAMPLE_RIGGED_SIMPLE_MODEL_ID, SAMPLE_RIGGED_SIMPLE_MODEL_URL,
+    SAMPLE_STATIC_BOX_MATERIAL_LABEL, SAMPLE_STATIC_BOX_MESH_LABEL, SAMPLE_STATIC_BOX_MODEL_ID,
+    SAMPLE_STATIC_BOX_MODEL_URL,
 };
+pub use model_render_assets::{
+    first_primitive_node_index, skinned_model_render_assets, ModelRenderAssetError,
+    ModelRenderAssets,
+};
+pub use model_skinning::{model_node_world_matrices, skin_joint_matrices, skin_primitive_vertices};
 pub use render_packets::{
     build_frame_packet_from_engine_snapshot, RenderPacketError, ENGINE_RENDER_SNAPSHOT_FLOATS,
 };

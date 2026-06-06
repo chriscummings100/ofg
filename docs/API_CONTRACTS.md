@@ -33,7 +33,7 @@ decisions.
 | OFG-API-007 | Raw linked WASM exports in `engine_web` | Unsupported | `assets/wasm/engine_web/engine_web.d.ts`, `crates/*/src/facade.rs` |
 | OFG-API-008 | Future game lifecycle and tuning surface | Future | This document until real behavior exists |
 | OFG-API-009 | Forbidden TypeScript ownership | Forbidden | This document and `docs/ARCHITECTURE.md` |
-| OFG-API-010 | GLTF static model loading and future animation | Active | `docs/GLTF_CHARACTER_PLAN.md`, `crates/engine_web/src/model_assets.rs`, `crates/engine_web/src/wgpu_renderer.rs` |
+| OFG-API-010 | GLTF model, animation, and skinning loading | Active | `docs/GLTF_CHARACTER_PLAN.md`, `crates/engine_web/src/model_assets.rs`, `crates/engine_web/src/model_animation.rs`, `crates/engine_web/src/model_skinning.rs`, `crates/engine_web/src/model_render_assets.rs`, `crates/engine_web/src/wgpu_renderer.rs` |
 
 ## OFG-API-001: Browser Shell To Rust Browser Game
 
@@ -319,10 +319,12 @@ Allowed TypeScript responsibilities remain:
 The active feature plan is `docs/GLTF_CHARACTER_PLAN.md`. The current supported
 slice loads checked-in GLB fixtures through the generic byte asset loader,
 parses them in Rust, registers static model mesh/material resources, attaches
-model nodes to the Rust scene, renders them through Rust/wgpu, and samples
-non-skinned node animation clips for translation, rotation, and scale. Skeletons,
-skinning, animation blending, and player locomotion selection are still future
-milestones under the same boundary.
+model nodes to the Rust scene, renders them through Rust/wgpu, samples
+non-skinned node animation clips for translation, rotation, and scale, imports
+skin joints/inverse bind matrices, and CPU-skins one sampled rigged pose into
+the static model vertex layout. Per-frame skinned mesh updates, animation
+blending, and player locomotion selection are still future milestones under the
+same boundary.
 
 The intended runtime format is checked-in GLB for model and animation assets.
 Rust owns GLTF parsing, model resource registration, scene node/entity creation,
@@ -368,9 +370,11 @@ These are known contract risks for milestone reviewers:
 - Runtime debug names still include worker terminology even though the playable
   terrain stream is Rust-owned and currently synchronous.
 - Some standalone WASM fixture adapters look like runtime modules by filename.
-- `crates/engine_web/src/wgpu_renderer.rs` and
-  `crates/terrain_core/src/facade.rs` are over the preferred file size and need
-  future split plans before they grow further.
+- `crates/engine_web/src/wgpu_renderer.rs` is still over the maximum preferred
+  file size, `crates/engine_web/src/model_assets.rs` is over the split-pressure
+  threshold, and `crates/terrain_core/src/facade.rs` is also oversized. Continue
+  extracting focused model/renderer modules before dynamic skinning or blending
+  adds more renderer code.
 - The GLTF path uses the generic byte asset loader and Rust-owned animation
   sampling; keep TypeScript generic and do not let it grow model or animation
   semantics while expanding the feature.

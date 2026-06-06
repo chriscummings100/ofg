@@ -83,7 +83,9 @@ export class RustBrowserGameAdapter {
       modelAnimationRuntime: snapshot.modelAnimationRuntime,
       activeModelAnimationClip: snapshot.activeModelAnimationClip,
       modelAnimationTimeSeconds: snapshot.modelAnimationTimeSeconds,
-      modelAnimationDurationSeconds: snapshot.modelAnimationDurationSeconds
+      modelAnimationDurationSeconds: snapshot.modelAnimationDurationSeconds,
+      modelSkinningRuntime: snapshot.modelSkinningRuntime,
+      modelSkinningJointCount: snapshot.modelSkinningJointCount
     };
   }
 

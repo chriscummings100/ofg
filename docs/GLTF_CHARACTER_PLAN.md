@@ -67,8 +67,10 @@ The staged outcome is:
   translation, rotation, and scale channels, applied sampled node transforms to
   the Rust scene item, and extended browser smoke to verify the Rust animation
   clock advances.
-- [ ] Implement milestone 4: evaluate skinned animation and render a posed
-  skinned character.
+- [x] (2026-06-06) Implemented milestone 4: imported GLTF `JOINTS_0`,
+  `WEIGHTS_0`, skin joint lists, and inverse bind matrices, added CPU skinning
+  for sampled poses, rendered Khronos `RiggedSimple.glb` as a posed skinned
+  model, and extended browser smoke to verify Rust CPU skinning state.
 - [ ] Implement milestone 5: add idle/walk clip selection and blending driven by
   player movement.
 
@@ -129,6 +131,23 @@ The staged outcome is:
   Evidence: browser smoke reports `runtime: "rust"` and advances animation time
   for the Khronos `BoxAnimated.glb` clip even though the active clip string is
   empty.
+- Observation: Khronos `RiggedSimple.glb` is a useful first skinning runtime
+  fixture, but its source scale is too large for the existing static model
+  placement.
+  Evidence: the first smoke pass rendered the CPU-skinned sample huge in
+  first-person view; milestone 4 added configurable static-model scene scale and
+  uses `0.45` for the rigged fixture.
+- Observation: CPU skinning can be proven without a new GPU skinning pipeline,
+  but the first runtime path is a baked sampled pose, not a per-frame skinned
+  mesh update.
+  Evidence: `crates/engine_web/src/model_skinning.rs` computes joint matrices
+  and skins vertices in tests and startup model preparation; browser smoke
+  verifies `modelSkinning.runtime == "rust-cpu"` and a positive joint count.
+- Observation: Model render preparation needed a split before the renderer file
+  grew further.
+  Evidence: milestone 4 extracts `crates/engine_web/src/model_render_assets.rs`
+  for skinned render-asset baking, while `wgpu_renderer.rs` remains oversized
+  and should not absorb dynamic skinning/blending logic.
 
 ## Decision Log
 
@@ -222,6 +241,30 @@ The staged outcome is:
   Rust debug snapshot fields.
   Rationale: Smoke tests and HUD/debug hooks need observability, but TypeScript
   must not choose clips, sample animation, inspect nodes, or own model state.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Use Khronos `RiggedSimple.glb` as the first runtime skinning
+  fixture.
+  Rationale: It is already checked in, compact, has two skin joints, contains a
+  GLB animation clip, and is simple enough for deterministic CPU-skinning tests
+  before the Quaternius humanoid assets enter the runtime path.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Bake one sampled CPU-skinned pose at startup for milestone 4 rather
+  than adding dynamic mesh-buffer updates immediately.
+  Rationale: This proves GLTF joints, weights, inverse binds, sampled skeleton
+  pose math, and model-pipeline rendering without coupling correctness to a new
+  renderer update lifecycle. Per-frame skinning remains milestone 5/follow-up
+  work.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Split model render-asset preparation into `model_render_assets.rs`.
+  Rationale: The WebGPU facade is already oversized. Model primitive selection,
+  material packet creation, and CPU-skinned vertex baking are pure Rust
+  preparation steps with direct tests, not WebGPU surface/device logic.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Expose skinning runtime and joint count only as Rust debug snapshot
+  fields.
+  Rationale: Browser smoke needs to observe that the rendered model came through
+  Rust CPU skinning, while TypeScript still must not inspect or process GLTF
+  skins, joints, weights, or skeletons.
   Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
@@ -353,6 +396,54 @@ Milestone review:
   one small fixture. Multi-node hierarchy propagation, multi-primitive model
   instances, skins, animation blending, and locomotion-driven clip selection
   remain future milestones.
+
+Milestone 4 is complete. The importer now preserves `JOINTS_0`, `WEIGHTS_0`,
+skin joint node lists, and inverse bind matrices. `model_skinning.rs` computes
+model node world matrices, evaluates skin joint matrices, and CPU-skins vertices
+into the existing static model vertex format. Runtime now loads Khronos
+`RiggedSimple.glb`, samples its first clip for one posed skinning bake, registers
+that posed mesh through Rust/wgpu, and exposes `modelSkinningRuntime` set to
+`"rust-cpu"` plus joint count through Rust debug snapshot state.
+
+Validation completed on 2026-06-06:
+
+    cargo test -p engine_core
+    cargo test -p engine_web
+    npm run check:wasm
+    npm test
+    npm run smoke:browser
+    git -c safe.directory=C:/dev/ofg diff --check
+
+Browser smoke passed with artifacts in
+`C:\dev\ofg\artifacts\browser-smoke\2026-06-06T20-38-07-657Z`. The report
+showed Rust/wgpu runtime, 13 mesh resources, 12 objects, 12 frame draws, Rust
+model animation time advancing from `1.1332649` to `1.4498447` seconds on a
+`2.0833330` second clip, and Rust CPU skinning with 2 joints. The first-person
+and debug-fly screenshots were inspected and show the green posed skinned sample
+in terrain, with the yellow debug marker still visible separately in debug-fly
+mode.
+
+Milestone review:
+
+- Scope: milestone 4 GLTF skin import, joint/weight preservation, inverse bind
+  import, CPU skinning math, render-asset baking, Rust debug snapshot skinning
+  fields, generated wasm artifacts, and browser smoke validation.
+- Reviewers: contract, code quality, legacy, correctness, and validation passes
+  were done locally. Sub-agents were not used because the available delegation
+  tool requires the user to explicitly request sub-agents.
+- Required findings fixed: updated `docs/API_CONTRACTS.md` and
+  `docs/ARCHITECTURE.md` so active docs describe CPU-skinned posed rendering as
+  live, split model render-asset baking into `model_render_assets.rs`, and added
+  fixture-specific model scale so the skinned sample remains visually
+  inspectable in smoke screenshots.
+- Follow-ups recorded: `crates/engine_web/src/model_assets.rs` remains over the
+  600-line split-pressure threshold and `crates/engine_web/src/wgpu_renderer.rs`
+  remains over 1000 lines. Continue splitting before adding per-frame skinned
+  mesh updates, animation blending, or player-character runtime selection.
+- Rejected findings: none.
+- Remaining risk: milestone 4 bakes one sampled CPU-skinned pose at startup.
+  It does not yet update skinned vertices every frame, blend clips, load the
+  Quaternius humanoid player, or choose idle/walk from player movement.
 
 ## Contract and Quality Baseline
 

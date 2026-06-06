@@ -44,6 +44,8 @@ declare global {
       getActiveModelAnimationClip: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["activeModelAnimationClip"];
       getModelAnimationTimeSeconds: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationTimeSeconds"];
       getModelAnimationDurationSeconds: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationDurationSeconds"];
+      getModelSkinningRuntime: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelSkinningRuntime"];
+      getModelSkinningJointCount: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelSkinningJointCount"];
       getPlayerPosition: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerPosition"];
       resetTerrainStreaming: () => void;
       setCameraMode: (mode: PlayerMode) => void;
@@ -77,6 +79,8 @@ export async function startGame(elements: GameElements): Promise<void> {
     getActiveModelAnimationClip: () => game.debugSnapshot().activeModelAnimationClip,
     getModelAnimationTimeSeconds: () => game.debugSnapshot().modelAnimationTimeSeconds,
     getModelAnimationDurationSeconds: () => game.debugSnapshot().modelAnimationDurationSeconds,
+    getModelSkinningRuntime: () => game.debugSnapshot().modelSkinningRuntime,
+    getModelSkinningJointCount: () => game.debugSnapshot().modelSkinningJointCount,
     getPlayerPosition: () => game.debugSnapshot().playerPosition,
     resetTerrainStreaming() {
       game.command({ type: "resetStreaming" });

@@ -38,6 +38,7 @@ pub enum BrowserGameStateError {
     Engine(EngineError),
     ModelAnimation(ModelAssetError),
     InvalidTerrainHeight { x: f32, z: f32 },
+    InvalidStaticModelScale(f32),
     MissingSceneMeshResource(MeshId),
     MissingSceneMaterialResource(MaterialId),
 }
@@ -73,6 +74,7 @@ pub struct BrowserGameState {
 struct StaticModelSceneConfig {
     mesh_label: String,
     material_label: String,
+    scale: f32,
     animation: Option<StaticModelAnimationConfig>,
 }
 
@@ -160,6 +162,7 @@ impl BrowserGameState {
         self.static_model_scene = Some(StaticModelSceneConfig {
             mesh_label: mesh_label.into(),
             material_label: material_label.into(),
+            scale: INITIAL_STATIC_MODEL_SCALE,
             animation: None,
         });
         if self.engine.player_rig().is_some() {
@@ -177,9 +180,33 @@ impl BrowserGameState {
         node_index: usize,
         node_base_transforms: Vec<ModelNodeTransform>,
     ) -> Result<(), BrowserGameStateError> {
+        self.configure_scaled_animated_static_model_scene(
+            mesh_label,
+            material_label,
+            INITIAL_STATIC_MODEL_SCALE,
+            clip,
+            node_index,
+            node_base_transforms,
+        )
+    }
+
+    pub fn configure_scaled_animated_static_model_scene(
+        &mut self,
+        mesh_label: impl Into<String>,
+        material_label: impl Into<String>,
+        scale: f32,
+        clip: ModelAnimationClip,
+        node_index: usize,
+        node_base_transforms: Vec<ModelNodeTransform>,
+    ) -> Result<(), BrowserGameStateError> {
+        if !scale.is_finite() || scale <= 0.0 {
+            return Err(BrowserGameStateError::InvalidStaticModelScale(scale));
+        }
+
         self.static_model_scene = Some(StaticModelSceneConfig {
             mesh_label: mesh_label.into(),
             material_label: material_label.into(),
+            scale,
             animation: Some(StaticModelAnimationConfig {
                 clip,
                 node_index,
@@ -362,7 +389,7 @@ impl BrowserGameState {
                 terrain_height + INITIAL_STATIC_MODEL_HEIGHT_OFFSET,
                 INITIAL_STATIC_MODEL_Z,
             ),
-            INITIAL_STATIC_MODEL_SCALE,
+            config.scale,
             node_transform,
         )?);
         self.advance_static_model_animation(0.0)
@@ -523,6 +550,12 @@ impl std::fmt::Display for BrowserGameStateError {
                 write!(
                     formatter,
                     "Rust browser game terrain height was invalid at ({x}, {z})"
+                )
+            }
+            Self::InvalidStaticModelScale(scale) => {
+                write!(
+                    formatter,
+                    "Rust browser game static model scale was invalid: {scale}"
                 )
             }
             Self::MissingSceneMeshResource(mesh) => {

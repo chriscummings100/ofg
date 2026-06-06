@@ -56,6 +56,8 @@ describe("RustBrowserGameAdapter", () => {
     equal(snapshot.activeModelAnimationClip, "test-move");
     equal(snapshot.modelAnimationTimeSeconds, 0.25);
     equal(snapshot.modelAnimationDurationSeconds, 2);
+    equal(snapshot.modelSkinningRuntime, "rust-cpu");
+    equal(snapshot.modelSkinningJointCount, 2);
   });
 });
 
@@ -133,7 +135,9 @@ function fakeBrowserGame(): FakeBrowserGame {
         modelAnimationRuntime: "rust",
         activeModelAnimationClip: "test-move",
         modelAnimationTimeSeconds: 0.25,
-        modelAnimationDurationSeconds: 2
+        modelAnimationDurationSeconds: 2,
+        modelSkinningRuntime: "rust-cpu",
+        modelSkinningJointCount: 2
       };
     }
   };

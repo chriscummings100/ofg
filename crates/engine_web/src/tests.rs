@@ -1,9 +1,11 @@
 use crate::{
     build_frame_packet_from_engine_snapshot, build_frame_uniform_values, build_material_packet,
     build_object_uniform_values, import_gltf_model_from_slice, model_primitive_vertex_floats,
-    BrowserGameInput, BrowserGameState, BrowserTerrainStream, MaterialPacketError,
+    skin_joint_matrices, skin_primitive_vertices, skinned_model_render_assets, BrowserGameInput,
+    BrowserGameState, BrowserGameStateError, BrowserTerrainStream, MaterialPacketError,
     ModelAnimationChannel, ModelAnimationClip, ModelAnimationInterpolation, ModelAnimationOutputs,
-    ModelAnimationTarget, ModelAssetError, ModelNode, ModelNodeTransform, RenderPacketError,
+    ModelAnimationTarget, ModelAsset, ModelAssetError, ModelMaterial, ModelNode,
+    ModelNodeTransform, ModelPrimitive, ModelSkin, ModelVertex, RenderPacketError,
     RenderUniformError, RendererState, RendererStateError, ResourceHandle, RgbaTextureArrayAsset,
     TerrainTextureArrays, TerrainTextureError, ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS,
     MATERIAL_PACKET_FLOATS, MODEL_VERTEX_FLOATS, REQUIRED_TEXTURE_ARRAY_LAYERS,
@@ -21,6 +23,8 @@ use terrain_core::DEFAULT_TERRAIN_PRESET;
 const STATIC_BOX_GLB: &[u8] = include_bytes!("../../../assets/models/test-fixtures/static-box.glb");
 const BOX_ANIMATED_GLB: &[u8] =
     include_bytes!("../../../assets/models/test-fixtures/box-animated.glb");
+const RIGGED_SIMPLE_GLB: &[u8] =
+    include_bytes!("../../../assets/models/test-fixtures/rigged-simple.glb");
 const ANIMATED_CUBE_GLTF: &[u8] =
     include_bytes!("../../../assets/models/test-fixtures/animated-cube.gltf");
 const SIMPLE_SKIN_GLTF: &[u8] =
@@ -416,8 +420,161 @@ fn gltf_importer_preserves_embedded_skin_counts_for_later_animation_work() {
     let model = import_gltf_model_from_slice(SIMPLE_SKIN_GLTF).unwrap();
 
     assert!(model.primitive_count() > 0);
-    assert!(model.skin_count > 0);
+    assert!(model.skin_count() > 0);
     assert!(model.nodes.iter().any(|node| node.skin.is_some()));
+}
+
+#[test]
+fn gltf_importer_preserves_rigged_simple_skin_vertices_and_inverse_binds() {
+    let model = import_gltf_model_from_slice(RIGGED_SIMPLE_GLB).unwrap();
+
+    assert!(model.skin_count() > 0);
+    let skin = &model.skins[0];
+    assert!(!skin.joints.is_empty());
+    assert_eq!(skin.inverse_bind_matrices.len(), skin.joints.len());
+    assert!(model.nodes.iter().any(|node| node.skin == Some(0)));
+    let primitive = model
+        .primitives
+        .iter()
+        .find(|primitive| {
+            primitive.vertices.iter().any(|vertex| {
+                vertex.weights0.iter().any(|weight| *weight > 0.0)
+                    && vertex.joints0.iter().any(|joint| *joint > 0)
+            })
+        })
+        .unwrap();
+    let node_transforms = model
+        .animations
+        .first()
+        .map(|clip| {
+            clip.sample_node_transforms(&model.nodes, clip.duration_seconds * 0.5)
+                .unwrap()
+        })
+        .unwrap_or_else(|| {
+            model
+                .nodes
+                .iter()
+                .map(|node| node.local_transform)
+                .collect()
+        });
+
+    let joint_matrices = skin_joint_matrices(&model, 0, &node_transforms).unwrap();
+    let skinned_vertices = skin_primitive_vertices(primitive, &joint_matrices).unwrap();
+
+    assert_eq!(joint_matrices.len(), skin.joints.len());
+    assert_eq!(skinned_vertices.len(), primitive.vertices.len());
+    assert!(skinned_vertices
+        .iter()
+        .all(|vertex| vertex.position.iter().all(|value| value.is_finite())));
+}
+
+#[test]
+fn skinned_model_render_assets_bakes_rigged_simple_for_model_pipeline() {
+    let model = import_gltf_model_from_slice(RIGGED_SIMPLE_GLB).unwrap();
+    let clip = model.animations.first().unwrap();
+    let node_transforms: Vec<ModelNodeTransform> = model
+        .nodes
+        .iter()
+        .map(|node| node.local_transform)
+        .collect();
+
+    let assets =
+        skinned_model_render_assets(&model, clip, &node_transforms, clip.duration_seconds * 0.5)
+            .unwrap();
+
+    assert_eq!(assets.vertices.len() % MODEL_VERTEX_FLOATS as usize, 0);
+    assert!(!assets.indices.is_empty());
+    assert_eq!(assets.skin_joint_count, 2);
+    assert!(model.nodes[assets.mesh_node_index].skin.is_some());
+    assert!(assets.material_packet.iter().all(|value| value.is_finite()));
+}
+
+#[test]
+fn cpu_skinning_preserves_vertices_at_inverse_bind_pose() {
+    let mut model = test_skin_model(vec![test_model_node(ModelNodeTransform {
+        translation: [2.0, 0.0, 0.0],
+        rotation: [0.0, 0.0, 0.0, 1.0],
+        scale: [1.0, 1.0, 1.0],
+    })]);
+    model.skins[0].inverse_bind_matrices[0] = translation_matrix(-2.0, 0.0, 0.0);
+    let primitive = test_skinned_primitive(
+        [3.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0, 0, 0, 0],
+        [1.0, 0.0, 0.0, 0.0],
+    );
+    let node_transforms: Vec<ModelNodeTransform> = model
+        .nodes
+        .iter()
+        .map(|node| node.local_transform)
+        .collect();
+
+    let joint_matrices = skin_joint_matrices(&model, 0, &node_transforms).unwrap();
+    let skinned = skin_primitive_vertices(&primitive, &joint_matrices).unwrap();
+
+    assert_close(skinned[0].position[0], 3.0);
+    assert_close(skinned[0].position[1], 0.0);
+    assert_close(skinned[0].position[2], 0.0);
+}
+
+#[test]
+fn cpu_skinning_applies_one_joint_motion() {
+    let model = test_skin_model(vec![test_model_node(ModelNodeTransform {
+        translation: [2.0, 0.0, 0.0],
+        rotation: [0.0, 0.0, 0.0, 1.0],
+        scale: [1.0, 1.0, 1.0],
+    })]);
+    let primitive = test_skinned_primitive(
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0, 0, 0, 0],
+        [1.0, 0.0, 0.0, 0.0],
+    );
+    let node_transforms: Vec<ModelNodeTransform> = model
+        .nodes
+        .iter()
+        .map(|node| node.local_transform)
+        .collect();
+
+    let joint_matrices = skin_joint_matrices(&model, 0, &node_transforms).unwrap();
+    let skinned = skin_primitive_vertices(&primitive, &joint_matrices).unwrap();
+
+    assert_close(skinned[0].position[0], 3.0);
+    assert_close(skinned[0].position[1], 0.0);
+    assert_close(skinned[0].position[2], 0.0);
+    assert_close(skinned[0].normal[0], 0.0);
+    assert_close(skinned[0].normal[1], 1.0);
+    assert_close(skinned[0].normal[2], 0.0);
+}
+
+#[test]
+fn cpu_skinning_blends_weighted_two_joint_motion() {
+    let model = test_skin_model(vec![
+        test_model_node(ModelNodeTransform::default()),
+        test_model_node(ModelNodeTransform {
+            translation: [2.0, 0.0, 0.0],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            scale: [1.0, 1.0, 1.0],
+        }),
+    ]);
+    let primitive = test_skinned_primitive(
+        [0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0, 1, 0, 0],
+        [0.25, 0.75, 0.0, 0.0],
+    );
+    let node_transforms: Vec<ModelNodeTransform> = model
+        .nodes
+        .iter()
+        .map(|node| node.local_transform)
+        .collect();
+
+    let joint_matrices = skin_joint_matrices(&model, 0, &node_transforms).unwrap();
+    let skinned = skin_primitive_vertices(&primitive, &joint_matrices).unwrap();
+
+    assert_close(skinned[0].position[0], 1.5);
+    assert_close(skinned[0].position[1], 0.0);
+    assert_close(skinned[0].position[2], 0.0);
 }
 
 #[test]
@@ -645,6 +802,27 @@ fn browser_game_state_replaces_configured_static_model_scene_item() {
 }
 
 #[test]
+fn browser_game_state_rejects_invalid_scaled_static_model_scene_item() {
+    let mut state = BrowserGameState::new();
+
+    assert_eq!(
+        state.configure_scaled_animated_static_model_scene(
+            "model.mesh",
+            "model.material",
+            0.0,
+            ModelAnimationClip {
+                name: Some("test".to_string()),
+                duration_seconds: 1.0,
+                channels: Vec::new(),
+            },
+            0,
+            vec![ModelNodeTransform::default()],
+        ),
+        Err(BrowserGameStateError::InvalidStaticModelScale(0.0))
+    );
+}
+
+#[test]
 fn browser_game_state_ticks_player_and_grounds_against_terrain() {
     let mut state = BrowserGameState::new();
     state.reset_game(0x0F6, 1).unwrap();
@@ -817,6 +995,53 @@ fn test_model_node(local_transform: ModelNodeTransform) -> ModelNode {
         skin: None,
         local_transform,
     }
+}
+
+fn test_skin_model(nodes: Vec<ModelNode>) -> ModelAsset {
+    let joint_count = nodes.len();
+    ModelAsset {
+        nodes,
+        primitives: Vec::new(),
+        materials: Vec::<ModelMaterial>::new(),
+        animations: Vec::new(),
+        skins: vec![ModelSkin {
+            name: Some("test-skin".to_string()),
+            joints: (0..joint_count).collect(),
+            inverse_bind_matrices: vec![identity_matrix(); joint_count],
+        }],
+    }
+}
+
+fn test_skinned_primitive(
+    position: [f32; 3],
+    normal: [f32; 3],
+    joints0: [u16; 4],
+    weights0: [f32; 4],
+) -> ModelPrimitive {
+    ModelPrimitive {
+        mesh_index: 0,
+        mesh_name: None,
+        material: None,
+        vertices: vec![ModelVertex {
+            position,
+            normal,
+            texcoord0: [0.0, 0.0],
+            color0: [1.0, 1.0, 1.0, 1.0],
+            joints0,
+            weights0,
+        }],
+        indices: vec![0],
+    }
+}
+
+fn identity_matrix() -> [f32; 16] {
+    translation_matrix(0.0, 0.0, 0.0)
+}
+
+fn translation_matrix(x: f32, y: f32, z: f32) -> [f32; 16] {
+    [
+        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, x, y, z, 1.0,
+    ]
 }
 
 fn assert_close(actual: f32, expected: f32) {
