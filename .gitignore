@@ -1,5 +1,6 @@
 # Build outputs
 dist/
+.deploy/
 coverage/
 artifacts/
 *.tsbuildinfo

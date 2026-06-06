@@ -11,6 +11,8 @@
     "check:wasm": "node tools/build-terrain-wasm.mjs --check && node tools/build-engine-web-wasm.mjs --check",
     "bench:terrain:wasm": "npm run build:wasm && node tools/benchmark-terrain-wasm.mjs",
     "build": "npm run clean && npm run build:shaders && npm run build:wasm && tsc -p tsconfig.json",
+    "build:cloudflare": "node tools/cloudflare-build.mjs",
+    "package:site": "node tools/package-site.mjs",
     "test": "npm run build && mocha \"dist/**/*.test.js\"",
     "dev": "npm run build && node tools/dev-server.mjs",
     "smoke:browser": "npm run build && node tools/browser-smoke.mjs",
