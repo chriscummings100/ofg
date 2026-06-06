@@ -52,7 +52,7 @@ export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
     this.height = height;
     this.canvas.width = width;
     this.canvas.height = height;
-    this.game.resize(width, height);
+    this.game.resize({ width, height });
   }
 
   setTerrainTextures(textures: TerrainMaterialTextures): void {

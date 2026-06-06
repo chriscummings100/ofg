@@ -202,6 +202,14 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   `npm run smoke:browser`; inspected
   `artifacts/browser-smoke/2026-06-06T10-13-33-424Z/report.json` plus first
   person, debug-fly, and streamed first-person screenshots.
+- [x] (2026-06-06) Changed exported wasm `resize(width, height)` to
+  `resize(viewport)`. The TypeScript adapter still computes browser pixel
+  dimensions, but the Rust-facing call is now an object-shaped viewport packet.
+- [x] (2026-06-06) Validated the viewport resize slice with
+  `cargo test -p engine_web`, `npm test`, `npm run check:wasm`, and
+  `npm run smoke:browser`; inspected
+  `artifacts/browser-smoke/2026-06-06T10-22-21-510Z/report.json` plus first
+  person, debug-fly, and streamed first-person screenshots.
 
 ## Surprises & Discoveries
 
@@ -416,6 +424,11 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   `RustBrowserGameStatus` wasm class and `status()` method kept a second debug
   read path alive after player mode and position had moved behind the snapshot.
   Date/Author: 2026-06-06 / Codex.
+- Decision: Pass viewport resize data as one packet.
+  Rationale: Resize is part of the stable browser/Rust API and should not remain
+  a growing scalar method. The browser shell can still compute display pixels
+  until Rust owns more viewport policy.
+  Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -525,6 +538,13 @@ The reset-command slice validated with:
     npm run smoke:browser
 
 The status-snapshot slice validated with:
+
+    cargo test -p engine_web
+    npm test
+    npm run check:wasm
+    npm run smoke:browser
+
+The viewport resize slice validated with:
 
     cargo test -p engine_web
     npm test
@@ -733,7 +753,7 @@ Current public browser-facing Rust API in `src/engine/web/engineWebWasm.ts`:
 
 ```ts
 create(canvas)
-resize(width, height)
+resize(viewport)
 tick(frame)
 command(command)
 debugSnapshot()

@@ -4,7 +4,7 @@ export class RustBrowserGame {
   private constructor();
   free(): void;
   static create(canvas: HTMLCanvasElement): Promise<RustBrowserGame>;
-  resize(width: number, height: number): void;
+  resize(viewport: any): void;
   tick(frame: any): void;
   command(command: any): void;
   debugSnapshot(): any;
@@ -45,7 +45,7 @@ export interface InitOutput {
   readonly ofg_engine_web_last_error_code: () => number;
   readonly __wbg_rustbrowsergame_free: (a: number, b: number) => void;
   readonly rustbrowsergame_create: (a: number) => number;
-  readonly rustbrowsergame_resize: (a: number, b: number, c: number, d: number) => void;
+  readonly rustbrowsergame_resize: (a: number, b: number, c: number) => void;
   readonly rustbrowsergame_tick: (a: number, b: number, c: number) => void;
   readonly rustbrowsergame_command: (a: number, b: number, c: number) => void;
   readonly rustbrowsergame_debugSnapshot: (a: number, b: number) => void;

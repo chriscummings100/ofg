@@ -33,6 +33,8 @@ describe("engine web WASM", () => {
     ok(moduleText.includes("export class RustBrowserGame"));
     equal(moduleText.includes("export class RustBrowserGameStatus"), false);
     ok(dtsText.includes("static create(canvas: HTMLCanvasElement): Promise<RustBrowserGame>"));
+    ok(dtsText.includes("resize(viewport: any): void"));
+    equal(dtsText.includes("resize(width"), false);
     equal(dtsText.includes("resetGame"), false);
     ok(dtsText.includes("tick(frame: any): void"));
     equal(dtsText.includes("tick(delta_seconds"), false);

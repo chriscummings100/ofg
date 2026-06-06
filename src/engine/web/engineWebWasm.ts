@@ -1,6 +1,7 @@
 import { ENGINE_WEB_WASM_METADATA } from "../../generated/web/engineWebWasm.js";
 import type {
   BrowserFrameInput,
+  BrowserViewport,
   RustBrowserGameCommand,
   RustBrowserGameDebugSnapshot
 } from "./browserGameTypes.js";
@@ -23,7 +24,7 @@ export type EngineWebRendererStatus = {
 };
 
 export type EngineWebBrowserGame = {
-  resize(width: number, height: number): void;
+  resize(viewport: BrowserViewport): void;
   tick(frame: BrowserFrameInput): void;
   command(command: RustBrowserGameCommand): void;
   debugSnapshot(): RustBrowserGameDebugSnapshot;

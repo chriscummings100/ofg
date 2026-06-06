@@ -6,6 +6,11 @@ import type { TerrainCoreWorkerStreamStatus } from "./terrainCoreWorkerStreamer.
 
 export type PlayerMode = "firstPerson" | "debugFly";
 
+export type BrowserViewport = {
+  readonly width: number;
+  readonly height: number;
+};
+
 export type BrowserFrameInput = {
   readonly deltaSeconds: number;
   readonly movement: {

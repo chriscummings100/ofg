@@ -317,13 +317,12 @@ export class RustBrowserGame {
         return takeObject(ret);
     }
     /**
-     * @param {number} width
-     * @param {number} height
+     * @param {any} viewport
      */
-    resize(width, height) {
+    resize(viewport) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.rustbrowsergame_resize(retptr, this.__wbg_ptr, width, height);
+            wasm.rustbrowsergame_resize(retptr, this.__wbg_ptr, addHeapObject(viewport));
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             if (r1) {
@@ -1278,15 +1277,15 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper1097 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper1096 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 248, __wbg_adapter_37);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper381 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper380 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 43, __wbg_adapter_32);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper383 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper382 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 43, __wbg_adapter_32);
         return addHeapObject(ret);
     };

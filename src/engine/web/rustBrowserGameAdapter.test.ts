@@ -104,10 +104,7 @@ type FakeBrowserGame = EngineWebBrowserGame & {
   destroyedTerrainMeshes: string[];
   retainedTerrainMeshSets: string[][];
   clearedTerrainMeshes: number;
-  resizeCalls: {
-    readonly width: number;
-    readonly height: number;
-  }[];
+  resizeCalls: Array<Parameters<EngineWebBrowserGame["resize"]>[0]>;
   renderCount: number;
   tickCalls: BrowserFrameInput[];
   commandCalls: Array<Parameters<EngineWebBrowserGame["command"]>[0]>;
@@ -124,8 +121,8 @@ function fakeBrowserGame(): FakeBrowserGame {
     renderCount: 0,
     tickCalls: [],
     commandCalls: [],
-    resize(width, height) {
-      this.resizeCalls.push({ width, height });
+    resize(viewport) {
+      this.resizeCalls.push(viewport);
     },
     tick(frame) {
       this.tickCalls.push(frame);

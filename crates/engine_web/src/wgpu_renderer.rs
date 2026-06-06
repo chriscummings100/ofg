@@ -135,7 +135,9 @@ impl RustBrowserGame {
     }
 
     #[wasm_bindgen(js_name = resize)]
-    pub fn resize(&mut self, width: u32, height: u32) -> Result<(), JsValue> {
+    pub fn resize(&mut self, viewport: JsValue) -> Result<(), JsValue> {
+        let width = js_required_u32(&viewport, "width", "viewport.width")?;
+        let height = js_required_u32(&viewport, "height", "viewport.height")?;
         self.renderer.resize(width, height)
     }
 
