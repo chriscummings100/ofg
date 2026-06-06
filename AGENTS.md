@@ -166,7 +166,7 @@ src/engine/browser
 src/engine/world
   Browser-side terrain descriptor/config types, 3D density chunk data contracts,
   Rust/WASM terrain adapters, generic browser worker transport, terrain material
-  metadata, and terrain mesh vertex layout helpers. Compiled TypeScript no
+  metadata, and the terrain mesh data/stride contract. Compiled TypeScript no
   longer owns terrain generation, noise, Dual Contouring, terrain streaming
   policy, density transfer between worker WASM instances, or a terrain manager.
 

@@ -19,7 +19,7 @@ import {
   terrainPresetToWasmCode
 } from "./terrainCoreWasm.js";
 import { createTerrainCoreStreamScheduler } from "./terrainCoreStreamScheduler.js";
-import { getFloatsPerVertex } from "./terrainMesh.js";
+import { TERRAIN_VERTEX_FLOATS } from "./terrainMesh.js";
 
 const PRESETS: readonly TerrainPresetId[] = TERRAIN_PRESET_IDS;
 
@@ -148,17 +148,17 @@ describe("terrain core WASM", () => {
 
     ok(mesh.vertices.length > 0);
     ok(mesh.indices.length > 0);
-    equal(mesh.vertices.length % getFloatsPerVertex(), 0);
+    equal(mesh.vertices.length % TERRAIN_VERTEX_FLOATS, 0);
     equal(mesh.indices.length % 3, 0);
     equal(readTerrainCoreMeshVertexBuffer(wasm.exports).length, mesh.vertices.length);
     equal(readTerrainCoreMeshIndexBuffer(wasm.exports).length, mesh.indices.length);
 
-    const vertexCount = mesh.vertices.length / getFloatsPerVertex();
+    const vertexCount = mesh.vertices.length / TERRAIN_VERTEX_FLOATS;
     for (const index of mesh.indices) {
       ok(index < vertexCount, `Mesh index ${index} should reference ${vertexCount} vertices.`);
     }
 
-    for (let offset = 0; offset < mesh.vertices.length; offset += getFloatsPerVertex()) {
+    for (let offset = 0; offset < mesh.vertices.length; offset += TERRAIN_VERTEX_FLOATS) {
       const materialWeightSum =
         mesh.vertices[offset + 15] +
         mesh.vertices[offset + 16] +

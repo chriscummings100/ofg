@@ -122,6 +122,12 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   `npm run smoke:browser`; inspected
   `artifacts/browser-smoke/2026-06-06T08-51-28-528Z/report.json` plus first
   person, debug-fly, and streamed first-person screenshots.
+- [x] (2026-06-06) Deleted legacy TypeScript terrain material packing and
+  triangle material-palette mesh expansion helpers. `terrainMaterials.ts` now
+  carries only the runtime texture material manifest/layer count, and
+  `terrainMesh.ts` carries only the mesh data shape plus Rust terrain vertex
+  stride.
+- [x] (2026-06-06) Validated legacy terrain helper deletion with `npm test`.
 
 ## Surprises & Discoveries
 
@@ -169,6 +175,13 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   from seed, preset, coord, and cell size inside the worker WASM instance, so
   the TypeScript bridge did not need to load main-thread density chunks and
   transfer them to the worker before meshing.
+- Observation: TypeScript terrain material packing and mesh palette expansion
+  were legacy test-only behavior.
+  Evidence: `rg` found `packTerrainMaterialWeights`,
+  `expandTerrainMeshForTriangleMaterialPalettes`, and related layout offsets
+  used only by `terrainMaterials.test.ts`, `terrainMesh.test.ts`, and the
+  TypeScript mesh helper itself; runtime meshes already come from Rust
+  `terrain_core`.
 - Observation: The active docs had become plan-shaped overlap: an engine plan,
   a reduction audit, an API contract, a scene-model plan, and a reduction
   ExecPlan were all close enough to confuse the source of truth.
@@ -236,6 +249,12 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   calls. This removes the app-level split without blocking on the wasm-bindgen
   API collapse.
   Date/Author: 2026-06-06 / Codex.
+- Decision: Delete legacy TypeScript terrain material packing and mesh expansion
+  helpers.
+  Rationale: Rust `terrain_core` owns material classification, packing, and
+  triangle-local material palettes. TypeScript only still needs material texture
+  asset metadata until texture ownership moves behind Rust.
+  Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -246,7 +265,7 @@ terrain-specific worker payload construction, plus texture asset loading, the
 still public wasm `renderGameFrame(aspect)` method beneath runtime `tick`, the
 still scalar wasm-bindgen player/debug/status methods beneath the runtime
 facade, public terrain mesh and texture upload calls, and TypeScript
-density/material helpers.
+terrain chunk/test helpers plus material texture asset metadata.
 
 The recommended next slice is to replace terrain-specific worker request/result
 payload construction with Rust-owned worker/threading support or a strictly
@@ -286,6 +305,10 @@ The one-call frame loop slice validated with:
 
     npm test
     npm run smoke:browser
+
+The legacy terrain helper deletion slice validated with:
+
+    npm test
 
 ## Context and Orientation
 
@@ -516,7 +539,7 @@ Current runtime TypeScript that remains:
 | Terrain worker transport | `BrowserWorkerHost` owns Worker lifecycle and request-id envelopes; `TerrainChunkWorkerClient` still builds terrain-specific density/chunk payloads, but LOD chunk requests no longer include density buffers. | Replace terrain-specific payload construction with Rust-owned worker/threading runtime or an opaque byte protocol. |
 | Texture asset decode | Fetches checked-in JPGs, draws them to canvas, reads RGBA pixels, uploads arrays into Rust. | Move terrain asset ownership behind Rust; TS may remain generic byte/image helper only. |
 | Debug/smoke mirrors | `window.__ofgDebug` now reads `game.debugSnapshot()` and sends `game.command(...)`, but the snapshot is still assembled by the TypeScript runtime facade. | Replace with a Rust-assembled `debugSnapshot()`. |
-| Legacy/test adapters | TS density/material helpers and test-only support code. | Delete or demote to explicit test support. |
+| Legacy/test adapters | TS density chunk/edit helpers and test-only support code. | Delete or demote to explicit test support. |
 
 ## Current Scorecard
 
