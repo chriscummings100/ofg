@@ -36,10 +36,11 @@ src/engine/browser
   understanding terrain job payloads.
 
 src/engine/world
-  Terrain descriptor/config types, 3D density chunk contracts, Rust/WASM terrain
-  adapters, worker transport, terrain material metadata, and the terrain mesh
-  data/stride contract. Runtime terrain generation, meshing, material packing,
-  and worker density dependency generation are Rust-owned.
+  Terrain descriptor/config types, 3D terrain chunk key helpers, Rust/WASM
+  terrain adapters, worker density result contracts, worker transport, terrain
+  material metadata, and the terrain mesh data/stride contract. Runtime terrain
+  generation, meshing, material packing, terrain edits, and worker density
+  dependency generation are Rust-owned.
 
 src/engine/math
   Small vector and matrix primitives.
@@ -132,20 +133,20 @@ rejection, ready/empty state, density storage, mesh packet storage, packet
 pruning, and the worker-pool/request model. That worker model includes slot
 assignment, request IDs, reset generations, and completion validation. TypeScript
 still constructs browser Workers, but only below the runtime facade and through
-the generic `BrowserWorkerHost` request envelope; the dev/smoke runtime is
-cross-origin isolated and the playable bridge uses `SharedArrayBuffer`-backed
-density dependency payloads when available. Workers still copy those payloads
-into their local `terrain_core.wasm` density stores before contouring, and the
-TypeScript terrain client still names density and chunk payloads. Rust-managed
-wasm threads or a Rust-owned opaque worker job protocol are still future work.
+the generic `BrowserWorkerHost` request envelope. Worker density jobs return
+WASM-filled density arrays that the main bridge stores in the Rust density store
+for scheduler bookkeeping; LOD0 jobs build meshes inside the worker
+`terrain_core.wasm` instance, which generates or reuses its own neighbor density
+apron. The TypeScript terrain client still names density and chunk payloads.
+Rust-managed wasm threads or a Rust-owned opaque worker job protocol are still
+future work.
 Loaded density chunk keys remain fully 3D.
 Runtime terrain meshes carry position, color, normal, uv, material layer indices,
-and material weights. A small mesh post-pass expands indexed triangles so each
-triangle has a coherent local four-material palette for interpolation.
-In the playable browser runtime, those chunk mesh payloads are uploaded directly
-into `RustBrowserGame` chunk-keyed terrain mesh handles. The
-adapter tracks live chunk keys for debug/smoke, while Rust/wgpu owns the actual
-GPU mesh handles and active draw set. The old compiled TypeScript
+and material weights from Rust `terrain_core`. In the playable browser runtime,
+those chunk mesh payloads are uploaded directly into `RustBrowserGame`
+chunk-keyed terrain mesh handles. The adapter tracks live chunk keys for
+debug/smoke, while Rust/wgpu owns the actual GPU mesh handles and active draw
+set. The old compiled TypeScript
 `TerrainChunkStreamer`, `TerrainRenderer`, `TerrainRenderPacketStore`,
 `RenderWorld`, highest-surface mesher, and heightfield mesh path have been
 retired rather than kept as parallel terrain owners.

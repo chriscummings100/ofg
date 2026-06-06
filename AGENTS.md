@@ -149,8 +149,7 @@ important.
 src/app
   Browser setup, game loop, HUD, URL seed/preset parsing, input forwarding,
   debug hooks, and calls into the `RustBrowserGameRuntime` facade through frame
-  input packets, commands, debug snapshots, and the transitional `renderFrame`
-  call.
+  input packets, commands, and debug snapshots.
 
 src/engine/math
   Vec3, Vec4, Quat, Mat4 primitives.
@@ -164,11 +163,12 @@ src/engine/browser
   understanding terrain job payloads.
 
 src/engine/world
-  Browser-side terrain descriptor/config types, 3D density chunk data contracts,
+  Browser-side terrain descriptor/config types, 3D density job result contracts,
   Rust/WASM terrain adapters, generic browser worker transport, terrain material
   metadata, and the terrain mesh data/stride contract. Compiled TypeScript no
   longer owns terrain generation, noise, Dual Contouring, terrain streaming
-  policy, density transfer between worker WASM instances, or a terrain manager.
+  policy, terrain edits, density transfer between worker WASM instances, or a
+  terrain manager.
 
 src/engine/render
   Browser-side texture loading helpers, shader metadata tests, and the temporary
@@ -253,9 +253,8 @@ Current test areas include:
   packet store.
 - Shader boundary: generated shader source artifact metadata and vertex layout
   contract.
-- World terrain: 3D density chunks, terrain edits, primitive meshes, terrain
-  material packing, Rust-owned chunk streaming, and Rust/WASM terrain core
-  sampling/mesh/stream fixtures.
+- World terrain: 3D terrain chunk keys, Rust-owned chunk streaming, and
+  Rust/WASM terrain core sampling/mesh/store/stream fixtures.
 - Gameplay/input: Rust browser game/player facade and input tracker.
 - Browser smoke: actual Chrome/Edge WebGPU render, screenshots, pixel checks, HUD
   camera toggle verification, and a basic player-position chunk streaming check.

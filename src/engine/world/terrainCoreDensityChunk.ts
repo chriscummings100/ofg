@@ -1,8 +1,8 @@
 import {
-  TerrainDensityChunk,
-  type GenerateTerrainDensityChunkOptions,
+  terrainChunkCoord,
+  terrainChunkKey,
   type TerrainChunkCoord,
-  type TerrainDensityChunkGenerator
+  type TerrainChunkKey
 } from "./terrainChunk.js";
 import {
   readTerrainCoreDensityChunkBuffer,
@@ -11,34 +11,40 @@ import {
 } from "./terrainCoreWasm.js";
 import type { WorldDescriptor } from "./terrainDescriptor.js";
 
+export type GenerateTerrainCoreDensityChunkOptions = {
+  readonly cellSize?: number;
+};
+
+export type TerrainCoreDensityChunk = {
+  readonly key: TerrainChunkKey;
+  readonly coord: TerrainChunkCoord;
+  readonly cellSize: number;
+  readonly densities: Float32Array;
+};
+
 export function generateTerrainDensityChunkWithWasm(
   terrainCore: TerrainCoreWasmInstance,
   descriptor: WorldDescriptor,
   coord: TerrainChunkCoord,
-  options: GenerateTerrainDensityChunkOptions = {}
-): TerrainDensityChunk {
+  options: GenerateTerrainCoreDensityChunkOptions = {}
+): TerrainCoreDensityChunk {
   const cellSize = options.cellSize ?? 1;
   const preset = terrainPresetToWasmCode(descriptor.terrainPreset);
+  const chunkCoord = terrainChunkCoord(coord.x, coord.y, coord.z);
 
   terrainCore.exports.ofg_fill_density_chunk(
     descriptor.seed,
     preset,
-    coord.x,
-    coord.y,
-    coord.z,
+    chunkCoord.x,
+    chunkCoord.y,
+    chunkCoord.z,
     cellSize
   );
 
-  return new TerrainDensityChunk(coord, {
+  return {
+    key: terrainChunkKey(chunkCoord),
+    coord: chunkCoord,
     cellSize,
     densities: new Float32Array(readTerrainCoreDensityChunkBuffer(terrainCore.exports))
-  });
-}
-
-export function createTerrainCoreDensityChunkGenerator(
-  terrainCore: TerrainCoreWasmInstance,
-  descriptor: WorldDescriptor
-): TerrainDensityChunkGenerator {
-  return (_source, coord, options) =>
-    generateTerrainDensityChunkWithWasm(terrainCore, descriptor, coord, options);
+  };
 }

@@ -128,6 +128,13 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   `terrainMesh.ts` carries only the mesh data shape plus Rust terrain vertex
   stride.
 - [x] (2026-06-06) Validated legacy terrain helper deletion with `npm test`.
+- [x] (2026-06-06) Deleted the legacy TypeScript terrain density source/edit
+  API, density chunk class, sample indexing helpers, and broad density tests.
+  `terrainChunk.ts` now keeps only the 3D chunk coordinate/key helpers still
+  needed by the browser worker/render boundary, and the WASM density adapter
+  returns a plain Rust-filled density result object.
+- [x] (2026-06-06) Validated TypeScript density helper deletion with
+  `npm test`.
 
 ## Surprises & Discoveries
 
@@ -182,6 +189,12 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   used only by `terrainMaterials.test.ts`, `terrainMesh.test.ts`, and the
   TypeScript mesh helper itself; runtime meshes already come from Rust
   `terrain_core`.
+- Observation: The TypeScript terrain density source/edit API was also legacy
+  support surface, not runtime terrain ownership.
+  Evidence: `rg` found `TerrainDensitySource`, `EditableTerrainDensitySource`,
+  `TerrainEdit`, `sampleTerrainDensity`, and the TypeScript density chunk
+  sampling helpers used only by `terrainChunk.test.ts` and the WASM density
+  wrapper; the runtime worker path only needed a Rust-filled `Float32Array`.
 - Observation: The active docs had become plan-shaped overlap: an engine plan,
   a reduction audit, an API contract, a scene-model plan, and a reduction
   ExecPlan were all close enough to confuse the source of truth.
@@ -255,6 +268,12 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   triangle-local material palettes. TypeScript only still needs material texture
   asset metadata until texture ownership moves behind Rust.
   Date/Author: 2026-06-06 / Codex.
+- Decision: Delete the legacy TypeScript terrain density source/edit API.
+  Rationale: Rust already owns density sampling and chunk filling; keeping a
+  compiled TypeScript density/edit model made the browser boundary look broader
+  than the runtime required. The temporary worker bridge can pass plain
+  Rust-filled density arrays until worker semantics move fully behind Rust.
+  Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -265,7 +284,7 @@ terrain-specific worker payload construction, plus texture asset loading, the
 still public wasm `renderGameFrame(aspect)` method beneath runtime `tick`, the
 still scalar wasm-bindgen player/debug/status methods beneath the runtime
 facade, public terrain mesh and texture upload calls, and TypeScript
-terrain chunk/test helpers plus material texture asset metadata.
+terrain-specific worker result contracts plus material texture asset metadata.
 
 The recommended next slice is to replace terrain-specific worker request/result
 payload construction with Rust-owned worker/threading support or a strictly
@@ -310,6 +329,10 @@ The legacy terrain helper deletion slice validated with:
 
     npm test
 
+The TypeScript density helper deletion slice validated with:
+
+    npm test
+
 ## Context and Orientation
 
 The repository root is `C:\dev\ofg`. The current browser game is a lightweight
@@ -342,7 +365,8 @@ terrain workers, loads texture assets, and wires worker mesh results into
 
 `src/engine/world` contains terrain descriptor types, chunk-key utilities, and
 thin TypeScript adapters to `terrain_core.wasm`. It also still contains terrain
-worker request/response types and worker transport code.
+worker request/response types, plain worker density result contracts, and
+worker transport code.
 
 The key architectural goal is that TypeScript should eventually call something
 close to `game.tick(frame)` and should not understand terrain scheduling,
@@ -539,7 +563,6 @@ Current runtime TypeScript that remains:
 | Terrain worker transport | `BrowserWorkerHost` owns Worker lifecycle and request-id envelopes; `TerrainChunkWorkerClient` still builds terrain-specific density/chunk payloads, but LOD chunk requests no longer include density buffers. | Replace terrain-specific payload construction with Rust-owned worker/threading runtime or an opaque byte protocol. |
 | Texture asset decode | Fetches checked-in JPGs, draws them to canvas, reads RGBA pixels, uploads arrays into Rust. | Move terrain asset ownership behind Rust; TS may remain generic byte/image helper only. |
 | Debug/smoke mirrors | `window.__ofgDebug` now reads `game.debugSnapshot()` and sends `game.command(...)`, but the snapshot is still assembled by the TypeScript runtime facade. | Replace with a Rust-assembled `debugSnapshot()`. |
-| Legacy/test adapters | TS density chunk/edit helpers and test-only support code. | Delete or demote to explicit test support. |
 
 ## Current Scorecard
 
@@ -564,7 +587,9 @@ move one public call category to the target API.
 First, delete test-only compiled TypeScript. This slice is complete: the live
 terrain sink/packet types now live in
 `src/engine/render/terrainRenderChunkSink.ts`, and the old packet-store module,
-packet-store tests, primitive mesh module, and primitive mesh tests are deleted.
+packet-store tests, primitive mesh module, primitive mesh tests, legacy
+TypeScript material packing/mesh expansion helpers, and legacy TypeScript
+density source/edit helpers are deleted.
 
 Second, move app-facing calls to the target shape. This is complete at the
 TypeScript runtime facade: `src/app` sends `BrowserFrameInput` packets, uses the
