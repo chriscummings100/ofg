@@ -11,7 +11,7 @@ export type TerrainWorkerTaskLease = {
 };
 
 export type TerrainWorkerTaskPool = {
-  readonly runtime: "rust" | "typescript";
+  readonly runtime: "rust";
   readonly workerCount: number;
   readonly inFlightCount: number;
   reset(): void;

@@ -34,7 +34,7 @@ type TerrainWorkerSlot = {
 
 export class TerrainChunkWorkerClient implements TerrainChunkJobGenerator {
   readonly workerCount: number;
-  readonly workerPoolRuntime: "rust" | "typescript";
+  readonly workerPoolRuntime: "rust";
   private readonly workerHost: BrowserWorkerHost<
     TerrainWorkerRequestPayload,
     TerrainWorkerResultPayload
@@ -44,13 +44,11 @@ export class TerrainChunkWorkerClient implements TerrainChunkJobGenerator {
   constructor(
     private readonly descriptor: WorldDescriptor,
     options: {
-      readonly workerCount?: number;
-      readonly workerPool?: TerrainWorkerTaskPool;
+      readonly workerPool: TerrainWorkerTaskPool;
       readonly workerFactory?: () => Worker;
-    } = {}
+    }
   ) {
-    this.workerPool = options.workerPool ??
-      new TypeScriptTerrainWorkerPool(options.workerCount ?? defaultTerrainWorkerCount());
+    this.workerPool = options.workerPool;
     this.workerCount = this.workerPool.workerCount;
     this.workerPoolRuntime = this.workerPool.runtime;
     this.workerFactory = options.workerFactory ?? createTerrainChunkWorker;
@@ -212,19 +210,16 @@ export function canUseTerrainChunkWorker(): boolean {
 
 export function createTerrainChunkWorkerClient(
   descriptor: WorldDescriptor,
-  terrainCore?: TerrainCoreWasmInstance
+  terrainCore: TerrainCoreWasmInstance
 ): TerrainChunkWorkerClient | undefined {
   if (!canUseTerrainChunkWorker()) {
     return undefined;
   }
 
   const workerCount = defaultTerrainWorkerCount();
-  const workerPool = terrainCore === undefined
-    ? undefined
-    : createTerrainCoreWorkerPool(terrainCore, workerCount);
+  const workerPool = createTerrainCoreWorkerPool(terrainCore, workerCount);
 
   return new TerrainChunkWorkerClient(descriptor, {
-    workerCount,
     workerPool
   });
 }
@@ -240,42 +235,4 @@ function defaultTerrainWorkerCount(): number {
   const hardwareConcurrency = globalThis.navigator?.hardwareConcurrency ?? 2;
 
   return Math.max(1, Math.min(6, hardwareConcurrency - 1));
-}
-
-class TypeScriptTerrainWorkerPool implements TerrainWorkerTaskPool {
-  readonly runtime = "typescript" as const;
-  private nextRequestId = 1;
-  private nextWorkerIndex = 0;
-
-  constructor(readonly workerCount: number) {}
-
-  get inFlightCount(): number {
-    return 0;
-  }
-
-  reset(): void {
-    this.nextRequestId = 1;
-    this.nextWorkerIndex = 0;
-  }
-
-  beginTask(): { readonly requestId: number; readonly workerIndex: number; readonly runtimeGeneration: number } {
-    const requestId = this.nextRequestId;
-    this.nextRequestId += 1;
-    const workerIndex = this.nextWorkerIndex % this.workerCount;
-    this.nextWorkerIndex = (this.nextWorkerIndex + 1) % this.workerCount;
-
-    return {
-      requestId,
-      workerIndex,
-      runtimeGeneration: 0
-    };
-  }
-
-  finishTask(): "matched" {
-    return "matched";
-  }
-
-  failTask(): boolean {
-    return true;
-  }
 }

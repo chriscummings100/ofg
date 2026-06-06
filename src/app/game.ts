@@ -33,8 +33,8 @@ declare global {
       getTerrainStreamerRuntime: () => "rust";
       getTerrainStreamSchedulerRuntime: () => "rust";
       getTerrainDensityStoreRuntime: () => "rust";
-      getTerrainWorkerPoolRuntime: () => "rust" | "typescript";
-      getRenderPacketRuntime: () => "rust" | "typescript";
+      getTerrainWorkerPoolRuntime: () => "rust";
+      getRenderPacketRuntime: () => "rust";
       getTerrainRenderPacketRuntime: () => "rust";
       getRendererRuntime: () => "rust-wgpu";
       getRendererStatus: () => EngineWebRendererStatus;

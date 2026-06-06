@@ -16,7 +16,7 @@ export type TerrainDensityChunkInput = {
 };
 
 export type TerrainDensityChunkStore = {
-  readonly runtime: "rust" | "typescript";
+  readonly runtime: "rust";
   clear(): void;
   size(): number;
   retainOnly(coords: readonly TerrainChunkCoord[], cellSize: number): void;

@@ -135,6 +135,14 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   returns a plain Rust-filled density result object.
 - [x] (2026-06-06) Validated TypeScript density helper deletion with
   `npm test`.
+- [x] (2026-06-06) Deleted the fallback TypeScript terrain worker pool from
+  `TerrainChunkWorkerClient`. Browser Workers still exist as TypeScript browser
+  substrate, but worker slots, request IDs, generations, in-flight tracking, and
+  completion validation now require the Rust `terrain_core` worker pool.
+- [x] (2026-06-06) Validated TypeScript worker-pool fallback deletion with
+  `npm test` and `npm run smoke:browser`; inspected
+  `artifacts/browser-smoke/2026-06-06T09-11-13-602Z/report.json` plus first
+  person, debug-fly, and streamed first-person screenshots.
 
 ## Surprises & Discoveries
 
@@ -195,6 +203,12 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   `TerrainEdit`, `sampleTerrainDensity`, and the TypeScript density chunk
   sampling helpers used only by `terrainChunk.test.ts` and the WASM density
   wrapper; the runtime worker path only needed a Rust-filled `Float32Array`.
+- Observation: The TypeScript terrain worker-pool fallback was unused by the
+  playable runtime and tests.
+  Evidence: `createRustBrowserGameRuntime` always loads `terrain_core.wasm` and
+  calls `createTerrainChunkWorkerClient(descriptor, terrainCore)`, while the
+  worker-client test injects `TerrainCoreWorkerPool` directly. The fallback
+  `TypeScriptTerrainWorkerPool` had no live call site.
 - Observation: The active docs had become plan-shaped overlap: an engine plan,
   a reduction audit, an API contract, a scene-model plan, and a reduction
   ExecPlan were all close enough to confuse the source of truth.
@@ -274,6 +288,12 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   than the runtime required. The temporary worker bridge can pass plain
   Rust-filled density arrays until worker semantics move fully behind Rust.
   Date/Author: 2026-06-06 / Codex.
+- Decision: Require Rust worker-pool ownership for terrain browser workers.
+  Rationale: A TypeScript fallback for request IDs, worker slot assignment,
+  reset generations, and completion validation contradicts the ownership model
+  and was no longer used. Keeping it would make a broken non-Rust path look
+  supported.
+  Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -332,6 +352,11 @@ The legacy terrain helper deletion slice validated with:
 The TypeScript density helper deletion slice validated with:
 
     npm test
+
+The TypeScript worker-pool fallback deletion slice validated with:
+
+    npm test
+    npm run smoke:browser
 
 ## Context and Orientation
 
@@ -523,7 +548,7 @@ Already Rust-owned:
 | Terrain material/biome classification | `crates/terrain_core` | Runtime classification is Rust-owned; TypeScript still has material asset metadata. |
 | Terrain stream scheduling | `crates/terrain_core/src/stream.rs` | TypeScript bridge calls the scheduler but does not choose jobs itself. |
 | Terrain retained density store | `crates/terrain_core/src/store.rs` | TypeScript adapter writes density job results and retains desired windows; it no longer reads chunks back for worker transfer. |
-| Terrain worker-pool bookkeeping | `crates/terrain_core/src/worker_pool.rs` | TypeScript still constructs browser Workers; `BrowserWorkerHost` is payload-opaque but `TerrainChunkWorkerClient` still builds terrain-specific density/chunk request payloads. |
+| Terrain worker-pool bookkeeping | `crates/terrain_core/src/worker_pool.rs` | TypeScript still constructs browser Workers; `BrowserWorkerHost` is payload-opaque and there is no TypeScript worker-pool fallback, but `TerrainChunkWorkerClient` still builds terrain-specific density/chunk request payloads. |
 | Player/camera tick state | `crates/engine_web`, backed by `crates/engine_core` | Playable app no longer loads or builds a standalone `engine_core.wasm` artifact. |
 | WebGPU renderer | `crates/engine_web/src/wgpu_renderer.rs` | TypeScript no longer creates devices, pipelines, buffers, render passes, or draw calls. |
 | Terrain GPU mesh/texture handles | `crates/engine_web` | TypeScript still uploads terrain mesh bytes and decoded texture arrays into Rust. |
@@ -560,7 +585,7 @@ Current runtime TypeScript that remains:
 |---|---|---|
 | App shell | Starts game, tracks input, updates HUD, exposes debug hooks, reads URL params, calls `game.tick(frame)`, sends `game.command(...)`, and reads `game.debugSnapshot()`. | Keep as browser shell. |
 | WASM loading | Loads `engine_web` and `terrain_core.wasm` for the temporary worker bridge. | Keep only generic game module loading; remove runtime `terrain_core.wasm` calls. |
-| Terrain worker transport | `BrowserWorkerHost` owns Worker lifecycle and request-id envelopes; `TerrainChunkWorkerClient` still builds terrain-specific density/chunk payloads, but LOD chunk requests no longer include density buffers. | Replace terrain-specific payload construction with Rust-owned worker/threading runtime or an opaque byte protocol. |
+| Terrain worker transport | `BrowserWorkerHost` owns Worker lifecycle and request-id envelopes; `TerrainChunkWorkerClient` still builds terrain-specific density/chunk payloads, but LOD chunk requests no longer include density buffers and worker-pool bookkeeping has no TypeScript fallback. | Replace terrain-specific payload construction with Rust-owned worker/threading runtime or an opaque byte protocol. |
 | Texture asset decode | Fetches checked-in JPGs, draws them to canvas, reads RGBA pixels, uploads arrays into Rust. | Move terrain asset ownership behind Rust; TS may remain generic byte/image helper only. |
 | Debug/smoke mirrors | `window.__ofgDebug` now reads `game.debugSnapshot()` and sends `game.command(...)`, but the snapshot is still assembled by the TypeScript runtime facade. | Replace with a Rust-assembled `debugSnapshot()`. |
 
@@ -600,8 +625,9 @@ underlying wasm-bindgen API to the same shape and delete the public
 
 Third, collapse terrain Worker semantics behind Rust. The generic browser host
 piece is partially complete: `BrowserWorkerHost` sees only request ids and
-opaque payloads, and the density-transfer wrapper has been deleted. Remaining
-work is to replace `TerrainCoreWorkerStreamer`, `terrainChunkWorkerClient`, and
+opaque payloads, the density-transfer wrapper has been deleted, and the
+TypeScript worker-pool fallback is gone. Remaining work is to replace
+`TerrainCoreWorkerStreamer`, `terrainChunkWorkerClient`, and
 `terrainChunkWorkerTypes` with Rust-owned wasm-thread/Worker support or a byte
 protocol where TypeScript sees no density, LOD, chunk-key, or mesh semantics.
 

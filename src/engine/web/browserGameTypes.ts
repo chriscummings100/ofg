@@ -50,8 +50,8 @@ export type GameDebugSnapshot = {
   readonly terrainStreamerRuntime: "rust";
   readonly terrainStreamSchedulerRuntime: "rust";
   readonly terrainDensityStoreRuntime: "rust";
-  readonly terrainWorkerPoolRuntime: "rust" | "typescript";
-  readonly renderPacketRuntime: "rust" | "typescript";
+  readonly terrainWorkerPoolRuntime: "rust";
+  readonly renderPacketRuntime: "rust";
   readonly terrainRenderPacketRuntime: "rust";
   readonly rendererRuntime: "rust-wgpu";
   readonly rendererStatus: EngineWebRendererStatus;

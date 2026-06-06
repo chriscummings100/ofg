@@ -66,7 +66,7 @@ export type RustBrowserGameRuntimeDependencies = {
   readonly terrainStreamer: TerrainWorkerStreamer;
   readonly terrainWorker: {
     readonly workerCount: number;
-    readonly workerPoolRuntime: "rust" | "typescript";
+    readonly workerPoolRuntime: "rust";
   };
   readonly terrainDensityChunkStore: {
     readonly runtime: "rust";

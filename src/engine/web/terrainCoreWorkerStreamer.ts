@@ -31,7 +31,7 @@ export type TerrainCoreWorkerStreamStatus = {
   readonly inFlightChunkCount: number;
   readonly missingChunkCount: number;
   readonly maxConcurrentChunkJobs: number;
-  readonly workerPoolRuntime: "rust" | "typescript" | "unknown";
+  readonly workerPoolRuntime: "rust" | "unknown";
   readonly lastDensityJobStats?: TerrainDensityJobStats;
   readonly lastChunkJobStats?: TerrainChunkJobStats;
 };
