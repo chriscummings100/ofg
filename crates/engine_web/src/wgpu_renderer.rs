@@ -37,8 +37,7 @@ pub struct RustBrowserGame {
 }
 
 #[derive(Debug)]
-#[wasm_bindgen]
-pub struct RustBrowserGameStatus {
+struct RustBrowserGameStatus {
     version: u32,
     configured: bool,
     canvas_width: u32,
@@ -216,6 +215,11 @@ impl RustBrowserGame {
             JsValue::from_str(player_mode_to_js_name(player_mode)),
         )?;
         set_js_property(&snapshot, "playerPosition", position.into())?;
+        set_js_property(
+            &snapshot,
+            "rendererStatus",
+            renderer_status_to_js(self.renderer.status())?,
+        )?;
 
         Ok(snapshot.into())
     }
@@ -385,11 +389,6 @@ impl RustBrowserGame {
         )?;
         Ok(())
     }
-
-    #[wasm_bindgen(js_name = status)]
-    pub fn status(&self) -> RustBrowserGameStatus {
-        self.renderer.status()
-    }
 }
 
 impl RustBrowserGame {
@@ -441,69 +440,6 @@ impl RustBrowserGame {
             }
         }
         Ok(())
-    }
-}
-
-#[wasm_bindgen]
-impl RustBrowserGameStatus {
-    #[wasm_bindgen(getter)]
-    pub fn version(&self) -> u32 {
-        self.version
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn runtime(&self) -> String {
-        "rust-wgpu".to_string()
-    }
-
-    #[wasm_bindgen(getter, js_name = configured)]
-    pub fn configured(&self) -> bool {
-        self.configured
-    }
-
-    #[wasm_bindgen(getter, js_name = canvasWidth)]
-    pub fn canvas_width(&self) -> u32 {
-        self.canvas_width
-    }
-
-    #[wasm_bindgen(getter, js_name = canvasHeight)]
-    pub fn canvas_height(&self) -> u32 {
-        self.canvas_height
-    }
-
-    #[wasm_bindgen(getter, js_name = requiredTextureArrayLayers)]
-    pub fn required_texture_array_layers(&self) -> u32 {
-        self.required_texture_array_layers
-    }
-
-    #[wasm_bindgen(getter, js_name = maxTextureArrayLayers)]
-    pub fn max_texture_array_layers(&self) -> u32 {
-        self.max_texture_array_layers
-    }
-
-    #[wasm_bindgen(getter, js_name = meshCount)]
-    pub fn mesh_count(&self) -> u32 {
-        self.mesh_count
-    }
-
-    #[wasm_bindgen(getter, js_name = textureCount)]
-    pub fn texture_count(&self) -> u32 {
-        self.texture_count
-    }
-
-    #[wasm_bindgen(getter, js_name = objectCount)]
-    pub fn object_count(&self) -> u32 {
-        self.object_count
-    }
-
-    #[wasm_bindgen(getter, js_name = frameIndex)]
-    pub fn frame_index(&self) -> u32 {
-        self.frame_index
-    }
-
-    #[wasm_bindgen(getter, js_name = frameDrawCount)]
-    pub fn frame_draw_count(&self) -> u32 {
-        self.frame_draw_count
     }
 }
 
@@ -1447,6 +1383,60 @@ fn set_js_property(object: &js_sys::Object, property: &str, value: JsValue) -> R
     js_sys::Reflect::set(object, &JsValue::from_str(property), &value)
         .map_err(|_| js_error(format!("Rust browser game could not set '{property}'.")))?;
     Ok(())
+}
+
+fn renderer_status_to_js(status: RustBrowserGameStatus) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    set_js_property(&object, "version", JsValue::from_f64(status.version as f64))?;
+    set_js_property(&object, "runtime", JsValue::from_str("rust-wgpu"))?;
+    set_js_property(&object, "configured", JsValue::from_bool(status.configured))?;
+    set_js_property(
+        &object,
+        "canvasWidth",
+        JsValue::from_f64(status.canvas_width as f64),
+    )?;
+    set_js_property(
+        &object,
+        "canvasHeight",
+        JsValue::from_f64(status.canvas_height as f64),
+    )?;
+    set_js_property(
+        &object,
+        "requiredTextureArrayLayers",
+        JsValue::from_f64(status.required_texture_array_layers as f64),
+    )?;
+    set_js_property(
+        &object,
+        "maxTextureArrayLayers",
+        JsValue::from_f64(status.max_texture_array_layers as f64),
+    )?;
+    set_js_property(
+        &object,
+        "meshCount",
+        JsValue::from_f64(status.mesh_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "textureCount",
+        JsValue::from_f64(status.texture_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "objectCount",
+        JsValue::from_f64(status.object_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "frameIndex",
+        JsValue::from_f64(status.frame_index as f64),
+    )?;
+    set_js_property(
+        &object,
+        "frameDrawCount",
+        JsValue::from_f64(status.frame_draw_count as f64),
+    )?;
+
+    Ok(object.into())
 }
 
 fn player_mode_to_js_name(mode: PlayerMode) -> &'static str {

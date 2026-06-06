@@ -45,7 +45,6 @@ export type EngineWebBrowserGame = {
     materialData: Uint8Array
   ): void;
   renderFrame(): void;
-  status(): EngineWebRendererStatus;
 };
 
 export type EngineWebWasmModule = {

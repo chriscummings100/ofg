@@ -26,7 +26,6 @@ import {
   type TerrainCoreWorkerStreamStatus
 } from "./terrainCoreWorkerStreamer.js";
 import { RustBrowserGameAdapter } from "./rustBrowserGameAdapter.js";
-import type { EngineWebRendererStatus } from "./engineWebWasm.js";
 
 const DEFAULT_TERRAIN_STREAM_CONFIG = {
   horizontalRadius: 1,
@@ -43,7 +42,6 @@ export type RustBrowserGameRenderer = TerrainRenderChunkSink & {
   renderFrame(): void;
   command(command: RustBrowserGameCommand): void;
   getDebugSnapshot(): RustBrowserGameDebugSnapshot;
-  getStatus(): EngineWebRendererStatus;
   chunkKeys(): TerrainChunkKey[];
 };
 
@@ -126,7 +124,7 @@ export class RustBrowserGameRuntime {
       renderPacketRuntime: this.renderPacketRuntime,
       terrainRenderPacketRuntime: this.terrainRenderPacketRuntime,
       rendererRuntime: this.rendererRuntime,
-      rendererStatus: this.dependencies.renderer.getStatus(),
+      rendererStatus: rendererSnapshot.rendererStatus,
       terrainWorkerCount: this.dependencies.terrainWorker.workerCount,
       playerControllerRuntime: this.playerControllerRuntime
     };

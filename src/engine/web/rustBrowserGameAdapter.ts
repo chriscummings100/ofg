@@ -7,8 +7,7 @@ import { vec3, type Vec3 } from "../math/vec3.js";
 import {
   createEngineWebBrowserGame,
   ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM,
-  type EngineWebBrowserGame,
-  type EngineWebRendererStatus
+  type EngineWebBrowserGame
 } from "./engineWebWasm.js";
 import type {
   TerrainRenderChunkInput,
@@ -56,10 +55,6 @@ export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
     this.game.resize(width, height);
   }
 
-  getStatus(): EngineWebRendererStatus {
-    return this.game.status();
-  }
-
   setTerrainTextures(textures: TerrainMaterialTextures): void {
     this.upsertTerrainTexturesIfNeeded(textures);
   }
@@ -81,7 +76,8 @@ export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
         snapshot.playerPosition.x,
         snapshot.playerPosition.y,
         snapshot.playerPosition.z
-      )
+      ),
+      rendererStatus: snapshot.rendererStatus
     };
   }
 

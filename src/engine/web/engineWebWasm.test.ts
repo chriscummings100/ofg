@@ -21,8 +21,9 @@ describe("engine web WASM", () => {
     ok(/^sha256-[0-9a-f]{64}$/.test(ENGINE_WEB_WASM_METADATA.wasmHash));
     ok(/^sha256-[0-9a-f]{64}$/.test(ENGINE_WEB_WASM_METADATA.moduleHash));
     ok(/^sha256-[0-9a-f]{64}$/.test(ENGINE_WEB_WASM_METADATA.dtsHash));
-    ok(ENGINE_WEB_WASM_METADATA.exports.includes("RustBrowserGame"));
-    ok(ENGINE_WEB_WASM_METADATA.exports.includes("RustBrowserGameStatus"));
+    const exports = ENGINE_WEB_WASM_METADATA.exports as readonly string[];
+    ok(exports.includes("RustBrowserGame"));
+    equal(exports.includes("RustBrowserGameStatus"), false);
   });
 
   it("emits wasm-bindgen glue for the Rust/wgpu renderer facade", () => {
@@ -30,7 +31,7 @@ describe("engine web WASM", () => {
     const dtsText = readFileSync(ENGINE_WEB_WASM_METADATA.dtsPath, "utf8");
 
     ok(moduleText.includes("export class RustBrowserGame"));
-    ok(moduleText.includes("export class RustBrowserGameStatus"));
+    equal(moduleText.includes("export class RustBrowserGameStatus"), false);
     ok(dtsText.includes("static create(canvas: HTMLCanvasElement): Promise<RustBrowserGame>"));
     equal(dtsText.includes("resetGame"), false);
     ok(dtsText.includes("tick(frame: any): void"));
@@ -52,6 +53,8 @@ describe("engine web WASM", () => {
     ok(dtsText.includes("upsertTerrainTextures"));
     ok(dtsText.includes("renderFrame(): void"));
     equal(dtsText.includes("renderGameFrame"), false);
+    equal(dtsText.includes("status()"), false);
+    equal(dtsText.includes("RustBrowserGameStatus"), false);
     equal(dtsText.includes("renderEngineFrame"), false);
     equal(dtsText.includes("upsertMesh"), false);
     equal(dtsText.includes("destroyMesh"), false);
@@ -60,7 +63,6 @@ describe("engine web WASM", () => {
     equal(dtsText.includes("upsertTexture"), false);
     equal(dtsText.includes("upsertTerrainMaterial"), false);
     equal(dtsText.includes("upsertMaterial"), false);
-    ok(dtsText.includes("maxTextureArrayLayers"));
   });
 
   it("loads and initializes the wasm-bindgen module through a dynamic import hook", async () => {
@@ -139,7 +141,21 @@ function fakeBrowserGame(): EngineWebBrowserGame {
     debugSnapshot() {
       return {
         playerMode: "firstPerson",
-        playerPosition: { x: 0, y: 0, z: 0 }
+        playerPosition: { x: 0, y: 0, z: 0 },
+        rendererStatus: {
+          version: 1,
+          runtime: "rust-wgpu",
+          configured: true,
+          canvasWidth: 1,
+          canvasHeight: 1,
+          maxTextureArrayLayers: 16,
+          requiredTextureArrayLayers: 16,
+          meshCount: 0,
+          textureCount: 3,
+          objectCount: 1,
+          frameIndex: 0,
+          frameDrawCount: 0
+        }
       };
     },
     upsertTerrainMesh() {},
@@ -147,22 +163,6 @@ function fakeBrowserGame(): EngineWebBrowserGame {
     retainTerrainMeshes() {},
     clearTerrainMeshes() {},
     upsertTerrainTextures() {},
-    renderFrame() {},
-    status() {
-      return {
-        version: 1,
-        runtime: "rust-wgpu",
-        configured: true,
-        canvasWidth: 1,
-        canvasHeight: 1,
-        maxTextureArrayLayers: 16,
-        requiredTextureArrayLayers: 16,
-        meshCount: 0,
-        textureCount: 3,
-        objectCount: 1,
-        frameIndex: 0,
-        frameDrawCount: 0
-      };
-    }
+    renderFrame() {}
   };
 }

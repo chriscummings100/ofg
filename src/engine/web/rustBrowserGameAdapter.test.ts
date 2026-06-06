@@ -140,6 +140,20 @@ function fakeBrowserGame(): FakeBrowserGame {
           x: 96,
           y: 7,
           z: 12
+        },
+        rendererStatus: {
+          version: 1,
+          runtime: "rust-wgpu",
+          configured: true,
+          canvasWidth: 640,
+          canvasHeight: 480,
+          maxTextureArrayLayers: 16,
+          requiredTextureArrayLayers: 16,
+          meshCount: 1,
+          textureCount: 3,
+          objectCount: 1,
+          frameIndex: 1,
+          frameDrawCount: 1
         }
       };
     },
@@ -167,22 +181,6 @@ function fakeBrowserGame(): FakeBrowserGame {
     },
     renderFrame() {
       this.renderCount += 1;
-    },
-    status() {
-      return {
-        version: 1,
-        runtime: "rust-wgpu",
-        configured: true,
-        canvasWidth: 640,
-        canvasHeight: 480,
-        maxTextureArrayLayers: 16,
-        requiredTextureArrayLayers: 16,
-        meshCount: 1,
-        textureCount: 3,
-        objectCount: 1,
-        frameIndex: 1,
-        frameDrawCount: 1
-      };
     }
   };
 }

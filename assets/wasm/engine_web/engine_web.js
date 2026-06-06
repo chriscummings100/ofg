@@ -271,7 +271,7 @@ function __wbg_adapter_37(arg0, arg1, arg2) {
     wasm._dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h5dc9a98bc8edeb10(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wbg_adapter_394(arg0, arg1, arg2, arg3) {
+function __wbg_adapter_381(arg0, arg1, arg2, arg3) {
     wasm.wasm_bindgen__convert__closures__invoke2_mut__h3ff0595175ed627e(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
@@ -494,136 +494,6 @@ export class RustBrowserGame {
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
-    }
-    /**
-     * @returns {RustBrowserGameStatus}
-     */
-    status() {
-        const ret = wasm.rustbrowsergame_status(this.__wbg_ptr);
-        return RustBrowserGameStatus.__wrap(ret);
-    }
-}
-
-const RustBrowserGameStatusFinalization = (typeof FinalizationRegistry === 'undefined')
-    ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_rustbrowsergamestatus_free(ptr >>> 0, 1));
-
-export class RustBrowserGameStatus {
-
-    static __wrap(ptr) {
-        ptr = ptr >>> 0;
-        const obj = Object.create(RustBrowserGameStatus.prototype);
-        obj.__wbg_ptr = ptr;
-        RustBrowserGameStatusFinalization.register(obj, obj.__wbg_ptr, obj);
-        return obj;
-    }
-
-    __destroy_into_raw() {
-        const ptr = this.__wbg_ptr;
-        this.__wbg_ptr = 0;
-        RustBrowserGameStatusFinalization.unregister(this);
-        return ptr;
-    }
-
-    free() {
-        const ptr = this.__destroy_into_raw();
-        wasm.__wbg_rustbrowsergamestatus_free(ptr, 0);
-    }
-    /**
-     * @returns {number}
-     */
-    get version() {
-        const ret = wasm.rustbrowsergamestatus_version(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {string}
-     */
-    get runtime() {
-        let deferred1_0;
-        let deferred1_1;
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.rustbrowsergamestatus_runtime(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            deferred1_0 = r0;
-            deferred1_1 = r1;
-            return getStringFromWasm0(r0, r1);
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
-        }
-    }
-    /**
-     * @returns {boolean}
-     */
-    get configured() {
-        const ret = wasm.rustbrowsergamestatus_configured(this.__wbg_ptr);
-        return ret !== 0;
-    }
-    /**
-     * @returns {number}
-     */
-    get canvasWidth() {
-        const ret = wasm.rustbrowsergamestatus_canvasWidth(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    get canvasHeight() {
-        const ret = wasm.rustbrowsergamestatus_canvasHeight(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    get requiredTextureArrayLayers() {
-        const ret = wasm.rustbrowsergamestatus_requiredTextureArrayLayers(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    get maxTextureArrayLayers() {
-        const ret = wasm.rustbrowsergamestatus_maxTextureArrayLayers(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    get meshCount() {
-        const ret = wasm.rustbrowsergamestatus_meshCount(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    get textureCount() {
-        const ret = wasm.rustbrowsergamestatus_textureCount(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    get objectCount() {
-        const ret = wasm.rustbrowsergamestatus_objectCount(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    get frameIndex() {
-        const ret = wasm.rustbrowsergamestatus_frameIndex(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    get frameDrawCount() {
-        const ret = wasm.rustbrowsergamestatus_frameDrawCount(this.__wbg_ptr);
-        return ret >>> 0;
     }
 }
 
@@ -1162,7 +1032,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_394(a, state0.b, arg0, arg1);
+                    return __wbg_adapter_381(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -1408,15 +1278,15 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper1115 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper1097 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 248, __wbg_adapter_37);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper399 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper381 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 43, __wbg_adapter_32);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper401 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper383 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 43, __wbg_adapter_32);
         return addHeapObject(ret);
     };

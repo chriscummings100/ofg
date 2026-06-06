@@ -53,6 +53,7 @@ export type RustBrowserGameCommand = RustBrowserGameResetCommand | Exclude<
 export type RustBrowserGameDebugSnapshot = {
   readonly playerMode: PlayerMode;
   readonly playerPosition: Vec3;
+  readonly rendererStatus: EngineWebRendererStatus;
 };
 
 export type GameDebugSnapshot = {

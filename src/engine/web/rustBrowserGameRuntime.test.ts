@@ -106,11 +106,9 @@ function fakeRenderer(): FakeRenderer {
     getDebugSnapshot() {
       return {
         playerMode: "debugFly",
-        playerPosition: { x: 32, y: 8, z: 16 }
+        playerPosition: { x: 32, y: 8, z: 16 },
+        rendererStatus: fakeRendererStatus()
       };
-    },
-    getStatus() {
-      return fakeRendererStatus();
     },
     addChunk() {},
     removeChunk() {

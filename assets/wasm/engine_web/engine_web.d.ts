@@ -14,23 +14,6 @@ export class RustBrowserGame {
   clearTerrainMeshes(): void;
   upsertTerrainTextures(width: number, height: number, layers: number, format_code: number, albedo_data: Uint8Array, normal_data: Uint8Array, material_data: Uint8Array): void;
   renderFrame(): void;
-  status(): RustBrowserGameStatus;
-}
-export class RustBrowserGameStatus {
-  private constructor();
-  free(): void;
-  readonly version: number;
-  readonly runtime: string;
-  readonly configured: boolean;
-  readonly canvasWidth: number;
-  readonly canvasHeight: number;
-  readonly requiredTextureArrayLayers: number;
-  readonly maxTextureArrayLayers: number;
-  readonly meshCount: number;
-  readonly textureCount: number;
-  readonly objectCount: number;
-  readonly frameIndex: number;
-  readonly frameDrawCount: number;
 }
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
@@ -61,7 +44,6 @@ export interface InitOutput {
   readonly ofg_engine_web_frame_draw_count: () => number;
   readonly ofg_engine_web_last_error_code: () => number;
   readonly __wbg_rustbrowsergame_free: (a: number, b: number) => void;
-  readonly __wbg_rustbrowsergamestatus_free: (a: number, b: number) => void;
   readonly rustbrowsergame_create: (a: number) => number;
   readonly rustbrowsergame_resize: (a: number, b: number, c: number, d: number) => void;
   readonly rustbrowsergame_tick: (a: number, b: number, c: number) => void;
@@ -73,19 +55,6 @@ export interface InitOutput {
   readonly rustbrowsergame_clearTerrainMeshes: (a: number, b: number) => void;
   readonly rustbrowsergame_upsertTerrainTextures: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => void;
   readonly rustbrowsergame_renderFrame: (a: number, b: number) => void;
-  readonly rustbrowsergame_status: (a: number) => number;
-  readonly rustbrowsergamestatus_version: (a: number) => number;
-  readonly rustbrowsergamestatus_runtime: (a: number, b: number) => void;
-  readonly rustbrowsergamestatus_configured: (a: number) => number;
-  readonly rustbrowsergamestatus_canvasWidth: (a: number) => number;
-  readonly rustbrowsergamestatus_canvasHeight: (a: number) => number;
-  readonly rustbrowsergamestatus_requiredTextureArrayLayers: (a: number) => number;
-  readonly rustbrowsergamestatus_maxTextureArrayLayers: (a: number) => number;
-  readonly rustbrowsergamestatus_meshCount: (a: number) => number;
-  readonly rustbrowsergamestatus_textureCount: (a: number) => number;
-  readonly rustbrowsergamestatus_objectCount: (a: number) => number;
-  readonly rustbrowsergamestatus_frameIndex: (a: number) => number;
-  readonly rustbrowsergamestatus_frameDrawCount: (a: number) => number;
   readonly ofg_terrain_core_version: () => number;
   readonly ofg_terrain_core_preset_count: () => number;
   readonly ofg_density_chunk_store_max_entries: () => number;

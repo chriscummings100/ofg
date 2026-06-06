@@ -194,6 +194,14 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   `npm run smoke:browser`; inspected
   `artifacts/browser-smoke/2026-06-06T10-01-04-541Z/report.json` plus first
   person, debug-fly, and streamed first-person screenshots.
+- [x] (2026-06-06) Folded Rust renderer status into
+  `debugSnapshot().rendererStatus` and removed the exported
+  `RustBrowserGameStatus` wasm class plus standalone `status()` method.
+- [x] (2026-06-06) Validated the status-snapshot slice with
+  `cargo test -p engine_web`, `npm test`, `npm run check:wasm`, and
+  `npm run smoke:browser`; inspected
+  `artifacts/browser-smoke/2026-06-06T10-13-33-424Z/report.json` plus first
+  person, debug-fly, and streamed first-person screenshots.
 
 ## Surprises & Discoveries
 
@@ -403,6 +411,11 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   startup state, but the Rust-facing boundary should not grow scalar lifecycle
   methods when the command lane already carries structured control packets.
   Date/Author: 2026-06-06 / Codex.
+- Decision: Return renderer status through `debugSnapshot()`.
+  Rationale: Renderer status is debug/HUD data, so a separate exported
+  `RustBrowserGameStatus` wasm class and `status()` method kept a second debug
+  read path alive after player mode and position had moved behind the snapshot.
+  Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -410,9 +423,9 @@ The docs now separate completed Rust ownership from remaining TypeScript browser
 substrate, and this plan gives the exact target boundary. The main remaining
 implementation gap is terrain-aware Worker code in TypeScript, including
 terrain-specific worker payload construction, plus texture asset loading, the
-still public wasm `renderFrame()` method beneath runtime `tick`, the still
-public `status()` method, public terrain mesh and texture upload calls, and
-TypeScript terrain-specific worker result contracts. Frame input, reset,
+still public wasm `renderFrame()` method beneath runtime `tick`, public terrain
+mesh and texture upload calls, and TypeScript terrain-specific worker result
+contracts. Frame input, reset,
 player/debug commands, player mode/position, and render submission now cross the
 wasm-bindgen boundary as object-shaped or no-argument calls rather than growing
 scalar lists.
@@ -505,6 +518,13 @@ The no-argument `renderFrame()` slice validated with:
     npm run smoke:browser
 
 The reset-command slice validated with:
+
+    cargo test -p engine_web
+    npm test
+    npm run check:wasm
+    npm run smoke:browser
+
+The status-snapshot slice validated with:
 
     cargo test -p engine_web
     npm test
@@ -723,7 +743,6 @@ retainTerrainMeshes(chunkKeys)
 clearTerrainMeshes()
 upsertTerrainTextures(width, height, layers, formatCode, albedo, normal, material)
 renderFrame()
-status()
 ```
 
 Current runtime TypeScript that remains:
@@ -744,7 +763,7 @@ Current runtime TypeScript that remains:
 | TypeScript calls one frame method | App/runtime facade calls `game.tick(frame)` only; `RustBrowserGameAdapter` still calls wasm `renderFrame()` internally after terrain streaming. | Partial |
 | Frame input is one object packet | App/runtime/adapter and the `engine_web` wasm-bindgen API use `BrowserFrameInput`; wasm-bindgen currently types the raw JS argument as `any` in generated d.ts. | Complete |
 | UI/debug uses command lane | App/runtime/adapter and `engine_web.wasm` use object-shaped `command(command)` for player/debug actions; `resetStreaming` remains TypeScript-owned until terrain streaming moves behind Rust. | Partial |
-| Debug/status uses one Rust snapshot | App reads `game.debugSnapshot()`; player mode/position come from Rust `debugSnapshot()`, but terrain stream/debug fields are still assembled by the TypeScript runtime facade. | Partial |
+| Debug/status uses one Rust snapshot | App reads `game.debugSnapshot()`; player mode, player position, and renderer status come from Rust `debugSnapshot()`, but terrain stream/debug fields are still assembled by the TypeScript runtime facade. | Partial |
 | No public terrain mesh upload calls | `upsertTerrainMesh` and retention calls remain. | Pending |
 | No public terrain texture upload calls | `upsertTerrainTextures` remains. | Pending |
 | No direct TypeScript `terrain_core.wasm` runtime calls | `RustBrowserGameRuntime` and Workers still load/call `terrain_core.wasm`. | Pending |
@@ -898,7 +917,6 @@ TypeScript/Rust boundary:
     retainTerrainMeshes(chunkKeys)
     clearTerrainMeshes()
     upsertTerrainTextures(width, height, layers, formatCode, albedo, normal, material)
-    status()
 
 New TypeScript files must not become terrain schedulers, terrain mesh stores,
 render resource owners, scene graphs, ECS systems, factory simulation owners, or

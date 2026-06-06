@@ -23,7 +23,7 @@ const wasmPath = `${outDir}/${crateName}_bg.wasm`;
 const dtsPath = `${outDir}/${crateName}.d.ts`;
 const tempOutDir = `target/wasm-bindgen/${crateName}`;
 const wasmBindgenCommand = process.env.WASM_BINDGEN ?? "wasm-bindgen";
-const expectedExports = ["RustBrowserGame", "RustBrowserGameStatus"];
+const expectedExports = ["RustBrowserGame"];
 
 const build = spawnSync(
   "cargo",
