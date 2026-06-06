@@ -1,12 +1,14 @@
 import { ENGINE_WEB_WASM_METADATA } from "../../generated/web/engineWebWasm.js";
+import {
+  createBrowserTextureAssetLoader,
+  type BrowserTextureAssetLoader
+} from "../browser/textureAssetLoader.js";
 import type {
   BrowserFrameInput,
   BrowserViewport,
   RustBrowserGameCommand,
   RustBrowserGameDebugSnapshot
 } from "./browserGameTypes.js";
-
-export const ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM = 1;
 
 export type EngineWebRendererStatus = {
   readonly version: number;
@@ -28,22 +30,16 @@ export type EngineWebBrowserGame = {
   tick(frame: BrowserFrameInput): void;
   command(command: RustBrowserGameCommand): void;
   debugSnapshot(): RustBrowserGameDebugSnapshot;
-  upsertTerrainTextures(
-    width: number,
-    height: number,
-    layers: number,
-    formatCode: number,
-    albedoData: Uint8Array,
-    normalData: Uint8Array,
-    materialData: Uint8Array
-  ): void;
   terrainHeightAt(x: number, z: number): number;
 };
 
 export type EngineWebWasmModule = {
   default(input?: unknown): Promise<unknown>;
   readonly RustBrowserGame: {
-    create(canvas: HTMLCanvasElement): Promise<EngineWebBrowserGame>;
+    create(
+      canvas: HTMLCanvasElement,
+      assetLoader: BrowserTextureAssetLoader
+    ): Promise<EngineWebBrowserGame>;
   };
 };
 
@@ -61,12 +57,13 @@ export async function loadEngineWebWasmModule(
 
 export async function createEngineWebBrowserGame(
   canvas: HTMLCanvasElement,
+  assetLoader: BrowserTextureAssetLoader = createBrowserTextureAssetLoader(),
   loadModule: () => Promise<EngineWebWasmModule> = loadEngineWebWasmModule
 ): Promise<EngineWebBrowserGame> {
   patchLegacyWgpuRequiredLimits();
   const module = await loadModule();
 
-  return module.RustBrowserGame.create(canvas);
+  return module.RustBrowserGame.create(canvas, assetLoader);
 }
 
 export function patchLegacyWgpuRequiredLimits(globalObject: typeof globalThis = globalThis): boolean {

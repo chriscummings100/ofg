@@ -1,5 +1,4 @@
 import { deepEqual, equal } from "node:assert/strict";
-import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
 import type { BrowserFrameInput, RustBrowserGameCommand } from "./browserGameTypes.js";
 import {
   RustBrowserGameRuntime,
@@ -50,7 +49,6 @@ function fakeRenderer(): FakeRenderer {
     runtime: "rust-wgpu",
     tickCalls: [],
     commandCalls: [],
-    setTerrainTextures(_textures: TerrainMaterialTextures) {},
     tick(frame) {
       this.tickCalls.push(frame);
     },

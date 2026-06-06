@@ -2,10 +2,12 @@ use crate::{
     build_frame_packet_from_engine_snapshot, build_frame_uniform_values, build_material_packet,
     build_object_uniform_values, build_player_marker_world_matrix, BrowserGameInput,
     BrowserGameState, BrowserTerrainStream, MaterialPacketError, RenderPacketError,
-    RenderUniformError, RendererState, RendererStateError, ResourceHandle,
-    ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS, MATERIAL_PACKET_FLOATS,
-    REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_MATERIAL_ID, TERRAIN_MATERIAL_PACKET,
-    TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM, WORLD_MATRIX_FLOATS,
+    RenderUniformError, RendererState, RendererStateError, ResourceHandle, RgbaTextureArrayAsset,
+    TerrainTextureArrays, TerrainTextureError, ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS,
+    MATERIAL_PACKET_FLOATS, REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_ALBEDO_TEXTURE_ARRAY_ID,
+    TERRAIN_MATERIAL_ID, TERRAIN_MATERIAL_PACKET, TERRAIN_MATERIAL_TEXTURE_ARRAY_ID,
+    TERRAIN_NORMAL_TEXTURE_ARRAY_ID, TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
+    WORLD_MATRIX_FLOATS,
 };
 use engine_core::{PlayerMode, Vec3};
 
@@ -285,6 +287,98 @@ fn terrain_material_packet_is_owned_by_rust() {
 }
 
 #[test]
+fn terrain_texture_manifest_requests_are_owned_by_rust() {
+    let requests = crate::terrain_texture_array_requests().unwrap();
+
+    assert_eq!(requests.len(), 3);
+    assert_eq!(requests[0].id, TERRAIN_ALBEDO_TEXTURE_ARRAY_ID);
+    assert_eq!(requests[1].id, TERRAIN_NORMAL_TEXTURE_ARRAY_ID);
+    assert_eq!(requests[2].id, TERRAIN_MATERIAL_TEXTURE_ARRAY_ID);
+    for request in requests {
+        assert_eq!(request.urls.len(), REQUIRED_TEXTURE_ARRAY_LAYERS as usize);
+        assert!(request.urls.iter().all(|url| url.starts_with('/')));
+        assert!(request.urls.iter().all(|url| url.ends_with(".jpg")));
+        assert!(request.urls.iter().all(|url| workspace_path(url).exists()));
+    }
+}
+
+#[test]
+fn terrain_texture_manifest_rejects_wrong_layer_count() {
+    let manifest = r#"{
+      "materials": [{
+        "maps": {
+          "albedo": { "path": "assets/a.jpg" },
+          "normal": { "path": "assets/n.jpg" },
+          "roughness": { "path": "assets/r.jpg" }
+        }
+      }]
+    }"#;
+
+    assert_eq!(
+        crate::terrain_texture_array_requests_from_manifest_json(manifest),
+        Err(TerrainTextureError::InvalidLayerCount {
+            actual: 1,
+            expected: REQUIRED_TEXTURE_ARRAY_LAYERS
+        })
+    );
+}
+
+#[test]
+fn terrain_texture_arrays_validate_browser_loaded_assets() {
+    let textures = TerrainTextureArrays::from_assets(vec![
+        fake_texture_asset(
+            TERRAIN_ALBEDO_TEXTURE_ARRAY_ID,
+            2,
+            2,
+            REQUIRED_TEXTURE_ARRAY_LAYERS,
+        ),
+        fake_texture_asset(
+            TERRAIN_NORMAL_TEXTURE_ARRAY_ID,
+            2,
+            2,
+            REQUIRED_TEXTURE_ARRAY_LAYERS,
+        ),
+        fake_texture_asset(
+            TERRAIN_MATERIAL_TEXTURE_ARRAY_ID,
+            2,
+            2,
+            REQUIRED_TEXTURE_ARRAY_LAYERS,
+        ),
+    ])
+    .unwrap();
+
+    assert_eq!(textures.width, 2);
+    assert_eq!(textures.height, 2);
+    assert_eq!(textures.layers, REQUIRED_TEXTURE_ARRAY_LAYERS);
+    assert_eq!(textures.format_code, TEXTURE_FORMAT_RGBA8_UNORM);
+
+    let mismatch = TerrainTextureArrays::from_assets(vec![
+        fake_texture_asset(
+            TERRAIN_ALBEDO_TEXTURE_ARRAY_ID,
+            2,
+            2,
+            REQUIRED_TEXTURE_ARRAY_LAYERS,
+        ),
+        fake_texture_asset(
+            TERRAIN_NORMAL_TEXTURE_ARRAY_ID,
+            4,
+            2,
+            REQUIRED_TEXTURE_ARRAY_LAYERS,
+        ),
+        fake_texture_asset(
+            TERRAIN_MATERIAL_TEXTURE_ARRAY_ID,
+            2,
+            2,
+            REQUIRED_TEXTURE_ARRAY_LAYERS,
+        ),
+    ]);
+    assert!(matches!(
+        mismatch,
+        Err(TerrainTextureError::TextureShapeMismatch { .. })
+    ));
+}
+
+#[test]
 fn material_packets_reject_invalid_values() {
     assert_eq!(
         build_material_packet([f32::NAN, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0], 0.18, 0.0, 1.0,),
@@ -424,6 +518,22 @@ fn configured_renderer() -> RendererState {
         .configure(1280, 720, REQUIRED_TEXTURE_ARRAY_LAYERS)
         .unwrap();
     renderer
+}
+
+fn fake_texture_asset(id: &str, width: u32, height: u32, layers: u32) -> RgbaTextureArrayAsset {
+    RgbaTextureArrayAsset {
+        id: id.to_string(),
+        width,
+        height,
+        layers,
+        data: vec![0; width as usize * height as usize * layers as usize * 4],
+    }
+}
+
+fn workspace_path(path: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(path.trim_start_matches('/'))
 }
 
 fn assert_close(actual: f32, expected: f32) {

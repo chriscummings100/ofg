@@ -96,8 +96,12 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   `engine_web`. Rust `BrowserTerrainStream` now uses `terrain_core` as a
   library to advance stream state, generate LOD0 meshes, upload/prune
   `RustBrowserGame` terrain meshes, and assemble terrain stream debug status.
-- [ ] Move terrain texture asset ownership behind Rust and delete public
-  terrain texture upload calls.
+- [x] (2026-06-06) Moved terrain texture asset ownership behind Rust and
+  deleted public terrain texture upload calls. `engine_web` now includes and
+  parses the checked-in Poly Haven manifest, chooses albedo/normal/roughness
+  layer URLs, validates returned RGBA arrays, and installs GPU texture handles
+  during `RustBrowserGame.create(canvas, asset_loader)`. TypeScript now provides
+  only a generic browser texture-array decoder.
 - [x] (2026-06-06) Removed public terrain mesh upload calls by making
   `engine_web` own mesh upload, retention, pruning, render visibility, and
   terrain chunk debug keys.
@@ -228,6 +232,11 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   `npm run smoke:browser`; inspected
   `artifacts/browser-smoke/2026-06-06T10-42-32-192Z/report.json` plus first
   person, debug-fly, and streamed first-person screenshots.
+- [x] (2026-06-06) Validated the Rust-owned terrain texture asset slice with
+  `cargo test -p engine_web`, `npm test`, `npm run check:wasm`, and
+  `npm run smoke:browser`; inspected
+  `artifacts/browser-smoke/2026-06-06T14-27-37-113Z/report.json` plus first
+  person, debug-fly, and streamed first-person screenshots.
 
 ## Surprises & Discoveries
 
@@ -327,6 +336,18 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   `terrainChunkWorkerClient`, `terrainChunkWorkerTypes`, or
   `terrainRenderChunkSink`; the generated `engine_web.d.ts` exposes no terrain
   mesh upload or `renderFrame()` methods.
+- Observation: Rust could own terrain texture manifest interpretation without
+  also owning browser JPEG decode.
+  Evidence: `crates/engine_web/src/terrain_textures.rs` includes and parses
+  `assets/textures/polyhaven/manifest.json`, builds three texture-array URL
+  requests, validates returned RGBA arrays, and
+  `src/engine/browser/textureAssetLoader.ts` only implements a generic
+  `loadTextureArrays(requests)` browser service.
+- Observation: The public wasm-bindgen terrain texture upload API is gone.
+  Evidence: `assets/wasm/engine_web/engine_web.d.ts` exposes
+  `RustBrowserGame.create(canvas, asset_loader)`, `resize(viewport)`,
+  `tick(frame)`, `command(command)`, `debugSnapshot()`, and
+  `terrainHeightAt(x, z)`, with no `upsertTerrainTextures`.
 
 ## Decision Log
 
@@ -463,8 +484,18 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   `terrain_core` Rust library instead of preserving a TypeScript Worker bridge.
   Rationale: This removes public terrain mesh upload calls, direct runtime
   `terrain_core.wasm` instantiation, TypeScript terrain worker payload schemas,
-  and the separate `renderFrame()` wasm method in one coherent slice. It keeps
-  texture asset loading as the next distinct browser/Rust boundary.
+  and the separate `renderFrame()` wasm method in one coherent slice. It kept
+  texture asset loading as the next distinct browser/Rust boundary, which this
+  plan later completed.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Keep browser image decode as a generic asset-loader service while
+  moving terrain texture semantics into Rust.
+  Rationale: Browser JPEG fetch/decode/canvas readback is a browser capability,
+  but material manifest selection, layer ordering, texture-array validation, and
+  GPU texture installation are engine/render responsibilities. Passing
+  `assetLoader.loadTextureArrays(requests)` into `RustBrowserGame.create(...)`
+  removes terrain-specific TypeScript without blocking on a full Rust DOM image
+  decoder.
   Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
@@ -479,11 +510,11 @@ chunk debug keys, renderer status, and render submission now cross the
 wasm-bindgen boundary through `tick(frame)`, `command(command)`, and
 `debugSnapshot()`.
 
-The main remaining implementation gap is terrain texture asset loading:
-TypeScript still reads the Poly Haven manifest/JPGs, decodes them to RGBA arrays,
-and calls `upsertTerrainTextures(...)`. The recommended next slice is to move
-terrain texture asset ownership behind Rust or replace the texture-specific
-TypeScript path with a generic browser asset/image service.
+The main planned Rust-conversion scorecard is complete. TypeScript still hosts
+browser-only substrate, including DOM input, module loading, URL/debug/HUD code,
+canvas resize measurement, and a generic texture-array image decoder, but it no
+longer owns terrain generation, terrain streaming, mesh upload, texture manifest
+semantics, render extraction, WebGPU resources, or draw submission.
 
 The previous docs cleanup validated with:
 
@@ -594,6 +625,13 @@ The Rust-owned terrain stream and mesh upload slice validated with:
     cargo test -p terrain_core
     cargo test -p engine_web
     npm test
+    npm run smoke:browser
+
+The Rust-owned terrain texture asset slice validated with:
+
+    cargo test -p engine_web
+    npm test
+    npm run check:wasm
     npm run smoke:browser
 
 ## Context and Orientation
@@ -784,13 +822,13 @@ Already Rust-owned:
 | Terrain height/density sampling | `crates/terrain_core` | Runtime TypeScript generator/noise code deleted. |
 | Density chunk filling | `crates/terrain_core` | The playable browser path no longer transports density chunks through TypeScript. |
 | Dual Contouring mesh emission | `crates/terrain_core` | Runtime TypeScript meshing code deleted. |
-| Terrain material/biome classification | `crates/terrain_core` | Runtime classification is Rust-owned; the duplicated TypeScript material list is deleted, but TypeScript still reads the checked-in texture asset manifest for browser image decode. |
+| Terrain material/biome classification | `crates/terrain_core` | Runtime classification is Rust-owned; the duplicated TypeScript material list is deleted, and TypeScript no longer interprets the terrain texture manifest. |
 | Terrain stream scheduling | `crates/terrain_core/src/stream.rs`, composed by `crates/engine_web/src/terrain_stream.rs` | TypeScript no longer calls the terrain scheduler at runtime. |
 | Terrain retained density store | `crates/terrain_core/src/store.rs` | Retained-store behavior remains covered by Rust/WASM tests; the playable runtime no longer has a TypeScript density-store adapter. |
 | Terrain worker-pool bookkeeping | `crates/terrain_core/src/worker_pool.rs` | No playable TypeScript worker bridge remains; worker-pool logic is currently a Rust-tested fixture rather than a browser runtime owner. |
 | Player/camera tick state | `crates/engine_web`, backed by `crates/engine_core` | Playable app no longer loads or builds a standalone `engine_core.wasm` artifact. |
 | WebGPU renderer | `crates/engine_web/src/wgpu_renderer.rs` | TypeScript no longer creates devices, pipelines, buffers, render passes, or draw calls. |
-| Terrain GPU mesh/texture handles | `crates/engine_web` | Rust owns terrain mesh upload/pruning and texture GPU handles; TypeScript still uploads decoded texture arrays into Rust. |
+| Terrain GPU mesh/texture handles | `crates/engine_web` | Rust owns terrain mesh upload/pruning, terrain texture manifest interpretation, texture-array validation, GPU texture handles, and texture installation. TypeScript only decodes generic URL lists into RGBA arrays for Rust. |
 | Active terrain draw set | `crates/engine_web` | Rust owns active chunk keys and returns them through `debugSnapshot()`. |
 | Debug player marker mesh/material | `crates/engine_web` | TypeScript primitive marker mesh is no longer runtime-used. |
 | Player/debug commands and debug snapshot | `crates/engine_web`, backed by `crates/engine_core` | TypeScript sends command objects into Rust and reads player, terrain stream, and renderer status from Rust `debugSnapshot()`. |
@@ -798,13 +836,12 @@ Already Rust-owned:
 Current public browser-facing Rust API in `src/engine/web/engineWebWasm.ts`:
 
 ```ts
-create(canvas)
+create(canvas, assetLoader)
 resize(viewport)
 tick(frame)
 command(command)
 debugSnapshot()
 terrainHeightAt(x, z)
-upsertTerrainTextures(width, height, layers, formatCode, albedo, normal, material)
 ```
 
 Current runtime TypeScript that remains:
@@ -813,20 +850,20 @@ Current runtime TypeScript that remains:
 |---|---|---|
 | App shell | Starts game, tracks input, updates HUD, exposes debug hooks, reads URL params, calls `game.tick(frame)`, sends `game.command(...)`, and reads `game.debugSnapshot()`. | Keep as browser shell. |
 | WASM loading | Loads `engine_web.wasm` for the playable browser game; `terrain_core.wasm` remains for tests/benchmarks, not runtime terrain ownership. | Keep only generic game module loading. |
-| Texture asset decode | Fetches the checked-in Poly Haven manifest and JPGs, draws them to canvas, reads RGBA pixels, uploads arrays into Rust. | Move terrain asset ownership behind Rust; TS may remain generic byte/image helper only. |
+| Texture asset decode | Accepts Rust-provided generic texture-array URL requests, fetches images, draws them to canvas, and returns RGBA arrays. | Keep as generic browser asset helper unless Rust later owns browser image decode directly. |
 | Debug/smoke hooks | `window.__ofgDebug` reads the Rust runtime `debugSnapshot()` and sends `game.command(...)`; terrain stream/debug fields are Rust-assembled. | Keep as browser HUD/smoke shell while Rust owns snapshot content. |
 
 ## Current Scorecard
 
 | Target item | Current state | Status |
 |---|---|---|
-| TypeScript creates one Rust game facade | `createRustBrowserGameRuntime` wraps only `RustBrowserGame` and texture loading; no TS terrain streamer/worker/runtime terrain core remains. | Complete |
+| TypeScript creates one Rust game facade | `createRustBrowserGameRuntime` wraps only `RustBrowserGame`; no TS terrain streamer/worker/runtime terrain core remains. | Complete |
 | TypeScript calls one frame method | App/runtime/adapter call `game.tick(frame)`; Rust ticks player/camera, advances terrain, uploads/prunes meshes, and renders. | Complete |
 | Frame input is one object packet | App/runtime/adapter and the `engine_web` wasm-bindgen API use `BrowserFrameInput`; wasm-bindgen currently types the raw JS argument as `any` in generated d.ts. | Complete |
 | UI/debug uses command lane | App/runtime/adapter and `engine_web.wasm` use object-shaped `command(command)` for player/debug and `resetStreaming`. | Complete |
 | Debug/status uses one Rust snapshot | App reads `game.debugSnapshot()`; player, terrain stream, chunk keys, renderer, and runtime fields come from Rust. | Complete |
 | No public terrain mesh upload calls | Generated `engine_web.d.ts` exposes no `upsertTerrainMesh`, `destroyTerrainMesh`, `retainTerrainMeshes`, or `clearTerrainMeshes`. | Complete |
-| No public terrain texture upload calls | `upsertTerrainTextures` remains. | Pending |
+| No public terrain texture upload calls | Generated `engine_web.d.ts` exposes no `upsertTerrainTextures`; Rust requests texture arrays through generic create-time asset loading. | Complete |
 | No direct TypeScript `terrain_core.wasm` runtime calls | Runtime code loads only `engine_web.wasm`; `terrain_core.wasm` remains for tests/benchmarks. | Complete |
 | Worker semantics are Rust-owned and opaque to TS | The playable runtime has no terrain-specific TypeScript Worker protocol. | Complete |
 | Rust owns WebGPU directly | Rust/wgpu owns browser rendering. | Complete |
@@ -857,11 +894,11 @@ threading/performance work can add Rust-managed wasm threads or another
 Rust-owned job system without reintroducing TypeScript terrain payload
 semantics.
 
-Fourth, move terrain texture asset ownership behind Rust. Delete
-`upsertTerrainTextures` from the public TypeScript-to-Rust API. Rust should own
-material manifests, layer ordering, texture-array validation, and upload
-decisions. TypeScript may remain only as a generic browser asset helper if Rust
-cannot directly perform one browser-only step.
+Fourth, move terrain texture asset ownership behind Rust. This is complete:
+`upsertTerrainTextures` is deleted from the public TypeScript-to-Rust API. Rust
+owns material manifests, layer ordering, texture-array validation, and upload
+decisions. TypeScript remains only as a generic browser texture-array decoder
+for Rust-provided URL requests.
 
 Fifth, remove public terrain mesh upload calls. This is complete:
 `upsertTerrainMesh`, `destroyTerrainMesh`, `retainTerrainMeshes`, and
@@ -877,7 +914,7 @@ script, package-script entries, checked-in artifact, and tests are deleted.
 Re-audit current TypeScript from `C:\dev\ofg` before deleting files:
 
     rg --files src | Sort-Object
-    rg -n "TerrainCoreWorkerStreamer|terrainChunkWorker|terrainRenderChunkSink|upsertTerrainMesh|renderFrame|upsertTerrainTextures" src docs AGENTS.md assets/wasm/engine_web/engine_web.d.ts
+    rg -n "TerrainCoreWorkerStreamer|terrainChunkWorker|terrainRenderChunkSink|upsertTerrainMesh|renderFrame|upsertTerrainTextures" src AGENTS.md assets/wasm/engine_web/engine_web.d.ts
 
 For docs-only edits:
 
@@ -967,10 +1004,9 @@ Stable target interface:
     game.load(saveBytes)
     game.dispose()
 
-Temporary or current interface elements that must still disappear from the public
-TypeScript/Rust boundary:
-
-    upsertTerrainTextures(width, height, layers, formatCode, albedo, normal, material)
+No terrain-specific upload calls remain in the public TypeScript/Rust boundary.
+Future save/load/dispose methods in the stable target interface should be added
+when those features become real runtime behaviors.
 
 New TypeScript files must not become terrain schedulers, terrain mesh stores,
 render resource owners, scene graphs, ECS systems, factory simulation owners, or
@@ -981,3 +1017,8 @@ terrain-specific Worker protocols.
 2026-06-06: This plan was rewritten as a full ExecPlan after consolidating active
 docs. It now preserves the content of the archived reduction ExecPlan and embeds
 the browser/Rust API contract and TypeScript reduction audit directly.
+
+2026-06-06: The planned Rust-conversion scorecard is complete. The remaining
+TypeScript is browser substrate: startup/module loading, DOM input, HUD/debug
+hooks, canvas size measurement, and a generic texture-array image decoder used
+by Rust-owned terrain texture requests.

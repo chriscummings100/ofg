@@ -1,27 +1,16 @@
 import { equal } from "node:assert/strict";
-import type { RgbaTextureArray } from "../render/textureLoader.js";
-import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
 import type { BrowserFrameInput } from "./browserGameTypes.js";
 import type { EngineWebBrowserGame } from "./engineWebWasm.js";
 import { RustBrowserGameAdapter } from "./rustBrowserGameAdapter.js";
 
 describe("RustBrowserGameAdapter", () => {
-  it("uploads terrain texture bytes and ticks through the Rust browser game facade", () => {
+  it("resizes and ticks through the Rust browser game facade", () => {
     const fake = fakeBrowserGame();
     const adapter = new RustBrowserGameAdapter(fakeCanvas(), fake);
-    const terrainTextures = fakeTerrainTextures();
     const frame = fakeFrameInput();
 
-    adapter.setTerrainTextures(terrainTextures);
     withFakeWindow(() => adapter.tick(frame));
 
-    equal(fake.upsertedTerrainTextures.length, 1);
-    equal(fake.upsertedTerrainTextures[0]?.width, 1);
-    equal(fake.upsertedTerrainTextures[0]?.layers, 1);
-    equal(fake.upsertedTerrainTextures[0]?.formatCode, 1);
-    equal(fake.upsertedTerrainTextures[0]?.albedoData[0], 255);
-    equal(fake.upsertedTerrainTextures[0]?.normalData[1], 255);
-    equal(fake.upsertedTerrainTextures[0]?.materialData[2], 255);
     equal(fake.tickCalls[0], frame);
     equal(fake.resizeCalls[0]?.width, 640);
     equal(fake.resizeCalls[0]?.height, 480);
@@ -68,14 +57,6 @@ describe("RustBrowserGameAdapter", () => {
 });
 
 type FakeBrowserGame = EngineWebBrowserGame & {
-  upsertedTerrainTextures: {
-    readonly width: number;
-    readonly layers: number;
-    readonly formatCode: number;
-    readonly albedoData: Uint8Array;
-    readonly normalData: Uint8Array;
-    readonly materialData: Uint8Array;
-  }[];
   resizeCalls: Array<Parameters<EngineWebBrowserGame["resize"]>[0]>;
   tickCalls: BrowserFrameInput[];
   commandCalls: Array<Parameters<EngineWebBrowserGame["command"]>[0]>;
@@ -83,7 +64,6 @@ type FakeBrowserGame = EngineWebBrowserGame & {
 
 function fakeBrowserGame(): FakeBrowserGame {
   return {
-    upsertedTerrainTextures: [],
     resizeCalls: [],
     tickCalls: [],
     commandCalls: [],
@@ -149,36 +129,9 @@ function fakeBrowserGame(): FakeBrowserGame {
         playerControllerRuntime: "rust"
       };
     },
-    upsertTerrainTextures(width, _height, layers, formatCode, albedoData, normalData, materialData) {
-      this.upsertedTerrainTextures.push({
-        width,
-        layers,
-        formatCode,
-        albedoData,
-        normalData,
-        materialData
-      });
-    },
     terrainHeightAt(x, z) {
       return x + z - 1;
     }
-  };
-}
-
-function fakeTerrainTextures(): TerrainMaterialTextures {
-  return {
-    albedo: fakeTextureArray([255, 0, 0, 255]),
-    normal: fakeTextureArray([0, 255, 0, 255]),
-    material: fakeTextureArray([0, 0, 255, 255])
-  };
-}
-
-function fakeTextureArray(bytes: readonly number[]): RgbaTextureArray {
-  return {
-    width: 1,
-    height: 1,
-    layers: 1,
-    data: new Uint8Array(bytes)
   };
 }
 

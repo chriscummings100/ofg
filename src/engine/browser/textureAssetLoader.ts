@@ -1,26 +1,57 @@
-export type RgbaTextureArray = {
+// Generic browser image decoder for Rust-owned render asset requests.
+// Rust sends URL lists and receives RGBA texture-array bytes; TypeScript does
+// not interpret terrain manifests, material layers, or renderer texture roles.
+
+export type RgbaTextureArrayAssetRequest = {
+  readonly id: string;
+  readonly urls: readonly string[];
+};
+
+export type RgbaTextureArrayAsset = {
+  readonly id: string;
   readonly width: number;
   readonly height: number;
   readonly layers: number;
   readonly data: Uint8Array;
 };
 
-export async function loadRgbaTextureFromUrl(
+export type RgbaTextureArrayPixels = {
+  readonly width: number;
+  readonly height: number;
+  readonly layers: number;
+  readonly data: Uint8Array;
+};
+
+export type BrowserTextureAssetLoader = {
+  loadTextureArrays(
+    requests: readonly RgbaTextureArrayAssetRequest[]
+  ): Promise<readonly RgbaTextureArrayAsset[]>;
+};
+
+type TextureArrayDecoder = (
   label: string,
-  url: string
-): Promise<RgbaTextureArray> {
-  const image = await loadImageBitmap(url);
-  try {
-    return textureFromRgbaPixels(label, image.width, image.height, imageBitmapToRgba(image, url));
-  } finally {
-    image.close();
-  }
+  urls: readonly string[]
+) => Promise<RgbaTextureArrayPixels>;
+
+export function createBrowserTextureAssetLoader(
+  decodeTextureArray: TextureArrayDecoder = loadRgbaTextureArrayFromUrls
+): BrowserTextureAssetLoader {
+  return {
+    async loadTextureArrays(requests) {
+      return await Promise.all(
+        requests.map(async (request) => ({
+          id: request.id,
+          ...(await decodeTextureArray(`texture-array:${request.id}`, request.urls))
+        }))
+      );
+    }
+  };
 }
 
 export async function loadRgbaTextureArrayFromUrls(
   label: string,
   urls: readonly string[]
-): Promise<RgbaTextureArray> {
+): Promise<RgbaTextureArrayPixels> {
   if (urls.length === 0) {
     throw new Error("Texture array must contain at least one URL.");
   }
@@ -56,7 +87,7 @@ export function textureFromRgbaPixels(
   width: number,
   height: number,
   data: Uint8Array | Uint8ClampedArray
-): RgbaTextureArray {
+): RgbaTextureArrayPixels {
   return textureArrayFromRgbaPixels(label, width, height, 1, data);
 }
 
@@ -66,7 +97,7 @@ export function textureArrayFromRgbaPixels(
   height: number,
   layers: number,
   data: Uint8Array | Uint8ClampedArray
-): RgbaTextureArray {
+): RgbaTextureArrayPixels {
   if (width <= 0 || height <= 0) {
     throw new Error(`Texture '${label}' dimensions must be positive.`);
   }

@@ -234,16 +234,13 @@ impl BrowserTerrainStream {
         }
 
         self.mesh_coords.insert(coord);
-        update.upserted_meshes.push(BrowserTerrainMeshUpdate { coord, mesh });
+        update
+            .upserted_meshes
+            .push(BrowserTerrainMeshUpdate { coord, mesh });
     }
 
     fn coord_containing_position(&self, position: Vec3) -> TerrainChunkCoord {
-        terrain_chunk_coord_containing_position(
-            position.x,
-            position.y,
-            position.z,
-            self.cell_size,
-        )
+        terrain_chunk_coord_containing_position(position.x, position.y, position.z, self.cell_size)
     }
 }
 

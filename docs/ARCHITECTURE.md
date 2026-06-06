@@ -14,8 +14,8 @@ The detailed Rust conversion path is tracked in
 scene/component model has been retired from the compiled source tree, and
 Rust/wgpu is now the browser WebGPU renderer. Use the Rust conversion plan before
 adding, deleting, or moving TypeScript around terrain, rendering, or engine
-ownership. The remaining TypeScript render-adjacent code is a temporary
-texture asset and debug adapter around a Rust-owned browser game/render facade.
+ownership. The remaining TypeScript render-adjacent code is a generic browser
+image decoder plus debug shell around a Rust-owned browser game/render facade.
 
 ## Current Layers
 
@@ -32,7 +32,9 @@ src/engine/input
 src/engine/browser
   Generic browser substrate helpers. `BrowserWorkerHost` remains as tested
   generic worker substrate, but the playable terrain path no longer uses a
-  TypeScript terrain worker bridge.
+  TypeScript terrain worker bridge. `textureAssetLoader.ts` decodes
+  Rust-provided generic texture-array URL requests into RGBA arrays without
+  owning terrain material semantics.
 
 src/engine/world
   Terrain descriptor/config types, 3D terrain chunk key helpers, Rust/WASM
@@ -45,19 +47,18 @@ src/engine/math
   Small vector and matrix primitives.
 
 src/engine/render
-  CPU-side terrain texture decoding helpers that read the checked-in Poly Haven
-  manifest and shader contract tests. Actual browser WebGPU resource creation,
-  terrain mesh generation/upload/pruning, active draw-set ownership, and draw
-  submission happen in Rust/wgpu through `crates/engine_web`; TypeScript only
-  uploads decoded terrain texture arrays for the Rust browser game facade.
+  Shader contract tests. Actual browser WebGPU resource creation, terrain
+  texture manifest interpretation, texture-array validation/upload, terrain mesh
+  generation/upload/pruning, active draw-set ownership, and draw submission
+  happen in Rust/wgpu through `crates/engine_web`.
 
 src/engine/web
   Browser-facing WASM loaders for Rust systems that are not pure engine core or
   terrain. `engineWebWasm.ts` loads the wasm-bindgen `RustBrowserGame` facade
   and applies a narrow browser compatibility shim for the pinned `wgpu` limit
-  name. `rustBrowserGameRuntime.ts` is the TypeScript shell around texture asset
-  decoding, debug hooks, and browser game input types; terrain streaming and
-  mesh upload live inside `engine_web.wasm`.
+  name. `rustBrowserGameRuntime.ts` is the TypeScript shell around debug hooks
+  and browser game input types; terrain streaming, texture manifest ownership,
+  and mesh upload live inside `engine_web.wasm`.
 
 src/engine/render/shaders
   Shader source inputs. `uber.wgsl` is compiled into a TypeScript artifact for
@@ -70,8 +71,8 @@ src/generated
 ## Runtime Ownership
 
 The playable browser runtime is now Rust-owned for player/camera state, terrain
-state, and WebGPU rendering, with TypeScript acting as a browser shell and
-temporary texture asset transport.
+state, terrain texture semantics, and WebGPU rendering, with TypeScript acting
+as a browser shell plus generic browser image decoder.
 
 - `engine_web` composes `engine_core` and `terrain_core` as Rust libraries for
   the active browser game facade. It owns player/camera movement, terrain-height
@@ -92,12 +93,12 @@ temporary texture asset transport.
   pipelines, buffers, texture arrays, samplers, bind groups, render-pass
   submission, frame/resource counts, and GPU resource pruning.
 - TypeScript collects DOM input, parses URL seed/preset values, starts WASM,
-  exposes debug hooks, fetches texture assets, and passes decoded terrain
-  texture arrays into the Rust-owned renderer facade. `src/app` no longer
-  constructs the terrain scheduler, density store, render packet store, worker
-  client, mirrored terrain sink, texture upload path, or terrain height sampler
-  directly. Rust owns the terrain renderer vertex stride, stream status/debug
-  snapshot, and active frame construction at that facade.
+  exposes debug hooks, and decodes Rust-provided generic texture-array URL
+  requests into RGBA arrays. `src/app` no longer constructs the terrain
+  scheduler, density store, render packet store, worker client, mirrored terrain
+  sink, texture upload path, or terrain height sampler directly. Rust owns the
+  terrain renderer vertex stride, terrain texture layer requests, stream
+  status/debug snapshot, and active frame construction at that facade.
   TypeScript no longer creates WebGPU devices, pipelines, buffers, textures,
   render passes, shader uniform buffers, renderer resource handles, shader
   material packets, camera frames, light packets, player-marker mesh/material
@@ -164,14 +165,15 @@ direct, and familiar enough for AI-driven changes.
 
 The first material model is intentionally pre-PBR: mesh vertex color multiplied by
 an albedo factor and optional albedo texture sample, plus specular color and
-specular factor. The shader uses a simple Lambert diffuse plus Blinn-Phong specular
-model. Terrain texture helpers decode checked-in image assets into CPU-side
-rgba8 arrays that the TypeScript shell passes through one terrain-specific Rust
-facade call. Rust/wgpu builds compact frame packets from its Rust-owned browser
-game state, owns shader material packets and material-to-texture selection, owns
-the debug player-marker mesh/material and world matrix, validates per-chunk
-terrain draw transforms inside the browser game facade, computes object normal
-matrices, and packs the WGSL camera/object uniform buffers.
+specular factor. The shader uses a simple Lambert diffuse plus Blinn-Phong
+specular model. Rust interprets the checked-in terrain texture manifest, requests
+generic browser RGBA texture arrays, validates the returned arrays, and installs
+the GPU texture handles. Rust/wgpu builds compact frame packets from its
+Rust-owned browser game state, owns shader material packets and
+material-to-texture selection, owns the debug player-marker mesh/material and
+world matrix, validates per-chunk terrain draw transforms inside the browser
+game facade, computes object normal matrices, and packs the WGSL camera/object
+uniform buffers.
 
 Terrain uses checked-in Poly Haven CC0 materials imported into 16-layer global
 texture arrays. The runtime currently loads albedo, normal, and roughness arrays;

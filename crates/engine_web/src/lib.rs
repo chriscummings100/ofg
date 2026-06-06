@@ -7,6 +7,7 @@ mod render_uniforms;
 mod renderer;
 mod resources;
 mod terrain_stream;
+mod terrain_textures;
 #[cfg(target_arch = "wasm32")]
 mod wgpu_renderer;
 
@@ -41,6 +42,12 @@ pub use resources::{ResourceHandle, ResourceStoreError};
 pub use terrain_stream::{
     BrowserTerrainMeshUpdate, BrowserTerrainStream, BrowserTerrainStreamStatus,
     BrowserTerrainStreamUpdate, TerrainJobStats,
+};
+pub use terrain_textures::{
+    terrain_texture_array_requests, terrain_texture_array_requests_from_manifest_json,
+    RgbaTextureArrayAsset, TerrainTextureArrayRequest, TerrainTextureArrays, TerrainTextureError,
+    TERRAIN_ALBEDO_TEXTURE_ARRAY_ID, TERRAIN_MATERIAL_TEXTURE_ARRAY_ID,
+    TERRAIN_NORMAL_TEXTURE_ARRAY_ID,
 };
 #[cfg(target_arch = "wasm32")]
 pub use wgpu_renderer::*;

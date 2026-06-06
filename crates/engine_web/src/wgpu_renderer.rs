@@ -19,6 +19,7 @@ use crate::render_uniforms::{
 };
 use crate::resources::{ResourceHandle, ResourceStore};
 use crate::terrain_stream::{BrowserTerrainStream, BrowserTerrainStreamStatus, TerrainJobStats};
+use crate::terrain_textures::{load_terrain_texture_arrays, TerrainTextureArrays};
 use crate::ENGINE_WEB_VERSION;
 use engine_core::{PlayerMode, Vec3};
 use terrain_core::{terrain_chunk_key, TerrainChunkCoord, DEFAULT_TERRAIN_PRESET};
@@ -114,9 +115,13 @@ const PLAYER_MARKER_MATERIAL_PACKET: [f32; MATERIAL_PACKET_FLOATS] =
 #[wasm_bindgen]
 impl RustBrowserGame {
     #[wasm_bindgen(js_name = create)]
-    pub async fn create(canvas: web_sys::HtmlCanvasElement) -> Result<RustBrowserGame, JsValue> {
+    pub async fn create(
+        canvas: web_sys::HtmlCanvasElement,
+        asset_loader: JsValue,
+    ) -> Result<RustBrowserGame, JsValue> {
         console_error_panic_hook::set_once();
         let mut renderer = BrowserWgpuRenderer::new(canvas).await?;
+        let terrain_texture_arrays = load_terrain_texture_arrays(&asset_loader).await?;
         let (player_marker_vertices, player_marker_indices) = create_player_marker_mesh();
         let player_marker_mesh = renderer.register_mesh(
             &player_marker_vertices,
@@ -125,7 +130,7 @@ impl RustBrowserGame {
         )?;
         let player_marker_object = renderer.register_object()?;
 
-        Ok(Self {
+        let mut game = Self {
             game_state: BrowserGameState::new(),
             terrain_stream: BrowserTerrainStream::new(0, DEFAULT_TERRAIN_PRESET)
                 .map_err(js_error)?,
@@ -136,7 +141,10 @@ impl RustBrowserGame {
             player_marker_mesh,
             player_marker_object,
             player_marker_material_packet: PLAYER_MARKER_MATERIAL_PACKET,
-        })
+        };
+        game.install_terrain_textures(terrain_texture_arrays)?;
+
+        Ok(game)
     }
 
     #[wasm_bindgen(js_name = resize)]
@@ -258,7 +266,11 @@ impl RustBrowserGame {
             "terrainStreamStatus",
             terrain_stream_status_to_js(self.terrain_stream.status())?,
         )?;
-        set_js_property(&snapshot, "terrainStreamerRuntime", JsValue::from_str("rust"))?;
+        set_js_property(
+            &snapshot,
+            "terrainStreamerRuntime",
+            JsValue::from_str("rust"),
+        )?;
         set_js_property(
             &snapshot,
             "terrainStreamSchedulerRuntime",
@@ -308,56 +320,6 @@ impl RustBrowserGame {
             x,
             z,
         ))
-    }
-
-    #[wasm_bindgen(js_name = upsertTerrainTextures)]
-    pub fn upsert_terrain_textures(
-        &mut self,
-        width: u32,
-        height: u32,
-        layers: u32,
-        format_code: u32,
-        albedo_data: &[u8],
-        normal_data: &[u8],
-        material_data: &[u8],
-    ) -> Result<(), JsValue> {
-        if let Some(handles) = self.terrain_textures.take() {
-            self.destroy_terrain_textures(handles)?;
-        }
-
-        let albedo =
-            self.renderer
-                .register_texture(width, height, layers, format_code, albedo_data)?;
-        let normal =
-            match self
-                .renderer
-                .register_texture(width, height, layers, format_code, normal_data)
-            {
-                Ok(handle) => handle,
-                Err(error) => {
-                    self.renderer.destroy_texture(albedo)?;
-                    return Err(error);
-                }
-            };
-        let material =
-            match self
-                .renderer
-                .register_texture(width, height, layers, format_code, material_data)
-            {
-                Ok(handle) => handle,
-                Err(error) => {
-                    self.renderer.destroy_texture(albedo)?;
-                    self.renderer.destroy_texture(normal)?;
-                    return Err(error);
-                }
-            };
-
-        self.terrain_textures = Some(TerrainTextureHandles {
-            albedo,
-            normal,
-            material,
-        });
-        Ok(())
     }
 
     fn render_frame(&mut self) -> Result<(), JsValue> {
@@ -423,6 +385,53 @@ impl RustBrowserGame {
 }
 
 impl RustBrowserGame {
+    fn install_terrain_textures(&mut self, textures: TerrainTextureArrays) -> Result<(), JsValue> {
+        if let Some(handles) = self.terrain_textures.take() {
+            self.destroy_terrain_textures(handles)?;
+        }
+
+        let albedo = self.renderer.register_texture(
+            textures.width,
+            textures.height,
+            textures.layers,
+            textures.format_code,
+            &textures.albedo.data,
+        )?;
+        let normal = match self.renderer.register_texture(
+            textures.width,
+            textures.height,
+            textures.layers,
+            textures.format_code,
+            &textures.normal.data,
+        ) {
+            Ok(handle) => handle,
+            Err(error) => {
+                self.renderer.destroy_texture(albedo)?;
+                return Err(error);
+            }
+        };
+        let material = match self.renderer.register_texture(
+            textures.width,
+            textures.height,
+            textures.layers,
+            textures.format_code,
+            &textures.material.data,
+        ) {
+            Ok(handle) => handle,
+            Err(error) => {
+                self.renderer.destroy_texture(albedo)?;
+                self.renderer.destroy_texture(normal)?;
+                return Err(error);
+            }
+        };
+
+        self.terrain_textures = Some(TerrainTextureHandles {
+            albedo,
+            normal,
+            material,
+        });
+        Ok(())
+    }
     fn update_terrain_stream(&mut self) -> Result<(), JsValue> {
         let player_position = self.game_state.player_position().map_err(js_error)?;
         let update = self.terrain_stream.tick(player_position);

@@ -133,9 +133,10 @@ Supported:
   and the debug player marker mesh/material. `src/app` now forwards browser
   input axes/debug commands through a coarse `RustBrowserGameRuntime` shell and
   calls `tick`; Rust advances terrain streaming, uploads/prunes meshes, and
-  renders inside that frame call. The TypeScript shell still uploads the three
-  terrain texture arrays through a terrain-specific facade call while the
-  remaining texture asset transport is collapsed into Rust.
+  renders inside that frame call. Rust also owns terrain texture manifest
+  interpretation, texture-array validation, and GPU texture installation; the
+  TypeScript shell only provides a generic browser image decoder for
+  Rust-provided URL lists.
 - Rust/wgpu is now the playable browser renderer through `crates/engine_web` and
   generated `assets/wasm/engine_web/` wasm-bindgen artifacts. Rust owns the
   WebGPU canvas surface, adapter/device/queue, surface configuration, depth
@@ -147,12 +148,10 @@ Supported:
   Browser smoke asserts
   `rendererRuntime: "rust-wgpu"` and captures first-person, refreshed,
   debug-fly, and streamed terrain screenshots.
-- The remaining TypeScript terrain work is now a browser asset problem, not a
-  terrain algorithm problem. TypeScript still decodes terrain texture assets and
-  exposes debug/smoke hooks, while Rust owns stream status and terrain chunk
-  debug data. The next Rust migration terrain slice should move terrain texture
-  asset ownership behind Rust or replace the texture-specific TypeScript path
-  with a generic browser asset/image service.
+- The remaining TypeScript terrain work is browser/UI substrate, not a terrain
+  algorithm problem. TypeScript exposes debug/smoke hooks and decodes generic
+  texture-array requests for Rust, while Rust owns stream status, terrain chunk
+  debug data, terrain texture layer selection, and GPU texture installation.
 
 Partially supported or placeholder-only:
 
@@ -180,16 +179,16 @@ Partially supported or placeholder-only:
   fixtures, but the playable runtime now generates and uploads terrain meshes
   inside `engine_web`; this is not yet multi-resolution streaming or
   mesh-upload optimized.
-- TypeScript still owns terrain texture asset decoding and uploads the three
-  terrain texture arrays through a terrain-specific Rust facade call. Rust owns
-  renderer handle maps, terrain mesh handles, terrain texture handles, terrain
-  identity world matrices, fixed terrain renderer vertex stride, fixed terrain
-  material recipe, material packet construction, material-to-texture selection,
-  live terrain draw-set retention, stale resource pruning, active player/camera
-  state, render-frame construction, player-marker transform derivation, packet
-  validation, normal-matrix computation, and WGSL shader uniform packing. The
-  remaining bridge is texture asset transport, not terrain scheduling or mesh
-  upload.
+- TypeScript still performs browser image fetch/decode for Rust-provided generic
+  texture-array requests. Rust owns renderer handle maps, terrain mesh handles,
+  terrain texture handles, terrain texture manifest parsing, texture-array
+  validation, terrain identity world matrices, fixed terrain renderer vertex
+  stride, fixed terrain material recipe, material packet construction,
+  material-to-texture selection, live terrain draw-set retention, stale resource
+  pruning, active player/camera state, render-frame construction, player-marker
+  transform derivation, packet validation, normal-matrix computation, and WGSL
+  shader uniform packing. The remaining bridge is generic browser asset decode,
+  not terrain scheduling, mesh upload, or terrain texture ownership.
 - The Rust engine migration has moved past the render-packet bridge for the
   active browser player/camera path. `engine_web` now composes `engine_core` and
   `terrain_core` as Rust library dependencies, owns the active tick state,
@@ -197,9 +196,8 @@ Partially supported or placeholder-only:
   engine snapshot from TypeScript. Terrain mesh upload is Rust-owned for the
   playable path, and the old TypeScript
   `SceneRenderExtractor`/`MeshRenderer`/`RenderWorld` path has been deleted.
-  TypeScript still acts as a browser transport for texture assets and UI/debug
-  hooks until Rust owns the remaining terrain asset transport behind a coarse
-  end-to-end game facade.
+  TypeScript still acts as a generic browser image decoder and UI/debug shell;
+  terrain asset semantics now live behind the Rust game facade.
 
 Not yet supported:
 
@@ -855,7 +853,7 @@ Progress notes:
 
 | Date | Status | Notes |
 |---|---|---|
-| | Not started | |
+| 2026-06-06 | Research started | Added [VEGETATION_RESEARCH.md](VEGETATION_RESEARCH.md) with early placement, streaming, rendering, and testing recommendations for large props and grass. |
 
 ## Milestone 11: Optimisation And Rust/WASM Gates
 
@@ -960,6 +958,7 @@ Progress notes:
 | 2026-06-03 | Browser bridge moved out of game components | Moved `TerrainCoreWorkerStreamer` and browser game input types into `src/engine/web`, deleting the live `src/game/components` source files. Remaining TypeScript terrain code is now framed as browser/WASM shell utility code, not scene/game component architecture. |
 | 2026-06-06 | TypeScript terrain boundary clarified | Added `docs/RUST_CONVERSION_PLAN.md` and updated the terrain plan to frame the remaining TypeScript as browser Worker transport, density payload movement, texture asset decode, and debug/smoke mirrors. Terrain generation, meshing, scheduling, density storage, and WebGPU rendering are Rust-owned; the next cleanup should delete a whole terrain-aware TypeScript category rather than add another wrapper. |
 | 2026-06-06 | Playable terrain stream moved into `engine_web` | Added Rust `BrowserTerrainStream` inside `engine_web`, exposed `terrain_core` stream/mesh APIs as a Rust library surface, and deleted the playable TypeScript worker bridge plus public terrain mesh upload methods. The browser frame path now uses `tick(frame)` for player/camera, terrain streaming, mesh upload/pruning, and render submission. Remaining terrain TypeScript ownership is texture asset decoding/upload plus UI/debug hooks. |
+| 2026-06-06 | Terrain texture ownership moved into `engine_web` | Added Rust terrain texture manifest parsing and texture-array validation, deleted the terrain-specific TypeScript manifest/texture upload path, and replaced public `upsertTerrainTextures` with create-time generic browser asset loading. TypeScript now only decodes Rust-provided texture URL lists into RGBA arrays. |
 
 ## Cross-Cutting Validation
 

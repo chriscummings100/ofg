@@ -1,10 +1,9 @@
 import { vec3, type Vec3 } from "../math/vec3.js";
 import {
   createEngineWebBrowserGame,
-  ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM,
   type EngineWebBrowserGame
 } from "./engineWebWasm.js";
-import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
+import type { BrowserTextureAssetLoader } from "../browser/textureAssetLoader.js";
 import type {
   BrowserFrameInput,
   PlayerMode,
@@ -14,7 +13,6 @@ import type {
 
 export class RustBrowserGameAdapter {
   readonly runtime = "rust-wgpu" as const;
-  private uploadedTerrainTextures?: TerrainMaterialTextures;
   private width = 1;
   private height = 1;
 
@@ -23,8 +21,11 @@ export class RustBrowserGameAdapter {
     private readonly game: EngineWebBrowserGame
   ) {}
 
-  static async create(canvas: HTMLCanvasElement): Promise<RustBrowserGameAdapter> {
-    const game = await createEngineWebBrowserGame(canvas);
+  static async create(
+    canvas: HTMLCanvasElement,
+    assetLoader?: BrowserTextureAssetLoader
+  ): Promise<RustBrowserGameAdapter> {
+    const game = await createEngineWebBrowserGame(canvas, assetLoader);
     const adapter = new RustBrowserGameAdapter(canvas, game);
     adapter.resize();
 
@@ -43,10 +44,6 @@ export class RustBrowserGameAdapter {
     this.canvas.width = width;
     this.canvas.height = height;
     this.game.resize({ width, height });
-  }
-
-  setTerrainTextures(textures: TerrainMaterialTextures): void {
-    this.upsertTerrainTexturesIfNeeded(textures);
   }
 
   tick(frame: BrowserFrameInput): void {
@@ -90,24 +87,6 @@ export class RustBrowserGameAdapter {
     return this.game.terrainHeightAt(x, z);
   }
 
-  private upsertTerrainTexturesIfNeeded(textures: TerrainMaterialTextures | undefined): void {
-    if (textures === undefined || this.uploadedTerrainTextures === textures) {
-      return;
-    }
-
-    validateTerrainTextureArrays(textures);
-    this.game.upsertTerrainTextures(
-      textures.albedo.width,
-      textures.albedo.height,
-      textures.albedo.layers,
-      ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM,
-      textures.albedo.data,
-      textures.normal.data,
-      textures.material.data
-    );
-    this.uploadedTerrainTextures = textures;
-  }
-
   private computeDisplaySize(): { readonly width: number; readonly height: number } {
     const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
 
@@ -124,20 +103,4 @@ function validatePlayerMode(mode: PlayerMode): PlayerMode {
   }
 
   throw new Error(`Rust browser game returned unknown player mode '${mode}'.`);
-}
-
-function validateTerrainTextureArrays(textures: TerrainMaterialTextures): void {
-  const { width, height, layers } = textures.albedo;
-  for (const [label, texture] of [
-    ["normal", textures.normal],
-    ["material", textures.material]
-  ] as const) {
-    if (texture.width !== width || texture.height !== height || texture.layers !== layers) {
-      throw new Error(
-        `RustBrowserGame renderer received terrain ${label} texture dimensions ` +
-        `${texture.width}x${texture.height}x${texture.layers}; expected ` +
-        `${width}x${height}x${layers}.`
-      );
-    }
-  }
 }

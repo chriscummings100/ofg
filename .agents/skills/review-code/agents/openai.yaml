@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Code"
+  short_description: "Run specialist code-review agents"
+  default_prompt: "Use $review-code to review this change with predefined specialist sub-agents."

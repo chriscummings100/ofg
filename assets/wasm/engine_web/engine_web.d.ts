@@ -3,13 +3,12 @@
 export class RustBrowserGame {
   private constructor();
   free(): void;
-  static create(canvas: HTMLCanvasElement): Promise<RustBrowserGame>;
+  static create(canvas: HTMLCanvasElement, asset_loader: any): Promise<RustBrowserGame>;
   resize(viewport: any): void;
   tick(frame: any): void;
   command(command: any): void;
   debugSnapshot(): any;
   terrainHeightAt(x: number, z: number): number;
-  upsertTerrainTextures(width: number, height: number, layers: number, format_code: number, albedo_data: Uint8Array, normal_data: Uint8Array, material_data: Uint8Array): void;
 }
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
@@ -40,13 +39,12 @@ export interface InitOutput {
   readonly ofg_engine_web_frame_draw_count: () => number;
   readonly ofg_engine_web_last_error_code: () => number;
   readonly __wbg_rustbrowsergame_free: (a: number, b: number) => void;
-  readonly rustbrowsergame_create: (a: number) => number;
+  readonly rustbrowsergame_create: (a: number, b: number) => number;
   readonly rustbrowsergame_resize: (a: number, b: number, c: number) => void;
   readonly rustbrowsergame_tick: (a: number, b: number, c: number) => void;
   readonly rustbrowsergame_command: (a: number, b: number, c: number) => void;
   readonly rustbrowsergame_debugSnapshot: (a: number, b: number) => void;
   readonly rustbrowsergame_terrainHeightAt: (a: number, b: number, c: number, d: number) => void;
-  readonly rustbrowsergame_upsertTerrainTextures: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => void;
   readonly ofg_terrain_core_version: () => number;
   readonly ofg_terrain_core_preset_count: () => number;
   readonly ofg_density_chunk_store_max_entries: () => number;

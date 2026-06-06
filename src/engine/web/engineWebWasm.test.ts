@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import { ENGINE_WEB_WASM_METADATA } from "../../generated/web/engineWebWasm.js";
 import {
   createEngineWebBrowserGame,
-  ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM,
   loadEngineWebWasmModule,
   patchLegacyWgpuRequiredLimits,
   type EngineWebBrowserGame,
@@ -32,7 +31,7 @@ describe("engine web WASM", () => {
 
     ok(moduleText.includes("export class RustBrowserGame"));
     equal(moduleText.includes("export class RustBrowserGameStatus"), false);
-    ok(dtsText.includes("static create(canvas: HTMLCanvasElement): Promise<RustBrowserGame>"));
+    ok(dtsText.includes("static create(canvas: HTMLCanvasElement, asset_loader: any): Promise<RustBrowserGame>"));
     ok(dtsText.includes("resize(viewport: any): void"));
     equal(dtsText.includes("resize(width"), false);
     equal(dtsText.includes("resetGame"), false);
@@ -53,7 +52,7 @@ describe("engine web WASM", () => {
     equal(dtsText.includes("destroyTerrainMesh"), false);
     equal(dtsText.includes("retainTerrainMeshes"), false);
     equal(dtsText.includes("clearTerrainMeshes"), false);
-    ok(dtsText.includes("upsertTerrainTextures"));
+    equal(dtsText.includes("upsertTerrainTextures"), false);
     equal(dtsText.includes("renderFrame(): void"), false);
     equal(dtsText.includes("renderGameFrame"), false);
     equal(dtsText.includes("status()"), false);
@@ -84,12 +83,15 @@ describe("engine web WASM", () => {
 
   it("creates the Rust browser game facade from the loaded module", async () => {
     const game = fakeBrowserGame();
-    const created = await createEngineWebBrowserGame({} as HTMLCanvasElement, async () =>
-      fakeModule(game)
+    const assetLoader = { loadTextureArrays: async () => [] };
+    const created = await createEngineWebBrowserGame(
+      {} as HTMLCanvasElement,
+      assetLoader,
+      async () => fakeModule(game)
     );
 
     equal(created, game);
-    equal(ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM, 1);
+    equal(fakeCreateAssetLoaders[0], assetLoader);
   });
 
   it("patches the legacy wgpu limit name before browser device requests", async () => {
@@ -129,12 +131,15 @@ function fakeModule(
       this.initialized = true;
     },
     RustBrowserGame: {
-      async create() {
+      async create(_canvas, assetLoader) {
+        fakeCreateAssetLoaders.push(assetLoader);
         return game;
       }
     }
   };
 }
+
+const fakeCreateAssetLoaders: unknown[] = [];
 
 function fakeBrowserGame(): EngineWebBrowserGame {
   return {
@@ -190,7 +195,6 @@ function fakeBrowserGame(): EngineWebBrowserGame {
         playerControllerRuntime: "rust"
       };
     },
-    upsertTerrainTextures() {},
     terrainHeightAt() {
       return 4;
     }

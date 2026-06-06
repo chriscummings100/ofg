@@ -1,8 +1,7 @@
 // Browser shell facade for the Rust-owned game runtime. TypeScript keeps module
-// loading, texture byte upload, and debug-hook convenience methods here; terrain
-// streaming and mesh upload live inside engine_web.wasm.
+// loading and debug-hook convenience methods here; terrain streaming, mesh
+// upload, and texture ownership live inside engine_web.wasm.
 
-import { loadTerrainMaterialTextures, type TerrainMaterialTextures } from "../render/terrainTextures.js";
 import type { TerrainPresetId, WorldDescriptor } from "../world/terrainDescriptor.js";
 import type {
   BrowserFrameInput,
@@ -22,7 +21,6 @@ const TERRAIN_PRESET_CODES: Readonly<Record<TerrainPresetId, number>> = Object.f
 
 export type RustBrowserGameRenderer = {
   readonly runtime: "rust-wgpu";
-  setTerrainTextures(textures: TerrainMaterialTextures): void;
   tick(frame: BrowserFrameInput): void;
   command(command: RustBrowserGameCommand): void;
   getDebugSnapshot(): RustBrowserGameDebugSnapshot;
@@ -65,7 +63,6 @@ export async function createRustBrowserGameRuntime(
     terrainSeed: descriptor.seed,
     terrainPreset: terrainPresetToWasmCode(descriptor.terrainPreset)
   });
-  renderer.setTerrainTextures(await loadTerrainMaterialTextures());
 
   return new RustBrowserGameRuntime({
     renderer

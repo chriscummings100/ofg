@@ -162,7 +162,9 @@ src/engine/input
 src/engine/browser
   Generic browser substrate helpers. `BrowserWorkerHost` remains as tested
   generic worker substrate, but the playable terrain path no longer uses a
-  TypeScript terrain worker bridge.
+  TypeScript terrain worker bridge. `textureAssetLoader.ts` is a generic browser
+  image decoder that accepts Rust-provided URL lists and returns RGBA texture
+  arrays without interpreting terrain manifests.
 
 src/engine/world
   Browser-side terrain descriptor/config types, 3D chunk coordinate/key helpers,
@@ -172,11 +174,10 @@ src/engine/world
   manifests, density transfer between WASM instances, or a terrain manager.
 
 src/engine/render
-  Browser-side texture loading helpers that read the checked-in Poly Haven
-  manifest and shader metadata tests. The playable browser path no longer has a
-  TypeScript WebGPU renderer, `RenderWorld`, terrain render sink, or terrain
-  mesh upload bridge; Rust owns mesh generation, GPU handles, active draw sets,
-  and draw submission.
+  Shader metadata tests. The playable browser path no longer has terrain texture
+  manifest helpers, a TypeScript WebGPU renderer, `RenderWorld`, terrain render
+  sink, or terrain mesh upload bridge; Rust owns texture manifest semantics,
+  mesh generation, GPU handles, active draw sets, and draw submission.
   Terrain rendering uses global 16-layer albedo, normal, and roughness texture
   arrays. Normal maps are loaded but not yet applied in shading.
 
@@ -205,16 +206,17 @@ crates/terrain_core
 crates/engine_web
   Browser-facing Rust game/render bridge built to wasm32-unknown-unknown. It
   owns the active browser player/camera tick state, Rust-owned terrain stream,
-  terrain mesh generation/upload/pruning, Rust/wgpu renderer, WebGPU resource
-  handles, terrain texture handles, terrain mesh handles, live terrain draw set,
-  and frame draw submission.
+  terrain mesh generation/upload/pruning, terrain texture manifest parsing,
+  texture-array validation/upload, Rust/wgpu renderer, WebGPU resource handles,
+  terrain texture handles, terrain mesh handles, live terrain draw set, and
+  frame draw submission.
 
 src/engine/web
   Browser-facing TypeScript shell around Rust/WASM systems. It loads
-  `RustBrowserGame`, forwards input/debug commands, uploads decoded terrain
-  texture arrays to Rust, reads Rust debug snapshots, and keeps browser-only
-  compatibility shims. It should keep shrinking toward a generic browser shell
-  with no terrain semantics.
+  `RustBrowserGame`, forwards input/debug commands, passes a generic browser
+  texture-array decoder into Rust at creation time, reads Rust debug snapshots,
+  and keeps browser-only compatibility shims. It should keep shrinking toward a
+  generic browser shell with no terrain semantics.
 
 tools
   Local scripts, including shader generation, Poly Haven terrain texture import,
@@ -235,8 +237,8 @@ step.
 - Rust owns browser WebGPU resource creation and draw submission through
   `engine_web.wasm` and `wgpu`.
 - TypeScript currently owns browser startup, DOM input collection, URL parameter
-  parsing, debug hooks, decoded terrain texture array upload adaptation, and the
-  browser runtime facade.
+  parsing, debug hooks, generic browser image decoding for Rust-provided texture
+  requests, and the browser runtime facade.
 - New high-volume world, terrain streaming, simulation, render extraction, and
   WebGPU ownership should follow `docs/RUST_CONVERSION_PLAN.md`.
 - Use `docs/RUST_CONVERSION_PLAN.md` before deleting or adding TypeScript around
