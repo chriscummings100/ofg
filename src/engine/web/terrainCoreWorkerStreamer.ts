@@ -182,7 +182,10 @@ export class TerrainCoreWorkerStreamer {
       cellSize: this.cellSize
     }).then((result) => {
       const key = terrainChunkKey(coord);
-      if (result.generation !== generation || result.key !== key) {
+      if (
+        result.generation !== generation ||
+        !terrainChunkCoordsEqual(result.coord, coord)
+      ) {
         this.streamScheduler.failDensity(generation, coord);
         this.pumpJobs();
         return;
@@ -215,7 +218,10 @@ export class TerrainCoreWorkerStreamer {
       cellSize: this.cellSize
     }).then((result) => {
       const key = terrainChunkKey(coord);
-      if (result.generation !== generation || result.key !== key) {
+      if (
+        result.generation !== generation ||
+        !terrainChunkCoordsEqual(result.coord, coord)
+      ) {
         this.streamScheduler.failLod0(generation, coord);
         this.pumpJobs();
         return;
@@ -254,4 +260,11 @@ function validateCellSize(cellSize: number): void {
   if (cellSize <= 0) {
     throw new Error("TerrainCoreWorkerStreamer cellSize must be positive.");
   }
+}
+
+function terrainChunkCoordsEqual(
+  left: TerrainChunkCoord,
+  right: TerrainChunkCoord
+): boolean {
+  return left.x === right.x && left.y === right.y && left.z === right.z;
 }

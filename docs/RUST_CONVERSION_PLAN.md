@@ -147,6 +147,14 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   unused terrain-core density-window generator wrappers and the unused
   `getChunk` read method from the temporary terrain render sink contract.
 - [x] (2026-06-06) Validated unused terrain adapter trim with `npm test`.
+- [x] (2026-06-06) Removed duplicate terrain chunk-key strings from worker
+  result payloads. Worker density and chunk results now carry chunk coordinates;
+  the streamer derives string keys only when storing density results or
+  uploading meshes to the current Rust renderer API.
+- [x] (2026-06-06) Validated coord-only worker result payloads with `npm test`
+  and `npm run smoke:browser`; inspected
+  `artifacts/browser-smoke/2026-06-06T09-18-43-891Z/report.json` plus first
+  person, debug-fly, and streamed first-person screenshots.
 
 ## Surprises & Discoveries
 
@@ -219,6 +227,10 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   `prepareTerrainCoreDensityChunkWindow`,
   `createTerrainCoreChunkMeshGenerator`,
   `createTerrainCoreDensityChunkWindowGenerator`, or the sink `getChunk` method.
+- Observation: Worker result chunk keys were redundant protocol data.
+  Evidence: `TerrainCoreWorkerStreamer` already receives the scheduler-selected
+  coord for each job and can derive a string key at the renderer/density-store
+  boundary. The Rust worker pool validates completions from generation and coord.
 - Observation: The active docs had become plan-shaped overlap: an engine plan,
   a reduction audit, an API contract, a scene-model plan, and a reduction
   ExecPlan were all close enough to confuse the source of truth.
@@ -309,6 +321,12 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   Rationale: A read method on the browser-side terrain render sink preserved old
   packet-store shape without helping the current worker-to-Rust upload path.
   Date/Author: 2026-06-06 / Codex.
+- Decision: Keep terrain worker result identity coordinate-based until the
+  worker protocol becomes opaque.
+  Rationale: String chunk keys are a TypeScript/debug/render-upload adaptation,
+  not needed by Rust scheduler completion checks. Removing them narrows the
+  terrain-specific worker payload while preserving current renderer calls.
+  Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -376,6 +394,11 @@ The TypeScript worker-pool fallback deletion slice validated with:
 The unused terrain adapter trim validated with:
 
     npm test
+
+The coord-only worker result payload slice validated with:
+
+    npm test
+    npm run smoke:browser
 
 ## Context and Orientation
 
@@ -604,7 +627,7 @@ Current runtime TypeScript that remains:
 |---|---|---|
 | App shell | Starts game, tracks input, updates HUD, exposes debug hooks, reads URL params, calls `game.tick(frame)`, sends `game.command(...)`, and reads `game.debugSnapshot()`. | Keep as browser shell. |
 | WASM loading | Loads `engine_web` and `terrain_core.wasm` for the temporary worker bridge. | Keep only generic game module loading; remove runtime `terrain_core.wasm` calls. |
-| Terrain worker transport | `BrowserWorkerHost` owns Worker lifecycle and request-id envelopes; `TerrainChunkWorkerClient` still builds terrain-specific density/chunk payloads, but LOD chunk requests no longer include density buffers and worker-pool bookkeeping has no TypeScript fallback. | Replace terrain-specific payload construction with Rust-owned worker/threading runtime or an opaque byte protocol. |
+| Terrain worker transport | `BrowserWorkerHost` owns Worker lifecycle and request-id envelopes; `TerrainChunkWorkerClient` still builds terrain-specific density/chunk payloads, but worker results no longer carry string chunk keys, LOD chunk requests no longer include density buffers, and worker-pool bookkeeping has no TypeScript fallback. | Replace terrain-specific payload construction with Rust-owned worker/threading runtime or an opaque byte protocol. |
 | Texture asset decode | Fetches checked-in JPGs, draws them to canvas, reads RGBA pixels, uploads arrays into Rust. | Move terrain asset ownership behind Rust; TS may remain generic byte/image helper only. |
 | Debug/smoke mirrors | `window.__ofgDebug` now reads `game.debugSnapshot()` and sends `game.command(...)`, but the snapshot is still assembled by the TypeScript runtime facade. | Replace with a Rust-assembled `debugSnapshot()`. |
 

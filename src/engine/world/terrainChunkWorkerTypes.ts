@@ -1,4 +1,4 @@
-import type { TerrainChunkCoord, TerrainChunkKey } from "./terrainChunk.js";
+import type { TerrainChunkCoord } from "./terrainChunk.js";
 import type { WorldDescriptor } from "./terrainDescriptor.js";
 
 export type TerrainChunkJobRequest = {
@@ -33,7 +33,6 @@ export type TerrainDensityJobStats = {
 
 export type TerrainDensityJobResult = {
   readonly generation: number;
-  readonly key: TerrainChunkKey;
   readonly coord: TerrainChunkCoord;
   readonly densities: Float32Array;
   readonly stats: TerrainDensityJobStats;
@@ -41,7 +40,7 @@ export type TerrainDensityJobResult = {
 
 export type TerrainChunkJobResult = {
   readonly generation: number;
-  readonly key: TerrainChunkKey;
+  readonly coord: TerrainChunkCoord;
   readonly vertices: Float32Array;
   readonly indices: Uint32Array;
   readonly stats: TerrainChunkJobStats;

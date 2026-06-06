@@ -7,7 +7,6 @@ import {
 import { TerrainCoreWorkerPool } from "./terrainCoreWorkerPool.js";
 import {
   terrainChunkCoord,
-  terrainChunkKey,
   type TerrainChunkCoord
 } from "./terrainChunk.js";
 import {
@@ -62,7 +61,7 @@ describe("TerrainChunkWorkerClient", () => {
     fakeWorkers[0].emitMessage(densityResultMessage(1, 11, firstCoord));
     const firstResult = await first;
 
-    equal(firstResult.key, terrainChunkKey(firstCoord));
+    equal(firstResult.coord, firstCoord);
     equal(workerPool.inFlightCount, 1);
 
     const secondRejected = expectRejected(second, /reset/);
@@ -130,7 +129,6 @@ function densityResultMessage(
       type: "densityResult",
       result: {
         generation,
-        key: terrainChunkKey(coord),
         coord,
         densities: new Float32Array([1, 2, 3]),
         stats: { totalMs: 1 }

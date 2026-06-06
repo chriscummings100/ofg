@@ -1,4 +1,3 @@
-import { terrainChunkKey } from "./terrainChunk.js";
 import { generateTerrainChunkMeshWithWasm } from "./terrainCoreChunkMesh.js";
 import { generateTerrainDensityChunkWithWasm } from "./terrainCoreDensityChunk.js";
 import { loadTerrainCoreWasm, type TerrainCoreWasmInstance } from "./terrainCoreWasm.js";
@@ -101,8 +100,7 @@ async function prepareDensityChunk(
 
   return {
     generation: request.generation,
-    key: terrainChunkKey(request.coord),
-    coord: request.coord,
+    coord: chunk.coord,
     densities: chunk.densities,
     stats: {
       totalMs: finishedAt - startedAt
@@ -125,7 +123,7 @@ async function generateChunk(
 
   return {
     generation: request.generation,
-    key: terrainChunkKey(request.coord),
+    coord: request.coord,
     vertices: mesh.vertices,
     indices: mesh.indices,
     stats: {

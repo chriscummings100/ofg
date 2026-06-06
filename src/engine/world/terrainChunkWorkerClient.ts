@@ -23,7 +23,6 @@ type PendingRequest = {
   readonly kind: TerrainWorkerTaskKind;
   readonly lod: number;
   readonly generation: number;
-  readonly coord: TerrainChunkJobRequest["coord"];
   readonly resolve: (result: unknown) => void;
   readonly reject: (error: Error) => void;
 };
@@ -93,7 +92,6 @@ export class TerrainChunkWorkerClient implements TerrainChunkJobGenerator {
         kind: "density",
         lod: 0,
         generation: request.generation,
-        coord: request.coord,
         resolve: (result) => resolve(result as TerrainDensityJobResult),
         reject
       });
@@ -126,7 +124,6 @@ export class TerrainChunkWorkerClient implements TerrainChunkJobGenerator {
         kind: "lod",
         lod: 0,
         generation: request.generation,
-        coord: request.coord,
         resolve: (result) => resolve(result as TerrainChunkJobResult),
         reject
       });
@@ -171,15 +168,12 @@ export class TerrainChunkWorkerClient implements TerrainChunkJobGenerator {
     const payload = completion.payload;
     const result = payload.result;
     const resultGeneration = result.generation;
-    const resultCoord = payload.type === "densityResult"
-      ? payload.result.coord
-      : pending.coord;
     const taskCompletion = this.workerPool.finishTask(
       completion.requestId,
       pending.kind,
       pending.lod,
       resultGeneration,
-      resultCoord
+      result.coord
     );
     if (taskCompletion !== "matched") {
       pending.reject(new Error(`Rust terrain worker pool reported ${taskCompletion} task completion.`));

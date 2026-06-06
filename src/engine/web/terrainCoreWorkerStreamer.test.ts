@@ -184,7 +184,6 @@ function createImmediateWorker(): TerrainChunkJobGenerator & {
     async prepareDensityChunk(request) {
       const result = {
         generation: request.generation,
-        key: terrainChunkKey(request.coord),
         coord: request.coord,
         densities: createDensitySamples(densitySampleMarker(request.coord)),
         stats: { totalMs: 1 }
@@ -196,7 +195,7 @@ function createImmediateWorker(): TerrainChunkJobGenerator & {
       chunkRequests.push(request.coord);
       return {
         generation: request.generation,
-        key: terrainChunkKey(request.coord),
+        coord: request.coord,
         ...createTriangleMeshData(),
         stats: {
           totalMs: 3,
@@ -225,7 +224,6 @@ function createDeferredDensityWorker(): TerrainChunkJobGenerator & {
           resolve() {
             resolve({
               generation: request.generation,
-              key: terrainChunkKey(request.coord),
               coord: request.coord,
               densities: createDensitySamples(),
               stats: { totalMs: 1 }
@@ -237,7 +235,7 @@ function createDeferredDensityWorker(): TerrainChunkJobGenerator & {
     async generateChunk(request) {
       return {
         generation: request.generation,
-        key: terrainChunkKey(request.coord),
+        coord: request.coord,
         ...createTriangleMeshData(),
         stats: {
           totalMs: 3,
