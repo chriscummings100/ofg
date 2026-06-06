@@ -2,6 +2,7 @@ import { equal } from "node:assert/strict";
 import type { TerrainRenderMeshPacket } from "../render/terrainRenderChunkSink.js";
 import type { RgbaTextureArray } from "../render/textureLoader.js";
 import type { TerrainMaterialTextures } from "../render/terrainTextures.js";
+import type { BrowserFrameInput } from "./browserGameTypes.js";
 import type { EngineWebBrowserGame } from "./engineWebWasm.js";
 import { RustBrowserGameAdapter } from "./rustBrowserGameAdapter.js";
 
@@ -50,9 +51,9 @@ describe("RustBrowserGameAdapter", () => {
     equal(fake.resetGameCalls[0]?.terrainSeed, 0x0F6);
     equal(fake.resetGameCalls[0]?.terrainPreset, 1);
     equal(fake.tickCalls[0]?.deltaSeconds, 0.25);
-    equal(fake.tickCalls[0]?.forward, 1);
-    equal(fake.tickCalls[0]?.right, -1);
-    equal(fake.tickCalls[0]?.fast, true);
+    equal(fake.tickCalls[0]?.movement.forward, 1);
+    equal(fake.tickCalls[0]?.movement.right, -1);
+    equal(fake.tickCalls[0]?.movement.fast, true);
     equal(fake.setPlayerModeCalls.join(","), "0");
     equal(fake.setPlayerPositionCalls[0]?.x, 96);
     equal(fake.setDebugCameraCalls[0]?.z, 3);
@@ -104,15 +105,7 @@ type FakeBrowserGame = EngineWebBrowserGame & {
     readonly terrainSeed: number;
     readonly terrainPreset: number;
   }[];
-  tickCalls: {
-    readonly deltaSeconds: number;
-    readonly forward: number;
-    readonly right: number;
-    readonly up: number;
-    readonly fast: boolean;
-    readonly lookDeltaX: number;
-    readonly lookDeltaY: number;
-  }[];
+  tickCalls: BrowserFrameInput[];
   setPlayerModeCalls: number[];
   setPlayerPositionCalls: { readonly x: number; readonly z: number }[];
   setDebugCameraCalls: {
@@ -143,16 +136,8 @@ function fakeBrowserGame(): FakeBrowserGame {
     resetGame(terrainSeed, terrainPreset) {
       this.resetGameCalls.push({ terrainSeed, terrainPreset });
     },
-    tick(deltaSeconds, forward, right, up, fast, lookDeltaX, lookDeltaY) {
-      this.tickCalls.push({
-        deltaSeconds,
-        forward,
-        right,
-        up,
-        fast,
-        lookDeltaX,
-        lookDeltaY
-      });
+    tick(frame) {
+      this.tickCalls.push(frame);
     },
     togglePlayerMode() {
       return 1;

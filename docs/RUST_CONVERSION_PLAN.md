@@ -160,6 +160,15 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   `npm test` and `npm run smoke:browser`; inspected
   `artifacts/browser-smoke/2026-06-06T09-23-07-362Z/report.json` plus first
   person, debug-fly, and streamed first-person screenshots.
+- [x] (2026-06-06) Changed the `engine_web` wasm-bindgen `tick` method from
+  seven scalar input arguments to one browser frame object. The TypeScript
+  adapter now forwards `BrowserFrameInput` directly into Rust, and Rust validates
+  the packet fields before ticking `BrowserGameState`.
+- [x] (2026-06-06) Validated the wasm-bindgen frame-object tick slice with
+  `cargo test -p engine_web`, `npm test`, `npm run check:wasm`, and
+  `npm run smoke:browser`; inspected
+  `artifacts/browser-smoke/2026-06-06T09-33-10-459Z/report.json` plus first
+  person, debug-fly, and streamed first-person screenshots.
 
 ## Surprises & Discoveries
 
@@ -343,6 +352,13 @@ and scorecard in this document, not by vague TypeScript line-count reduction.
   compiled TypeScript while preserving the current browser-only image decode
   step and texture upload API.
   Date/Author: 2026-06-06 / Codex.
+- Decision: Keep project-facing frame input strongly typed while allowing
+  wasm-bindgen's generated d.ts to expose raw `any` for the imported JS object.
+  Rationale: `src/engine/web/engineWebWasm.ts` narrows the public TypeScript
+  wrapper to `BrowserFrameInput`, and Rust validates every required packet
+  field before ticking the game state. This removes the scalar wasm boundary
+  without fighting wasm-bindgen's generic `JsValue` type emission.
+  Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -353,7 +369,8 @@ terrain-specific worker payload construction, plus texture asset loading, the
 still public wasm `renderGameFrame(aspect)` method beneath runtime `tick`, the
 still scalar wasm-bindgen player/debug/status methods beneath the runtime
 facade, public terrain mesh and texture upload calls, and TypeScript
-terrain-specific worker result contracts plus material texture asset metadata.
+terrain-specific worker result contracts. Frame input now crosses the
+wasm-bindgen boundary as one browser frame object.
 
 The recommended next slice is to replace terrain-specific worker request/result
 payload construction with Rust-owned worker/threading support or a strictly
@@ -419,6 +436,13 @@ The coord-only worker result payload slice validated with:
 The manifest-backed terrain texture loading slice validated with:
 
     npm test
+    npm run smoke:browser
+
+The wasm-bindgen frame-object tick slice validated with:
+
+    cargo test -p engine_web
+    npm test
+    npm run check:wasm
     npm run smoke:browser
 
 ## Context and Orientation
@@ -624,7 +648,7 @@ Current public browser-facing Rust API in `src/engine/web/engineWebWasm.ts`:
 create(canvas)
 resize(width, height)
 resetGame(seed, preset)
-tick(deltaSeconds, forward, right, up, fast, lookDeltaX, lookDeltaY)
+tick(frame)
 togglePlayerMode()
 playerMode()
 setPlayerMode(mode)
@@ -658,7 +682,7 @@ Current runtime TypeScript that remains:
 |---|---|---|
 | TypeScript creates one Rust game facade | `createRustBrowserGameRuntime` wraps `RustBrowserGame` and other TS terrain systems. | Partial |
 | TypeScript calls one frame method | App/runtime facade calls `game.tick(frame)` only; `RustBrowserGameAdapter` still calls wasm `renderGameFrame(aspect)` internally. | Partial |
-| Frame input is one object packet | App/runtime/adapter use `BrowserFrameInput`; the adapter still expands it into scalar wasm tick parameters. | Partial |
+| Frame input is one object packet | App/runtime/adapter and the `engine_web` wasm-bindgen API use `BrowserFrameInput`; wasm-bindgen currently types the raw JS argument as `any` in generated d.ts. | Complete |
 | UI/debug uses command lane | App debug hooks send `game.command(...)`; the adapter still maps commands to narrow wasm methods. | Partial |
 | Debug/status uses one Rust snapshot | App reads `game.debugSnapshot()`, but the snapshot is still assembled by the TypeScript runtime facade. | Partial |
 | No public terrain mesh upload calls | `upsertTerrainMesh` and retention calls remain. | Pending |
@@ -682,9 +706,9 @@ density source/edit helpers are deleted.
 Second, move app-facing calls to the target shape. This is complete at the
 TypeScript runtime facade: `src/app` sends `BrowserFrameInput` packets, uses the
 `GameCommand` lane for UI/debug actions, reads `GameDebugSnapshot`, and calls
-only `game.tick(frame)` for each frame. The remaining work is to move the
-underlying wasm-bindgen API to the same shape and delete the public
-`renderGameFrame(aspect)` method.
+only `game.tick(frame)` for each frame. The lower wasm-bindgen `tick` method now
+accepts the same object-shaped frame packet; the remaining work in this area is
+to delete the public `renderGameFrame(aspect)` method.
 
 Third, collapse terrain Worker semantics behind Rust. The generic browser host
 piece is partially complete: `BrowserWorkerHost` sees only request ids and

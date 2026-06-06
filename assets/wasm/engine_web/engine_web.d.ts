@@ -6,7 +6,7 @@ export class RustBrowserGame {
   static create(canvas: HTMLCanvasElement): Promise<RustBrowserGame>;
   resize(width: number, height: number): void;
   resetGame(terrain_seed: number, terrain_preset: number): void;
-  tick(delta_seconds: number, forward: number, right: number, up: number, fast: boolean, look_delta_x: number, look_delta_y: number): void;
+  tick(frame: any): void;
   togglePlayerMode(): number;
   playerMode(): number;
   setPlayerMode(mode: number): void;
@@ -72,7 +72,7 @@ export interface InitOutput {
   readonly rustbrowsergame_create: (a: number) => number;
   readonly rustbrowsergame_resize: (a: number, b: number, c: number, d: number) => void;
   readonly rustbrowsergame_resetGame: (a: number, b: number, c: number, d: number) => void;
-  readonly rustbrowsergame_tick: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => void;
+  readonly rustbrowsergame_tick: (a: number, b: number, c: number) => void;
   readonly rustbrowsergame_togglePlayerMode: (a: number, b: number) => void;
   readonly rustbrowsergame_playerMode: (a: number, b: number) => void;
   readonly rustbrowsergame_setPlayerMode: (a: number, b: number, c: number) => void;

@@ -24,9 +24,9 @@ export const ENGINE_WEB_WASM_METADATA = Object.freeze({
   "wasmPath": "assets/wasm/engine_web/engine_web_bg.wasm",
   "dtsPath": "assets/wasm/engine_web/engine_web.d.ts",
   "target": "wasm32-unknown-unknown",
-  "wasmHash": "sha256-f8ef2ecd6aac9d1f34a0f8b6a90c55cc1445aaca403b0f4b9e3cde295ae03760",
-  "moduleHash": "sha256-45a0052337ac69b168af3fdfc931f56426f7a51d4b66d2d07066fb3c01d9774a",
-  "dtsHash": "sha256-0f880b75eb61207ca5574f7773508a96aec7f4e247073c3a7fc016ac97ffcee7",
+  "wasmHash": "sha256-0c1682281cc9709541ae19d0bbed3669ca151427f8522097f2f13c925ed05ca2",
+  "moduleHash": "sha256-37305f80724578a39330734f3ac57cc717fdceab5b60d1b01fe2ce884567d3d1",
+  "dtsHash": "sha256-cdf7047bd5013d809215bafd4c9a8ebf1b5cf29755371f10c86dab05ede1f05d",
   "exports": [
     "RustBrowserGame",
     "RustBrowserGameStatus"

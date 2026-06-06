@@ -33,7 +33,8 @@ describe("engine web WASM", () => {
     ok(moduleText.includes("export class RustBrowserGameStatus"));
     ok(dtsText.includes("static create(canvas: HTMLCanvasElement): Promise<RustBrowserGame>"));
     ok(dtsText.includes("resetGame(terrain_seed: number, terrain_preset: number): void"));
-    ok(dtsText.includes("tick(delta_seconds: number, forward: number, right: number, up: number, fast: boolean, look_delta_x: number, look_delta_y: number): void"));
+    ok(dtsText.includes("tick(frame: any): void"));
+    equal(dtsText.includes("tick(delta_seconds"), false);
     ok(dtsText.includes("togglePlayerMode(): number"));
     ok(dtsText.includes("playerMode(): number"));
     ok(dtsText.includes("setPlayerMode(mode: number): void"));

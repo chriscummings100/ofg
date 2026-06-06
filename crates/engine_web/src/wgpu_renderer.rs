@@ -149,29 +149,10 @@ impl RustBrowserGame {
             .map_err(js_error)
     }
 
-    #[allow(clippy::too_many_arguments)]
     #[wasm_bindgen(js_name = tick)]
-    pub fn tick(
-        &mut self,
-        delta_seconds: f32,
-        forward: f32,
-        right: f32,
-        up: f32,
-        fast: bool,
-        look_delta_x: f32,
-        look_delta_y: f32,
-    ) -> Result<(), JsValue> {
-        self.game_state
-            .tick(BrowserGameInput {
-                delta_seconds,
-                forward,
-                right,
-                up,
-                fast,
-                look_delta_x,
-                look_delta_y,
-            })
-            .map_err(js_error)
+    pub fn tick(&mut self, frame: JsValue) -> Result<(), JsValue> {
+        let input = browser_game_input_from_js(&frame)?;
+        self.game_state.tick(input).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = togglePlayerMode)]
@@ -1386,6 +1367,58 @@ fn string_array_values(values: &js_sys::Array) -> Result<Vec<String>, JsValue> {
                 .ok_or_else(|| js_error("Rust browser game expected terrain chunk keys."))
         })
         .collect()
+}
+
+fn browser_game_input_from_js(frame: &JsValue) -> Result<BrowserGameInput, JsValue> {
+    let movement = js_required_property(frame, "movement", "movement")?;
+    let look = js_required_property(frame, "look", "look")?;
+
+    Ok(BrowserGameInput {
+        delta_seconds: js_required_f32(frame, "deltaSeconds", "deltaSeconds")?,
+        forward: js_required_f32(&movement, "forward", "movement.forward")?,
+        right: js_required_f32(&movement, "right", "movement.right")?,
+        up: js_required_f32(&movement, "up", "movement.up")?,
+        fast: js_required_bool(&movement, "fast", "movement.fast")?,
+        look_delta_x: js_required_f32(&look, "deltaX", "look.deltaX")?,
+        look_delta_y: js_required_f32(&look, "deltaY", "look.deltaY")?,
+    })
+}
+
+fn js_required_property(object: &JsValue, property: &str, path: &str) -> Result<JsValue, JsValue> {
+    let value = js_sys::Reflect::get(object, &JsValue::from_str(property))
+        .map_err(|_| js_error(format!("Rust browser game could not read frame.{path}.")))?;
+    if value.is_null() || value.is_undefined() {
+        return Err(js_error(format!(
+            "Rust browser game expected frame.{path}."
+        )));
+    }
+
+    Ok(value)
+}
+
+fn js_required_f32(object: &JsValue, property: &str, path: &str) -> Result<f32, JsValue> {
+    let value = js_required_property(object, property, path)?;
+    let Some(number) = value.as_f64() else {
+        return Err(js_error(format!(
+            "Rust browser game expected frame.{path} to be a number."
+        )));
+    };
+    if !number.is_finite() || number < f32::MIN as f64 || number > f32::MAX as f64 {
+        return Err(js_error(format!(
+            "Rust browser game expected frame.{path} to be a finite f32."
+        )));
+    }
+
+    Ok(number as f32)
+}
+
+fn js_required_bool(object: &JsValue, property: &str, path: &str) -> Result<bool, JsValue> {
+    let value = js_required_property(object, property, path)?;
+    value.as_bool().ok_or_else(|| {
+        js_error(format!(
+            "Rust browser game expected frame.{path} to be a boolean."
+        ))
+    })
 }
 
 fn sorted_terrain_chunk_keys(handles: &HashMap<String, ResourceHandle>) -> Vec<String> {

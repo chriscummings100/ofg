@@ -74,15 +74,7 @@ export class RustBrowserGameAdapter implements TerrainRenderChunkSink {
   }
 
   tick(frame: BrowserFrameInput): void {
-    this.game.tick(
-      frame.deltaSeconds,
-      frame.movement.forward,
-      frame.movement.right,
-      frame.movement.up,
-      frame.movement.fast,
-      frame.look.deltaX,
-      frame.look.deltaY
-    );
+    this.game.tick(frame);
   }
 
   toggleCameraMode(): PlayerMode {

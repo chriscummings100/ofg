@@ -1,4 +1,5 @@
 import { ENGINE_WEB_WASM_METADATA } from "../../generated/web/engineWebWasm.js";
+import type { BrowserFrameInput } from "./browserGameTypes.js";
 
 export const ENGINE_WEB_TEXTURE_FORMAT_RGBA8_UNORM = 1;
 
@@ -20,15 +21,7 @@ export type EngineWebRendererStatus = {
 export type EngineWebBrowserGame = {
   resize(width: number, height: number): void;
   resetGame(terrainSeed: number, terrainPreset: number): void;
-  tick(
-    deltaSeconds: number,
-    forward: number,
-    right: number,
-    up: number,
-    fast: boolean,
-    lookDeltaX: number,
-    lookDeltaY: number
-  ): void;
+  tick(frame: BrowserFrameInput): void;
   togglePlayerMode(): number;
   playerMode(): number;
   setPlayerMode(mode: number): void;
