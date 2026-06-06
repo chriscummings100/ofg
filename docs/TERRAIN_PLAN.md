@@ -15,13 +15,12 @@ completed, deferred, or blocked, including the reason for meaningful pivots. If 
 AI agent resumes after context compaction, or is unsure what terrain work was last
 planned, it must reread this plan before continuing implementation.
 
-The engine ownership direction is now Rust-first and is tracked in
-[RUST_CONVERSION_PLAN.md](RUST_CONVERSION_PLAN.md). Terrain work should align
-with that plan: TypeScript may remain browser/UI glue during migration, but
+The Rust conversion is complete. Terrain work should align with
+[API_CONTRACTS.md](API_CONTRACTS.md) and [ARCHITECTURE.md](ARCHITECTURE.md):
+TypeScript remains browser/UI glue and generic browser utility code, while
 terrain streaming, scheduling, world state, render extraction, and WebGPU
-rendering should move into Rust rather than growing new TypeScript-side
-workarounds. Use the Rust conversion plan before adding or deleting TypeScript
-around terrain.
+rendering belong in Rust. The completed conversion plan is archived at
+`docs/archived/RUST_CONVERSION_PLAN.md`.
 
 The core lesson from the research is that high quality terrain is a layered world
 generation architecture, not a single better noise function. The target is a
@@ -61,7 +60,6 @@ Supported:
 - Terrain density formed from macro base elevation plus 3D detail noise. This is
   still fundamentally a height-biased field, but Dual Contouring can represent
   local non-heightfield detail where the density field creates it.
-- Editable terrain source with subtract-sphere edit support.
 - Rust-owned Dual Contouring chunk mesh emission, material/biome classification,
   triangle-local material palette expansion, and per-chunk neighbor-aware meshing
   with deterministic same-LOD seam ownership.
@@ -219,6 +217,7 @@ Not yet supported:
 - Rust debug snapshots for macro/biome/material/QEF/stream overlays. The old
   TypeScript debug overlay was deleted with the TypeScript generator.
 - Saveable human-facing terrain tuning knobs.
+- Runtime terrain edits such as subtract-sphere editing.
 - Terrain collision/grounding based on the generated mesh. Player grounding still
   uses a compatibility `heightAt(x, z)` query.
 - High-quality sharp-feature Dual Contouring. The current Rust runtime path is
@@ -363,9 +362,9 @@ Proposed order:
      chunk generation time.
 3. Wire Rust/WASM density chunks into runtime streaming behind a narrow adapter.
    (First runtime slice complete.)
-   - Keep the existing scene/component/render boundaries.
-   - Historical: a TypeScript fallback path existed while the migration was young;
-     the playable browser terrain runtime now requires Rust/WASM terrain core.
+   - Historical: this step once preserved a TypeScript scene/component/render
+     boundary while migration was young. That scene/render path is now retired;
+     playable terrain streaming and rendering are Rust-owned.
    - Validation: browser smoke remains visually stable and chunk seam tests still
      pass.
 4. Move Dual Contouring meshing hot paths next if profiling still shows chunk
@@ -956,8 +955,8 @@ Progress notes:
 | 2026-06-03 | App terrain wiring hidden behind browser game runtime | Added `RustBrowserGameRuntime` so `src/app/game.ts` no longer constructs the terrain stream scheduler, density store, mesh packet store, worker client, mirrored terrain sink, texture upload path, or height sampler directly. The app now creates one runtime and calls `tick`/`renderFrame`, while the remaining TypeScript terrain worker and asset transport live below that shell boundary. |
 | 2026-06-03 | Playable mesh packet-store mirror retired | Completed terrain worker mesh results now go straight to `RustBrowserGame` through the adapter sink. The adapter tracks live terrain chunk keys for debug/smoke, while Rust/wgpu owns the actual mesh handles and active draw set. The older `terrain_core.wasm` mesh packet store remains tested but is no longer used by the playable browser handoff. |
 | 2026-06-03 | Browser bridge moved out of game components | Moved `TerrainCoreWorkerStreamer` and browser game input types into `src/engine/web`, deleting the live `src/game/components` source files. Remaining TypeScript terrain code is now framed as browser/WASM shell utility code, not scene/game component architecture. |
-| 2026-06-06 | TypeScript terrain boundary clarified | Added `docs/RUST_CONVERSION_PLAN.md` and updated the terrain plan to frame the remaining TypeScript as browser Worker transport, density payload movement, texture asset decode, and debug/smoke mirrors. Terrain generation, meshing, scheduling, density storage, and WebGPU rendering are Rust-owned; the next cleanup should delete a whole terrain-aware TypeScript category rather than add another wrapper. |
-| 2026-06-06 | Playable terrain stream moved into `engine_web` | Added Rust `BrowserTerrainStream` inside `engine_web`, exposed `terrain_core` stream/mesh APIs as a Rust library surface, and deleted the playable TypeScript worker bridge plus public terrain mesh upload methods. The browser frame path now uses `tick(frame)` for player/camera, terrain streaming, mesh upload/pruning, and render submission. Remaining terrain TypeScript ownership is texture asset decoding/upload plus UI/debug hooks. |
+| 2026-06-06 | TypeScript terrain boundary clarified | Added the now-archived `docs/RUST_CONVERSION_PLAN.md` and updated the terrain plan to frame the remaining TypeScript as browser Worker transport, density payload movement, texture asset decode, and debug/smoke mirrors. Terrain generation, meshing, scheduling, density storage, and WebGPU rendering are Rust-owned; the next cleanup should delete a whole terrain-aware TypeScript category rather than add another wrapper. |
+| 2026-06-06 | Playable terrain stream moved into `engine_web` | Added Rust `BrowserTerrainStream` inside `engine_web`, exposed `terrain_core` stream/mesh APIs as a Rust library surface, and deleted the playable TypeScript worker bridge plus public terrain mesh upload methods. The browser frame path now uses `tick(frame)` for player/camera, terrain streaming, mesh upload/pruning, and render submission. Remaining terrain TypeScript ownership is generic texture-array image decoding plus UI/debug hooks. |
 | 2026-06-06 | Terrain texture ownership moved into `engine_web` | Added Rust terrain texture manifest parsing and texture-array validation, deleted the terrain-specific TypeScript manifest/texture upload path, and replaced public `upsertTerrainTextures` with create-time generic browser asset loading. TypeScript now only decodes Rust-provided texture URL lists into RGBA arrays. |
 
 ## Cross-Cutting Validation
@@ -970,6 +969,12 @@ Every terrain milestone should preserve these checks:
 - `npm run check:wasm` when Rust/WASM terrain artifacts change
 - `npm run smoke:browser` for visual, camera, render, streaming, material, or
   browser integration changes
+- `npm run smoke:terrain-seams` for Dual Contouring seam, topology, material
+  seam, or chunk-boundary changes
+- `npm run smoke:terrain-presets` for terrain preset, descriptor, biome,
+  material-classification, or terrain visual changes
+- `npm run bench:terrain:wasm` with before/after reports for performance-sensitive
+  density, meshing, streaming, or render-upload changes
 - `git diff --check`
 
 Terrain-specific regression suites to build over time:

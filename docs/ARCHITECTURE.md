@@ -9,13 +9,13 @@
 - Move long-lived world, simulation, terrain, render extraction, and WebGPU
   ownership into Rust.
 
-The detailed Rust conversion path is tracked in
-[RUST_CONVERSION_PLAN.md](RUST_CONVERSION_PLAN.md). The TypeScript
-scene/component model has been retired from the compiled source tree, and
-Rust/wgpu is now the browser WebGPU renderer. Use the Rust conversion plan before
-adding, deleting, or moving TypeScript around terrain, rendering, or engine
-ownership. The remaining TypeScript render-adjacent code is a generic browser
-image decoder plus debug shell around a Rust-owned browser game/render facade.
+The Rust conversion is complete; its historical plan is archived at
+`docs/archived/RUST_CONVERSION_PLAN.md`. The TypeScript scene/component model has
+been retired from the compiled source tree, and Rust/wgpu is now the browser
+WebGPU renderer. Use [API_CONTRACTS.md](API_CONTRACTS.md) before adding,
+deleting, or moving TypeScript around terrain, rendering, or engine ownership.
+The remaining TypeScript render-adjacent code is a generic browser image decoder
+plus debug shell around a Rust-owned browser game/render facade.
 
 ## Current Layers
 

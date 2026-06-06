@@ -34,9 +34,9 @@ far-field terrain are still future terrain architecture work.
 
 - [README.md](README.md): setup, commands, and high-level project shape.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): current architecture overview.
-- [docs/RUST_CONVERSION_PLAN.md](docs/RUST_CONVERSION_PLAN.md): single active
-  plan for making the app almost entirely Rust-owned, including the target
-  TypeScript/Rust boundary and scorecard.
+- [docs/API_CONTRACTS.md](docs/API_CONTRACTS.md): living contracts between
+  browser TypeScript, Rust/WASM, terrain, renderer, asset loading, debug hooks,
+  and fixture-only adapters.
 - [docs/TERRAIN_PLAN.md](docs/TERRAIN_PLAN.md): living terrain realism plan.
 - [docs/TERRAIN_GEN_RESEARCH.md](docs/TERRAIN_GEN_RESEARCH.md): terrain
   generation research reference.
@@ -44,8 +44,8 @@ far-field terrain are still future terrain architecture work.
   multi-step work.
 
 If context is compacted or you are unsure about engine ownership, reread
-`docs/RUST_CONVERSION_PLAN.md`. If terrain realism or terrain generation is
-involved, also reread `docs/TERRAIN_PLAN.md`.
+`docs/API_CONTRACTS.md` and `docs/ARCHITECTURE.md`. If terrain realism or
+terrain generation is involved, also reread `docs/TERRAIN_PLAN.md`.
 
 ## Archived Docs
 
@@ -69,6 +69,10 @@ Decision Log, and Outcomes & Retrospective current at every stopping point, and
 make acceptance criteria observable with exact commands or screenshots where
 relevant.
 
+After each ExecPlan milestone, run the repo-local `milestone-review` skill before
+marking the milestone complete. Act on required findings or record a rejection
+with rationale in the plan's Decision Log.
+
 ## Commands
 
 ```powershell
@@ -81,11 +85,16 @@ npm run check:wasm
 npm run bench:terrain:wasm
 npm test
 npm run smoke:browser
+npm run smoke:terrain-seams
+npm run smoke:terrain-presets
 npm run dev
 ```
 
 Use `npm test` for logic changes. Use `npm run smoke:browser` whenever rendering,
 input, camera behavior, HUD behavior, or browser integration changes.
+Use `npm run smoke:terrain-seams` for terrain seam, mesh, material, or Dual
+Contouring changes. Use `npm run smoke:terrain-presets` for preset, descriptor,
+biome/material classification, or terrain visual changes.
 
 `npm run smoke:browser` launches installed Chrome/Edge through Playwright Core,
 saves screenshots in `artifacts/browser-smoke/`, samples pixels, and verifies the
@@ -99,7 +108,9 @@ saves screenshots in `artifacts/browser-smoke/`, samples pixels, and verifies th
 4. Run `npm run build` when build output or generated artifacts may be affected.
 5. Run `npm run smoke:browser` for visual, browser, input, camera, HUD, worker,
    or rendering changes.
-6. Summarize what changed, what was verified, and any remaining risk.
+6. Run terrain seam/preset smoke tests for terrain mesh, material, preset, or
+   terrain visual changes.
+7. Summarize what changed, what was verified, and any remaining risk.
 
 Prefer behavior-focused test names such as `grounds first-person player on sampled
 terrain` or `rejects stale worker completions after reset`.
@@ -240,8 +251,9 @@ step.
   parsing, debug hooks, generic browser image decoding for Rust-provided texture
   requests, and the browser runtime facade.
 - New high-volume world, terrain streaming, simulation, render extraction, and
-  WebGPU ownership should follow `docs/RUST_CONVERSION_PLAN.md`.
-- Use `docs/RUST_CONVERSION_PLAN.md` before deleting or adding TypeScript around
+  WebGPU ownership should follow `docs/API_CONTRACTS.md` and
+  `docs/ARCHITECTURE.md`.
+- Use `docs/API_CONTRACTS.md` before deleting or adding TypeScript around
   terrain, rendering, or engine ownership.
 
 ## Testing Expectations
@@ -251,8 +263,8 @@ This project should be test-heavy because it is intended to be heavily AI-built.
 Current test areas include:
 
 - Math: vectors, quaternions, and matrices.
-- Render data: mesh/material/texture metadata and Rust-backed terrain render
-  packet store.
+- Render data: mesh/material/texture metadata, Rust renderer resource contracts,
+  and fixture-only terrain render packet stores.
 - Shader boundary: generated shader source artifact metadata and vertex layout
   contract.
 - World terrain: 3D terrain chunk keys, Rust-owned chunk streaming, and
@@ -260,6 +272,8 @@ Current test areas include:
 - Gameplay/input: Rust browser game/player facade and input tracker.
 - Browser smoke: actual Chrome/Edge WebGPU render, screenshots, pixel checks, HUD
   camera toggle verification, and a basic player-position chunk streaming check.
+- Terrain smoke: seam/corner camera views and preset-specific captures for
+  terrain mesh/material/preset regressions.
 
 When adding behavior, add tests near the behavior first or in the same change.
 Prefer behavior names such as `rejects stale worker completions after reset`.
@@ -275,9 +289,9 @@ Prefer behavior names such as `rejects stale worker completions after reset`.
 - Use Rust as the target home for world, simulation, terrain streaming, render
   extraction, and eventually WebGPU rendering. Migrate by tested vertical slices
   that remove TypeScript ownership rather than by adding parallel systems.
-- Prefer deleting or demoting whole TypeScript categories named in
-  `docs/RUST_CONVERSION_PLAN.md` rather than repeatedly shrinking wrappers while
-  preserving terrain-aware TypeScript.
+- Prefer deleting or demoting whole forbidden TypeScript ownership categories
+  named in `docs/API_CONTRACTS.md` rather than repeatedly shrinking wrappers
+  while preserving terrain-aware TypeScript.
 - Keep shader work in plain WGSL behind `tools/build-shaders.mjs`. Do not introduce
   alternate shader languages unless the project direction changes again.
 

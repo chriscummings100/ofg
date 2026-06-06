@@ -35,6 +35,8 @@ npm run bench:terrain:wasm
 npm test
 npm run dev
 npm run smoke:browser
+npm run smoke:terrain-seams
+npm run smoke:terrain-presets
 ```
 
 The dev server serves the built app at `http://127.0.0.1:5173`. `npm run build`
@@ -56,11 +58,11 @@ chunk mesh generation, then writes a JSON report under
 - `crates/engine_web`: browser-facing Rust/WASM game and Rust/wgpu renderer
   bridge.
 - `assets/wasm`: checked-in generated WebAssembly artifacts used by the browser.
-- `docs`: active architecture, Rust conversion, terrain plan, and terrain
+- `docs`: active architecture, API contracts, terrain plan, and terrain
   research docs. Retired plans live under `docs/archived/`.
 - `tools`: small repository scripts with no framework dependency.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
-[docs/RUST_CONVERSION_PLAN.md](docs/RUST_CONVERSION_PLAN.md), and
+[docs/API_CONTRACTS.md](docs/API_CONTRACTS.md), and
 [docs/TERRAIN_PLAN.md](docs/TERRAIN_PLAN.md) for the working direction. Agent
 workflow and browser verification expectations live in [AGENTS.md](AGENTS.md).

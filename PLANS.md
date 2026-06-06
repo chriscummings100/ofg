@@ -33,6 +33,7 @@ This file defines how to write and maintain an ExecPlan: a self-contained, livin
 - Tell a story (goal → work → result → proof) for each milestone; keep them narrative rather than bureaucratic.
 - Each milestone must be independently verifiable and incrementally advance the overall goal.
 - Milestones are distinct from Progress: milestones explain the plan; Progress tracks real-time execution.
+- After each milestone, run the repo-local `milestone-review` skill before marking that milestone complete. The review must check API contracts, code quality, legacy leftovers, docs, and validation evidence. Apply required findings or record a rejection with rationale in the Decision Log.
 
 ## Living Sections (must be present and maintained)
 - Progress: checkbox list with timestamps; every pause should update what is done and what remains.
@@ -75,6 +76,9 @@ Explain the user-visible behavior gained after this change and how to observe it
 ## Outcomes & Retrospective
 Summarize outcomes, gaps, and lessons learned; compare to the original purpose.
 
+## Contract and Quality Baseline
+Name the API contracts, ownership rules, quality constraints, and validation gates this plan must preserve. For OFG system work, quote the relevant IDs from `docs/API_CONTRACTS.md` and explain whether this plan preserves them, intentionally changes them, or creates a future extension.
+
 ## Context and Orientation
 Describe the current state relevant to this task as if the reader knows nothing. Name key files and modules by full path; define any non-obvious terms.
 
@@ -83,6 +87,15 @@ Prose description of the sequence of edits and additions. For each edit, name th
 
 ## Concrete Steps
 Exact commands to run (with working directory). Include short expected outputs for comparison.
+
+## Milestone Review
+After each milestone:
+
+1. Update any changed API contracts or active docs.
+2. Run `milestone-review` against the milestone diff and this ExecPlan.
+3. Apply required findings before marking the milestone complete, or record a rejected finding with rationale.
+4. Re-run relevant validation commands.
+5. Record the review summary, commands, artifacts, and remaining risks in Progress or Outcomes & Retrospective.
 
 ## Validation and Acceptance
 Behavioral acceptance criteria plus test commands and expected results.

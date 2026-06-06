@@ -1,5 +1,9 @@
 # Rust Conversion Plan
 
+Archived note: this ExecPlan completed on 2026-06-06. Current runtime ownership
+and API contracts now live in `docs/ARCHITECTURE.md` and
+`docs/API_CONTRACTS.md`. Keep this file for historical migration context only.
+
 This ExecPlan is a living document. The sections Progress, Surprises &
 Discoveries, Decision Log, and Outcomes & Retrospective must stay up to date as
 work proceeds.

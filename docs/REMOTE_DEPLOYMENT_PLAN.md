@@ -257,10 +257,14 @@ least these paths:
     .deploy/index.html
     .deploy/_headers
     .deploy/dist/main.js
-    .deploy/assets/wasm/terrain_core.wasm
     .deploy/assets/wasm/engine_web/engine_web.js
     .deploy/assets/wasm/engine_web/engine_web_bg.wasm
+    .deploy/assets/wasm/terrain_core.wasm
     .deploy/src/app/styles.css
+
+`engine_web_bg.wasm` is the primary playable runtime artifact. The standalone
+`terrain_core.wasm` artifact is currently shipped as a compatibility,
+test/benchmark, and fixture asset, not as the playable terrain owner.
 
 For the current Cloudflare Workers Builds integration, use these dashboard build
 settings:
@@ -281,13 +285,18 @@ Expected result: status is `200` and the response includes:
     Cross-Origin-Embedder-Policy: require-corp
     Cross-Origin-Opener-Policy: same-origin
 
-Verify a WASM asset:
+Verify the playable WASM asset first:
 
-    curl.exe -I <remote-url>/assets/wasm/terrain_core.wasm
+    curl.exe -I <remote-url>/assets/wasm/engine_web/engine_web_bg.wasm
 
 Expected result: status is `200`; `Content-Type` should be `application/wasm` or
 another browser-accepted WASM MIME type. If the browser refuses to instantiate
 WASM, fix the content type with a Cloudflare rule or worker-backed response.
+
+If the standalone terrain compatibility artifact is intentionally deployed,
+verify it separately:
+
+    curl.exe -I <remote-url>/assets/wasm/terrain_core.wasm
 
 ## Validation and Acceptance
 

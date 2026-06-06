@@ -1,7 +1,7 @@
 // Shared browser-side terrain chunk identifiers.
 // Rust owns terrain density sampling, storage, meshing, and stream scheduling.
-// TypeScript keeps only the coordinate math needed to address chunks across the
-// browser worker and renderer upload boundaries.
+// TypeScript keeps only coordinate math for descriptors, debug snapshots, test
+// adapters, and browser-side chunk-key display.
 import type { Vec3 } from "../math/vec3.js";
 
 export const TERRAIN_CHUNK_CELLS_PER_AXIS = 32;
