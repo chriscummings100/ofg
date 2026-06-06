@@ -2,6 +2,7 @@ mod config;
 mod facade;
 mod game_state;
 mod materials;
+mod model_animation;
 mod model_asset_loader;
 mod model_assets;
 mod render_packets;
@@ -28,13 +29,18 @@ pub use materials::{
     build_material_packet, MaterialPacketError, DEFAULT_MATERIAL_PACKET, TERRAIN_MATERIAL_ID,
     TERRAIN_MATERIAL_PACKET,
 };
+pub use model_animation::{
+    ModelAnimationChannel, ModelAnimationClip, ModelAnimationInterpolation, ModelAnimationOutputs,
+    ModelAnimationTarget,
+};
 #[cfg(target_arch = "wasm32")]
 pub use model_asset_loader::load_model_asset_bytes;
 pub use model_assets::{
     import_gltf_model_from_slice, model_primitive_vertex_floats, ModelAsset, ModelAssetError,
     ModelMaterial, ModelNode, ModelNodeTransform, ModelPrimitive, ModelVertex,
-    SAMPLE_STATIC_BOX_MATERIAL_LABEL, SAMPLE_STATIC_BOX_MESH_LABEL, SAMPLE_STATIC_BOX_MODEL_ID,
-    SAMPLE_STATIC_BOX_MODEL_URL,
+    SAMPLE_ANIMATED_BOX_MATERIAL_LABEL, SAMPLE_ANIMATED_BOX_MESH_LABEL,
+    SAMPLE_ANIMATED_BOX_MODEL_ID, SAMPLE_ANIMATED_BOX_MODEL_URL, SAMPLE_STATIC_BOX_MATERIAL_LABEL,
+    SAMPLE_STATIC_BOX_MESH_LABEL, SAMPLE_STATIC_BOX_MODEL_ID, SAMPLE_STATIC_BOX_MODEL_URL,
 };
 pub use render_packets::{
     build_frame_packet_from_engine_snapshot, RenderPacketError, ENGINE_RENDER_SNAPSHOT_FLOATS,

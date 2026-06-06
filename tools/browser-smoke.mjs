@@ -82,6 +82,11 @@ async function runBrowserSmoke(url) {
     const rendererRuntime = await readRendererRuntime(page);
     assertRendererRuntime(rendererRuntime);
     assertStaticModelRendererResources(rendererRuntime, initialTerrain);
+    const firstModelAnimation = await readModelAnimationDebug(page);
+    assertModelAnimationDebug(firstModelAnimation);
+    await page.waitForTimeout(300);
+    const advancedModelAnimation = await readModelAnimationDebug(page);
+    assertModelAnimationAdvanced(firstModelAnimation, advancedModelAnimation);
 
     await page.reload({ waitUntil: "load" });
     await waitForPlayableTerrain(page);
@@ -165,6 +170,8 @@ async function runBrowserSmoke(url) {
       refreshedTerrainRenderPacketRuntime,
       rendererRuntime,
       refreshedRendererRuntime,
+      firstModelAnimation,
+      advancedModelAnimation,
       terrainStreamRuntime: refreshedTerrainStreamRuntime,
       initialTerrain,
       refreshedTerrain,
@@ -246,6 +253,19 @@ async function readRendererRuntime(page) {
   });
 }
 
+async function readModelAnimationDebug(page) {
+  return page.evaluate(() => {
+    const debug = window.__ofgDebug;
+
+    return {
+      runtime: debug?.getModelAnimationRuntime?.() ?? "missing",
+      activeClip: debug?.getActiveModelAnimationClip?.() ?? "",
+      timeSeconds: debug?.getModelAnimationTimeSeconds?.() ?? Number.NaN,
+      durationSeconds: debug?.getModelAnimationDurationSeconds?.() ?? Number.NaN
+    };
+  });
+}
+
 async function readTerrainStreamRuntime(page) {
   return page.evaluate(() => {
     return {
@@ -273,6 +293,34 @@ async function readTerrainStreamStatus(page) {
     generation: -1,
     pending: true
   });
+}
+
+function assertModelAnimationDebug(animation) {
+  if (animation.runtime !== "rust") {
+    throw new Error(`Expected Rust model animation runtime, saw '${animation.runtime}'.`);
+  }
+  if (!Number.isFinite(animation.timeSeconds) || animation.timeSeconds < 0) {
+    throw new Error(`Expected finite model animation time: ${JSON.stringify(animation)}`);
+  }
+  if (!Number.isFinite(animation.durationSeconds) || animation.durationSeconds <= 0) {
+    throw new Error(`Expected positive model animation duration: ${JSON.stringify(animation)}`);
+  }
+  if (typeof animation.activeClip !== "string") {
+    throw new Error(`Expected model animation clip name: ${JSON.stringify(animation)}`);
+  }
+}
+
+function assertModelAnimationAdvanced(before, after) {
+  assertModelAnimationDebug(after);
+  if (after.durationSeconds !== before.durationSeconds) {
+    throw new Error(`Model animation duration changed unexpectedly: ${JSON.stringify({ before, after })}`);
+  }
+  const advancedWithoutWrap = after.timeSeconds > before.timeSeconds;
+  const advancedWithWrap = before.timeSeconds > before.durationSeconds * 0.8 &&
+    after.timeSeconds < before.durationSeconds * 0.2;
+  if (!advancedWithoutWrap && !advancedWithWrap) {
+    throw new Error(`Expected model animation time to advance: ${JSON.stringify({ before, after })}`);
+  }
 }
 
 function assertPlayerControllerRuntime(runtime) {

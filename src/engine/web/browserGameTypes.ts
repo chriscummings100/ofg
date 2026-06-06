@@ -94,6 +94,10 @@ export type RustBrowserGameDebugSnapshot = {
   readonly rendererStatus: EngineWebRendererStatus;
   readonly terrainWorkerCount: number;
   readonly playerControllerRuntime: "rust";
+  readonly modelAnimationRuntime?: "rust";
+  readonly activeModelAnimationClip?: string;
+  readonly modelAnimationTimeSeconds?: number;
+  readonly modelAnimationDurationSeconds?: number;
 };
 
 export type GameDebugSnapshot = RustBrowserGameDebugSnapshot;

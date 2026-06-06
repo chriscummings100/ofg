@@ -317,9 +317,10 @@ Allowed TypeScript responsibilities remain:
 ## OFG-API-010: GLTF Model And Animation Loading
 
 The active feature plan is `docs/GLTF_CHARACTER_PLAN.md`. The current supported
-slice loads one checked-in static GLB fixture through the generic byte asset
-loader, parses it in Rust, registers a static model mesh/material, attaches it
-to the Rust scene, and renders it through Rust/wgpu. Animation clips, skeletons,
+slice loads checked-in GLB fixtures through the generic byte asset loader,
+parses them in Rust, registers static model mesh/material resources, attaches
+model nodes to the Rust scene, renders them through Rust/wgpu, and samples
+non-skinned node animation clips for translation, rotation, and scale. Skeletons,
 skinning, animation blending, and player locomotion selection are still future
 milestones under the same boundary.
 
@@ -370,5 +371,6 @@ These are known contract risks for milestone reviewers:
 - `crates/engine_web/src/wgpu_renderer.rs` and
   `crates/terrain_core/src/facade.rs` are over the preferred file size and need
   future split plans before they grow further.
-- The GLTF path uses the generic byte asset loader; keep it generic and do not
-  let TypeScript grow model or animation semantics while expanding it.
+- The GLTF path uses the generic byte asset loader and Rust-owned animation
+  sampling; keep TypeScript generic and do not let it grow model or animation
+  semantics while expanding the feature.

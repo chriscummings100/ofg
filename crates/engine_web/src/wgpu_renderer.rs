@@ -14,8 +14,8 @@ use crate::materials::{build_material_packet, TERRAIN_MATERIAL_PACKET};
 use crate::model_asset_loader::load_model_asset_bytes;
 use crate::model_assets::{
     import_gltf_model_from_slice, model_primitive_vertex_floats, ModelAsset, ModelMaterial,
-    SAMPLE_STATIC_BOX_MATERIAL_LABEL, SAMPLE_STATIC_BOX_MESH_LABEL, SAMPLE_STATIC_BOX_MODEL_ID,
-    SAMPLE_STATIC_BOX_MODEL_URL,
+    SAMPLE_ANIMATED_BOX_MATERIAL_LABEL, SAMPLE_ANIMATED_BOX_MESH_LABEL,
+    SAMPLE_ANIMATED_BOX_MODEL_ID, SAMPLE_ANIMATED_BOX_MODEL_URL,
 };
 use crate::render_packets::build_frame_packet_from_engine_snapshot;
 use crate::render_uniforms::{
@@ -146,24 +146,35 @@ impl RustBrowserGame {
         console_error_panic_hook::set_once();
         let mut renderer = BrowserWgpuRenderer::new(canvas).await?;
         let terrain_texture_arrays = load_terrain_texture_arrays(&asset_loader).await?;
-        let static_model_bytes = load_model_asset_bytes(
+        let sample_model_bytes = load_model_asset_bytes(
             &asset_loader,
-            SAMPLE_STATIC_BOX_MODEL_ID,
-            SAMPLE_STATIC_BOX_MODEL_URL,
+            SAMPLE_ANIMATED_BOX_MODEL_ID,
+            SAMPLE_ANIMATED_BOX_MODEL_URL,
         )
         .await?;
-        let static_model = import_gltf_model_from_slice(&static_model_bytes).map_err(js_error)?;
-        let (static_model_vertices, static_model_indices, static_model_material_packet) =
-            static_model_renderer_assets(&static_model)?;
+        let sample_model = import_gltf_model_from_slice(&sample_model_bytes).map_err(js_error)?;
+        let (sample_model_vertices, sample_model_indices, sample_model_material_packet) =
+            static_model_renderer_assets(&sample_model)?;
+        let sample_model_node = first_primitive_node_index(&sample_model)?;
+        let sample_model_animation = sample_model
+            .animations
+            .first()
+            .cloned()
+            .ok_or_else(|| js_error("Rust GLTF importer found no sample animation clips."))?;
+        let sample_model_node_base_transforms = sample_model
+            .nodes
+            .iter()
+            .map(|node| node.local_transform)
+            .collect();
         let (player_marker_vertices, player_marker_indices) = create_player_marker_mesh();
         let player_marker_mesh = renderer.register_mesh(
             &player_marker_vertices,
             &player_marker_indices,
             TERRAIN_VERTEX_FLOATS,
         )?;
-        let static_model_mesh = renderer.register_mesh(
-            &static_model_vertices,
-            &static_model_indices,
+        let sample_model_mesh = renderer.register_mesh(
+            &sample_model_vertices,
+            &sample_model_indices,
             MODEL_VERTEX_FLOATS,
         )?;
 
@@ -172,8 +183,10 @@ impl RustBrowserGame {
             DEBUG_PLAYER_MARKER_MESH_LABEL.to_string(),
             player_marker_mesh,
         );
-        scene_mesh_handles_by_label
-            .insert(SAMPLE_STATIC_BOX_MESH_LABEL.to_string(), static_model_mesh);
+        scene_mesh_handles_by_label.insert(
+            SAMPLE_ANIMATED_BOX_MESH_LABEL.to_string(),
+            sample_model_mesh,
+        );
 
         let mut scene_material_packets_by_label = HashMap::new();
         scene_material_packets_by_label.insert(
@@ -181,15 +194,18 @@ impl RustBrowserGame {
             PLAYER_MARKER_MATERIAL_PACKET,
         );
         scene_material_packets_by_label.insert(
-            SAMPLE_STATIC_BOX_MATERIAL_LABEL.to_string(),
-            static_model_material_packet,
+            SAMPLE_ANIMATED_BOX_MATERIAL_LABEL.to_string(),
+            sample_model_material_packet,
         );
 
         let mut game_state = BrowserGameState::new();
         game_state
-            .configure_static_model_scene(
-                SAMPLE_STATIC_BOX_MESH_LABEL,
-                SAMPLE_STATIC_BOX_MATERIAL_LABEL,
+            .configure_animated_static_model_scene(
+                SAMPLE_ANIMATED_BOX_MESH_LABEL,
+                SAMPLE_ANIMATED_BOX_MATERIAL_LABEL,
+                sample_model_animation,
+                sample_model_node,
+                sample_model_node_base_transforms,
             )
             .map_err(js_error)?;
 
@@ -370,6 +386,30 @@ impl RustBrowserGame {
             "playerControllerRuntime",
             JsValue::from_str("rust"),
         )?;
+        if let Some(animation) = self.game_state.model_animation_snapshot() {
+            set_js_property(
+                &snapshot,
+                "modelAnimationRuntime",
+                JsValue::from_str(animation.runtime),
+            )?;
+            if let Some(clip_name) = animation.clip_name {
+                set_js_property(
+                    &snapshot,
+                    "activeModelAnimationClip",
+                    JsValue::from_str(&clip_name),
+                )?;
+            }
+            set_js_property(
+                &snapshot,
+                "modelAnimationTimeSeconds",
+                JsValue::from_f64(animation.time_seconds as f64),
+            )?;
+            set_js_property(
+                &snapshot,
+                "modelAnimationDurationSeconds",
+                JsValue::from_f64(animation.duration_seconds as f64),
+            )?;
+        }
 
         Ok(snapshot.into())
     }
@@ -1794,6 +1834,24 @@ fn static_model_renderer_assets(
     let material_packet = static_model_material_packet(material)?;
 
     Ok((vertices, indices, material_packet))
+}
+
+fn first_primitive_node_index(model: &ModelAsset) -> Result<usize, JsValue> {
+    let primitive = model
+        .primitives
+        .first()
+        .ok_or_else(|| js_error("Rust GLTF importer found no static model primitives."))?;
+
+    model
+        .nodes
+        .iter()
+        .position(|node| node.mesh == Some(primitive.mesh_index))
+        .ok_or_else(|| {
+            js_error(format!(
+                "Rust GLTF importer could not find a node for mesh {}.",
+                primitive.mesh_index
+            ))
+        })
 }
 
 fn static_model_material_packet(

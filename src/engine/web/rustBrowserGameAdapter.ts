@@ -79,7 +79,11 @@ export class RustBrowserGameAdapter {
       rendererRuntime: snapshot.rendererRuntime,
       terrainWorkerCount: snapshot.terrainWorkerCount,
       playerControllerRuntime: snapshot.playerControllerRuntime,
-      rendererStatus: snapshot.rendererStatus
+      rendererStatus: snapshot.rendererStatus,
+      modelAnimationRuntime: snapshot.modelAnimationRuntime,
+      activeModelAnimationClip: snapshot.activeModelAnimationClip,
+      modelAnimationTimeSeconds: snapshot.modelAnimationTimeSeconds,
+      modelAnimationDurationSeconds: snapshot.modelAnimationDurationSeconds
     };
   }
 

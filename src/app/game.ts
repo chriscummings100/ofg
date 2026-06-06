@@ -40,6 +40,10 @@ declare global {
       getRendererStatus: () => EngineWebRendererStatus;
       getTerrainWorkerCount: () => number;
       getPlayerControllerRuntime: () => "rust";
+      getModelAnimationRuntime: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationRuntime"];
+      getActiveModelAnimationClip: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["activeModelAnimationClip"];
+      getModelAnimationTimeSeconds: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationTimeSeconds"];
+      getModelAnimationDurationSeconds: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationDurationSeconds"];
       getPlayerPosition: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerPosition"];
       resetTerrainStreaming: () => void;
       setCameraMode: (mode: PlayerMode) => void;
@@ -69,6 +73,10 @@ export async function startGame(elements: GameElements): Promise<void> {
     getRendererStatus: () => game.debugSnapshot().rendererStatus,
     getTerrainWorkerCount: () => game.debugSnapshot().terrainWorkerCount,
     getPlayerControllerRuntime: () => game.debugSnapshot().playerControllerRuntime,
+    getModelAnimationRuntime: () => game.debugSnapshot().modelAnimationRuntime,
+    getActiveModelAnimationClip: () => game.debugSnapshot().activeModelAnimationClip,
+    getModelAnimationTimeSeconds: () => game.debugSnapshot().modelAnimationTimeSeconds,
+    getModelAnimationDurationSeconds: () => game.debugSnapshot().modelAnimationDurationSeconds,
     getPlayerPosition: () => game.debugSnapshot().playerPosition,
     resetTerrainStreaming() {
       game.command({ type: "resetStreaming" });

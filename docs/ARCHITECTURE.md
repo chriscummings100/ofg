@@ -59,7 +59,7 @@ src/engine/web
   and applies a narrow browser compatibility shim for the pinned `wgpu` limit
   name. `rustBrowserGameRuntime.ts` is the TypeScript shell around debug hooks
   and browser game input types; terrain streaming, texture manifest ownership,
-  and mesh upload live inside `engine_web.wasm`.
+  GLTF model loading/animation, and mesh upload live inside `engine_web.wasm`.
 
 src/engine/render/shaders
   Shader source inputs. `uber.wgsl` is compiled into a TypeScript artifact for
@@ -96,11 +96,12 @@ as a browser shell plus generic browser image decoder.
   reaches it through `engine_web` as a Rust library; the standalone
   `terrain_core.wasm` artifact remains for tests, benchmarks, and compatibility
   fixtures, not runtime TypeScript terrain ownership.
-- `engine_web` owns the Rust/wgpu browser renderer: WebGPU canvas surface,
-  adapter/device/queue, surface configuration, depth texture, shader modules,
-  terrain and static-model pipelines, buffers, texture arrays, samplers, bind
-  groups, render-pass submission, frame/resource counts, and GPU resource
-  pruning.
+- `engine_web` owns the Rust/wgpu browser renderer and current GLTF model path:
+  WebGPU canvas surface, adapter/device/queue, surface configuration, depth
+  texture, shader modules, terrain and static-model pipelines, GLB parsing,
+  static model resource registration, non-skinned node animation sampling,
+  buffers, texture arrays, samplers, bind groups, render-pass submission,
+  frame/resource counts, and GPU resource pruning.
 - TypeScript collects DOM input, parses URL seed/preset values, starts WASM,
   exposes debug hooks, decodes Rust-provided generic texture-array URL requests
   into RGBA arrays, and fetches Rust-provided opaque byte asset requests for

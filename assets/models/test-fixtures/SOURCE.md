@@ -29,6 +29,12 @@ Downloaded files:
   - Purpose: external buffer for `animated-cube.gltf`.
   - Asset license: CC0-1.0.
 
+- `box-animated.glb`
+  - Source: `Models/BoxAnimated/glTF-Binary/BoxAnimated.glb`
+  - URL: https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/BoxAnimated/glTF-Binary/BoxAnimated.glb
+  - Purpose: compact binary node-animation fixture with translation and rotation channels.
+  - Asset license: CC-BY-4.0.
+
 - `simple-skin.gltf`
   - Source: `Models/SimpleSkin/glTF-Embedded/SimpleSkin.gltf`
   - URL: https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/SimpleSkin/glTF-Embedded/SimpleSkin.gltf

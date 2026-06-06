@@ -62,7 +62,11 @@ The staged outcome is:
   Khronos `Box.glb` fixture through `loadBytes`, imports it in Rust, registers
   a static model mesh/material, attaches it to a Rust scene mesh renderer item,
   and draws it through a dedicated model vertex pipeline.
-- [ ] Implement milestone 3: sample non-skinned GLTF node animation.
+- [x] (2026-06-06) Implemented milestone 3: downloaded Khronos
+  `BoxAnimated.glb`, added Rust GLTF animation import/sampling for
+  translation, rotation, and scale channels, applied sampled node transforms to
+  the Rust scene item, and extended browser smoke to verify the Rust animation
+  clock advances.
 - [ ] Implement milestone 4: evaluate skinned animation and render a posed
   skinned character.
 - [ ] Implement milestone 5: add idle/walk clip selection and blending driven by
@@ -108,6 +112,23 @@ The staged outcome is:
   Evidence: milestone 2 moved the wasm `assetLoader.loadBytes` bridge into
   `crates/engine_web/src/model_asset_loader.rs`, keeping
   `crates/engine_web/src/model_assets.rs` focused on model import and packing.
+- Observation: Khronos `BoxAnimated.glb` is the right compact binary fixture
+  for the first runtime node-animation path; the earlier `AnimatedCube.gltf`
+  fixture is useful for external-buffer rejection, not browser runtime loading.
+  Evidence: `assets/models/test-fixtures/box-animated.glb` is a checked-in GLB
+  with translation and rotation animation channels, while
+  `animated-cube.gltf` references a sidecar `.bin`.
+- Observation: Runtime model placement needs to stay separate from imported
+  node-local animation.
+  Evidence: milestone 3 uses a placed/scaled Rust scene root entity with the
+  imported mesh node as a child, so sampled GLTF local transforms can move the
+  mesh without overwriting the world placement used to show the model in terrain.
+- Observation: Some sample animation clips are unnamed, so smoke validation
+  should trust Rust runtime/time/duration fields rather than require a non-empty
+  clip label.
+  Evidence: browser smoke reports `runtime: "rust"` and advances animation time
+  for the Khronos `BoxAnimated.glb` clip even though the active clip string is
+  empty.
 
 ## Decision Log
 
@@ -178,10 +199,29 @@ The staged outcome is:
   position/normal/uv/color layout with `modelVertexMain` keeps the current
   static model path explicit and testable.
   Date/Author: 2026-06-06 / Codex.
-- Decision: Keep the first visible runtime fixture as Khronos `Box.glb`.
+- Decision: Keep the first visible static-render fixture as Khronos `Box.glb`.
   Rationale: It is tiny, checked in, deterministic, and already covered by the
-  importer tests. The Quaternius humanoid pack remains the right source for the
-  later player character once animation and skinning paths exist.
+  importer tests. Later animation milestones can switch the live fixture to an
+  animated sample, while the Quaternius humanoid pack remains the right source
+  for the player character once animation and skinning paths exist.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Move node animation import and sampling into a dedicated
+  `model_animation.rs` Rust module.
+  Rationale: Animation channel validation, time wrapping, step/linear
+  interpolation, and quaternion slerp are already enough logic to deserve a
+  focused module. Keeping that logic out of the renderer reduces pressure on
+  the already-large renderer file before skinning work begins.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Use Khronos `BoxAnimated.glb` as the first runtime animation
+  fixture.
+  Rationale: It is a compact binary GLB with node translation and rotation
+  channels, so it exercises the runtime byte loader and animation sampler
+  without requiring external buffer resolution or skeleton support.
+  Date/Author: 2026-06-06 / Codex.
+- Decision: Expose model animation runtime, clip, time, and duration only as
+  Rust debug snapshot fields.
+  Rationale: Smoke tests and HUD/debug hooks need observability, but TypeScript
+  must not choose clips, sample animation, inspect nodes, or own model state.
   Date/Author: 2026-06-06 / Codex.
 
 ## Outcomes & Retrospective
@@ -266,6 +306,53 @@ Milestone review:
 - Remaining risk: milestone 2 renders only the first primitive/material from a
   small fixture. Multi-primitive models, material textures, node hierarchies as
   scene children, and real humanoid assets remain future milestones.
+
+Milestone 3 is complete. The runtime now loads
+`/assets/models/test-fixtures/box-animated.glb` through the generic browser
+`loadBytes` lane, imports GLTF animation channels in Rust, samples translation,
+rotation, and scale at clip-local looping time, applies the sampled node-local
+transform to the imported mesh child entity, and exposes Rust-owned animation
+debug fields for smoke tests. The earlier `animated-cube.gltf` fixture remains
+useful for external-buffer rejection; the live animation fixture is a checked-in
+GLB.
+
+Validation completed on 2026-06-06:
+
+    cargo test -p engine_core
+    cargo test -p engine_web
+    npm test
+    npm run smoke:browser
+    git -c safe.directory=C:/dev/ofg diff --check
+
+Browser smoke passed with artifacts in
+`C:\dev\ofg\artifacts\browser-smoke\2026-06-06T20-15-40-666Z`. The report
+showed Rust/wgpu runtime, 13 mesh resources, 12 objects, 12 frame draws, and
+Rust model animation time advancing from `1.1165851` to `1.4165901` seconds on
+a `3.7083299` second clip. The first-person and debug-fly screenshots were
+inspected and show the animated GLB box in the terrain scene, with the yellow
+debug marker still visible separately in debug-fly mode.
+
+Milestone review:
+
+- Scope: milestone 3 non-skinned GLTF node animation import/sampling, scene
+  transform updates, debug snapshot fields, checked-in Khronos animation
+  fixture, generated wasm artifacts, and browser smoke validation.
+- Reviewers: contract, code quality, legacy, correctness, and validation passes
+  were done locally. Sub-agents were not used because the available delegation
+  tool requires the user to explicitly request sub-agents.
+- Required findings fixed: updated `docs/API_CONTRACTS.md` and
+  `docs/ARCHITECTURE.md` so active docs describe node animation as live, and
+  hardened browser smoke so animation clock wraparound is not treated as a
+  failure.
+- Follow-ups recorded: `crates/engine_web/src/model_assets.rs` is now just over
+  the 600-line split-pressure threshold, and
+  `crates/engine_web/src/wgpu_renderer.rs` remains oversized. Split model import
+  and renderer support before adding substantial skinning/GPU update code.
+- Rejected findings: none.
+- Remaining risk: milestone 3 only animates one non-skinned primitive node from
+  one small fixture. Multi-node hierarchy propagation, multi-primitive model
+  instances, skins, animation blending, and locomotion-driven clip selection
+  remain future milestones.
 
 ## Contract and Quality Baseline
 

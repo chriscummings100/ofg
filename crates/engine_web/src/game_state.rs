@@ -5,6 +5,9 @@ use engine_core::{
 };
 use terrain_core::{height_at, DEFAULT_TERRAIN_PRESET};
 
+use crate::model_animation::ModelAnimationClip;
+use crate::model_assets::{ModelAssetError, ModelNodeTransform};
+
 const INITIAL_PLAYER_X: f32 = 0.0;
 const INITIAL_PLAYER_Z: f32 = 0.0;
 const INITIAL_PLAYER_YAW: f32 = std::f32::consts::PI * 0.18;
@@ -33,6 +36,7 @@ pub struct BrowserGameInput {
 #[derive(Clone, Debug, PartialEq)]
 pub enum BrowserGameStateError {
     Engine(EngineError),
+    ModelAnimation(ModelAssetError),
     InvalidTerrainHeight { x: f32, z: f32 },
     MissingSceneMeshResource(MeshId),
     MissingSceneMaterialResource(MaterialId),
@@ -48,17 +52,41 @@ pub struct BrowserSceneMeshItem {
     pub world_matrix: [f32; 16],
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct BrowserModelAnimationSnapshot {
+    pub runtime: &'static str,
+    pub clip_name: Option<String>,
+    pub time_seconds: f32,
+    pub duration_seconds: f32,
+}
+
 pub struct BrowserGameState {
     engine: Engine,
     terrain_seed: u32,
     terrain_preset: u32,
     static_model_scene: Option<StaticModelSceneConfig>,
+    static_model_scene_state: Option<StaticModelSceneState>,
+    static_model_animation_time_seconds: f32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 struct StaticModelSceneConfig {
     mesh_label: String,
     material_label: String,
+    animation: Option<StaticModelAnimationConfig>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct StaticModelAnimationConfig {
+    clip: ModelAnimationClip,
+    node_index: usize,
+    node_base_transforms: Vec<ModelNodeTransform>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct StaticModelSceneState {
+    root_entity: EntityId,
+    mesh_entity: EntityId,
 }
 
 impl BrowserGameState {
@@ -68,6 +96,8 @@ impl BrowserGameState {
             terrain_seed: 0,
             terrain_preset: DEFAULT_TERRAIN_PRESET,
             static_model_scene: None,
+            static_model_scene_state: None,
+            static_model_animation_time_seconds: 0.0,
         }
     }
 
@@ -79,6 +109,8 @@ impl BrowserGameState {
         self.engine = Engine::new();
         self.terrain_seed = terrain_seed;
         self.terrain_preset = terrain_preset;
+        self.static_model_scene_state = None;
+        self.static_model_animation_time_seconds = 0.0;
 
         let terrain_entity = self.engine.scene_mut().create_entity();
         {
@@ -128,9 +160,35 @@ impl BrowserGameState {
         self.static_model_scene = Some(StaticModelSceneConfig {
             mesh_label: mesh_label.into(),
             material_label: material_label.into(),
+            animation: None,
         });
         if self.engine.player_rig().is_some() {
-            self.spawn_configured_static_model()?;
+            self.replace_configured_static_model()?;
+        }
+
+        Ok(())
+    }
+
+    pub fn configure_animated_static_model_scene(
+        &mut self,
+        mesh_label: impl Into<String>,
+        material_label: impl Into<String>,
+        clip: ModelAnimationClip,
+        node_index: usize,
+        node_base_transforms: Vec<ModelNodeTransform>,
+    ) -> Result<(), BrowserGameStateError> {
+        self.static_model_scene = Some(StaticModelSceneConfig {
+            mesh_label: mesh_label.into(),
+            material_label: material_label.into(),
+            animation: Some(StaticModelAnimationConfig {
+                clip,
+                node_index,
+                node_base_transforms,
+            }),
+        });
+        self.static_model_animation_time_seconds = 0.0;
+        if self.engine.player_rig().is_some() {
+            self.replace_configured_static_model()?;
         }
 
         Ok(())
@@ -160,6 +218,7 @@ impl BrowserGameState {
         self.engine.update(EngineUpdateInput {
             delta_seconds: input.delta_seconds,
         })?;
+        self.advance_static_model_animation(input.delta_seconds)?;
 
         Ok(())
     }
@@ -254,6 +313,20 @@ impl BrowserGameState {
         Ok(browser_items)
     }
 
+    pub fn model_animation_snapshot(&self) -> Option<BrowserModelAnimationSnapshot> {
+        let animation = self.static_model_scene.as_ref()?.animation.as_ref()?;
+        self.static_model_scene_state?;
+
+        Some(BrowserModelAnimationSnapshot {
+            runtime: "rust",
+            clip_name: animation.clip.name.clone(),
+            time_seconds: animation
+                .clip
+                .wrapped_time(self.static_model_animation_time_seconds),
+            duration_seconds: animation.clip.duration_seconds,
+        })
+    }
+
     #[cfg(test)]
     pub(crate) fn terrain_component(&self) -> Option<TerrainComponent> {
         let terrain = self.engine.scene().terrain_id()?;
@@ -275,7 +348,13 @@ impl BrowserGameState {
 
         let terrain_height =
             self.terrain_height_at(INITIAL_STATIC_MODEL_X, INITIAL_STATIC_MODEL_Z)?;
-        self.spawn_static_model(
+        let node_transform = config
+            .animation
+            .as_ref()
+            .and_then(|animation| animation.node_base_transforms.get(animation.node_index))
+            .copied()
+            .unwrap_or_default();
+        self.static_model_scene_state = Some(self.spawn_static_model(
             &config.mesh_label,
             &config.material_label,
             Vec3::new(
@@ -284,7 +363,9 @@ impl BrowserGameState {
                 INITIAL_STATIC_MODEL_Z,
             ),
             INITIAL_STATIC_MODEL_SCALE,
-        )
+            node_transform,
+        )?);
+        self.advance_static_model_animation(0.0)
     }
 
     fn spawn_static_model(
@@ -293,7 +374,8 @@ impl BrowserGameState {
         material_label: &str,
         position: Vec3,
         scale: f32,
-    ) -> Result<(), BrowserGameStateError> {
+        node_transform: ModelNodeTransform,
+    ) -> Result<StaticModelSceneState, BrowserGameStateError> {
         let mesh = self
             .engine
             .scene_mut()
@@ -304,12 +386,28 @@ impl BrowserGameState {
             .scene_mut()
             .resources_mut()
             .register_material(material_label);
-        let entity = self.engine.scene_mut().create_entity();
+        let root_entity = self.engine.scene_mut().create_entity();
+        self.engine
+            .scene_mut()
+            .set_local_transform(
+                root_entity,
+                LocalTransform {
+                    translation: position,
+                    rotation: Quat::IDENTITY,
+                    scale: Vec3::new(scale, scale, scale),
+                },
+            )
+            .map_err(EngineError::from)?;
+        let mesh_entity = self
+            .engine
+            .scene_mut()
+            .create_child(root_entity)
+            .map_err(EngineError::from)?;
         {
             let mut entity_ref = self
                 .engine
                 .scene_mut()
-                .entity_mut(entity)
+                .entity_mut(mesh_entity)
                 .map_err(EngineError::from)?;
             entity_ref.add_mesh_renderer(MeshRendererComponent {
                 mesh,
@@ -319,13 +417,64 @@ impl BrowserGameState {
         }
         self.engine
             .scene_mut()
+            .set_local_transform(mesh_entity, local_transform_from_model(node_transform))
+            .map_err(EngineError::from)?;
+        self.engine.scene_mut().update_world_transforms();
+
+        Ok(StaticModelSceneState {
+            root_entity,
+            mesh_entity,
+        })
+    }
+
+    fn replace_configured_static_model(&mut self) -> Result<(), BrowserGameStateError> {
+        if let Some(state) = self.static_model_scene_state.take() {
+            if self.engine.scene().is_alive(state.root_entity) {
+                self.engine
+                    .scene_mut()
+                    .destroy_entity(state.root_entity)
+                    .map_err(EngineError::from)?;
+            }
+        }
+
+        self.spawn_configured_static_model()
+    }
+
+    fn advance_static_model_animation(
+        &mut self,
+        delta_seconds: f32,
+    ) -> Result<(), BrowserGameStateError> {
+        let Some(config) = self.static_model_scene.as_ref() else {
+            return Ok(());
+        };
+        let Some(animation) = config.animation.as_ref() else {
+            return Ok(());
+        };
+        let Some(state) = self.static_model_scene_state else {
+            return Ok(());
+        };
+
+        self.static_model_animation_time_seconds += delta_seconds;
+        let transforms = animation
+            .clip
+            .sample_transforms(
+                &animation.node_base_transforms,
+                self.static_model_animation_time_seconds,
+            )
+            .map_err(BrowserGameStateError::ModelAnimation)?;
+        let node_transform =
+            transforms
+                .get(animation.node_index)
+                .ok_or(BrowserGameStateError::ModelAnimation(
+                    ModelAssetError::InvalidAnimationTargetNode {
+                        node_index: animation.node_index,
+                    },
+                ))?;
+        self.engine
+            .scene_mut()
             .set_local_transform(
-                entity,
-                LocalTransform {
-                    translation: position,
-                    rotation: Quat::IDENTITY,
-                    scale: Vec3::new(scale, scale, scale),
-                },
+                state.mesh_entity,
+                local_transform_from_model(*node_transform),
             )
             .map_err(EngineError::from)?;
         self.engine.scene_mut().update_world_transforms();
@@ -364,6 +513,12 @@ impl std::fmt::Display for BrowserGameStateError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Engine(error) => write!(formatter, "Rust browser game engine error: {error:?}"),
+            Self::ModelAnimation(error) => {
+                write!(
+                    formatter,
+                    "Rust browser game model animation error: {error}"
+                )
+            }
             Self::InvalidTerrainHeight { x, z } => {
                 write!(
                     formatter,
@@ -392,4 +547,22 @@ pub fn player_mode_code(mode: PlayerMode) -> u32 {
 
 pub fn player_mode_from_code(code: u32) -> Option<PlayerMode> {
     PlayerMode::from_code(code)
+}
+
+fn local_transform_from_model(transform: ModelNodeTransform) -> LocalTransform {
+    LocalTransform {
+        translation: Vec3::new(
+            transform.translation[0],
+            transform.translation[1],
+            transform.translation[2],
+        ),
+        rotation: Quat::new(
+            transform.rotation[0],
+            transform.rotation[1],
+            transform.rotation[2],
+            transform.rotation[3],
+        )
+        .normalize(),
+        scale: Vec3::new(transform.scale[0], transform.scale[1], transform.scale[2]),
+    }
 }

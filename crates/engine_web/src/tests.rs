@@ -1,14 +1,16 @@
 use crate::{
     build_frame_packet_from_engine_snapshot, build_frame_uniform_values, build_material_packet,
     build_object_uniform_values, import_gltf_model_from_slice, model_primitive_vertex_floats,
-    BrowserGameInput, BrowserGameState, BrowserTerrainStream, MaterialPacketError, ModelAssetError,
-    RenderPacketError, RenderUniformError, RendererState, RendererStateError, ResourceHandle,
-    RgbaTextureArrayAsset, TerrainTextureArrays, TerrainTextureError,
-    ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS, MATERIAL_PACKET_FLOATS,
-    MODEL_VERTEX_FLOATS, REQUIRED_TEXTURE_ARRAY_LAYERS, SAMPLE_STATIC_BOX_MATERIAL_LABEL,
-    SAMPLE_STATIC_BOX_MESH_LABEL, TERRAIN_ALBEDO_TEXTURE_ARRAY_ID, TERRAIN_MATERIAL_ID,
-    TERRAIN_MATERIAL_PACKET, TERRAIN_MATERIAL_TEXTURE_ARRAY_ID, TERRAIN_NORMAL_TEXTURE_ARRAY_ID,
-    TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM, WORLD_MATRIX_FLOATS,
+    BrowserGameInput, BrowserGameState, BrowserTerrainStream, MaterialPacketError,
+    ModelAnimationChannel, ModelAnimationClip, ModelAnimationInterpolation, ModelAnimationOutputs,
+    ModelAnimationTarget, ModelAssetError, ModelNode, ModelNodeTransform, RenderPacketError,
+    RenderUniformError, RendererState, RendererStateError, ResourceHandle, RgbaTextureArrayAsset,
+    TerrainTextureArrays, TerrainTextureError, ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS,
+    MATERIAL_PACKET_FLOATS, MODEL_VERTEX_FLOATS, REQUIRED_TEXTURE_ARRAY_LAYERS,
+    SAMPLE_STATIC_BOX_MATERIAL_LABEL, SAMPLE_STATIC_BOX_MESH_LABEL,
+    TERRAIN_ALBEDO_TEXTURE_ARRAY_ID, TERRAIN_MATERIAL_ID, TERRAIN_MATERIAL_PACKET,
+    TERRAIN_MATERIAL_TEXTURE_ARRAY_ID, TERRAIN_NORMAL_TEXTURE_ARRAY_ID, TERRAIN_VERTEX_FLOATS,
+    TEXTURE_FORMAT_RGBA8_UNORM, WORLD_MATRIX_FLOATS,
 };
 use engine_core::{
     PlayerMode, TerrainComponent, Vec3, DEBUG_PLAYER_MARKER_MATERIAL_LABEL,
@@ -17,6 +19,8 @@ use engine_core::{
 use terrain_core::DEFAULT_TERRAIN_PRESET;
 
 const STATIC_BOX_GLB: &[u8] = include_bytes!("../../../assets/models/test-fixtures/static-box.glb");
+const BOX_ANIMATED_GLB: &[u8] =
+    include_bytes!("../../../assets/models/test-fixtures/box-animated.glb");
 const ANIMATED_CUBE_GLTF: &[u8] =
     include_bytes!("../../../assets/models/test-fixtures/animated-cube.gltf");
 const SIMPLE_SKIN_GLTF: &[u8] =
@@ -319,6 +323,84 @@ fn gltf_importer_packs_static_model_vertices_for_renderer_upload() {
 }
 
 #[test]
+fn gltf_importer_loads_and_samples_node_animation_clip() {
+    let model = import_gltf_model_from_slice(BOX_ANIMATED_GLB).unwrap();
+
+    assert_eq!(model.animation_count(), 1);
+    let clip = &model.animations[0];
+    assert!(clip.duration_seconds > 0.0);
+    assert!(!clip.channels.is_empty());
+    assert!(clip.channels.iter().any(|channel| {
+        matches!(
+            channel.target,
+            ModelAnimationTarget::Translation | ModelAnimationTarget::Rotation
+        )
+    }));
+
+    let start = clip.sample_node_transforms(&model.nodes, 0.0).unwrap();
+    let middle = clip
+        .sample_node_transforms(&model.nodes, clip.duration_seconds * 0.5)
+        .unwrap();
+
+    assert_eq!(start.len(), model.nodes.len());
+    assert!(start.iter().zip(middle.iter()).any(|(a, b)| a != b));
+}
+
+#[test]
+fn animation_sampling_interpolates_translation_and_wraps_time() {
+    let clip = ModelAnimationClip {
+        name: Some("move".to_string()),
+        duration_seconds: 2.0,
+        channels: vec![ModelAnimationChannel {
+            target_node: 0,
+            target: ModelAnimationTarget::Translation,
+            interpolation: ModelAnimationInterpolation::Linear,
+            inputs: vec![0.0, 2.0],
+            outputs: ModelAnimationOutputs::Translations(vec![[0.0, 0.0, 0.0], [2.0, 4.0, 0.0]]),
+        }],
+    };
+    let nodes = vec![test_model_node(ModelNodeTransform::default())];
+
+    let transforms = clip.sample_node_transforms(&nodes, 3.0).unwrap();
+
+    assert_close(transforms[0].translation[0], 1.0);
+    assert_close(transforms[0].translation[1], 2.0);
+    assert_close(transforms[0].translation[2], 0.0);
+}
+
+#[test]
+fn animation_sampling_slerps_rotation_channels() {
+    let clip = ModelAnimationClip {
+        name: Some("turn".to_string()),
+        duration_seconds: 2.0,
+        channels: vec![ModelAnimationChannel {
+            target_node: 0,
+            target: ModelAnimationTarget::Rotation,
+            interpolation: ModelAnimationInterpolation::Linear,
+            inputs: vec![0.0, 2.0],
+            outputs: ModelAnimationOutputs::Rotations(vec![
+                [0.0, 0.0, 0.0, 1.0],
+                [0.0, 1.0, 0.0, 0.0],
+            ]),
+        }],
+    };
+    let nodes = vec![test_model_node(ModelNodeTransform::default())];
+
+    let transforms = clip.sample_node_transforms(&nodes, 1.0).unwrap();
+
+    assert_close(transforms[0].rotation[0], 0.0);
+    assert_close(
+        transforms[0].rotation[1].abs(),
+        std::f32::consts::FRAC_1_SQRT_2,
+    );
+    assert_close(transforms[0].rotation[2], 0.0);
+    assert_close(
+        transforms[0].rotation[3].abs(),
+        std::f32::consts::FRAC_1_SQRT_2,
+    );
+}
+
+#[test]
 fn gltf_importer_rejects_file_relative_external_buffers() {
     assert_eq!(
         import_gltf_model_from_slice(ANIMATED_CUBE_GLTF),
@@ -497,6 +579,72 @@ fn browser_game_state_attaches_configured_static_model_scene_item() {
 }
 
 #[test]
+fn browser_game_state_applies_configured_model_animation_to_scene_item() {
+    let mut state = BrowserGameState::new();
+    state
+        .configure_animated_static_model_scene(
+            SAMPLE_STATIC_BOX_MESH_LABEL,
+            SAMPLE_STATIC_BOX_MATERIAL_LABEL,
+            ModelAnimationClip {
+                name: Some("test-move".to_string()),
+                duration_seconds: 2.0,
+                channels: vec![ModelAnimationChannel {
+                    target_node: 0,
+                    target: ModelAnimationTarget::Translation,
+                    interpolation: ModelAnimationInterpolation::Linear,
+                    inputs: vec![0.0, 2.0],
+                    outputs: ModelAnimationOutputs::Translations(vec![
+                        [0.0, 0.0, 0.0],
+                        [2.0, 0.0, 0.0],
+                    ]),
+                }],
+            },
+            0,
+            vec![ModelNodeTransform::default()],
+        )
+        .unwrap();
+
+    state.reset_game(0x0F6, 1).unwrap();
+    state
+        .tick(BrowserGameInput {
+            delta_seconds: 1.0,
+            forward: 0.0,
+            right: 0.0,
+            up: 0.0,
+            fast: false,
+            look_delta_x: 0.0,
+            look_delta_y: 0.0,
+        })
+        .unwrap();
+
+    let item = &state.render_mesh_items().unwrap()[0];
+    assert_close(item.world_matrix[12], 5.0);
+    let animation = state.model_animation_snapshot().unwrap();
+    assert_eq!(animation.runtime, "rust");
+    assert_eq!(animation.clip_name, Some("test-move".to_string()));
+    assert_close(animation.time_seconds, 1.0);
+    assert_close(animation.duration_seconds, 2.0);
+}
+
+#[test]
+fn browser_game_state_replaces_configured_static_model_scene_item() {
+    let mut state = BrowserGameState::new();
+
+    state.reset_game(0x0F6, 1).unwrap();
+    state
+        .configure_static_model_scene("model.first.mesh", "model.first.material")
+        .unwrap();
+    state
+        .configure_static_model_scene("model.second.mesh", "model.second.material")
+        .unwrap();
+
+    let items = state.render_mesh_items().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].mesh_label, "model.second.mesh");
+    assert_eq!(items[0].material_label, "model.second.material");
+}
+
+#[test]
 fn browser_game_state_ticks_player_and_grounds_against_terrain() {
     let mut state = BrowserGameState::new();
     state.reset_game(0x0F6, 1).unwrap();
@@ -658,6 +806,17 @@ fn workspace_path(path: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .join(path.trim_start_matches('/'))
+}
+
+fn test_model_node(local_transform: ModelNodeTransform) -> ModelNode {
+    ModelNode {
+        name: None,
+        parent: None,
+        children: Vec::new(),
+        mesh: None,
+        skin: None,
+        local_transform,
+    }
 }
 
 fn assert_close(actual: f32, expected: f32) {

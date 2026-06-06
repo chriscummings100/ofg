@@ -5,7 +5,13 @@
 use std::fmt;
 
 use crate::config::MODEL_VERTEX_FLOATS;
+use crate::model_animation::{import_animations, ModelAnimationClip};
 
+pub const SAMPLE_ANIMATED_BOX_MODEL_ID: &str = "model.test-fixtures.animated-box";
+pub const SAMPLE_ANIMATED_BOX_MODEL_URL: &str = "/assets/models/test-fixtures/box-animated.glb";
+pub const SAMPLE_ANIMATED_BOX_MESH_LABEL: &str = "model.test-fixtures.animated-box.primitive0.mesh";
+pub const SAMPLE_ANIMATED_BOX_MATERIAL_LABEL: &str =
+    "model.test-fixtures.animated-box.primitive0.material";
 pub const SAMPLE_STATIC_BOX_MODEL_ID: &str = "model.test-fixtures.static-box";
 pub const SAMPLE_STATIC_BOX_MODEL_URL: &str = "/assets/models/test-fixtures/static-box.glb";
 pub const SAMPLE_STATIC_BOX_MESH_LABEL: &str = "model.test-fixtures.static-box.primitive0.mesh";
@@ -17,7 +23,7 @@ pub struct ModelAsset {
     pub nodes: Vec<ModelNode>,
     pub primitives: Vec<ModelPrimitive>,
     pub materials: Vec<ModelMaterial>,
-    pub animation_count: usize,
+    pub animations: Vec<ModelAnimationClip>,
     pub skin_count: usize,
 }
 
@@ -42,6 +48,11 @@ impl ModelAsset {
             .map(|primitive| primitive.indices.len())
             .sum()
     }
+
+    /// Returns the number of imported animation clips.
+    pub fn animation_count(&self) -> usize {
+        self.animations.len()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -59,6 +70,16 @@ pub struct ModelNodeTransform {
     pub translation: [f32; 3],
     pub rotation: [f32; 4],
     pub scale: [f32; 3],
+}
+
+impl Default for ModelNodeTransform {
+    fn default() -> Self {
+        Self {
+            translation: [0.0, 0.0, 0.0],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            scale: [1.0, 1.0, 1.0],
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -130,6 +151,39 @@ pub enum ModelAssetError {
         mesh_index: usize,
         attribute: &'static str,
     },
+    MissingAnimationInput {
+        animation_index: usize,
+        channel_index: usize,
+    },
+    MissingAnimationOutput {
+        animation_index: usize,
+        channel_index: usize,
+    },
+    UnsupportedAnimationInterpolation {
+        animation_index: usize,
+        channel_index: usize,
+        interpolation: String,
+    },
+    UnsupportedAnimationTarget {
+        animation_index: usize,
+        channel_index: usize,
+        target: String,
+    },
+    InvalidAnimationKeyframes {
+        animation_index: usize,
+        channel_index: usize,
+        input_count: usize,
+        output_count: usize,
+    },
+    InvalidAnimationData {
+        animation_index: usize,
+        channel_index: usize,
+        attribute: &'static str,
+    },
+    InvalidAnimationTargetNode {
+        node_index: usize,
+    },
+    InvalidAnimationTime,
 }
 
 impl fmt::Display for ModelAssetError {
@@ -194,6 +248,60 @@ impl fmt::Display for ModelAssetError {
                 formatter,
                 "glTF mesh {mesh_index} attribute {attribute} contains non-finite data"
             ),
+            Self::MissingAnimationInput {
+                animation_index,
+                channel_index,
+            } => write!(
+                formatter,
+                "glTF animation {animation_index} channel {channel_index} is missing input keyframe times"
+            ),
+            Self::MissingAnimationOutput {
+                animation_index,
+                channel_index,
+            } => write!(
+                formatter,
+                "glTF animation {animation_index} channel {channel_index} is missing output values"
+            ),
+            Self::UnsupportedAnimationInterpolation {
+                animation_index,
+                channel_index,
+                interpolation,
+            } => write!(
+                formatter,
+                "glTF animation {animation_index} channel {channel_index} uses unsupported interpolation {interpolation}"
+            ),
+            Self::UnsupportedAnimationTarget {
+                animation_index,
+                channel_index,
+                target,
+            } => write!(
+                formatter,
+                "glTF animation {animation_index} channel {channel_index} targets unsupported property {target}"
+            ),
+            Self::InvalidAnimationKeyframes {
+                animation_index,
+                channel_index,
+                input_count,
+                output_count,
+            } => write!(
+                formatter,
+                "glTF animation {animation_index} channel {channel_index} has {input_count} input times and {output_count} output values"
+            ),
+            Self::InvalidAnimationData {
+                animation_index,
+                channel_index,
+                attribute,
+            } => write!(
+                formatter,
+                "glTF animation {animation_index} channel {channel_index} contains invalid {attribute} data"
+            ),
+            Self::InvalidAnimationTargetNode { node_index } => write!(
+                formatter,
+                "glTF animation targets missing model node {node_index}"
+            ),
+            Self::InvalidAnimationTime => {
+                write!(formatter, "glTF animation sampling time was not finite")
+            }
         }
     }
 }
@@ -210,12 +318,13 @@ pub fn import_gltf_model_from_slice(bytes: &[u8]) -> Result<ModelAsset, ModelAss
     let nodes = import_nodes(&document);
     let materials = import_materials(&document);
     let primitives = import_primitives(&document, &buffers)?;
+    let animations = import_animations(&document, &buffers)?;
 
     Ok(ModelAsset {
         nodes,
         primitives,
         materials,
-        animation_count: document.animations().len(),
+        animations,
         skin_count: document.skins().len(),
     })
 }
