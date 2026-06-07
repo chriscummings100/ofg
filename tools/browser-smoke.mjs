@@ -18,6 +18,7 @@ const headed = process.env.OFG_SMOKE_HEADED === "1";
 const artifactRoot = resolve(root, "artifacts", "browser-smoke");
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
 const artifactDir = resolve(artifactRoot, runId);
+const minMultiKmTerrainSpanMeters = 4096;
 
 mkdirSync(artifactDir, { recursive: true });
 
@@ -394,7 +395,7 @@ async function setPostProcessDepthOfField(
 
 /// Waits until Rust terrain streaming exposes a settled mixed-LOD frame.
 async function waitForTerrainLodFrame(page) {
-  await page.waitForFunction(() => {
+  await page.waitForFunction((minSpanMeters) => {
     const debug = window.__ofgDebug;
     const status = debug?.getTerrainStreamStatus?.();
     const terrainNodeKeys = debug?.getTerrainNodeKeys?.() ?? [];
@@ -402,10 +403,12 @@ async function waitForTerrainLodFrame(page) {
       status.pending === false &&
       status.renderedChunkCount > 0 &&
       status.renderedNodeCount > status.renderedChunkCount &&
-      status.maxRenderedLod >= 1 &&
+      status.maxRenderedLod >= 3 &&
+      status.visibleWorldSpanXMeters >= minSpanMeters &&
+      status.visibleWorldSpanZMeters >= minSpanMeters &&
       terrainNodeKeys.some((key) => key.startsWith("lod0:")) &&
-      terrainNodeKeys.some((key) => key.startsWith("lod1:") || key.startsWith("lod2:"));
-  }, null, { timeout: 30000 });
+      terrainNodeKeys.some((key) => key.startsWith("lod3:") || key.startsWith("lod4:"));
+  }, minMultiKmTerrainSpanMeters, { timeout: 120000 });
 }
 
 /// Reads browser HUD values relevant to shell integration.
@@ -585,7 +588,9 @@ function assertDebugContract(debug, expectations = {}) {
     terrainStatus.pending !== false ||
     terrainStatus.renderedChunkCount <= 0 ||
     terrainStatus.renderedNodeCount <= terrainStatus.renderedChunkCount ||
-    terrainStatus.maxRenderedLod < 1 ||
+    terrainStatus.maxRenderedLod < 3 ||
+    terrainStatus.visibleWorldSpanXMeters < minMultiKmTerrainSpanMeters ||
+    terrainStatus.visibleWorldSpanZMeters < minMultiKmTerrainSpanMeters ||
     !Array.isArray(terrainStatus.terrainLodSummary) ||
     terrainStatus.terrainLodSummary.filter((summary) => summary.renderedNodeCount > 0).length < 2
   ) {
@@ -594,13 +599,13 @@ function assertDebugContract(debug, expectations = {}) {
   if (
     !Array.isArray(debug.terrainNodeKeys) ||
     !debug.terrainNodeKeys.some((key) => key.startsWith("lod0:")) ||
-    !debug.terrainNodeKeys.some((key) => key.startsWith("lod1:") || key.startsWith("lod2:"))
+    !debug.terrainNodeKeys.some((key) => key.startsWith("lod3:") || key.startsWith("lod4:"))
   ) {
     throw new Error(`Terrain node keys do not expose mixed LODs: ${JSON.stringify(debug)}`);
   }
   if (
     !Array.isArray(debug.loadedTerrainNodeKeys) ||
-    !debug.loadedTerrainNodeKeys.some((key) => key.startsWith("lod2:"))
+    !debug.loadedTerrainNodeKeys.some((key) => key.startsWith("lod4:"))
   ) {
     throw new Error(`Loaded terrain node keys do not expose coarse LODs: ${JSON.stringify(debug)}`);
   }

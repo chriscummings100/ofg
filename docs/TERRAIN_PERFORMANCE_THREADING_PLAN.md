@@ -86,9 +86,39 @@ patches, parent/child visible overlap, or TypeScript-owned terrain scheduling.
   local contract, code-quality, legacy, correctness, and validation passes were
   performed. Required findings were fixed before marking the milestone
   complete.
-- [ ] Milestone 2: add at least one extra terrain LOD and tune default horizon
+- [x] Milestone 2: add at least one extra terrain LOD and tune default horizon
   bands to reach a multi-kilometer visible span without breaking hierarchical
   streaming.
+- [x] (2026-06-07 23:58+01:00) Added default LOD3 and LOD4 far bands. The
+  playable stream now uses LOD0 radius 1, LOD1 radius 2, LOD2 radius 3, LOD3
+  radius 2, and LOD4 radius 4; near bands use vertical offsets
+  `[-2, -1, 0, 1]`, while far bands use `[-1, 0]`.
+- [x] (2026-06-07 23:58+01:00) Added visible-span reporting to Rust terrain
+  stream status, browser debug JS, TypeScript debug types, Rust smoke reports,
+  browser smoke assertions, and the multi-LOD benchmark probe.
+- [x] (2026-06-07 23:58+01:00) Updated the profiled-node benchmark population
+  to sample the new LOD0 through LOD4 default bands. The population now uses
+  one deterministic node per LOD per streaming source, plus explicit class
+  probes, for 200 release benchmark samples.
+- [x] (2026-06-07 23:58+01:00) Ran Milestone 2 targeted validation:
+  `cargo test -p terrain_core stream_scheduler --no-fail-fast`,
+  `cargo test -p engine_web browser_terrain_stream --no-fail-fast`,
+  `cargo test -p ofg_test_harness terrain_bench --no-fail-fast`,
+  `cargo test -p ofg_test_harness multi_lod_scenario_terrain_reports_lod_counts --no-fail-fast`,
+  and `npm run test:ts`.
+- [x] (2026-06-07 23:58+01:00) Ran render and browser smoke after the LOD4
+  horizon change: `npm run smoke:rust` wrote
+  `artifacts/rust-smoke/run-1780872366-073/report.json`; `npm run smoke:browser`
+  wrote `artifacts/browser-smoke/2026-06-07T22-51-36-514Z/report.json`.
+- [x] (2026-06-07 23:58+01:00) Ran the updated release terrain benchmark with
+  `npm run bench:terrain:rust -- --iterations 12 --mesh-iterations 6 --warmup 2`;
+  report:
+  `artifacts/terrain-bench/run-1780872880-562/report.json`.
+- [x] (2026-06-08 00:05+01:00) Milestone 2 review complete. Sub-agent review
+  was not used because the user did not explicitly request delegated reviewers;
+  local contract, code-quality, legacy, correctness, and validation passes were
+  performed. Required findings were fixed before marking the milestone
+  complete.
 - [ ] Milestone 3: move node generation off the browser main thread using
   browser workers while keeping Rust scheduler ownership and stale-completion
   validation.
@@ -154,6 +184,26 @@ patches, parent/child visible overlap, or TypeScript-owned terrain scheduling.
   935 lines and `crates/ofg_test_harness/src/terrain_bench_profile.rs` is
   864 lines. This is below the hard 1000-line split threshold, but above the
   600-line split-pressure threshold.
+- Observation: LOD3 alone is an awkward fit for a 4 km target; LOD4 is the
+  practical first horizon band.
+  Evidence: a LOD3 node spans 256 meters, so a 4096 meter target would require
+  a very wide LOD3 radius. The chosen LOD4 radius 4 band spans 4608 meters in
+  X and Z with 512 meter nodes.
+- Observation: adding the far horizon makes the synchronous stream visibly
+  expensive in tests and smoke.
+  Evidence: the targeted engine_web default-band test and the far-view smoke
+  scenario each spent about 69 seconds generating the settled stream in the
+  current synchronous path, and `npm run smoke:rust` took about 318 seconds.
+  The release benchmark stream probe rendered 347 nodes after considering 770
+  desired nodes.
+- Observation: the LOD4 release benchmark still points at density generation as
+  the main cost, but contouring is now large enough to track.
+  Evidence:
+  `artifacts/terrain-bench/run-1780872880-562/report.json` reports 200 profiled
+  node samples with median 58.397 ms, p95 80.049 ms, mean 61.500 ms, and phase
+  mean shares of about 88.9% density, 10.3% contouring, 0.7% material
+  expansion, and 0.1% copy. The prepared-density repeat reports median
+  7.983 ms and p95 13.431 ms.
 
 ## Decision Log
 
@@ -214,13 +264,40 @@ patches, parent/child visible overlap, or TypeScript-owned terrain scheduling.
   Later worker/upload profiling should go in separate modules rather than
   growing this file.
   Date/Author: 2026-06-07 / Codex.
+- Decision: use LOD4 as the first multi-kilometer horizon band.
+  Rationale: LOD3 nodes are 256 meters wide, which makes a 4096 meter visible
+  span require an excessively wide LOD3 radius. LOD4 nodes are 512 meters wide;
+  radius 4 gives a measured 4608 meter span while preserving LOD3 as an
+  intermediate refinement band.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: use two far vertical offsets, `[-1, 0]`, for LOD3 and LOD4.
+  Rationale: those bands cover 512 meters vertically at LOD3 and 1024 meters at
+  LOD4 around the player-height center, while avoiding a third far vertical
+  layer before worker generation exists. Near LOD0 through LOD2 keeps the wider
+  `[-2, -1, 0, 1]` band for player cover.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: expose settled visible terrain span as Rust-owned debug and smoke
+  data.
+  Rationale: tests and browser smoke should assert the player-facing distance
+  target directly instead of inferring it from key strings or fragile node
+  counts. TypeScript may assert the values, but Rust owns the calculation.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: reduce profiled stream sampling from three nodes per LOD per source
+  to one after adding LOD3 and LOD4.
+  Rationale: the new population still samples 200 nodes across two seeds, four
+  presets, movement sources, explicit class probes, and five LODs. Keeping the
+  old per-LOD sample count made quick benchmark runs too slow while the normal
+  path is still synchronous.
+  Date/Author: 2026-06-07 / Codex.
 
 ## Outcomes & Retrospective
 
-Milestone 1 is complete. The overall plan remains active. Current outcomes:
+Milestones 1 and 2 are complete. The overall plan remains active. Current
+outcomes:
 
-- Default terrain uses at least one additional far LOD and reaches a
-  multi-kilometer visible terrain span. This remains Milestone 2 work.
+- Default terrain now uses additional LOD3 and LOD4 far bands and reaches a
+  settled visible span of 4608 meters by 4608 meters in the release terrain
+  benchmark, Rust smoke, and browser smoke.
 - `npm run bench:terrain:rust` now reports realistic average and percentile
   costs for terrain generation across many representative nodes, with phase
   breakdowns that identify where time is spent.
@@ -266,8 +343,10 @@ Current default terrain stream configuration lives in
 - `DEFAULT_TERRAIN_CELL_SIZE` is `1.0`.
 - `TERRAIN_CHUNK_CELLS_PER_AXIS` is `32` in
   `crates/terrain_core/src/constants.rs`.
-- Default vertical offsets are `[-2, -1, 0, 1]`.
-- Default LOD bands are LOD0 radius 1, LOD1 radius 2, and LOD2 radius 3.
+- Default near vertical offsets are `[-2, -1, 0, 1]`.
+- Default far vertical offsets are `[-1, 0]`.
+- Default LOD bands are LOD0 radius 1, LOD1 radius 2, LOD2 radius 3, LOD3
+  radius 2, and LOD4 radius 4.
 - `DEFAULT_TERRAIN_MAX_JOBS_PER_TICK` is `6`.
 
 World-space node size is computed by
@@ -505,6 +584,36 @@ Milestone 1 review, 2026-06-07 / Codex:
 - Remaining risk: benchmark profile samples are representative of the current
   LOD2 stream and explicit class probes; Milestone 2 must update the sampling
   bands when adding farther LODs.
+
+Milestone 2 review, 2026-06-08 / Codex:
+
+- Scope: default far LOD horizon and span reporting; changed Rust terrain
+  stream defaults/status, Rust/wgpu JS debug conversion, TypeScript debug
+  schema/tests, Rust smoke and benchmark reports, browser smoke assertions,
+  generated WASM artifacts, and active docs/contracts.
+- Reviewers: contract, code quality, legacy, correctness, and validation passes
+  were done locally. Sub-agent review was skipped because delegated reviewers
+  were not explicitly requested by the user.
+- Required findings fixed: removed duplicated visible-span calculation from
+  `crates/ofg_test_harness/src/render_smoke/scenarios.rs`, bringing it back
+  under the 600-line split-pressure threshold; replaced a hard-coded browser
+  smoke span literal with the named `minMultiKmTerrainSpanMeters` constant; and
+  marked `docs/TERRAIN_PLAN.md` as completed historical context with current
+  follow-up work in this plan.
+- Follow-ups recorded: `crates/ofg_test_harness/src/terrain_bench_profile.rs`
+  remains 877 lines and must not absorb worker/upload profiling; large existing
+  files such as `tools/browser-smoke.mjs`, `crates/engine_web/src/tests.rs`,
+  and `crates/engine_web/src/wgpu_renderer.rs` should be split by
+  responsibility when future changes add substantial new behavior.
+- Rejected findings: none.
+- Validation rerun after review fixes:
+  `cargo test -p ofg_test_harness multi_lod_scenario_terrain_reports_lod_counts --no-fail-fast`,
+  `npm run check:wasm`, `node --check tools/browser-smoke.mjs`,
+  `npm run smoke:browser`, and `git -c safe.directory=C:/dev/ofg diff --check`.
+- Remaining risk: Milestone 2 intentionally increases synchronous terrain work
+  before worker generation exists. Correctness and smoke pass, but the roughly
+  69-second far-settle tests and 318-second Rust smoke run are evidence that
+  Milestone 3 must move generation off the frame path.
 
 ## Validation and Acceptance
 

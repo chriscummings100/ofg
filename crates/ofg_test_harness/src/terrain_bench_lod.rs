@@ -6,13 +6,11 @@ use engine_core::Vec3;
 use engine_web::{BrowserTerrainStream, TERRAIN_VERTEX_FLOATS};
 use serde::Serialize;
 use terrain_core::benchmark::reset_density_store;
-use terrain_core::{
-    build_node_mesh, height_at, terrain_node_cell_size, TerrainChunkCoord, TerrainNodeKey,
-    TERRAIN_CHUNK_CELLS_PER_AXIS,
-};
+use terrain_core::{build_node_mesh, height_at, TerrainChunkCoord, TerrainNodeKey};
 
 const BASE_CELL_SIZE: f64 = 1.0;
-const STREAM_PROBE_TICKS: usize = 360;
+const STREAM_PROBE_TICKS: usize = 1600;
+const MIN_MULTI_KM_SPAN_METERS: f64 = 4096.0;
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,15 +60,16 @@ pub fn run_multi_lod_probe(seed: u32, preset: u32) -> MultiLodBenchmarkReport {
         let status = stream.status();
         if status.rendered_chunk_count > 0
             && status.rendered_node_count > status.rendered_chunk_count
-            && status.max_rendered_lod >= 1
+            && status.max_rendered_lod >= 3
+            && status.visible_world_span_x_meters >= MIN_MULTI_KM_SPAN_METERS
+            && status.visible_world_span_z_meters >= MIN_MULTI_KM_SPAN_METERS
         {
             break;
         }
     }
 
     let status = stream.status();
-    let visible_nodes = stream.render_nodes();
-    let (span_x, span_z) = visible_world_span(&visible_nodes);
+    let max_lod_to_measure = status.max_rendered_lod.max(4);
 
     MultiLodBenchmarkReport {
         stream_ticks,
@@ -78,8 +77,8 @@ pub fn run_multi_lod_probe(seed: u32, preset: u32) -> MultiLodBenchmarkReport {
         rendered_node_count: status.rendered_node_count,
         rendered_chunk_count: status.rendered_chunk_count,
         max_rendered_lod: status.max_rendered_lod,
-        visible_world_span_x_meters: span_x,
-        visible_world_span_z_meters: span_z,
+        visible_world_span_x_meters: status.visible_world_span_x_meters,
+        visible_world_span_z_meters: status.visible_world_span_z_meters,
         lod_counts: status
             .lod_summaries
             .into_iter()
@@ -92,7 +91,7 @@ pub fn run_multi_lod_probe(seed: u32, preset: u32) -> MultiLodBenchmarkReport {
                 missing_node_count: summary.missing_node_count,
             })
             .collect(),
-        mesh_builds_by_lod: (0..=2)
+        mesh_builds_by_lod: (0..=max_lod_to_measure)
             .map(|lod| measure_node_mesh_build(seed, preset, lod))
             .collect(),
     }
@@ -116,6 +115,7 @@ fn measure_node_mesh_build(seed: u32, preset: u32, lod: u8) -> LodMeshBuildRepor
     }
 }
 
+#[cfg(test)]
 fn visible_world_span(nodes: &[TerrainNodeKey]) -> (f64, f64) {
     if nodes.is_empty() {
         return (0.0, 0.0);
@@ -127,8 +127,8 @@ fn visible_world_span(nodes: &[TerrainNodeKey]) -> (f64, f64) {
     let mut max_z = f64::NEG_INFINITY;
 
     for key in nodes {
-        let node_size =
-            terrain_node_cell_size(BASE_CELL_SIZE, key.lod) * TERRAIN_CHUNK_CELLS_PER_AXIS as f64;
+        let node_size = terrain_core::terrain_node_cell_size(BASE_CELL_SIZE, key.lod)
+            * terrain_core::TERRAIN_CHUNK_CELLS_PER_AXIS as f64;
         let x0 = key.coord.x as f64 * node_size;
         let z0 = key.coord.z as f64 * node_size;
         min_x = min_x.min(x0);

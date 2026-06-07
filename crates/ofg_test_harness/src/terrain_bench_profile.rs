@@ -15,7 +15,8 @@ use terrain_core::{
 
 const STREAMING_HORIZONTAL_RADIUS: i32 = 1;
 const STREAMING_VERTICAL_CHUNK_OFFSETS: [i32; 4] = [-2, -1, 0, 1];
-const PROFILE_NODE_SAMPLES_PER_LOD_PER_SOURCE: usize = 3;
+const STREAMING_FAR_VERTICAL_CHUNK_OFFSETS: [i32; 2] = [-1, 0];
+const PROFILE_NODE_SAMPLES_PER_LOD_PER_SOURCE: usize = 1;
 const PROFILE_SEED_XORS: [u32; 2] = [0, 0x9E37_79B9];
 
 const PROFILE_PRESETS: [ProfilePreset; 4] = [
@@ -328,15 +329,15 @@ fn collect_class_probe_profile_scenarios(
         (
             "class-coarse-air",
             TerrainNodeKey {
-                lod: 2,
-                coord: TerrainChunkCoord { x: 0, y: 5, z: 0 },
+                lod: 4,
+                coord: TerrainChunkCoord { x: 0, y: 3, z: 0 },
             },
         ),
         (
             "class-coarse-solid",
             TerrainNodeKey {
-                lod: 2,
-                coord: TerrainChunkCoord { x: 0, y: -5, z: 0 },
+                lod: 4,
+                coord: TerrainChunkCoord { x: 0, y: -3, z: 0 },
             },
         ),
     ];
@@ -363,6 +364,16 @@ fn benchmark_lod_bands() -> Vec<TerrainLodBand> {
             lod: 2,
             horizontal_radius: 3,
             vertical_chunk_offsets: STREAMING_VERTICAL_CHUNK_OFFSETS.to_vec(),
+        },
+        TerrainLodBand {
+            lod: 3,
+            horizontal_radius: 2,
+            vertical_chunk_offsets: STREAMING_FAR_VERTICAL_CHUNK_OFFSETS.to_vec(),
+        },
+        TerrainLodBand {
+            lod: 4,
+            horizontal_radius: 4,
+            vertical_chunk_offsets: STREAMING_FAR_VERTICAL_CHUNK_OFFSETS.to_vec(),
         },
     ]
 }
@@ -856,6 +867,8 @@ mod tests {
         assert!(lods.contains(&0));
         assert!(lods.contains(&1));
         assert!(lods.contains(&2));
+        assert!(lods.contains(&3));
+        assert!(lods.contains(&4));
         assert!(sources.contains("initial-settle"));
         assert!(sources.contains("class-air"));
         assert!(sources.contains("class-solid"));

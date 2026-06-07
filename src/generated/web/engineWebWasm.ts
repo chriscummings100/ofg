@@ -23,7 +23,7 @@ export const ENGINE_WEB_WASM_METADATA = Object.freeze({
   "wasmPath": "assets/wasm/engine_web/engine_web_bg.wasm",
   "dtsPath": "assets/wasm/engine_web/engine_web.d.ts",
   "target": "wasm32-unknown-unknown",
-  "wasmHash": "sha256-27503de152fc78f15ef5f509aa3883e9f0b255a4cda2508e30161900a3bd2f40",
+  "wasmHash": "sha256-299678b2badebc5bd832f7324c413ffdaf9ccf7426ead398bd5fbf25a8805c2d",
   "moduleHash": "sha256-1f98e7adc90512694a056c5d9d2741158ec6ec668db590645449c5aa1d4e335b",
   "dtsHash": "sha256-fa653ede9a0db6531fbaef622e3ea5c46bd11f23268239e4256baaf0906442bf",
   "exports": [

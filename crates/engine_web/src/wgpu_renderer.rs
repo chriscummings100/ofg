@@ -2826,6 +2826,16 @@ fn terrain_stream_status_to_js(status: BrowserTerrainStreamStatus) -> Result<JsV
     )?;
     set_js_property(
         &object,
+        "visibleWorldSpanXMeters",
+        JsValue::from_f64(status.visible_world_span_x_meters),
+    )?;
+    set_js_property(
+        &object,
+        "visibleWorldSpanZMeters",
+        JsValue::from_f64(status.visible_world_span_z_meters),
+    )?;
+    set_js_property(
+        &object,
         "terrainLodSummary",
         terrain_lod_summary_to_js(status.lod_summaries)?,
     )?;

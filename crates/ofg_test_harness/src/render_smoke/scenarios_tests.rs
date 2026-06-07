@@ -125,13 +125,15 @@ fn multi_lod_scenario_terrain_reports_lod_counts() {
 
     assert!(terrain.debug.rendered_chunk_count > 0);
     assert!(terrain.debug.rendered_node_count > terrain.debug.rendered_chunk_count);
-    assert!(terrain.debug.max_rendered_lod >= 1);
+    assert!(terrain.debug.max_rendered_lod >= 3);
+    assert!(terrain.debug.visible_world_span_x_meters >= 4096.0);
+    assert!(terrain.debug.visible_world_span_z_meters >= 4096.0);
     assert!(terrain.debug.rendered_lod_counts.len() >= 2);
     assert!(terrain
         .debug
         .rendered_node_keys
         .iter()
-        .any(|key| key.starts_with("lod1:") || key.starts_with("lod2:")));
+        .any(|key| key.starts_with("lod3:") || key.starts_with("lod4:")));
 }
 
 #[test]

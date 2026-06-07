@@ -100,6 +100,8 @@ pub struct ScenarioDebug {
     pub empty_node_count: usize,
     pub missing_node_count: usize,
     pub max_rendered_lod: u8,
+    pub visible_world_span_x_meters: f64,
+    pub visible_world_span_z_meters: f64,
     pub rendered_lod_counts: Vec<LodCountReport>,
     pub vertex_count: usize,
     pub index_count: usize,
@@ -489,6 +491,8 @@ mod tests {
                     empty_node_count: 0,
                     missing_node_count: 0,
                     max_rendered_lod: 0,
+                    visible_world_span_x_meters: 32.0,
+                    visible_world_span_z_meters: 32.0,
                     rendered_lod_counts: vec![LodCountReport {
                         lod: 0,
                         node_count: 1,

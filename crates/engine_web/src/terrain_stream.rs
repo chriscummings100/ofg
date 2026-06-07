@@ -8,14 +8,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use engine_core::Vec3;
 use terrain_core::{
     build_node_mesh, terrain_chunk_coord_containing_position, terrain_chunk_key,
-    terrain_node_children, terrain_node_key, terrain_node_parent, MeshData, TerrainChunkCoord,
-    TerrainLodBand, TerrainLodStatus as CoreTerrainLodStatus, TerrainNodeKey, TerrainStreamConfig,
-    TerrainStreamError, TerrainStreamJob, TerrainStreamScheduler,
-    TerrainStreamStatus as CoreTerrainStreamStatus,
+    terrain_node_cell_size, terrain_node_children, terrain_node_key, terrain_node_parent, MeshData,
+    TerrainChunkCoord, TerrainLodBand, TerrainLodStatus as CoreTerrainLodStatus, TerrainNodeKey,
+    TerrainStreamConfig, TerrainStreamError, TerrainStreamJob, TerrainStreamScheduler,
+    TerrainStreamStatus as CoreTerrainStreamStatus, TERRAIN_CHUNK_CELLS_PER_AXIS,
 };
 
 const DEFAULT_TERRAIN_HORIZONTAL_RADIUS: i32 = 1;
 const DEFAULT_TERRAIN_VERTICAL_OFFSETS: [i32; 4] = [-2, -1, 0, 1];
+const DEFAULT_TERRAIN_FAR_VERTICAL_OFFSETS: [i32; 2] = [-1, 0];
 const DEFAULT_TERRAIN_CELL_SIZE: f64 = 1.0;
 const DEFAULT_TERRAIN_MAX_JOBS_PER_TICK: usize = 6;
 
@@ -56,6 +57,8 @@ pub struct BrowserTerrainStreamStatus {
     pub empty_node_count: usize,
     pub missing_node_count: usize,
     pub max_rendered_lod: u8,
+    pub visible_world_span_x_meters: f64,
+    pub visible_world_span_z_meters: f64,
     pub lod_summaries: Vec<BrowserTerrainLodStatus>,
     pub max_concurrent_chunk_jobs: usize,
     pub last_density_job_stats: Option<TerrainJobStats>,
@@ -198,6 +201,8 @@ impl BrowserTerrainStream {
             .max()
             .unwrap_or(0);
         let rendered_chunk_count = self.visible_nodes.iter().filter(|key| key.lod == 0).count();
+        let (visible_world_span_x_meters, visible_world_span_z_meters) =
+            visible_world_span(&self.visible_nodes, self.cell_size);
 
         BrowserTerrainStreamStatus {
             generation: status.generation,
@@ -218,6 +223,8 @@ impl BrowserTerrainStream {
             empty_node_count: status.mesh_empty_count,
             missing_node_count: status.missing_mesh_count,
             max_rendered_lod,
+            visible_world_span_x_meters,
+            visible_world_span_z_meters,
             lod_summaries: status
                 .lod_summaries
                 .into_iter()
@@ -389,6 +396,16 @@ fn default_terrain_lod_bands() -> Vec<TerrainLodBand> {
             horizontal_radius: 3,
             vertical_chunk_offsets: DEFAULT_TERRAIN_VERTICAL_OFFSETS.to_vec(),
         },
+        TerrainLodBand {
+            lod: 3,
+            horizontal_radius: 2,
+            vertical_chunk_offsets: DEFAULT_TERRAIN_FAR_VERTICAL_OFFSETS.to_vec(),
+        },
+        TerrainLodBand {
+            lod: 4,
+            horizontal_radius: 4,
+            vertical_chunk_offsets: DEFAULT_TERRAIN_FAR_VERTICAL_OFFSETS.to_vec(),
+        },
     ]
 }
 
@@ -422,6 +439,30 @@ fn is_stream_pending(status: &CoreTerrainStreamStatus) -> bool {
         || status.in_flight_lod_count > 0
         || status.missing_density_count > 0
         || status.missing_mesh_count > 0
+}
+
+fn visible_world_span(nodes: &BTreeSet<TerrainNodeKey>, base_cell_size: f64) -> (f64, f64) {
+    if nodes.is_empty() {
+        return (0.0, 0.0);
+    }
+
+    let mut min_x = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut min_z = f64::INFINITY;
+    let mut max_z = f64::NEG_INFINITY;
+
+    for key in nodes {
+        let node_size =
+            terrain_node_cell_size(base_cell_size, key.lod) * TERRAIN_CHUNK_CELLS_PER_AXIS as f64;
+        let x0 = key.coord.x as f64 * node_size;
+        let z0 = key.coord.z as f64 * node_size;
+        min_x = min_x.min(x0);
+        max_x = max_x.max(x0 + node_size);
+        min_z = min_z.min(z0);
+        max_z = max_z.max(z0 + node_size);
+    }
+
+    (max_x - min_x, max_z - min_z)
 }
 
 fn hierarchy_conflicts_with_visible(

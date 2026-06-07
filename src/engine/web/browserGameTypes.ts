@@ -139,6 +139,8 @@ export type TerrainStreamStatus = {
   readonly emptyNodeCount: number;
   readonly missingNodeCount: number;
   readonly maxRenderedLod: number;
+  readonly visibleWorldSpanXMeters: number;
+  readonly visibleWorldSpanZMeters: number;
   readonly terrainLodSummary: TerrainLodSummary[];
   readonly maxConcurrentChunkJobs: number;
   readonly workerPoolRuntime: "rust";

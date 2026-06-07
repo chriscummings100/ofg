@@ -135,6 +135,8 @@ function fakeRenderer(): FakeRenderer {
           emptyNodeCount: 0,
           missingNodeCount: 0,
           maxRenderedLod: 0,
+          visibleWorldSpanXMeters: 32,
+          visibleWorldSpanZMeters: 32,
           terrainLodSummary: [
             {
               lod: 0,

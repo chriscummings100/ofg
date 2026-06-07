@@ -138,15 +138,16 @@ The active direction is a small Rust-owned scene/component layer in
 
 The visible seed terrain now defaults to a Rust-owned multi-LOD terrain view.
 Near terrain still uses the current highest-detail LOD0 Dual Contouring chunks,
-while farther bands render coarser LOD1 and LOD2 nodes with larger world-space
-cell sizes. The runtime streamer schedules generated nodes as the active unit of
-work: a node build produces either a renderable mesh or an empty node, with
-density sampling kept as an internal meshing detail. It builds neighbor-aware
-meshes with deterministic same-LOD seam ownership, keeps generated mesh data
-cached, and selects a hole-free visible cover by keeping parent nodes rendered
-until their desired child group is generated or proven empty. Terrain stream
-scheduling, browser stream updates, renderer mesh IDs, and debug snapshots are
-node-keyed for a rootless multi-resolution LOD grid.
+while farther bands render coarser LOD1 through LOD4 nodes with larger
+world-space cell sizes. The default horizon band renders a measured settled
+span above 4 km in X and Z. The runtime streamer schedules generated nodes as
+the active unit of work: a node build produces either a renderable mesh or an
+empty node, with density sampling kept as an internal meshing detail. It builds
+neighbor-aware meshes with deterministic same-LOD seam ownership, keeps
+generated mesh data cached, and selects a hole-free visible cover by keeping
+parent nodes rendered until their desired child group is generated or proven
+empty. Terrain stream scheduling, browser stream updates, renderer mesh IDs,
+and debug snapshots are node-keyed for a rootless multi-resolution LOD grid.
 
 The terrain data model is 3D from the start. A terrain density chunk has 32 cells
 per axis and 33 samples per axis, so adjacent chunks share boundary samples

@@ -1,5 +1,9 @@
 # Multi-Resolution Terrain View Distance
 
+This completed terrain view-distance plan records the LOD0 through LOD2
+migration history. Current follow-up distance, benchmarking, and worker-thread
+work lives in `docs/TERRAIN_PERFORMANCE_THREADING_PLAN.md`.
+
 This ExecPlan is a living document. The sections Progress, Surprises &
 Discoveries, Decision Log, and Outcomes & Retrospective must stay up to date as
 work proceeds.
@@ -59,6 +63,10 @@ detail is generated and is the basis for smooth streaming transitions.
   LOD-boundary Rust image smoke scenarios, extended smoke and benchmark reports
   with multi-LOD node counts, verified browser smoke/benchmark/coverage gates,
   and recorded final review evidence.
+- [x] (2026-06-07 23:55+01:00) Follow-up distance tuning moved to
+  `docs/TERRAIN_PERFORMANCE_THREADING_PLAN.md`: the default playable stream now
+  includes LOD3/LOD4 far bands and reports a settled visible span above 4 km in
+  X and Z.
 
 ## Surprises & Discoveries
 
@@ -71,12 +79,13 @@ detail is generated and is the basis for smooth streaming transitions.
   Evidence: `crates/terrain_core/src/mesh.rs` exposes
   `build_chunk_mesh(seed, preset, coord, cell_size)`.
 - Observation: the runtime stream and renderer can process coarser nodes and
-  now use them by default through conservative LOD0, LOD1, and LOD2 bands.
+  now use them by default through LOD0 through LOD4 bands.
   Evidence:
   `browser_terrain_stream_generates_unique_mesh_keys_across_lods` creates LOD0
   and LOD1 bands, settles the stream, and asserts rendered node keys include
   both LOD0 and LOD1 keys; `browser_terrain_stream_default_bands_render_multiple_lods_after_settling`
-  asserts the default stream renders more node LODs than LOD0 chunks.
+  asserts the default stream reaches at least LOD3 and spans at least 4096m in
+  X and Z.
 - Observation: Milestone 1 made `stream.rs` exceed the review skill's 600-line
   split-pressure threshold.
   Evidence: local milestone review measured `crates/terrain_core/src/stream.rs`

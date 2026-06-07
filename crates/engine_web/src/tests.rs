@@ -42,6 +42,7 @@ const ANIMATED_CUBE_GLTF: &[u8] =
     include_bytes!("../../../assets/models/test-fixtures/animated-cube.gltf");
 const SIMPLE_SKIN_GLTF: &[u8] =
     include_bytes!("../../../assets/models/test-fixtures/simple-skin.gltf");
+const MIN_MULTI_KM_TERRAIN_SPAN_METERS: f64 = 4096.0;
 
 #[test]
 fn config_rejects_canvas_and_texture_limits_that_webgpu_terrain_cannot_use() {
@@ -1635,10 +1636,15 @@ fn browser_terrain_stream_default_bands_render_multiple_lods_after_settling() {
     let origin = Vec3::new(0.0, 0.0, 0.0);
     stream.reset_around(origin);
 
-    for _ in 0..360 {
+    for _ in 0..1600 {
         stream.tick(origin);
         let status = stream.status();
-        if !status.pending && status.rendered_chunk_count > 0 && status.max_rendered_lod >= 1 {
+        if !status.pending
+            && status.rendered_chunk_count > 0
+            && status.max_rendered_lod >= 3
+            && status.visible_world_span_x_meters >= MIN_MULTI_KM_TERRAIN_SPAN_METERS
+            && status.visible_world_span_z_meters >= MIN_MULTI_KM_TERRAIN_SPAN_METERS
+        {
             break;
         }
     }
@@ -1649,16 +1655,19 @@ fn browser_terrain_stream_default_bands_render_multiple_lods_after_settling() {
 
     assert!(status.rendered_chunk_count > 0);
     assert!(status.rendered_node_count > status.rendered_chunk_count);
-    assert!(status.max_rendered_lod >= 1);
+    assert!(status.max_rendered_lod >= 3);
+    assert!(status.visible_world_span_x_meters >= MIN_MULTI_KM_TERRAIN_SPAN_METERS);
+    assert!(status.visible_world_span_z_meters >= MIN_MULTI_KM_TERRAIN_SPAN_METERS);
     assert_eq!(status.pending, false);
     assert_eq!(status.missing_node_count, 0);
+    assert_visible_stream_cover(&stream, origin);
     assert!(loaded_node_keys
         .iter()
-        .any(|key| key.starts_with("lod2:") && key.contains(",-1,")));
+        .any(|key| key.starts_with("lod4:") && key.contains(",-1,")));
     assert!(render_node_keys.iter().any(|key| key.starts_with("lod0:")));
     assert!(render_node_keys
         .iter()
-        .any(|key| key.starts_with("lod1:") || key.starts_with("lod2:")));
+        .any(|key| key.starts_with("lod3:") || key.starts_with("lod4:")));
 }
 
 #[test]

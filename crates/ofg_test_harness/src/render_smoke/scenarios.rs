@@ -14,6 +14,8 @@ use super::error::{harness_error, HarnessResult};
 use super::renderer::CameraSetup;
 use super::report::{LodCountReport, ScenarioDebug};
 
+const MIN_MULTI_KM_TERRAIN_SPAN_METERS: f64 = 4096.0;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ScenarioFilter {
     All,
@@ -260,7 +262,7 @@ pub fn scenarios() -> Vec<Scenario> {
             coverage: None,
             shadow_debug: false,
             stream_mode: ScenarioStreamMode::MultiLod,
-            max_stream_ticks: 360,
+            max_stream_ticks: 1600,
             movement: None,
         },
         Scenario {
@@ -276,7 +278,7 @@ pub fn scenarios() -> Vec<Scenario> {
             coverage: None,
             shadow_debug: false,
             stream_mode: ScenarioStreamMode::MultiLod,
-            max_stream_ticks: 360,
+            max_stream_ticks: 1600,
             movement: None,
         },
         Scenario {
@@ -292,7 +294,7 @@ pub fn scenarios() -> Vec<Scenario> {
             coverage: None,
             shadow_debug: false,
             stream_mode: ScenarioStreamMode::MultiLod,
-            max_stream_ticks: 480,
+            max_stream_ticks: 2000,
             movement: Some(ScenarioMovement {
                 step_count: 48,
                 step_x: 4.0,
@@ -400,6 +402,8 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
             empty_node_count: status.empty_node_count,
             missing_node_count: status.missing_node_count,
             max_rendered_lod,
+            visible_world_span_x_meters: status.visible_world_span_x_meters,
+            visible_world_span_z_meters: status.visible_world_span_z_meters,
             rendered_lod_counts,
             vertex_count,
             index_count,
@@ -417,7 +421,9 @@ fn scenario_stream_ready(scenario: Scenario, stream: &BrowserTerrainStream) -> b
             !status.pending
                 && status.rendered_chunk_count > 0
                 && status.rendered_node_count > status.rendered_chunk_count
-                && status.max_rendered_lod >= 1
+                && status.max_rendered_lod >= 3
+                && status.visible_world_span_x_meters >= MIN_MULTI_KM_TERRAIN_SPAN_METERS
+                && status.visible_world_span_z_meters >= MIN_MULTI_KM_TERRAIN_SPAN_METERS
         }
     }
 }

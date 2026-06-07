@@ -132,9 +132,12 @@ node keys `loadedTerrainNodeKeys` and `terrainNodeKeys`. Terrain node key string
 are Rust-produced stable IDs in the form `lodN:x,y,z`. The accompanying
 `terrainStreamStatus` includes legacy chunk counts for HUD/smoke compatibility
 and node/LOD fields such as `loadedNodeCount`, `renderedNodeCount`,
-`maxRenderedLod`, and `terrainLodSummary`. Browser TypeScript may display or
-assert these values but must not compute desired nodes, LOD selection, fallback
-cover, density dependencies, mesh visibility, or renderer state.
+`maxRenderedLod`, `visibleWorldSpanXMeters`, `visibleWorldSpanZMeters`, and
+`terrainLodSummary`. The default playable stream currently reaches LOD4 and
+reports a settled horizontal visible span of at least 4096 meters in X and Z.
+Browser TypeScript may display or assert these values but must not compute
+desired nodes, LOD selection, fallback cover, density dependencies, mesh
+visibility, or renderer state.
 
 The active stream scheduler is generated-node based: a scheduled node build
 produces either a renderable mesh or an empty node. Some debug and fixture
