@@ -334,7 +334,8 @@ function readFrameInput(
     touchLookStickX: snapshot.touchLookStickX,
     touchLookStickY: snapshot.touchLookStickY,
     touchMovementForward: snapshot.touchMovementForward,
-    touchMovementRight: snapshot.touchMovementRight
+    touchMovementRight: snapshot.touchMovementRight,
+    touchMovementMagnitude: snapshot.touchMovementMagnitude
   });
 }
 

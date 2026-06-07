@@ -97,11 +97,33 @@ polish are future work.
   `npm run check:wasm`, and `npm run coverage:rust`.
 - [x] (2026-06-07 13:50Z) Committed the follow-up as `a133398`, pushed
   `origin/touch-controls`, fast-forwarded `main`, and pushed `origin/main`.
-- [ ] Verify the stable Cloudflare URL has deployed `a133398`, run remote
-  smoke, and get the user's final mobile-device confirmation. Latest check:
-  repeated no-cache fetches through 2026-06-07 13:58Z still returned the older
-  deployed HTML without `#touch-look-base`, even though GitHub refs for
-  `main` and `touch-controls` both point to `a133398`.
+- [x] (2026-06-07 14:08Z) Superseded the pending `a133398` final deployment
+  check when newer real-device feedback arrived: the left stick felt like it
+  always moved at high speed while the animation stayed in the non-run state.
+- [x] (2026-06-07 14:12Z) Added touch movement magnitude tracking and mapped
+  the left stick's outer range to the existing `movement.fast` path, matching
+  the keyboard Shift/run behavior without adding touch-specific Rust fields.
+- [x] (2026-06-07 14:13Z) Extended mobile browser smoke to assert full-stick
+  touch movement drives run-range locomotion animation through existing
+  black-box debug hooks.
+- [x] (2026-06-07 14:13Z) Revalidated the run-threshold follow-up with
+  `npm run test:ts` and an initial
+  `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser`.
+- [x] (2026-06-07 14:20Z) Fixed a milestone-review correctness finding by
+  ignoring non-finite touch movement magnitude values before they can set
+  `movement.fast`.
+- [x] (2026-06-07 14:21Z) Revalidated the final run-threshold follow-up with
+  `npm run test:ts`, `npm test`,
+  `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser`,
+  `npm run check:wasm`, `npm run coverage:rust`, and `git diff --check`.
+  Browser smoke artifacts were written to
+  `artifacts/browser-smoke/2026-06-07T14-19-53-895Z/`.
+- [x] (2026-06-07 14:22Z) Ran the repo-local milestone-review workflow locally
+  across contract, code-quality, legacy, correctness, and validation passes.
+  The one required finding was fixed and no required findings remain.
+- [ ] Commit, push `touch-controls`, fast-forward and push `main`, verify the
+  stable Cloudflare URL has deployed the latest follow-up, run remote smoke, and
+  get the user's final mobile-device confirmation.
 
 ## Surprises & Discoveries
 
@@ -229,6 +251,26 @@ polish are future work.
   2026-06-07 13:58Z still returned HTML containing `#touch-look-zone` without
   the new `#touch-look-base` child.
 
+- Observation: Rust player travel speed is currently digital at the movement
+  contract boundary: any nonzero horizontal intent is normalized before applying
+  normal or fast speed.
+  Evidence: `crates/engine_core/src/engine.rs` normalizes planar movement before
+  scaling by `player.config.move_speed * speed_multiplier(player.intent)`.
+
+- Observation: The Rust model animation already reads the same `fast` flag used
+  by keyboard Shift when deriving walk/run locomotion speed.
+  Evidence: `crates/engine_web/src/wgpu_renderer.rs`
+  `player_locomotion_speed_meters_per_second` multiplies
+  `PlayerConfig::default().move_speed` by `3.0` when `input.fast` is true, then
+  uses that value to tick player-character animation.
+
+- Observation: Local mobile browser smoke now proves full-stick touch movement
+  reaches the run animation lane.
+  Evidence: `artifacts/browser-smoke/2026-06-07T14-19-53-895Z/report.json`
+  records `mobileTouch.animationAfterMove.locomotionSpeedMetersPerSecond` as
+  `16.5`, `walkRunBlendWeight` as `1`, `runSpeedMetersPerSecond` as `16.5`,
+  and `movementDistance` as `2.470874991147219`.
+
 ## Decision Log
 
 - Decision: Keep touch controls in TypeScript browser input code.
@@ -316,6 +358,15 @@ polish are future work.
   shape.
   Date/Author: 2026-06-07 / Codex
 
+- Decision: Treat the left stick's outer range as the same fast intent as
+  holding keyboard Shift.
+  Rationale: The existing Rust frame packet and animation path already define a
+  digital normal-vs-fast movement contract. Tracking browser-local touch
+  movement magnitude lets partial stick movement stay in the normal walk lane
+  while full-stick movement enters the run lane, without adding analog-speed or
+  touch-specific fields to Rust.
+  Date/Author: 2026-06-07 / Codex
+
 - Decision: Do not change `docs/API_CONTRACTS.md` for this slice.
   Rationale: The implementation preserves `BrowserFrameInput` and `GameCommand`
   as the Rust-facing contracts. Touch-specific state remains browser-local in
@@ -349,8 +400,15 @@ WebGPU-capable mobile-device check confirmed the build loads and works, then
 surfaced two follow-up requirements: fix inverted strafe direction and provide a
 visible second stick for rotation. Those follow-up fixes are implemented and
 validated locally, committed as `a133398`, and pushed to `origin/main`. The
-remaining acceptance item is waiting for or triggering the Cloudflare deployment
-for `a133398`, then repeating remote smoke and final real-device confirmation.
+user then provided one more real-device finding: the left stick felt like it was
+moving the player quickly while animation stayed in the non-run state. The
+current follow-up tracks left-stick magnitude in browser input, maps the outer
+stick range to the existing Shift/run `movement.fast` path, and extends mobile
+browser smoke so full-stick touch movement must report run-range animation.
+
+The remaining acceptance item is committing and pushing this follow-up, waiting
+for or triggering the Cloudflare deployment, then repeating remote smoke and
+final real-device confirmation.
 
 ## Contract and Quality Baseline
 
@@ -474,9 +532,11 @@ stores an origin point from `pointerdown`, computes an offset on each
 `pointermove`, clamps it to a fixed radius, applies a dead zone, and exposes
 normalized `forward` and `right` axes in the range `[-1, 1]`. Positive Y screen
 movement should become negative forward, so dragging upward moves the player
-forward. The right look zone accumulates pixel deltas from pointer moves into
-`lookDeltaX` and `lookDeltaY`, then clears those deltas when the frame snapshot
-is consumed.
+forward. The right look zone is a visible rotation stick: it computes normalized
+held axes from the fixed right-zone center, keeps those axes active until the
+pointer ends, and `src/app/frameInput.ts` converts them into per-frame look
+deltas. Pointer-lock mouse deltas remain frame-local and still clear when the
+frame snapshot is consumed.
 
 Milestone 4 merges touch input into the existing frame input. Update
 `src/main.ts` to query the touch-control elements added in Milestone 1 and pass
@@ -624,6 +684,35 @@ Review result for the local implementation milestone on 2026-06-07:
     inspection do not prove behavior on an actual phone/tablet or deployed
     Cloudflare headers.
 
+Review result for the run-threshold follow-up milestone on 2026-06-07:
+
+    Scope: browser-local touch movement magnitude tracking, frame-input
+    fast/run threshold, focused TypeScript tests, mobile browser smoke run
+    animation assertion, and this ExecPlan update.
+
+    Reviewers: contract, code quality, legacy, correctness, validation. The
+    review was performed locally because the available sub-agent tool policy
+    permits spawning only when the user explicitly requests sub-agents.
+
+    Required findings fixed: the correctness pass found that non-finite
+    `touchMovementMagnitude` values could set `movement.fast` through the
+    exported frame builder. `src/app/frameInput.ts` now requires a finite
+    magnitude before entering the touch fast lane, with a regression test in
+    `src/app/frameInput.test.ts`.
+
+    Follow-ups recorded: final deployed Cloudflare verification and actual
+    mobile-device confirmation remain pending in Progress and Acceptance.
+
+    Rejected findings: none.
+
+    Validation rerun: `npm run test:ts`, `npm test`,
+    `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser`,
+    `npm run check:wasm`, `npm run coverage:rust`, and `git diff --check`.
+
+    Remaining risk: local Chrome mobile emulation cannot prove the final feel on
+    the actual phone/tablet; the user will verify after the pushed deployment
+    updates.
+
 ## Validation and Acceptance
 
 The touch-control work is accepted when all of these are true:
@@ -635,33 +724,36 @@ The touch-control work is accepted when all of these are true:
 3. Dragging the left joystick upward moves the first-person player forward over
    terrain.
 4. Dragging the left joystick left or right strafes the player.
-5. Releasing or canceling the joystick pointer immediately stops touch movement.
-6. Dragging the right look area changes the camera yaw/pitch through the
+5. Partial left-stick movement stays in the normal walk lane, while full-stick
+   movement sets the same fast/run intent as holding keyboard Shift and updates
+   the locomotion animation blend.
+6. Releasing or canceling the joystick pointer immediately stops touch movement.
+7. Dragging the right look area changes the camera yaw/pitch through the
    existing Rust frame input.
-7. The right-side rotation control is a visible second stick, not an invisible
+8. The right-side rotation control is a visible second stick, not an invisible
    touch-only region. Holding it away from center continuously rotates yaw/pitch
    through the existing Rust frame input.
-8. The camera toggle button uses the same player-mode cycle as `C` / `F1`;
+9. The camera toggle button uses the same player-mode cycle as `C` / `F1`;
    from a fresh load the HUD changes from `FIRST` to `THIRD`, then to `FLY`,
    then back to `FIRST` on subsequent taps.
-9. The page does not scroll, zoom, select text, or open context menus while
+10. The page does not scroll, zoom, select text, or open context menus while
    using the controls.
-10. `npm test` passes.
-11. `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser` passes, or the same
+11. `npm test` passes.
+12. `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser` passes, or the same
     command passes with another recorded non-default free port.
-12. `npm run check:wasm` passes unless the implementation did not touch any
+13. `npm run check:wasm` passes unless the implementation did not touch any
     generated WASM-facing contract or artifact. If skipped, record why.
-13. `npm run coverage:rust` runs before completion. If `cargo-llvm-cov` is
+14. `npm run coverage:rust` runs before completion. If `cargo-llvm-cov` is
     installed, the default filtered output does not list changed Rust
     implementation files; if the coverage tool is missing, the command prints
     documented setup guidance and this plan records the limitation. The
     TypeScript coverage exception in the Decision Log remains in force until a
     TypeScript coverage lane exists.
-14. `OFG-API-001`, `OFG-API-003`, and `OFG-API-009` are preserved, or
+15. `OFG-API-001`, `OFG-API-003`, and `OFG-API-009` are preserved, or
     `docs/API_CONTRACTS.md` is intentionally updated in the same milestone.
-15. Each implementation milestone has a recorded milestone-review result before
+16. Each implementation milestone has a recorded milestone-review result before
     being marked complete.
-16. The deployed Cloudflare build works from an actual WebGPU-capable mobile
+17. The deployed Cloudflare build works from an actual WebGPU-capable mobile
     browser.
 
 ## Idempotence and Recovery
@@ -694,7 +786,11 @@ Suggested DOM shape:
           <div id="touch-move-thumb"></div>
         </div>
       </div>
-      <div id="touch-look-zone"></div>
+      <div id="touch-look-zone">
+        <div id="touch-look-base">
+          <div id="touch-look-thumb"></div>
+        </div>
+      </div>
       <button id="touch-camera-toggle" type="button" aria-label="Toggle camera mode"></button>
     </div>
 
@@ -788,6 +884,37 @@ Validation evidence from 2026-06-07:
     Result: pending. No-cache fetches through 2026-06-07 13:58Z still returned
     the previous deployed HTML without `#touch-look-base`.
 
+    Real mobile-device run-animation feedback
+    Result: follow-up required. The user reported the left stick felt like it
+    always moved the character at high speed while animation did not change,
+    and suggested treating slow movement like normal walk and high movement like
+    holding Shift to run.
+
+    npm run test:ts
+    Result after run-threshold follow-up: passed with 80 Mocha tests.
+
+    npm test
+    Result after run-threshold follow-up: passed. Rust workspace tests passed,
+    and TypeScript reported 80 passing Mocha tests.
+
+    $env:OFG_SMOKE_PORT='5184'; npm run smoke:browser
+    Result after run-threshold follow-up: passed. Artifacts:
+    artifacts/browser-smoke/2026-06-07T14-19-53-895Z/
+    Evidence: mobile smoke report records
+    `animationAfterMove.locomotionSpeedMetersPerSecond` 16.5,
+    `walkRunBlendWeight` 1, `runSpeedMetersPerSecond` 16.5, movementDistance
+    2.470874991147219, and camera HUD FIRST -> THIRD.
+
+    npm run check:wasm
+    Result after run-threshold follow-up: passed.
+
+    npm run coverage:rust
+    Result after run-threshold follow-up: passed. Default filtered attention
+    report listed no files below 90% line coverage.
+
+    git diff --check
+    Result after run-threshold follow-up: passed.
+
 Suggested joystick defaults:
 
     radius: 54 CSS pixels
@@ -797,12 +924,13 @@ Suggested joystick defaults:
 
 Suggested touch look defaults:
 
-    touchLookSensitivity: 1.0 initially
-    deltaX: currentPointerX - previousPointerX
-    deltaY: currentPointerY - previousPointerY
+    rotation stick radius: 54 CSS pixels
+    rotation stick deadZone: 0.12
+    touch look speed: 900 CSS pixels per second at full deflection
 
 If touch look feels too slow or too fast on real hardware, adjust the
-sensitivity constant in the TypeScript input layer rather than Rust player code.
+look-stick speed constant in the TypeScript frame-input layer rather than Rust
+player code.
 
 ## Interfaces and Dependencies
 
@@ -815,15 +943,20 @@ shape is:
       readonly mouseDeltaY: number;
       readonly touchLookDeltaX: number;
       readonly touchLookDeltaY: number;
+      readonly touchLookStickX: number;
+      readonly touchLookStickY: number;
       readonly touchMovementForward: number;
       readonly touchMovementRight: number;
+      readonly touchMovementMagnitude: number;
     };
 
 This keeps the existing `mouseDeltaX` / `mouseDeltaY` names and adds
 touch-specific fields, but `src/app/game.ts` must be the only place that
-combines them into `BrowserFrameInput`. The touch camera button can be wired
-directly in `src/app/game.ts`, like the existing `#character-toggle` button,
-instead of being represented as per-frame input.
+combines them into `BrowserFrameInput`. `touchMovementMagnitude` remains
+browser-local and only decides whether the existing Rust-facing `movement.fast`
+flag should be true for full-stick mobile movement. The touch camera button can
+be wired directly in `src/app/game.ts`, like the existing `#character-toggle`
+button, instead of being represented as per-frame input.
 
 `src/app/game.ts` should remain the bridge from browser input to Rust game
 commands. It should not duplicate player movement rules. It should continue to

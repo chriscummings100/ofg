@@ -20,6 +20,7 @@ export type InputSnapshot = {
   readonly touchLookStickY: number;
   readonly touchMovementForward: number;
   readonly touchMovementRight: number;
+  readonly touchMovementMagnitude: number;
 };
 
 type PointerPoint = {
@@ -41,6 +42,7 @@ export class InputTracker {
   private touchLookStickY = 0;
   private touchMovementForward = 0;
   private touchMovementRight = 0;
+  private touchMovementMagnitude = 0;
   private touchMovePointerId: number | undefined;
   private touchMoveOrigin: PointerPoint | undefined;
   private touchLookPointerId: number | undefined;
@@ -112,7 +114,8 @@ export class InputTracker {
       touchLookStickX: this.touchLookStickX,
       touchLookStickY: this.touchLookStickY,
       touchMovementForward: this.touchMovementForward,
-      touchMovementRight: this.touchMovementRight
+      touchMovementRight: this.touchMovementRight,
+      touchMovementMagnitude: this.touchMovementMagnitude
     };
 
     this.mouseDeltaX = 0;
@@ -162,6 +165,7 @@ export class InputTracker {
     this.touchMoveOrigin = pointerPoint(event);
     this.touchMovementForward = 0;
     this.touchMovementRight = 0;
+    this.touchMovementMagnitude = 0;
     trySetPointerCapture(event.currentTarget, event.pointerId);
     this.updateTouchMoveVisuals({ x: 0, y: 0 });
   }
@@ -180,6 +184,7 @@ export class InputTracker {
     const axes = joystickAxesFromOffset(offset);
     this.touchMovementForward = axes.forward;
     this.touchMovementRight = axes.right;
+    this.touchMovementMagnitude = axes.magnitude;
     this.updateTouchMoveVisuals(offset);
   }
 
@@ -227,6 +232,7 @@ export class InputTracker {
       this.touchMoveOrigin = undefined;
       this.touchMovementForward = 0;
       this.touchMovementRight = 0;
+      this.touchMovementMagnitude = 0;
       this.resetTouchMoveVisuals();
     }
 
@@ -288,20 +294,23 @@ export class InputTracker {
 }
 
 /// Converts a clamped joystick offset into normalized movement axes.
-function joystickAxesFromOffset(offset: PointerPoint): { readonly forward: number; readonly right: number } {
+function joystickAxesFromOffset(
+  offset: PointerPoint
+): { readonly forward: number; readonly right: number; readonly magnitude: number } {
   const rawRight = offset.x / TOUCH_JOYSTICK_RADIUS_PIXELS;
   const rawForward = -offset.y / TOUCH_JOYSTICK_RADIUS_PIXELS;
   const magnitude = Math.hypot(rawRight, rawForward);
 
   if (magnitude <= TOUCH_JOYSTICK_DEAD_ZONE) {
-    return { forward: 0, right: 0 };
+    return { forward: 0, right: 0, magnitude: 0 };
   }
 
   const scaledMagnitude = (magnitude - TOUCH_JOYSTICK_DEAD_ZONE) / (1 - TOUCH_JOYSTICK_DEAD_ZONE);
   const scale = scaledMagnitude / magnitude;
   return {
     forward: clampAxis(rawForward * scale),
-    right: clampAxis(rawRight * scale)
+    right: clampAxis(rawRight * scale),
+    magnitude: clampAxis(scaledMagnitude)
   };
 }
 

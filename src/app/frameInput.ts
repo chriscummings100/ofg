@@ -17,9 +17,11 @@ export type BrowserFrameInputSources = {
   readonly touchLookStickY: number;
   readonly touchMovementForward: number;
   readonly touchMovementRight: number;
+  readonly touchMovementMagnitude: number;
 };
 
 const TOUCH_LOOK_STICK_PIXELS_PER_SECOND = 900;
+const TOUCH_MOVEMENT_RUN_THRESHOLD = 0.8;
 
 /// Builds one Rust-facing frame input from browser keyboard, mouse, and touch sources.
 export function buildBrowserFrameInput(sources: BrowserFrameInputSources): BrowserFrameInput {
@@ -31,7 +33,7 @@ export function buildBrowserFrameInput(sources: BrowserFrameInputSources): Brows
       forward: clampFrameAxis(sources.keyboardForward + sources.touchMovementForward),
       right: -clampFrameAxis(sources.keyboardRight + sources.touchMovementRight),
       up: clampFrameAxis(sources.keyboardUp),
-      fast: sources.fast
+      fast: sources.fast || isTouchMovementFast(sources.touchMovementMagnitude)
     },
     look: {
       deltaX: sources.mouseDeltaX +
@@ -51,4 +53,9 @@ export function clampFrameAxis(value: number): number {
   }
 
   return Math.max(-1, Math.min(1, value));
+}
+
+/// Returns whether browser-local touch movement should enter the Rust fast lane.
+function isTouchMovementFast(magnitude: number): boolean {
+  return Number.isFinite(magnitude) && magnitude >= TOUCH_MOVEMENT_RUN_THRESHOLD;
 }

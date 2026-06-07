@@ -56,10 +56,23 @@ export async function runMobileTouchSmoke(options) {
 
       return Math.hypot(position.x - before.x, position.z - before.z) > 0.1;
     }, playerBeforeMove, { timeout: 5000 });
+    await page.waitForFunction(() => {
+      const debug = window.__ofgDebug;
+      const speed = debug?.getModelAnimationLocomotionSpeedMetersPerSecond?.();
+      const runSpeed = debug?.getModelAnimationRunSpeedMetersPerSecond?.();
+      const walkRunBlend = debug?.getModelAnimationWalkRunBlendWeight?.();
+      return Number.isFinite(speed) &&
+        Number.isFinite(runSpeed) &&
+        Number.isFinite(walkRunBlend) &&
+        speed >= runSpeed * 0.9 &&
+        walkRunBlend > 0.5;
+    }, null, { timeout: 5000 });
     const playerAfterMove = await readPlayerPosition(page);
+    const animationAfterMove = await readAnimationState(page);
     await endMobileJoystickDrag(page, activePointer);
     const movementDistance = horizontalDistance(playerBeforeMove, playerAfterMove);
     assertPlayerMoved(playerBeforeMove, playerAfterMove);
+    assertTouchRunAnimation(animationAfterMove);
 
     await dragMobileLook(page);
     await waitForBrowserFrame(page);
@@ -77,6 +90,7 @@ export async function runMobileTouchSmoke(options) {
       touchControls,
       playerBeforeMove,
       playerAfterMove,
+      animationAfterMove,
       movementDistance,
       image,
       consoleMessages
@@ -143,6 +157,20 @@ async function readPlayerPosition(page) {
   return position;
 }
 
+/// Reads the Rust-owned locomotion animation state through debug hooks.
+async function readAnimationState(page) {
+  return page.evaluate(() => {
+    const debug = window.__ofgDebug;
+    return {
+      locomotionSpeedMetersPerSecond:
+        debug?.getModelAnimationLocomotionSpeedMetersPerSecond?.(),
+      walkRunBlendWeight: debug?.getModelAnimationWalkRunBlendWeight?.(),
+      walkSpeedMetersPerSecond: debug?.getModelAnimationWalkSpeedMetersPerSecond?.(),
+      runSpeedMetersPerSecond: debug?.getModelAnimationRunSpeedMetersPerSecond?.()
+    };
+  });
+}
+
 /// Validates that the mobile touch overlay is visible and sized.
 function assertTouchControlsVisible(touchControls, consoleMessages) {
   if (
@@ -160,6 +188,26 @@ function assertTouchControlsVisible(touchControls, consoleMessages) {
     throw new Error(
       `Touch controls are not visible in mobile viewport: ${JSON.stringify(touchControls)} ` +
       `console=${JSON.stringify(consoleMessages)}`
+    );
+  }
+}
+
+/// Validates that full-stick touch movement reaches the same run animation path as Shift.
+function assertTouchRunAnimation(animation) {
+  const {
+    locomotionSpeedMetersPerSecond,
+    walkRunBlendWeight,
+    runSpeedMetersPerSecond
+  } = animation;
+  if (
+    !Number.isFinite(locomotionSpeedMetersPerSecond) ||
+    !Number.isFinite(walkRunBlendWeight) ||
+    !Number.isFinite(runSpeedMetersPerSecond) ||
+    locomotionSpeedMetersPerSecond < runSpeedMetersPerSecond * 0.9 ||
+    walkRunBlendWeight <= 0.5
+  ) {
+    throw new Error(
+      `Expected full-stick mobile movement to drive run animation: ${JSON.stringify(animation)}`
     );
   }
 }

@@ -169,6 +169,7 @@ describe("InputTracker", () => {
     equal(nextSnapshot.touchLookDeltaY, 0);
     equal(nextSnapshot.touchLookStickX, 0);
     equal(nextSnapshot.touchLookStickY, 0);
+    equal(nextSnapshot.touchMovementMagnitude, 0);
   });
 
   it("clicking the target requests pointer lock", () => {
@@ -205,6 +206,7 @@ describe("InputTracker", () => {
 
     equal(snapshot.touchMovementForward, 1);
     equal(snapshot.touchMovementRight, 0);
+    equal(snapshot.touchMovementMagnitude, 1);
     deepEqual(touchControls.moveZone.capturedPointers, [7]);
     equal(touchControls.root.dataset.touchMove, "active");
   });
@@ -227,6 +229,28 @@ describe("InputTracker", () => {
 
     equal(snapshot.touchMovementForward, 0);
     equal(snapshot.touchMovementRight, 1);
+    equal(snapshot.touchMovementMagnitude, 1);
+  });
+
+  it("reports partial joystick magnitude for walk-range movement", () => {
+    const { input, touchControls } = createHarness({ withTouchControls: true });
+
+    touchControls.moveZone.dispatch("pointerdown", pointerEvent({
+      pointerId: 15,
+      clientX: 100,
+      clientY: 120
+    }));
+    touchControls.moveZone.dispatch("pointermove", pointerEvent({
+      pointerId: 15,
+      clientX: 100,
+      clientY: 93
+    }));
+
+    const snapshot = input.consumeFrameSnapshot();
+
+    equal(snapshot.touchMovementForward > 0.43 && snapshot.touchMovementForward < 0.44, true);
+    equal(snapshot.touchMovementRight, 0);
+    equal(snapshot.touchMovementMagnitude > 0.43 && snapshot.touchMovementMagnitude < 0.44, true);
   });
 
   it("clears joystick movement on pointer release", () => {
@@ -248,6 +272,7 @@ describe("InputTracker", () => {
 
     equal(snapshot.touchMovementForward, 0);
     equal(snapshot.touchMovementRight, 0);
+    equal(snapshot.touchMovementMagnitude, 0);
     equal(touchControls.root.dataset.touchMove, undefined);
     equal(touchControls.moveThumb.style.transform, "");
   });
@@ -271,6 +296,7 @@ describe("InputTracker", () => {
 
     equal(snapshot.touchMovementForward, 0);
     equal(snapshot.touchMovementRight, 0);
+    equal(snapshot.touchMovementMagnitude, 0);
   });
 
   it("clears joystick movement on lost pointer capture", () => {
@@ -292,6 +318,7 @@ describe("InputTracker", () => {
 
     equal(snapshot.touchMovementForward, 0);
     equal(snapshot.touchMovementRight, 0);
+    equal(snapshot.touchMovementMagnitude, 0);
   });
 
   it("normalizes the rotation stick and keeps it active after frame consumption", () => {

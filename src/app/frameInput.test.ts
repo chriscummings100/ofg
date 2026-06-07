@@ -16,14 +16,15 @@ describe("buildBrowserFrameInput", () => {
       touchLookStickX: 0,
       touchLookStickY: 0,
       touchMovementForward: 1,
-      touchMovementRight: -1
+      touchMovementRight: -1,
+      touchMovementMagnitude: 1
     });
 
     deepEqual(frame.movement, {
       forward: 1,
       right: 1,
       up: 0,
-      fast: false
+      fast: true
     });
   });
 
@@ -41,7 +42,8 @@ describe("buildBrowserFrameInput", () => {
       touchLookStickX: 0,
       touchLookStickY: 0,
       touchMovementForward: 0,
-      touchMovementRight: 0
+      touchMovementRight: 0,
+      touchMovementMagnitude: 0
     });
 
     equal(frame.movement.right, -1);
@@ -61,7 +63,8 @@ describe("buildBrowserFrameInput", () => {
       touchLookStickX: 0,
       touchLookStickY: 0,
       touchMovementForward: 0,
-      touchMovementRight: 0
+      touchMovementRight: 0,
+      touchMovementMagnitude: 0
     });
 
     equal(frame.look.deltaX, 10);
@@ -84,11 +87,75 @@ describe("buildBrowserFrameInput", () => {
       touchLookStickX: 1,
       touchLookStickY: -0.5,
       touchMovementForward: 0,
-      touchMovementRight: 0
+      touchMovementRight: 0,
+      touchMovementMagnitude: 0
     });
 
     equal(frame.look.deltaX, 450);
     equal(frame.look.deltaY, -225);
+  });
+
+  it("treats a full touch movement stick like holding shift to run", () => {
+    const frame = buildBrowserFrameInput({
+      deltaSeconds: 0.016,
+      keyboardForward: 0,
+      keyboardRight: 0,
+      keyboardUp: 0,
+      fast: false,
+      mouseDeltaX: 0,
+      mouseDeltaY: 0,
+      touchLookDeltaX: 0,
+      touchLookDeltaY: 0,
+      touchLookStickX: 0,
+      touchLookStickY: 0,
+      touchMovementForward: 1,
+      touchMovementRight: 0,
+      touchMovementMagnitude: 1
+    });
+
+    equal(frame.movement.fast, true);
+  });
+
+  it("keeps partial touch movement at normal walk speed", () => {
+    const frame = buildBrowserFrameInput({
+      deltaSeconds: 0.016,
+      keyboardForward: 0,
+      keyboardRight: 0,
+      keyboardUp: 0,
+      fast: false,
+      mouseDeltaX: 0,
+      mouseDeltaY: 0,
+      touchLookDeltaX: 0,
+      touchLookDeltaY: 0,
+      touchLookStickX: 0,
+      touchLookStickY: 0,
+      touchMovementForward: 0.5,
+      touchMovementRight: 0,
+      touchMovementMagnitude: 0.5
+    });
+
+    equal(frame.movement.fast, false);
+  });
+
+  it("ignores non-finite touch movement magnitude for fast movement", () => {
+    const frame = buildBrowserFrameInput({
+      deltaSeconds: 0.016,
+      keyboardForward: 0,
+      keyboardRight: 0,
+      keyboardUp: 0,
+      fast: false,
+      mouseDeltaX: 0,
+      mouseDeltaY: 0,
+      touchLookDeltaX: 0,
+      touchLookDeltaY: 0,
+      touchLookStickX: 0,
+      touchLookStickY: 0,
+      touchMovementForward: 0,
+      touchMovementRight: 0,
+      touchMovementMagnitude: Number.POSITIVE_INFINITY
+    });
+
+    equal(frame.movement.fast, false);
   });
 
   it("converts non-finite movement axes to zero before Rust receives them", () => {
