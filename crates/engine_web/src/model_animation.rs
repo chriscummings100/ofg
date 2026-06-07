@@ -22,6 +22,10 @@ impl ModelAnimationClip {
             return Err(ModelAssetError::InvalidAnimationTime);
         }
 
+        for (channel_index, channel) in self.channels.iter().enumerate() {
+            validate_animation_channel_shape(0, channel_index, channel)?;
+        }
+
         let sample_time = self.wrapped_time(time_seconds);
         let mut transforms = base_transforms.to_vec();
         for channel in &self.channels {
@@ -273,6 +277,33 @@ fn import_animation_channel(
         inputs,
         outputs,
     })
+}
+
+/// Validates one public animation channel before sampling.
+fn validate_animation_channel_shape(
+    animation_index: usize,
+    channel_index: usize,
+    channel: &ModelAnimationChannel,
+) -> Result<(), ModelAssetError> {
+    match (channel.target, &channel.outputs) {
+        (ModelAnimationTarget::Translation, ModelAnimationOutputs::Translations(_))
+        | (ModelAnimationTarget::Rotation, ModelAnimationOutputs::Rotations(_))
+        | (ModelAnimationTarget::Scale, ModelAnimationOutputs::Scales(_)) => {}
+        _ => {
+            return Err(ModelAssetError::InvalidAnimationData {
+                animation_index,
+                channel_index,
+                attribute: "target/output",
+            });
+        }
+    }
+
+    ensure_animation_channel_shape(
+        animation_index,
+        channel_index,
+        &channel.inputs,
+        &channel.outputs,
+    )
 }
 
 /// Converts supported glTF interpolation modes into engine animation modes.

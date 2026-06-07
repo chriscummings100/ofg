@@ -97,9 +97,9 @@ as a browser shell plus generic browser image decoder.
   emission, stream scheduling, density storage, worker-pool request-state tests,
   and the tested legacy terrain mesh packet store. The playable browser path now
   reaches it through `engine_web` as a Rust library. The standalone
-  `terrain_core.wasm` artifact remains for export-contract checks and the
-  current terrain benchmark script, not runtime or test TypeScript terrain
-  ownership.
+  `terrain_core.wasm` artifact remains only for export-contract fixture checks;
+  native Rust tests and `npm run bench:terrain:rust` cover terrain behavior and
+  benchmarking.
 - `engine_web` owns the Rust/wgpu browser renderer and current GLTF model path:
   WebGPU canvas surface, adapter/device/queue, surface configuration, depth
   texture, shader modules, terrain and static-model pipelines, GLB parsing,

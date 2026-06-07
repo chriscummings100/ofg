@@ -5,13 +5,13 @@ use crate::{
     import_gltf_model_from_slice, model_primitive_vertex_floats, skin_joint_matrices,
     skin_primitive_vertices, skinned_model_render_assets, BrowserGameInput, BrowserGameState,
     BrowserGameStateError, BrowserTerrainStream, LocomotionAnimationController,
-    MaterialPacketError, ModelAnimationChannel, ModelAnimationClip, ModelAnimationInterpolation,
-    ModelAnimationOutputs, ModelAnimationTarget, ModelAsset, ModelAssetError, ModelMaterial,
-    ModelNode, ModelNodeTransform, ModelPrimitive, ModelSkin, ModelVertex,
-    PlayerCharacterLocomotionTuning, PlayerCharacterModel, RenderPacketError, RenderUniformError,
-    RendererState, RendererStateError, ResourceHandle, RgbaTextureArrayAsset, TerrainTextureArrays,
-    TerrainTextureError, ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS,
-    MATERIAL_PACKET_FLOATS, MATERIAL_WORKFLOW_METALLIC_ROUGHNESS,
+    MaterialPacketError, MeshResource, ModelAnimationChannel, ModelAnimationClip,
+    ModelAnimationInterpolation, ModelAnimationOutputs, ModelAnimationTarget, ModelAsset,
+    ModelAssetError, ModelMaterial, ModelNode, ModelNodeTransform, ModelPrimitive, ModelSkin,
+    ModelVertex, PlayerCharacterLocomotionTuning, PlayerCharacterModel, RenderPacketError,
+    RenderUniformError, RendererState, RendererStateError, ResourceHandle, RgbaTextureArrayAsset,
+    TerrainTextureArrays, TerrainTextureError, TextureResource, ENGINE_RENDER_SNAPSHOT_FLOATS,
+    FRAME_PACKET_FLOATS, MATERIAL_PACKET_FLOATS, MATERIAL_WORKFLOW_METALLIC_ROUGHNESS,
     MATERIAL_WORKFLOW_SPECULAR_GLOSSINESS, MODEL_VERTEX_FLOATS, QUATERNIUS_IDLE_CLIP_NAME,
     QUATERNIUS_RUN_CLIP_NAME, QUATERNIUS_WALK_CLIP_NAME, REQUIRED_TEXTURE_ARRAY_LAYERS,
     SAMPLE_STATIC_BOX_MATERIAL_LABEL, SAMPLE_STATIC_BOX_MESH_LABEL,
@@ -19,8 +19,8 @@ use crate::{
     TERRAIN_MATERIAL_TEXTURE_ARRAY_ID, TERRAIN_NORMAL_TEXTURE_ARRAY_ID, TERRAIN_VERTEX_FLOATS,
     TEXTURE_FORMAT_RGBA8_UNORM, WORLD_MATRIX_FLOATS,
 };
-use engine_core::{PlayerMode, TerrainComponent, Vec3};
-use terrain_core::DEFAULT_TERRAIN_PRESET;
+use engine_core::{EngineError, MaterialId, MeshId, PlayerMode, TerrainComponent, Vec3};
+use terrain_core::{height_at, DEFAULT_TERRAIN_PRESET};
 
 const STATIC_BOX_GLB: &[u8] = include_bytes!("../../../assets/models/test-fixtures/static-box.glb");
 const BOX_ANIMATED_GLB: &[u8] =
@@ -139,6 +139,29 @@ fn texture_registration_uses_configured_array_layer_limits() {
 }
 
 #[test]
+fn renderer_resources_expose_upload_contract_metadata() {
+    let mesh = MeshResource::new(MODEL_VERTEX_FLOATS * 4, 6, MODEL_VERTEX_FLOATS).unwrap();
+    assert_eq!(mesh.vertex_float_count(), MODEL_VERTEX_FLOATS * 4);
+    assert_eq!(mesh.index_count(), 6);
+    assert_eq!(mesh.floats_per_vertex(), MODEL_VERTEX_FLOATS);
+
+    let texture = TextureResource::new(
+        32,
+        16,
+        2,
+        TEXTURE_FORMAT_RGBA8_UNORM,
+        REQUIRED_TEXTURE_ARRAY_LAYERS,
+    )
+    .unwrap();
+    assert_eq!(texture.width(), 32);
+    assert_eq!(texture.height(), 16);
+    assert_eq!(texture.layers(), 2);
+    assert_eq!(texture.format_code(), TEXTURE_FORMAT_RGBA8_UNORM);
+
+    assert!(!RendererState::default().is_configured());
+}
+
+#[test]
 fn frames_count_only_draws_with_live_mesh_and_object_handles() {
     let mut renderer = configured_renderer();
     let mesh = renderer
@@ -160,6 +183,24 @@ fn frames_count_only_draws_with_live_mesh_and_object_handles() {
 }
 
 #[test]
+fn object_handles_are_unregisterable_and_generational() {
+    let mut renderer = configured_renderer();
+    let first = renderer.register_object().unwrap();
+
+    assert_eq!(renderer.resource_counts().objects, 1);
+    assert_eq!(renderer.unregister_object(first), Ok(()));
+    assert_eq!(renderer.resource_counts().objects, 0);
+    assert_eq!(
+        renderer.unregister_object(first),
+        Err(RendererStateError::StaleHandle)
+    );
+
+    let second = renderer.register_object().unwrap();
+    assert_eq!(second.slot(), first.slot());
+    assert_eq!(second.generation(), first.generation() + 1);
+}
+
+#[test]
 fn frame_begin_requires_renderer_configuration() {
     let mut renderer = RendererState::new();
 
@@ -174,6 +215,14 @@ fn frame_begin_requires_renderer_configuration() {
     assert_eq!(
         renderer.register_object(),
         Err(RendererStateError::NotConfigured)
+    );
+    assert_eq!(
+        renderer.register_texture(64, 64, 1, TEXTURE_FORMAT_RGBA8_UNORM),
+        Err(RendererStateError::NotConfigured)
+    );
+    assert_eq!(
+        configured_renderer().resize(0, 720),
+        Err(RendererStateError::InvalidCanvasSize)
     );
 }
 
@@ -465,6 +514,218 @@ fn animation_blending_interpolates_node_trs() {
     );
     assert_close(blended[0].scale[0], 2.0);
     assert_close(blended[0].scale[1], 3.0);
+}
+
+#[test]
+fn animation_sampling_covers_step_final_and_zero_duration_edges() {
+    let base = vec![ModelNodeTransform::default()];
+    let step_clip = ModelAnimationClip {
+        name: Some("step".to_string()),
+        duration_seconds: 4.0,
+        channels: vec![ModelAnimationChannel {
+            target_node: 0,
+            target: ModelAnimationTarget::Translation,
+            interpolation: ModelAnimationInterpolation::Step,
+            inputs: vec![0.0, 1.0, 3.0],
+            outputs: ModelAnimationOutputs::Translations(vec![
+                [0.0, 0.0, 0.0],
+                [5.0, 0.0, 0.0],
+                [9.0, 0.0, 0.0],
+            ]),
+        }],
+    };
+
+    let stepped = step_clip.sample_transforms(&base, 0.5).unwrap();
+    assert_close(stepped[0].translation[0], 0.0);
+    let final_keyframe = step_clip.sample_transforms(&base, 3.5).unwrap();
+    assert_close(final_keyframe[0].translation[0], 9.0);
+
+    let zero_duration_clip = ModelAnimationClip {
+        name: Some("scale".to_string()),
+        duration_seconds: 0.0,
+        channels: vec![ModelAnimationChannel {
+            target_node: 0,
+            target: ModelAnimationTarget::Scale,
+            interpolation: ModelAnimationInterpolation::Linear,
+            inputs: vec![0.0, 2.0],
+            outputs: ModelAnimationOutputs::Scales(vec![[1.0, 1.0, 1.0], [3.0, 3.0, 3.0]]),
+        }],
+    };
+    assert_close(zero_duration_clip.wrapped_time(3.0), 3.0);
+    let scaled = zero_duration_clip.sample_transforms(&base, 3.0).unwrap();
+    assert_eq!(scaled[0].scale, [3.0, 3.0, 3.0]);
+}
+
+#[test]
+fn animation_sampling_rejects_invalid_inputs_and_normalizes_degenerate_rotations() {
+    let base = vec![ModelNodeTransform::default()];
+    let missing_target = ModelAnimationClip {
+        name: Some("bad-target".to_string()),
+        duration_seconds: 1.0,
+        channels: vec![ModelAnimationChannel {
+            target_node: 1,
+            target: ModelAnimationTarget::Translation,
+            interpolation: ModelAnimationInterpolation::Linear,
+            inputs: vec![0.0],
+            outputs: ModelAnimationOutputs::Translations(vec![[1.0, 0.0, 0.0]]),
+        }],
+    };
+    assert_eq!(
+        missing_target.sample_transforms(&base, 0.0),
+        Err(ModelAssetError::InvalidAnimationTargetNode { node_index: 1 })
+    );
+
+    let zero_rotation = ModelAnimationClip {
+        name: Some("zero-rotation".to_string()),
+        duration_seconds: 1.0,
+        channels: vec![ModelAnimationChannel {
+            target_node: 0,
+            target: ModelAnimationTarget::Rotation,
+            interpolation: ModelAnimationInterpolation::Linear,
+            inputs: vec![0.0],
+            outputs: ModelAnimationOutputs::Rotations(vec![[0.0, 0.0, 0.0, 0.0]]),
+        }],
+    };
+    let sampled = zero_rotation.sample_transforms(&base, 0.0).unwrap();
+    assert_eq!(sampled[0].rotation, [0.0, 0.0, 0.0, 1.0]);
+
+    assert_eq!(
+        zero_rotation.sample_transforms(&base, f32::NAN),
+        Err(ModelAssetError::InvalidAnimationTime)
+    );
+
+    let empty_inputs = ModelAnimationClip {
+        name: Some("empty-inputs".to_string()),
+        duration_seconds: 1.0,
+        channels: vec![ModelAnimationChannel {
+            target_node: 0,
+            target: ModelAnimationTarget::Translation,
+            interpolation: ModelAnimationInterpolation::Linear,
+            inputs: Vec::new(),
+            outputs: ModelAnimationOutputs::Translations(Vec::new()),
+        }],
+    };
+    assert_eq!(
+        empty_inputs.sample_transforms(&base, 0.0),
+        Err(ModelAssetError::InvalidAnimationKeyframes {
+            animation_index: 0,
+            channel_index: 0,
+            input_count: 0,
+            output_count: 0,
+        })
+    );
+
+    let mismatched_target = ModelAnimationClip {
+        name: Some("mismatched-target".to_string()),
+        duration_seconds: 1.0,
+        channels: vec![ModelAnimationChannel {
+            target_node: 0,
+            target: ModelAnimationTarget::Translation,
+            interpolation: ModelAnimationInterpolation::Linear,
+            inputs: vec![0.0],
+            outputs: ModelAnimationOutputs::Rotations(vec![[0.0, 0.0, 0.0, 1.0]]),
+        }],
+    };
+    assert_eq!(
+        mismatched_target.sample_transforms(&base, 0.0),
+        Err(ModelAssetError::InvalidAnimationData {
+            animation_index: 0,
+            channel_index: 0,
+            attribute: "target/output",
+        })
+    );
+}
+
+#[test]
+fn animation_blending_rejects_shape_and_time_errors() {
+    let transform = ModelNodeTransform::default();
+
+    assert_eq!(
+        blend_node_transforms(&[transform], &[], 0.5),
+        Err(ModelAssetError::InvalidAnimationBlendTransformCount {
+            from_count: 1,
+            to_count: 0,
+        })
+    );
+    assert_eq!(
+        blend_node_transforms(&[transform], &[transform], f32::INFINITY),
+        Err(ModelAssetError::InvalidAnimationTime)
+    );
+
+    let blended = blend_node_transforms(&[transform], &[transform], 0.5).unwrap();
+    assert_eq!(blended[0].rotation, [0.0, 0.0, 0.0, 1.0]);
+}
+
+#[test]
+fn gltf_animation_importer_reports_unsupported_and_invalid_channels() {
+    assert!(matches!(
+        import_gltf_model_from_slice(&animation_gltf(
+            "CUBICSPLINE",
+            "translation",
+            &[0.0, 1.0],
+            &[0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            "VEC3",
+            2
+        )),
+        Err(ModelAssetError::UnsupportedAnimationInterpolation { .. })
+    ));
+    assert!(matches!(
+        import_gltf_model_from_slice(&animation_gltf(
+            "LINEAR",
+            "weights",
+            &[0.0, 1.0],
+            &[0.0, 1.0],
+            "SCALAR",
+            2
+        )),
+        Err(ModelAssetError::UnsupportedAnimationTarget { .. })
+    ));
+    assert_eq!(
+        import_gltf_model_from_slice(&animation_gltf(
+            "LINEAR",
+            "translation",
+            &[0.0, 1.0],
+            &[0.0, 0.0, 0.0],
+            "VEC3",
+            1
+        )),
+        Err(ModelAssetError::InvalidAnimationKeyframes {
+            animation_index: 0,
+            channel_index: 0,
+            input_count: 2,
+            output_count: 1,
+        })
+    );
+    assert_eq!(
+        import_gltf_model_from_slice(&animation_gltf(
+            "LINEAR",
+            "translation",
+            &[0.0, f32::NAN],
+            &[0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            "VEC3",
+            2
+        )),
+        Err(ModelAssetError::InvalidAnimationData {
+            animation_index: 0,
+            channel_index: 0,
+            attribute: "input time",
+        })
+    );
+    assert_eq!(
+        import_gltf_model_from_slice(&animation_gltf(
+            "LINEAR",
+            "translation",
+            &[0.0, 1.0],
+            &[0.0, 0.0, 0.0, f32::NAN, 0.0, 0.0],
+            "VEC3",
+            2
+        )),
+        Err(ModelAssetError::InvalidAnimationData {
+            animation_index: 0,
+            channel_index: 0,
+            attribute: "output",
+        })
+    );
 }
 
 #[test]
@@ -940,6 +1201,28 @@ fn browser_game_state_attaches_configured_static_model_scene_item() {
 }
 
 #[test]
+fn browser_game_state_attaches_scaled_static_model_scene_item() {
+    let mut state = BrowserGameState::new();
+    state
+        .configure_scaled_static_model_scene("scaled.mesh", "scaled.material", 0.5, 3.25)
+        .unwrap();
+
+    state.reset_game(0x0F6, 1).unwrap();
+
+    let items = state.render_mesh_items().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].mesh_label, "scaled.mesh");
+    assert_eq!(items[0].material_label, "scaled.material");
+    assert_close(items[0].world_matrix[0], 0.5);
+    assert_close(items[0].world_matrix[5], 0.5);
+    assert_close(items[0].world_matrix[10], 0.5);
+    assert_close(
+        items[0].world_matrix[13],
+        height_at(0x0F6, 1, 3.0, 6.0) as f32 + 3.25,
+    );
+}
+
+#[test]
 fn browser_game_state_attaches_player_character_scene_to_player() {
     let mut state = BrowserGameState::new();
     state
@@ -1062,6 +1345,107 @@ fn browser_game_state_rejects_invalid_scaled_static_model_scene_item() {
         ),
         Err(BrowserGameStateError::InvalidModelSceneScale(0.0))
     );
+
+    let invalid_height =
+        state.configure_scaled_static_model_scene("model.mesh", "model.material", 1.0, f32::NAN);
+    assert!(matches!(
+        invalid_height,
+        Err(BrowserGameStateError::InvalidModelSceneHeightOffset(value)) if value.is_nan()
+    ));
+    let invalid_character_height =
+        state.configure_player_character_scene("player.mesh", "player.material", 1.0, f32::NAN);
+    assert!(matches!(
+        invalid_character_height,
+        Err(BrowserGameStateError::InvalidModelSceneHeightOffset(value)) if value.is_nan()
+    ));
+}
+
+#[test]
+fn browser_game_state_replaces_configured_player_character_parts() {
+    let mut state = BrowserGameState::new();
+    state
+        .configure_player_character_scene("old.mesh", "old.material", 1.0, 0.0)
+        .unwrap();
+    state.reset_game(0x0F6, 1).unwrap();
+    state.set_player_mode(PlayerMode::DebugFly).unwrap();
+    assert_eq!(state.render_mesh_items().unwrap()[0].mesh_label, "old.mesh");
+
+    state
+        .configure_player_character_scene_parts(
+            vec![
+                ("head.mesh".to_string(), "head.material".to_string()),
+                ("body.mesh".to_string(), "body.material".to_string()),
+            ],
+            2.0,
+            0.25,
+        )
+        .unwrap();
+
+    let items = state.render_mesh_items().unwrap();
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0].mesh_label, "head.mesh");
+    assert_eq!(items[0].material_label, "head.material");
+    assert_eq!(items[1].mesh_label, "body.mesh");
+    assert_eq!(items[1].material_label, "body.material");
+    let snapshot = state.player_character_scene_snapshot().unwrap().unwrap();
+    assert!(snapshot.visible);
+    assert!(snapshot.follows_player);
+}
+
+#[test]
+fn browser_game_state_character_snapshot_is_absent_without_spawned_meshes() {
+    let state = BrowserGameState::default();
+    assert_eq!(state.terrain_preset(), DEFAULT_TERRAIN_PRESET);
+    assert_eq!(state.player_character_scene_snapshot().unwrap(), None);
+
+    let mut state = BrowserGameState::new();
+    state
+        .configure_player_character_scene_parts(Vec::new(), 1.0, 0.0)
+        .unwrap();
+    state.reset_game(0x0F6, 1).unwrap();
+
+    assert_eq!(state.player_character_scene_snapshot().unwrap(), None);
+}
+
+#[test]
+fn browser_game_state_errors_format_supported_failure_modes() {
+    let cases = [
+        (
+            BrowserGameStateError::Engine(EngineError::MissingPlayer),
+            "engine error",
+        ),
+        (
+            BrowserGameStateError::ModelAnimation(ModelAssetError::InvalidAnimationTime),
+            "model animation error",
+        ),
+        (
+            BrowserGameStateError::InvalidTerrainHeight { x: 1.0, z: 2.0 },
+            "terrain height was invalid",
+        ),
+        (
+            BrowserGameStateError::InvalidModelSceneScale(0.0),
+            "model scene scale was invalid",
+        ),
+        (
+            BrowserGameStateError::InvalidModelSceneHeightOffset(f32::INFINITY),
+            "model scene height offset was invalid",
+        ),
+        (
+            BrowserGameStateError::MissingSceneMeshResource(MeshId::new(7, 2)),
+            "scene mesh",
+        ),
+        (
+            BrowserGameStateError::MissingSceneMaterialResource(MaterialId::new(8, 3)),
+            "scene material",
+        ),
+    ];
+
+    for (error, expected) in cases {
+        assert!(
+            error.to_string().contains(expected),
+            "expected '{error}' to contain '{expected}'"
+        );
+    }
 }
 
 #[test]
@@ -1341,6 +1725,71 @@ fn test_skinned_primitive(
         }],
         indices: vec![0],
     }
+}
+
+fn animation_gltf(
+    interpolation: &str,
+    target_path: &str,
+    inputs: &[f32],
+    outputs: &[f32],
+    output_type: &str,
+    output_count: usize,
+) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity((inputs.len() + outputs.len()) * std::mem::size_of::<f32>());
+    for value in inputs.iter().chain(outputs.iter()) {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+
+    let input_byte_length = inputs.len() * std::mem::size_of::<f32>();
+    let output_byte_offset = input_byte_length;
+    let output_byte_length = outputs.len() * std::mem::size_of::<f32>();
+    let encoded = base64::encode(&bytes);
+
+    format!(
+        r#"{{
+  "asset": {{ "version": "2.0" }},
+  "nodes": [{{}}],
+  "buffers": [
+    {{
+      "uri": "data:application/octet-stream;base64,{encoded}",
+      "byteLength": {byte_length}
+    }}
+  ],
+  "bufferViews": [
+    {{ "buffer": 0, "byteOffset": 0, "byteLength": {input_byte_length} }},
+    {{ "buffer": 0, "byteOffset": {output_byte_offset}, "byteLength": {output_byte_length} }}
+  ],
+  "accessors": [
+    {{
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": {input_count},
+      "type": "SCALAR",
+      "min": [0.0],
+      "max": [1.0]
+    }},
+    {{
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": {output_count},
+      "type": "{output_type}"
+    }}
+  ],
+  "animations": [
+    {{
+      "channels": [
+        {{ "sampler": 0, "target": {{ "node": 0, "path": "{target_path}" }} }}
+      ],
+      "samplers": [
+        {{ "input": 0, "interpolation": "{interpolation}", "output": 1 }}
+      ]
+    }}
+  ]
+}}"#,
+        byte_length = bytes.len(),
+        input_count = inputs.len(),
+    )
+    .into_bytes()
 }
 
 fn identity_matrix() -> [f32; 16] {

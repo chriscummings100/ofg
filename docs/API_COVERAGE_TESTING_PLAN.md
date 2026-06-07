@@ -38,9 +38,14 @@ This plan also reduces the supported API surface where the review found accident
 - [x] (2026-06-07) Added high-priority TypeScript shell/generated-artifact tests without making TypeScript a terrain client. Evidence: shader and engine-web wasm metadata tests recompute generated hashes from source/assets; `RustBrowserGameRuntime` tests cover the browser preset-to-Rust reset code mapping; the runtime import graph now allowlists reachable `src/engine/world/**` modules and bans reachable `src/generated/terrain/**`; package/tsconfig manifest tests preserve separated Rust, TypeScript, smoke, coverage, and Rust terrain benchmark lanes. Validation: `tsc -p tsconfig.test.json`, `npx mocha "dist-test/**/*.test.js"`, and `npm run test:ts`.
 - [x] (2026-06-07) Added another focused Rust implementation test batch for the default coverage attention list. Evidence: `engine_web` now directly tests player character descriptors, resource handles, material packets, embedded model texture decode/errors, terrain texture manifest/assets/errors, and model render asset helper/error branches; `engine_core` now directly tests scene-resource IDs, hashing, lookup, and arena reuse; `terrain_core` now tests zero-vector normalization, clamping, smoothstep, and preset fallback behavior. Validation: `cargo test -p engine_core -p terrain_core --features terrain_core/benchmark` and `cargo test -p engine_web`.
 - [x] (2026-06-07) Refreshed Rust coverage after the second implementation test batch. Evidence: `npm run coverage:rust -- --no-clean` passed and reported 84.3% line coverage, 84.5% function coverage, and 82.0% region coverage. With the default human filter, only `crates/engine_web/src/model_materials.rs`, `crates/engine_web/src/renderer.rs`, `crates/engine_web/src/model_animation.rs`, and `crates/engine_web/src/game_state.rs` remain below 90% line coverage.
-- [ ] Decide whether `terrain_core` raw facade coverage needs a wasm/export-contract route or an explicit native-coverage exclusion before threshold gating.
-- [ ] Add remaining Rust `engine_web` game-state, model-animation, model-material import, and renderer edge tests where the uncovered lines represent supported contracts rather than defensive display/wasm-only branches.
-- [ ] Add coverage validation to the normal implementation workflow once the threshold and ignored files are stable.
+- [x] (2026-06-07) Decided to exclude raw Rust `facade.rs` export-boundary files from the default native coverage attention list while preserving explicit contract evidence. Evidence: `terrain_core` facade functions have direct native tests for the supported C ABI contracts, `tools/build-terrain-wasm.mjs --check` remains the standalone wasm export-contract check, and `tools/rust-coverage.mjs` records `**/facade.rs` in `ofgCoverageFilter.excludedByDefault`.
+- [x] (2026-06-07) Added the final focused Rust `engine_web` coverage batch for supported contracts in model material import, renderer resources, model animation sampling/import, and browser game state. Evidence: `model_materials_tests.rs` now covers invalid buffer-view images, invalid/unsupported image data URIs, empty data-URI MIME, sampler enum variants, and blend alpha mode. `tests.rs` now covers renderer resource getters/default/object unregister, texture not-configured and resize errors, animation step/final/zero-duration sampling, invalid animation target/time/blend errors, malformed animation glTF imports, scaled static model scenes, player-character replacement, absent character snapshots, and `BrowserGameStateError` formatting. Validation: `cargo test -p engine_web`.
+- [x] (2026-06-07) Established the normal coverage validation workflow as the thresholded `npm run coverage:rust` attention command. Evidence: README/AGENTS document the command, `tests/ts/packageScripts.test.ts` preserves the explicit coverage lane, default `summary.json` and `summary.pretty.json` are filtered to implementation files below 90% line coverage, and `npm run coverage:rust -- --no-clean` now reports no default attention files.
+- [x] (2026-06-07) Completed the wasm/browser bridge milestone through the narrow browser-integration path instead of adding `wasm-bindgen-test`. Evidence: `src/engine/web/rustBrowserGameAdapter.test.ts` and `rustBrowserGameRuntime.test.ts` cover TypeScript command/snapshot forwarding and preset reset codes with fakes; `tools/browser-smoke.mjs` remains the browser integration check for Rust runtime sentinels, WebGPU boot, reload, HUD mode, keyboard toggle, and debug movement hooks; Rust-side browser game command/state behavior is covered by native `engine_web` tests.
+- [x] (2026-06-07) Completed the TypeScript shell/tooling milestone without making TypeScript a terrain client. Evidence: TypeScript tests cover runtime import quarantine, package command graph, generated shader hash recomputation, engine-web wasm hash/export metadata, browser adapter copies, and runtime command forwarding. Build/check scripts are validated through final `npm run check:shaders` and `npm run check:wasm` integration commands rather than unit-testing every stale-output branch.
+- [x] (2026-06-07) Recorded the milestone-review follow-up for oversized `engine_web` test organization. Evidence: `crates/engine_web/src/tests.rs` is over 1000 lines after the API coverage batch. Before adding more `engine_web` tests, split it into focused modules such as `renderer_tests.rs`, `model_animation_tests.rs`, `game_state_tests.rs`, and remaining model/skinning/terrain-stream tests.
+- [x] (2026-06-07) Ran the required final milestone review with five read-only sub-agent passes. Required findings fixed: stale active docs tying `terrain_core.wasm` to benchmarking; missing `configure_scaled_static_model_scene` height-offset assertion; public malformed `ModelAnimationClip` sampling panic; incomplete ExecPlan evidence for Milestone 6, Milestone 7, excluded harness validation, and final acceptance commands. Follow-up recorded: split oversized `crates/engine_web/src/tests.rs` before further growth. Rejected findings: none.
+- [x] (2026-06-07) Completed final acceptance validation. Commands passed: `npm run clean`, `npm run build`, `npm run test:rust`, `npm run test:ts`, `npm test`, `npm run check:shaders`, `npm run check:wasm`, `npm run smoke`, `npm run coverage:rust`, and `git -c safe.directory=C:/dev/ofg diff --check`. Smoke artifacts: `artifacts/rust-smoke/run-1780835894-263/report.json` and `artifacts/browser-smoke/2026-06-07T12-38-54-307Z/`. Final clean coverage reported 85.9% lines, 86.2% functions, 83.7% regions, and no default attention files below 90%.
 
 ## Surprises & Discoveries
 
@@ -64,6 +69,8 @@ This plan also reduces the supported API surface where the review found accident
   Evidence: tests for `ModelAssetError` and `PlayerCharacterModelError` display variants, private import validators, data URI decoding, locomotion invalid inputs, and public character accessors moved `model_assets.rs` and `model_locomotion.rs` out of the highest-risk uncovered set. The latest coverage run reports `model_locomotion.rs` at 94.5% line coverage, while `model_assets.rs` is no longer in the top uncovered list.
 - Observation: The default filtered coverage summary now leaves only four implementation files below 90% line coverage.
   Evidence: after direct tests for player character descriptors, resource stores, material packets, texture decode, terrain texture validation, model render helpers, scene-resource IDs, terrain math, and preset fallback, `npm run coverage:rust -- --no-clean` reports 84.3% line coverage and lists only `engine_web` model material import, renderer, animation, and game-state files below threshold.
+- Observation: The final default filtered Rust coverage summary has no implementation files below the documented 90% line threshold.
+  Evidence: after focused `engine_web` model-material, renderer, animation, and game-state tests, `npm run coverage:rust -- --no-clean` reports 85.9% workspace line coverage, 86.2% function coverage, 83.7% region coverage, and `files below 90% line coverage ... none` after the default exclusions.
 
 ## Decision Log
 
@@ -91,10 +98,30 @@ This plan also reduces the supported API surface where the review found accident
 - Decision: Put density benchmark helpers behind `terrain_core`'s `benchmark` feature.
   Rationale: The Rust benchmark needs access to density chunk fill and retained-store phases, but those helpers should not become the normal browser runtime API. The feature is enabled by `ofg_test_harness` and directly tested by `cargo test -p terrain_core --features benchmark`.
   Date/Author: 2026-06-07 / Codex.
+- Decision: Keep `npm run coverage:rust` as a thresholded attention report instead of a hard failing gate.
+  Rationale: The stable default threshold is now 90% line coverage for non-ignored implementation files, and the command clearly prints any files below that threshold. Keeping it non-failing avoids treating native-coverage blind spots, wasm-only branches, and export glue as CI failures while still making the validation evidence obvious for humans and AI agents.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: Treat `terrain_core/src/facade.rs` native coverage as an excluded export-boundary blind spot, not an untested API.
+  Rationale: The supported facade contracts are directly exercised by Rust tests and the standalone wasm artifact is checked by `tools/build-terrain-wasm.mjs --check`, but `cargo-llvm-cov` does not attribute hits to the `#[no_mangle] extern "C"` function bodies reliably on this native toolchain.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: Exclude `crates/ofg_test_harness/**` from the default coverage attention list and validate it as a harness surface.
+  Rationale: The harness includes CLI, smoke orchestration, native `wgpu` setup, PNG/report writing, and benchmark timing paths that are better validated by `cargo test -p ofg_test_harness`, `npm run smoke:rust`, and `npm run bench:terrain:rust` than by a default implementation coverage threshold. Its supported helpers still have direct tests and smoke/benchmark evidence; the full cargo summary remains available with `npm run coverage:rust -- --full`.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: Do not add `wasm-bindgen-test` in this milestone.
+  Rationale: The browser-only object protocol is covered by focused TypeScript adapter/runtime tests plus the browser smoke test that launches Chrome/Edge and exercises the real wasm-bindgen `RustBrowserGame` path. Adding a second wasm test runner would increase toolchain surface without moving terrain semantics out of TypeScript further.
+  Date/Author: 2026-06-07 / Codex.
 
 ## Outcomes & Retrospective
 
-This plan has not been implemented yet. When complete, this section must summarize the final coverage command, final coverage percentage or threshold, the APIs removed from the supported surface, the tests added, benchmark migration status, and any coverage blind spots that remain.
+This plan moved OFG to a Rust-first test and coverage workflow. `npm run coverage:rust` now runs `cargo-llvm-cov`, writes text, full JSON, and human-readable filtered summaries under `artifacts/coverage/rust/`, and defaults to a 90% line-coverage attention threshold for non-ignored implementation files. The latest run reports 85.9% workspace line coverage, 86.2% function coverage, 83.7% region coverage, and no default attention files below 90%.
+
+Unsupported or accidental API surface was reduced instead of blessed with tests: the raw `ofg_engine_web_*` facade was removed, TypeScript terrain WASM clients/adapters and the Node terrain benchmark were removed, browser smoke was narrowed to browser integration, and terrain benchmarking moved to Rust through `npm run bench:terrain:rust`.
+
+The added tests cover Rust terrain facade contracts, terrain benchmarks, native render-smoke helpers, `engine_core` scene resources, `engine_web` renderer/model/material/texture/player/game-state contracts, TypeScript shell metadata/import-graph/package-script contracts, and generated shader/engine-web wasm hash recomputation. The remaining coverage blind spots are native attribution for raw `facade.rs` export glue and the smoke/benchmark harness coverage filter; those surfaces are excluded from the default attention summary and covered by explicit facade tests, harness tests, smoke/benchmark commands, and wasm export-contract checks where the standalone artifact remains supported.
+
+Known follow-up: split `crates/engine_web/src/tests.rs` into focused test modules before adding more `engine_web` tests. The current file is oversized, but the split is organizational cleanup rather than missing API coverage.
+
+Final acceptance commands passed on 2026-06-07: `npm run clean`, `npm run build`, `npm run test:rust`, `npm run test:ts`, `npm test`, `npm run check:shaders`, `npm run check:wasm`, `npm run smoke`, and `npm run coverage:rust`.
 
 ## Contract and Quality Baseline
 
@@ -106,7 +133,7 @@ This plan preserves the Rust-first ownership established by `docs/API_CONTRACTS.
 
 `OFG-API-003: Debug And Smoke-Test Hooks` remains active. Browser debug hooks are integration hooks. Tests should verify that they forward documented commands and expose black-box runtime sentinels, not terrain internals.
 
-`OFG-API-006: Standalone Terrain WASM Artifact` should shrink. If the only remaining consumer is the TypeScript terrain benchmark, replace that benchmark with Rust and then reassess whether the standalone `terrain_core.wasm` artifact should stay only for export-contract checks or be removed from the regular build.
+`OFG-API-006: Standalone Terrain WASM Artifact` is now an export-contract fixture only. The TypeScript terrain benchmark has been replaced by Rust, and the standalone `terrain_core.wasm` artifact stays only while build/check tooling needs to verify the raw export contract. Removing it from the regular build remains a separate future cleanup decision.
 
 `OFG-API-009: Forbidden TypeScript Ownership` is enforced by this plan. TypeScript tests and tools must not become terrain clients. Any new TypeScript test touching terrain names should prove browser shell configuration, import-graph quarantine, generated metadata, or debug sentinel behavior only.
 
@@ -294,7 +321,8 @@ Rust coverage:
 
 API coverage:
 
-- Every supported public Rust API in `terrain_core`, `engine_core`, `engine_web`, and `ofg_test_harness` has at least one direct unit/integration test, smoke test, benchmark test, or documented reason for exclusion.
+- Every supported public Rust API in `terrain_core`, `engine_core`, and `engine_web` has at least one direct unit/integration test, smoke test, benchmark test, or documented reason for exclusion.
+- `ofg_test_harness` supported helpers are covered as a validation harness surface through direct harness tests, `npm run smoke:rust`, and `npm run bench:terrain:rust`; the harness is excluded from default coverage attention summaries to avoid mixing harness implementation coverage with engine API coverage.
 - Every supported TypeScript runtime export has at least one unit or smoke test, with terrain semantics excluded from TypeScript.
 - Generated artifacts have tests that recompute hashes from source assets instead of only regex-checking hash shapes.
 - Build/check scripts have tests or integration checks for stale-output failure behavior.

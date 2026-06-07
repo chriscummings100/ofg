@@ -111,13 +111,13 @@ Use `npm run bench:terrain:rust` for performance-sensitive terrain density,
 mesh, store, or streaming changes. It runs a Rust benchmark and writes JSON
 under `artifacts/terrain-bench/`; TypeScript must not benchmark terrain WASM
 directly. Use `npm run coverage:rust` when extending Rust API tests or auditing API
-coverage. Coverage is advisory until thresholds are documented; if
-`cargo-llvm-cov` is missing, the command prints setup guidance without
-installing tools or mutating build output. By default, the console and
+coverage. If `cargo-llvm-cov` is missing, the command prints setup guidance
+without installing tools or mutating build output. By default, the console and
 `artifacts/coverage/rust/summary.json` / `summary.pretty.json` show only
-implementation files below 90% line coverage, excluding tests, the
-smoke/benchmark harness, and Rust export glue such as `lib.rs` and `facade.rs`;
-use `npm run coverage:rust -- --full` for the full cargo summary.
+implementation files below the documented 90% line-coverage attention threshold,
+excluding tests, the smoke/benchmark harness, and Rust export glue such as
+`lib.rs` and `facade.rs`; use `npm run coverage:rust -- --full` for the full
+cargo summary.
 
 `npm run smoke:browser` launches installed Chrome/Edge through Playwright Core,
 saves screenshots in `artifacts/browser-smoke/`, samples pixels, verifies
@@ -248,8 +248,8 @@ crates/terrain_core
   density storage, worker-pool state tests, and the tested legacy terrain mesh
   packet store. The playable browser app reaches it through `engine_web` as a
   Rust library, not through runtime or test TypeScript `terrain_core.wasm`
-  calls. The standalone WASM artifact remains only for export-contract checks
-  and the current benchmark script.
+  calls. The standalone WASM artifact remains only for export-contract fixture
+  checks; terrain behavior tests and benchmarks run through native Rust.
 
 crates/engine_web
   Browser-facing Rust game/render bridge built to wasm32-unknown-unknown. It

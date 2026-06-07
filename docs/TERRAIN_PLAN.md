@@ -77,15 +77,17 @@ Supported:
 - Browser smoke coverage for regular gameplay render, refresh/blank-frame
   regression, terrain streaming after player movement, terrain presets, and
   seam/corner views.
-- A Rust terrain core crate at `crates/terrain_core`, built to
-  `wasm32-unknown-unknown` and emitted as `assets/wasm/terrain_core.wasm`.
-- Deterministic generated TypeScript metadata for the terrain WASM artifact.
+- A Rust terrain core crate at `crates/terrain_core`, linked into
+  `engine_web` for the playable browser path and also built as the standalone
+  `assets/wasm/terrain_core.wasm` export-contract fixture.
+- Deterministic generated TypeScript metadata for the standalone terrain WASM
+  fixture, used by build/check tooling rather than as a terrain client.
 - Rust/WASM exports for terrain core versioning, preset count, macro base
   elevation, density, compatibility height sampling, and 33x33x33 density chunk
   filling, plus neighbor-aware runtime chunk mesh generation.
-- Node/WASM tests that instantiate the WASM artifact and validate deterministic
-  height/density samples, density chunk filling, emitted mesh buffers, retained
-  density stores, stream scheduling, and worker-pool behavior.
+- Native Rust tests and benchmarks that validate deterministic height/density
+  samples, density chunk filling, emitted mesh buffers, retained density stores,
+  stream scheduling, worker-pool behavior, and benchmark report shape.
 - Runtime terrain streaming now lives inside `engine_web.wasm`, which composes
   `terrain_core` as a Rust library to build renderable terrain chunk meshes. The
   generated `terrain_core.wasm` artifact remains for export-contract

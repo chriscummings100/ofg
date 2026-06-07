@@ -1,6 +1,7 @@
+use crate::model_materials::{import_model_images, import_model_materials, import_model_samplers};
 use crate::{
-    decode_model_texture, import_gltf_model_from_slice, ModelAlphaMode, ModelImageSource,
-    ModelMagFilter, ModelMaterialWorkflow, ModelMinFilter, ModelTextureWrap,
+    decode_model_texture, import_gltf_model_from_slice, ModelAlphaMode, ModelAssetError,
+    ModelImageSource, ModelMagFilter, ModelMaterialWorkflow, ModelMinFilter, ModelTextureWrap,
 };
 
 const MATERIAL_TEXTURES_GLTF: &[u8] = br#"{
@@ -59,6 +60,45 @@ const DATA_URI_TEXTURE_GLTF: &[u8] = br#"{
   ],
   "textures": [
     { "source": 0 }
+  ]
+}"#;
+
+const UNSUPPORTED_IMAGE_DATA_URI_GLTF: &[u8] = br#"{
+  "asset": { "version": "2.0" },
+  "images": [
+    { "uri": "data:image/png,not-base64" }
+  ]
+}"#;
+
+const BAD_BASE64_IMAGE_DATA_URI_GLTF: &[u8] = br#"{
+  "asset": { "version": "2.0" },
+  "images": [
+    { "uri": "data:image/png;base64,%%%%" }
+  ]
+}"#;
+
+const EMPTY_MIME_IMAGE_DATA_URI_GLTF: &[u8] = br#"{
+  "asset": { "version": "2.0" },
+  "images": [
+    { "uri": "data:;base64,AQ==" }
+  ]
+}"#;
+
+const SAMPLER_VARIANTS_GLTF: &[u8] = br#"{
+  "asset": { "version": "2.0" },
+  "samplers": [
+    { "magFilter": 9728, "minFilter": 9728 },
+    { "minFilter": 9729 },
+    { "minFilter": 9984 },
+    { "minFilter": 9985 },
+    { "minFilter": 9986 }
+  ]
+}"#;
+
+const BLEND_MATERIAL_GLTF: &[u8] = br#"{
+  "asset": { "version": "2.0" },
+  "materials": [
+    { "name": "Transparent", "alphaMode": "BLEND" }
   ]
 }"#;
 
@@ -197,6 +237,86 @@ fn gltf_importer_preserves_buffer_view_image_bytes() {
             data: vec![2, 3, 4, 5],
         }
     );
+}
+
+#[test]
+fn model_image_import_rejects_missing_and_short_buffer_view_sources() {
+    let gltf = gltf::Gltf::from_slice(BUFFER_VIEW_IMAGE_GLTF).unwrap();
+
+    assert_eq!(
+        import_model_images(&gltf.document, &[]),
+        Err(ModelAssetError::InvalidImageBufferView {
+            image_index: 0,
+            buffer_view_index: 0,
+            buffer_index: 0,
+            actual: 0,
+            expected_end: 5,
+        })
+    );
+    assert_eq!(
+        import_model_images(&gltf.document, &[vec![1, 2, 3]]),
+        Err(ModelAssetError::InvalidImageBufferView {
+            image_index: 0,
+            buffer_view_index: 0,
+            buffer_index: 0,
+            actual: 3,
+            expected_end: 5,
+        })
+    );
+}
+
+#[test]
+fn model_image_import_reports_data_uri_errors_and_empty_mime_type() {
+    let gltf = gltf::Gltf::from_slice(UNSUPPORTED_IMAGE_DATA_URI_GLTF).unwrap();
+    assert_eq!(
+        import_model_images(&gltf.document, &[]),
+        Err(ModelAssetError::UnsupportedImageDataUri {
+            image_index: 0,
+            uri: "data:image/png,not-base64".to_string(),
+        })
+    );
+
+    let gltf = gltf::Gltf::from_slice(BAD_BASE64_IMAGE_DATA_URI_GLTF).unwrap();
+    assert!(matches!(
+        import_model_images(&gltf.document, &[]),
+        Err(ModelAssetError::ImageDataUriDecode { image_index: 0, .. })
+    ));
+
+    let gltf = gltf::Gltf::from_slice(EMPTY_MIME_IMAGE_DATA_URI_GLTF).unwrap();
+    let images = import_model_images(&gltf.document, &[]).unwrap();
+    assert_eq!(images[0].mime_type, None);
+    assert_eq!(images[0].source, ModelImageSource::DataUri(vec![1]));
+}
+
+#[test]
+fn model_sampler_import_covers_all_filter_variants() {
+    let gltf = gltf::Gltf::from_slice(SAMPLER_VARIANTS_GLTF).unwrap();
+    let samplers = import_model_samplers(&gltf.document);
+
+    assert_eq!(samplers[0].mag_filter, Some(ModelMagFilter::Nearest));
+    assert_eq!(samplers[0].min_filter, Some(ModelMinFilter::Nearest));
+    assert_eq!(samplers[1].min_filter, Some(ModelMinFilter::Linear));
+    assert_eq!(
+        samplers[2].min_filter,
+        Some(ModelMinFilter::NearestMipmapNearest)
+    );
+    assert_eq!(
+        samplers[3].min_filter,
+        Some(ModelMinFilter::LinearMipmapNearest)
+    );
+    assert_eq!(
+        samplers[4].min_filter,
+        Some(ModelMinFilter::NearestMipmapLinear)
+    );
+}
+
+#[test]
+fn model_material_import_preserves_blend_alpha_mode() {
+    let gltf = gltf::Gltf::from_slice(BLEND_MATERIAL_GLTF).unwrap();
+    let materials = import_model_materials(&gltf.document);
+
+    assert_eq!(materials[0].name.as_deref(), Some("Transparent"));
+    assert_eq!(materials[0].alpha_mode, ModelAlphaMode::Blend);
 }
 
 #[test]
