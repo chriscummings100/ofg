@@ -102,13 +102,17 @@ as a browser shell plus generic browser image decoder.
   benchmarking.
 - `engine_web` owns the Rust/wgpu browser renderer and current GLTF model path:
   WebGPU canvas surface, adapter/device/queue, surface configuration, depth
-  texture, shader modules, terrain and static-model pipelines, GLB parsing,
-  model image/texture/sampler/material import, embedded PNG/JPEG decode,
+  texture, HDR scene color, linear-depth, and half-resolution bloom
+  post-process targets, shader modules, terrain, static-model, sky, bloom
+  extraction, depth-of-field CoC/blur sampling, and fullscreen post-process
+  pipelines,
+  GLB parsing, model image/texture/sampler/material import, embedded PNG/JPEG decode,
   static model resource registration, non-skinned node animation sampling,
   skin joint/inverse bind import, CPU skinning for all active player-character
   primitives, male/female player-character descriptor selection, buffers,
   texture arrays, samplers, bind groups, render-pass submission, frame/resource
-  counts, and GPU resource pruning.
+  counts, post-process tone-map/bloom/DoF settings, debug view selection, and
+  GPU resource pruning.
 - TypeScript collects DOM input, parses URL seed/preset values, starts WASM,
   exposes debug hooks, decodes Rust-provided generic texture-array URL requests
   into RGBA arrays, and fetches Rust-provided opaque byte asset requests for
@@ -174,14 +178,28 @@ WebGPU ownership should stay on the Rust-first plan.
 
 ## Shader Direction
 
-Shader source sits behind `tools/build-shaders.mjs`. The current input is
-`src/engine/render/shaders/uber.wgsl`, and the generated runtime artifact is
-`src/generated/render/uberShader.ts`.
+Shader source sits behind `tools/build-shaders.mjs`. Current inputs include
+`src/engine/render/shaders/uber.wgsl` for scene rendering and
+`src/engine/render/shaders/post.wgsl` for fullscreen post-process presentation.
+Generated runtime artifacts live under `src/generated/render/`.
 
 The Rust renderer includes the shared WGSL shader source, while TypeScript shader
 tests still validate the generated metadata and vertex-layout contract. WGSL is
 the intended shader language for this project because it is browser-native,
 direct, and familiar enough for AI-driven changes.
+
+The browser scene pass now writes an HDR scene color target and an `R32Float`
+linear-depth/distance target before a fullscreen Rust/wgpu post pass presents
+the selected output to the canvas. Scene shaders output scene-linear color; the
+post shader owns exposure and filmic tone mapping, with the selected sRGB
+surface doing final display encoding. The post-process frame graph also writes
+a half-resolution `Rgba16Float` bloom target from bright HDR scene color and
+composites it before tone mapping. Depth of field is default-off and uses the
+linear-depth target to calculate a per-pixel circle of confusion before sampling
+a small HDR scene blur in the final pass. Debug hooks may select final output,
+scene color, linear depth, post-tone-map color, bloom contribution, DoF CoC, or
+DoF blurred scene color, but TypeScript only sends commands and reads
+Rust-reported status.
 
 The model material path supports glTF 2.0 core metallic-roughness and the
 archived `KHR_materials_pbrSpecularGlossiness` extension. Rust imports material
@@ -237,7 +255,7 @@ direction of the Rust-owned main light.
 - Browser smoke tests cover browser integration only: WebGPU canvas rendering,
   wasm-bindgen loading, browser asset fetch/decode, HUD state, reload behavior,
   browser isolation headers, DOM input forwarding, Rust runtime sentinel strings,
-  and Rust/wgpu renderer status.
+  Rust/wgpu renderer status, and post-process debug view selection.
 - Rust terrain tests cover height/density determinism, density chunk fill, mesh
   buffers, retained stores, stream scheduling, and worker-pool fixtures. The
   removed TypeScript `terrain_core.wasm` adapters must not be recreated for

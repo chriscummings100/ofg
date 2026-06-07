@@ -10,6 +10,8 @@ mod model_render_assets;
 mod model_skinning;
 mod model_texture_assets;
 mod player_character;
+#[cfg(any(test, target_arch = "wasm32"))]
+mod post_process;
 mod render_packets;
 mod render_uniforms;
 mod renderer;

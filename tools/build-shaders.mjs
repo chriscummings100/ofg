@@ -19,6 +19,16 @@ const shaders = [
     fragmentEntryPoint: "fragmentMain",
     skyVertexEntryPoint: "skyVertexMain",
     skyFragmentEntryPoint: "skyFragmentMain"
+  },
+  {
+    id: "post",
+    language: "wgsl",
+    sourcePath: "src/engine/render/shaders/post.wgsl",
+    outputPath: "src/generated/render/postShader.ts",
+    sourceExport: "POST_SHADER_SOURCE",
+    metadataExport: "POST_SHADER_METADATA",
+    vertexEntryPoint: "postVertexMain",
+    fragmentEntryPoint: "postFragmentMain"
   }
 ];
 
@@ -64,11 +74,7 @@ function buildTypeScriptModule(shader, source) {
     sourcePath: shader.sourcePath,
     language: shader.language,
     sourceHash: `sha256-${sourceHash}`,
-    vertexEntryPoint: shader.vertexEntryPoint,
-    modelVertexEntryPoint: shader.modelVertexEntryPoint,
-    fragmentEntryPoint: shader.fragmentEntryPoint,
-    skyVertexEntryPoint: shader.skyVertexEntryPoint,
-    skyFragmentEntryPoint: shader.skyFragmentEntryPoint
+    ...entryPointMetadata(shader)
   };
 
   return [
@@ -82,10 +88,10 @@ function buildTypeScriptModule(shader, source) {
     "  readonly language: ShaderLanguage;",
     "  readonly sourceHash: string;",
     "  readonly vertexEntryPoint: string;",
-    "  readonly modelVertexEntryPoint: string;",
+    "  readonly modelVertexEntryPoint?: string;",
     "  readonly fragmentEntryPoint: string;",
-    "  readonly skyVertexEntryPoint: string;",
-    "  readonly skyFragmentEntryPoint: string;",
+    "  readonly skyVertexEntryPoint?: string;",
+    "  readonly skyFragmentEntryPoint?: string;",
     "};",
     "",
     `export const ${shader.metadataExport}: ShaderMetadata = Object.freeze(${JSON.stringify(metadata, null, 2)});`,
@@ -93,4 +99,21 @@ function buildTypeScriptModule(shader, source) {
     `export const ${shader.sourceExport} = ${JSON.stringify(source)};`,
     ""
   ].join("\n");
+}
+
+function entryPointMetadata(shader) {
+  const metadata = {};
+  for (const key of [
+    "vertexEntryPoint",
+    "modelVertexEntryPoint",
+    "fragmentEntryPoint",
+    "skyVertexEntryPoint",
+    "skyFragmentEntryPoint"
+  ]) {
+    if (shader[key] !== undefined) {
+      metadata[key] = shader[key];
+    }
+  }
+
+  return metadata;
 }

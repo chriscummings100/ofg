@@ -15,7 +15,8 @@ import {
   type BrowserFrameInput,
   type PlayerAnimationTuning,
   type PlayerCharacterId,
-  type PlayerMode
+  type PlayerMode,
+  type PostProcessDebugView
 } from "../engine/web/browserGameTypes.js";
 
 type GameElements = {
@@ -41,6 +42,16 @@ declare global {
       getTerrainRenderPacketRuntime: () => "rust";
       getRendererRuntime: () => "rust-wgpu";
       getRendererStatus: () => EngineWebRendererStatus;
+      getPostProcessDebugView: () => PostProcessDebugView;
+      getPostProcessExposure: () => number;
+      getPostProcessToneMappingEnabled: () => boolean;
+      getPostProcessBloomEnabled: () => boolean;
+      getPostProcessBloomThreshold: () => number;
+      getPostProcessBloomIntensity: () => number;
+      getPostProcessDofEnabled: () => boolean;
+      getPostProcessDofFocusDistance: () => number;
+      getPostProcessDofFocusRange: () => number;
+      getPostProcessDofMaxBlurPixels: () => number;
       getTerrainWorkerCount: () => number;
       getPlayerControllerRuntime: () => "rust";
       getPlayerCharacterId: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerCharacterId"];
@@ -73,6 +84,15 @@ declare global {
       resetTerrainStreaming: () => void;
       setCameraMode: (mode: PlayerMode) => void;
       setDebugCamera: (x: number, y: number, z: number, yaw: number, pitch: number) => void;
+      setPostProcessDebugView: (view: PostProcessDebugView) => void;
+      setPostProcessToneMapping: (enabled: boolean, exposure: number) => void;
+      setPostProcessBloom: (enabled: boolean, threshold: number, intensity: number) => void;
+      setPostProcessDepthOfField: (
+        enabled: boolean,
+        focusDistance: number,
+        focusRange: number,
+        maxBlurPixels: number
+      ) => void;
       setPlayerAnimationTuning: (tuning: Partial<PlayerAnimationTuning>) => void;
       setPlayerCharacter: (character: PlayerCharacterId) => void;
       setPlayerPosition: (x: number, z: number) => void;
@@ -99,6 +119,22 @@ export async function startGame(elements: GameElements): Promise<void> {
     getTerrainRenderPacketRuntime: () => game.debugSnapshot().terrainRenderPacketRuntime,
     getRendererRuntime: () => game.debugSnapshot().rendererRuntime,
     getRendererStatus: () => game.debugSnapshot().rendererStatus,
+    getPostProcessDebugView: () => game.debugSnapshot().rendererStatus.postProcessDebugView,
+    getPostProcessExposure: () => game.debugSnapshot().rendererStatus.postProcessExposure,
+    getPostProcessToneMappingEnabled: () =>
+      game.debugSnapshot().rendererStatus.postProcessToneMappingEnabled,
+    getPostProcessBloomEnabled: () => game.debugSnapshot().rendererStatus.postProcessBloomEnabled,
+    getPostProcessBloomThreshold: () =>
+      game.debugSnapshot().rendererStatus.postProcessBloomThreshold,
+    getPostProcessBloomIntensity: () =>
+      game.debugSnapshot().rendererStatus.postProcessBloomIntensity,
+    getPostProcessDofEnabled: () => game.debugSnapshot().rendererStatus.postProcessDofEnabled,
+    getPostProcessDofFocusDistance: () =>
+      game.debugSnapshot().rendererStatus.postProcessDofFocusDistance,
+    getPostProcessDofFocusRange: () =>
+      game.debugSnapshot().rendererStatus.postProcessDofFocusRange,
+    getPostProcessDofMaxBlurPixels: () =>
+      game.debugSnapshot().rendererStatus.postProcessDofMaxBlurPixels,
     getTerrainWorkerCount: () => game.debugSnapshot().terrainWorkerCount,
     getPlayerControllerRuntime: () => game.debugSnapshot().playerControllerRuntime,
     getPlayerCharacterId: () => game.debugSnapshot().playerCharacterId,
@@ -143,6 +179,33 @@ export async function startGame(elements: GameElements): Promise<void> {
     },
     setDebugCamera(x, y, z, yaw, pitch) {
       game.command({ type: "setDebugCamera", x, y, z, yaw, pitch });
+    },
+    setPostProcessDebugView(view) {
+      game.command({ type: "setPostProcessDebugView", view: validatePostProcessDebugView(view) });
+    },
+    setPostProcessToneMapping(enabled, exposure) {
+      game.command({
+        type: "setPostProcessToneMapping",
+        enabled,
+        exposure: validatePostProcessExposure(exposure)
+      });
+    },
+    setPostProcessBloom(enabled, threshold, intensity) {
+      game.command({
+        type: "setPostProcessBloom",
+        enabled,
+        threshold: validatePostProcessBloomThreshold(threshold),
+        intensity: validatePostProcessBloomIntensity(intensity)
+      });
+    },
+    setPostProcessDepthOfField(enabled, focusDistance, focusRange, maxBlurPixels) {
+      game.command({
+        type: "setPostProcessDepthOfField",
+        enabled,
+        focusDistance: validatePostProcessDofFocusDistance(focusDistance),
+        focusRange: validatePostProcessDofFocusRange(focusRange),
+        maxBlurPixels: validatePostProcessDofMaxBlurPixels(maxBlurPixels)
+      });
     },
     setPlayerAnimationTuning(tuning) {
       game.command({
@@ -254,6 +317,70 @@ function validatePlayerCharacterId(character: string): PlayerCharacterId {
   }
 
   throw new Error(`Unknown player character '${character}'.`);
+}
+
+function validatePostProcessDebugView(view: string): PostProcessDebugView {
+  if (
+    view === "final" ||
+    view === "sceneColor" ||
+    view === "linearDepth" ||
+    view === "postToneMap" ||
+    view === "bloom" ||
+    view === "dofCoc" ||
+    view === "dofBlurred"
+  ) {
+    return view;
+  }
+
+  throw new Error(`Unknown post-process debug view '${view}'.`);
+}
+
+function validatePostProcessExposure(exposure: number): number {
+  if (Number.isFinite(exposure) && exposure >= 0 && exposure <= 16) {
+    return exposure;
+  }
+
+  throw new Error(`Invalid post-process exposure '${exposure}'.`);
+}
+
+function validatePostProcessBloomThreshold(threshold: number): number {
+  if (Number.isFinite(threshold) && threshold >= 0 && threshold <= 64) {
+    return threshold;
+  }
+
+  throw new Error(`Invalid post-process bloom threshold '${threshold}'.`);
+}
+
+function validatePostProcessBloomIntensity(intensity: number): number {
+  if (Number.isFinite(intensity) && intensity >= 0 && intensity <= 4) {
+    return intensity;
+  }
+
+  throw new Error(`Invalid post-process bloom intensity '${intensity}'.`);
+}
+
+function validatePostProcessDofFocusDistance(focusDistance: number): number {
+  if (Number.isFinite(focusDistance) && focusDistance >= 0.1 && focusDistance <= 512) {
+    return focusDistance;
+  }
+
+  throw new Error(`Invalid post-process DoF focus distance '${focusDistance}'.`);
+}
+
+function validatePostProcessDofFocusRange(focusRange: number): number {
+  if (Number.isFinite(focusRange) && focusRange >= 0.1 && focusRange <= 256) {
+    return focusRange;
+  }
+
+  throw new Error(`Invalid post-process DoF focus range '${focusRange}'.`);
+}
+
+function validatePostProcessDofMaxBlurPixels(maxBlurPixels: number): number {
+  if (Number.isFinite(maxBlurPixels) && maxBlurPixels >= 0 && maxBlurPixels <= 32) {
+    return maxBlurPixels;
+  }
+
+  throw new Error(`Invalid post-process DoF max blur pixels '${maxBlurPixels}'.`);
 }
 
 function updateCharacterToggle(

@@ -207,7 +207,18 @@ function fakeBrowserGame(): EngineWebBrowserGame {
           textureCount: 3,
           objectCount: 1,
           frameIndex: 0,
-          frameDrawCount: 0
+          frameDrawCount: 0,
+          postProcessRuntime: "rust-wgpu",
+          postProcessDebugView: "final",
+          postProcessExposure: 1,
+          postProcessToneMappingEnabled: true,
+          postProcessBloomEnabled: true,
+          postProcessBloomThreshold: 1,
+          postProcessBloomIntensity: 0.08,
+          postProcessDofEnabled: false,
+          postProcessDofFocusDistance: 30,
+          postProcessDofFocusRange: 8,
+          postProcessDofMaxBlurPixels: 6
         },
         terrainWorkerCount: 6,
         playerControllerRuntime: "rust"

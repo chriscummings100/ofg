@@ -21,6 +21,7 @@ pub const HEIGHT: u32 = 540;
 const TEXTURE_SIZE: u32 = 64;
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+const LINEAR_DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
 const SHADER_SOURCE: &str = include_str!("../../../../src/engine/render/shaders/uber.wgsl");
 const IDENTITY_WORLD_MATRIX: [f32; WORLD_MATRIX_FLOATS] = [
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
@@ -259,6 +260,8 @@ impl OffscreenRenderer {
             view_formats: &[],
         });
         let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
+        let linear_depth = create_linear_depth_texture(&self.device, WIDTH, HEIGHT);
+        let linear_depth_view = linear_depth.create_view(&wgpu::TextureViewDescriptor::default());
         let depth = create_depth_texture(&self.device, WIDTH, HEIGHT);
         let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
         let unpadded_bytes_per_row = WIDTH * 4;
@@ -278,19 +281,29 @@ impl OffscreenRenderer {
                 label: Some("smoke render encoder"),
             });
         {
-            let color_attachments = [Some(wgpu::RenderPassColorAttachment {
-                view: &output_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.08,
-                        g: 0.09,
-                        b: 0.08,
-                        a: 1.0,
-                    }),
-                    store: wgpu::StoreOp::Store,
-                },
-            })];
+            let color_attachments = [
+                Some(wgpu::RenderPassColorAttachment {
+                    view: &output_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.08,
+                            g: 0.09,
+                            b: 0.08,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                }),
+                Some(wgpu::RenderPassColorAttachment {
+                    view: &linear_depth_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                }),
+            ];
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("smoke render pass"),
                 color_attachments: &color_attachments,
@@ -601,11 +614,7 @@ fn create_terrain_pipeline(
             module: shader,
             entry_point: "fragmentMain",
             compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
+            targets: &scene_render_targets(format),
         }),
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
@@ -644,11 +653,7 @@ fn create_sky_pipeline(
             module: shader,
             entry_point: "skyFragmentMain",
             compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
+            targets: &scene_render_targets(format),
         }),
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
@@ -667,6 +672,22 @@ fn create_sky_pipeline(
     })
 }
 
+/// Returns the scene color plus linear-depth target layout used by uber.wgsl.
+fn scene_render_targets(format: wgpu::TextureFormat) -> [Option<wgpu::ColorTargetState>; 2] {
+    [
+        Some(wgpu::ColorTargetState {
+            format,
+            blend: None,
+            write_mask: wgpu::ColorWrites::ALL,
+        }),
+        Some(wgpu::ColorTargetState {
+            format: LINEAR_DEPTH_FORMAT,
+            blend: None,
+            write_mask: wgpu::ColorWrites::RED,
+        }),
+    ]
+}
+
 /// Returns the texture binding layout entry used by terrain material arrays.
 fn texture_binding(binding: u32) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
@@ -679,6 +700,24 @@ fn texture_binding(binding: u32) -> wgpu::BindGroupLayoutEntry {
         },
         count: None,
     }
+}
+
+/// Creates the linear-depth color attachment required by the shared scene shader.
+fn create_linear_depth_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("smoke linear depth texture"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: LINEAR_DEPTH_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    })
 }
 
 /// Creates a depth texture for offscreen rendering.

@@ -27,6 +27,10 @@ use crate::model_texture_assets::decode_model_texture;
 use crate::player_character::{
     PlayerCharacterDescriptor, PlayerCharacterId, PLAYER_CHARACTER_DESCRIPTORS,
 };
+use crate::post_process::{
+    PostProcessDebugView, PostProcessResources, PostProcessSettings, POST_PROCESS_COLOR_FORMAT,
+    POST_PROCESS_LINEAR_DEPTH_FORMAT,
+};
 use crate::render_packets::build_frame_packet_from_engine_snapshot;
 use crate::render_uniforms::{
     build_frame_uniform_values, build_object_uniform_values, FRAME_PACKET_FLOATS,
@@ -70,6 +74,16 @@ struct RustBrowserGameStatus {
     object_count: u32,
     frame_index: u32,
     frame_draw_count: u32,
+    post_process_debug_view: PostProcessDebugView,
+    post_process_exposure: f32,
+    post_process_tone_mapping_enabled: bool,
+    post_process_bloom_enabled: bool,
+    post_process_bloom_threshold: f32,
+    post_process_bloom_intensity: f32,
+    post_process_dof_enabled: bool,
+    post_process_dof_focus_distance: f32,
+    post_process_dof_focus_range: f32,
+    post_process_dof_max_blur_pixels: f32,
 }
 
 struct BrowserWgpuRenderer {
@@ -86,6 +100,8 @@ struct BrowserWgpuRenderer {
     sky_pipeline: wgpu::RenderPipeline,
     pipeline: wgpu::RenderPipeline,
     model_pipeline: wgpu::RenderPipeline,
+    post_process: PostProcessResources,
+    post_process_settings: PostProcessSettings,
     max_texture_array_layers: u32,
     meshes: ResourceStore<GpuMesh>,
     textures: ResourceStore<GpuTexture>,
@@ -386,6 +402,37 @@ impl RustBrowserGame {
                 self.game_state
                     .set_debug_camera(position, yaw, pitch)
                     .map_err(js_error)?;
+            }
+            "setPostProcessDebugView" => {
+                let view_name = js_required_string(&command, "view", "command.view")?;
+                self.renderer.set_post_process_debug_view(&view_name)?;
+            }
+            "setPostProcessToneMapping" => {
+                let enabled = js_required_bool(&command, "enabled", "command.enabled")?;
+                let exposure = js_required_f32(&command, "exposure", "command.exposure")?;
+                self.renderer
+                    .set_post_process_tone_mapping(enabled, exposure)?;
+            }
+            "setPostProcessBloom" => {
+                let enabled = js_required_bool(&command, "enabled", "command.enabled")?;
+                let threshold = js_required_f32(&command, "threshold", "command.threshold")?;
+                let intensity = js_required_f32(&command, "intensity", "command.intensity")?;
+                self.renderer
+                    .set_post_process_bloom(enabled, threshold, intensity)?;
+            }
+            "setPostProcessDepthOfField" => {
+                let enabled = js_required_bool(&command, "enabled", "command.enabled")?;
+                let focus_distance =
+                    js_required_f32(&command, "focusDistance", "command.focusDistance")?;
+                let focus_range = js_required_f32(&command, "focusRange", "command.focusRange")?;
+                let max_blur_pixels =
+                    js_required_f32(&command, "maxBlurPixels", "command.maxBlurPixels")?;
+                self.renderer.set_post_process_depth_of_field(
+                    enabled,
+                    focus_distance,
+                    focus_range,
+                    max_blur_pixels,
+                )?;
             }
             _ => {
                 return Err(js_error(format!(
@@ -1083,9 +1130,11 @@ impl BrowserWgpuRenderer {
             bind_group_layouts: &[&camera_bind_group_layout],
             push_constant_ranges: &[],
         });
-        let pipeline = create_main_pipeline(&device, &pipeline_layout, &shader, format);
-        let model_pipeline = create_model_pipeline(&device, &pipeline_layout, &shader, format);
-        let sky_pipeline = create_sky_pipeline(&device, &sky_pipeline_layout, &shader, format);
+        let pipeline = create_main_pipeline(&device, &pipeline_layout, &shader);
+        let model_pipeline = create_model_pipeline(&device, &pipeline_layout, &shader);
+        let sky_pipeline = create_sky_pipeline(&device, &sky_pipeline_layout, &shader);
+        let post_process =
+            PostProcessResources::new(&device, format, display_width, display_height);
         let mut renderer = Self {
             canvas,
             surface,
@@ -1100,6 +1149,8 @@ impl BrowserWgpuRenderer {
             sky_pipeline,
             pipeline,
             model_pipeline,
+            post_process,
+            post_process_settings: PostProcessSettings::default(),
             max_texture_array_layers,
             meshes: ResourceStore::new(),
             textures: ResourceStore::new(),
@@ -1131,6 +1182,7 @@ impl BrowserWgpuRenderer {
         self.canvas.set_height(height);
         self.surface.configure(&self.device, &self.config);
         self.depth_texture = create_depth_texture(&self.device, width, height);
+        self.post_process.resize(&self.device, width, height);
         Ok(())
     }
 
@@ -1287,6 +1339,86 @@ impl BrowserWgpuRenderer {
         Ok(())
     }
 
+    fn set_post_process_debug_view(&mut self, view_name: &str) -> Result<(), JsValue> {
+        let debug_view = PostProcessDebugView::from_browser_name(view_name).ok_or_else(|| {
+            js_error(format!(
+                "Rust WebGPU renderer received unknown post-process debug view '{view_name}'."
+            ))
+        })?;
+        self.post_process_settings.set_debug_view(debug_view);
+        Ok(())
+    }
+
+    fn set_post_process_tone_mapping(
+        &mut self,
+        enabled: bool,
+        exposure: f32,
+    ) -> Result<(), JsValue> {
+        if !(0.0..=16.0).contains(&exposure) {
+            return Err(js_error(
+                "Rust WebGPU renderer expected post-process exposure in the range 0.0..=16.0.",
+            ));
+        }
+
+        self.post_process_settings
+            .set_tone_mapping(enabled, exposure);
+        Ok(())
+    }
+
+    fn set_post_process_bloom(
+        &mut self,
+        enabled: bool,
+        threshold: f32,
+        intensity: f32,
+    ) -> Result<(), JsValue> {
+        if !(0.0..=64.0).contains(&threshold) {
+            return Err(js_error(
+                "Rust WebGPU renderer expected bloom threshold in the range 0.0..=64.0.",
+            ));
+        }
+        if !(0.0..=4.0).contains(&intensity) {
+            return Err(js_error(
+                "Rust WebGPU renderer expected bloom intensity in the range 0.0..=4.0.",
+            ));
+        }
+
+        self.post_process_settings
+            .set_bloom(enabled, threshold, intensity);
+        Ok(())
+    }
+
+    fn set_post_process_depth_of_field(
+        &mut self,
+        enabled: bool,
+        focus_distance: f32,
+        focus_range: f32,
+        max_blur_pixels: f32,
+    ) -> Result<(), JsValue> {
+        if !(0.1..=512.0).contains(&focus_distance) {
+            return Err(js_error(
+                "Rust WebGPU renderer expected DoF focus distance in the range 0.1..=512.0.",
+            ));
+        }
+        if !(0.1..=256.0).contains(&focus_range) {
+            return Err(js_error(
+                "Rust WebGPU renderer expected DoF focus range in the range 0.1..=256.0.",
+            ));
+        }
+        if !(0.0..=32.0).contains(&max_blur_pixels) {
+            return Err(js_error(
+                "Rust WebGPU renderer expected DoF max blur pixels in the range 0.0..=32.0.",
+            ));
+        }
+
+        self.post_process_settings.set_depth_of_field(
+            enabled,
+            focus_distance,
+            focus_range,
+            max_blur_pixels,
+        );
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn render(
         &mut self,
@@ -1373,19 +1505,29 @@ impl BrowserWgpuRenderer {
                 label: Some("rust webgpu frame encoder"),
             });
         {
-            let color_attachments = [Some(wgpu::RenderPassColorAttachment {
-                view: &view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.08,
-                        g: 0.09,
-                        b: 0.08,
-                        a: 1.0,
-                    }),
-                    store: wgpu::StoreOp::Store,
-                },
-            })];
+            let color_attachments = [
+                Some(wgpu::RenderPassColorAttachment {
+                    view: self.post_process.scene_color_view(),
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.08,
+                            g: 0.09,
+                            b: 0.08,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                }),
+                Some(wgpu::RenderPassColorAttachment {
+                    view: self.post_process.linear_depth_view(),
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                }),
+            ];
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("rust webgpu render pass"),
                 color_attachments: &color_attachments,
@@ -1429,6 +1571,8 @@ impl BrowserWgpuRenderer {
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
         }
+        self.post_process
+            .render(&self.queue, &mut encoder, &view, self.post_process_settings);
         self.queue.submit(Some(encoder.finish()));
         frame.present();
         self.frame_index = self.frame_index.saturating_add(1);
@@ -1620,6 +1764,16 @@ impl BrowserWgpuRenderer {
             object_count: self.objects.len().min(u32::MAX as usize) as u32,
             frame_index: self.frame_index,
             frame_draw_count: self.frame_draw_count,
+            post_process_debug_view: self.post_process_settings.debug_view(),
+            post_process_exposure: self.post_process_settings.exposure(),
+            post_process_tone_mapping_enabled: self.post_process_settings.tone_mapping_enabled(),
+            post_process_bloom_enabled: self.post_process_settings.bloom_enabled(),
+            post_process_bloom_threshold: self.post_process_settings.bloom_threshold(),
+            post_process_bloom_intensity: self.post_process_settings.bloom_intensity(),
+            post_process_dof_enabled: self.post_process_settings.dof_enabled(),
+            post_process_dof_focus_distance: self.post_process_settings.dof_focus_distance(),
+            post_process_dof_focus_range: self.post_process_settings.dof_focus_range(),
+            post_process_dof_max_blur_pixels: self.post_process_settings.dof_max_blur_pixels(),
         }
     }
 }
@@ -1641,7 +1795,6 @@ fn create_main_pipeline(
     device: &wgpu::Device,
     layout: &wgpu::PipelineLayout,
     shader: &wgpu::ShaderModule,
-    format: wgpu::TextureFormat,
 ) -> wgpu::RenderPipeline {
     const ATTRIBUTES: [wgpu::VertexAttribute; 6] = [
         wgpu::VertexAttribute {
@@ -1694,11 +1847,7 @@ fn create_main_pipeline(
             module: shader,
             entry_point: "fragmentMain",
             compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
+            targets: &scene_render_targets(),
         }),
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
@@ -1721,7 +1870,6 @@ fn create_model_pipeline(
     device: &wgpu::Device,
     layout: &wgpu::PipelineLayout,
     shader: &wgpu::ShaderModule,
-    format: wgpu::TextureFormat,
 ) -> wgpu::RenderPipeline {
     const ATTRIBUTES: [wgpu::VertexAttribute; 4] = [
         wgpu::VertexAttribute {
@@ -1764,11 +1912,7 @@ fn create_model_pipeline(
             module: shader,
             entry_point: "fragmentMain",
             compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
+            targets: &scene_render_targets(),
         }),
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
@@ -1791,7 +1935,6 @@ fn create_sky_pipeline(
     device: &wgpu::Device,
     layout: &wgpu::PipelineLayout,
     shader: &wgpu::ShaderModule,
-    format: wgpu::TextureFormat,
 ) -> wgpu::RenderPipeline {
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("sky pipeline"),
@@ -1806,11 +1949,7 @@ fn create_sky_pipeline(
             module: shader,
             entry_point: "skyFragmentMain",
             compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
+            targets: &scene_render_targets(),
         }),
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
@@ -1827,6 +1966,21 @@ fn create_sky_pipeline(
         multisample: Default::default(),
         multiview: None,
     })
+}
+
+fn scene_render_targets() -> [Option<wgpu::ColorTargetState>; 2] {
+    [
+        Some(wgpu::ColorTargetState {
+            format: POST_PROCESS_COLOR_FORMAT,
+            blend: None,
+            write_mask: wgpu::ColorWrites::ALL,
+        }),
+        Some(wgpu::ColorTargetState {
+            format: POST_PROCESS_LINEAR_DEPTH_FORMAT,
+            blend: None,
+            write_mask: wgpu::ColorWrites::RED,
+        }),
+    ]
 }
 
 fn create_depth_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Texture {
@@ -2193,6 +2347,61 @@ fn renderer_status_to_js(status: RustBrowserGameStatus) -> Result<JsValue, JsVal
         &object,
         "frameDrawCount",
         JsValue::from_f64(status.frame_draw_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessRuntime",
+        JsValue::from_str("rust-wgpu"),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessDebugView",
+        JsValue::from_str(status.post_process_debug_view.browser_name()),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessExposure",
+        JsValue::from_f64(status.post_process_exposure as f64),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessToneMappingEnabled",
+        JsValue::from_bool(status.post_process_tone_mapping_enabled),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessBloomEnabled",
+        JsValue::from_bool(status.post_process_bloom_enabled),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessBloomThreshold",
+        JsValue::from_f64(status.post_process_bloom_threshold as f64),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessBloomIntensity",
+        JsValue::from_f64(status.post_process_bloom_intensity as f64),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessDofEnabled",
+        JsValue::from_bool(status.post_process_dof_enabled),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessDofFocusDistance",
+        JsValue::from_f64(status.post_process_dof_focus_distance as f64),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessDofFocusRange",
+        JsValue::from_f64(status.post_process_dof_focus_range as f64),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessDofMaxBlurPixels",
+        JsValue::from_f64(status.post_process_dof_max_blur_pixels as f64),
     )?;
 
     Ok(object.into())

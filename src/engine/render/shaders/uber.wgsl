@@ -52,6 +52,11 @@ struct VertexOutput {
   @location(5) materialWeights: vec4<f32>,
 };
 
+struct SceneFragmentOutput {
+  @location(0) color: vec4<f32>,
+  @location(1) linearDepth: f32,
+};
+
 @vertex
 fn vertexMain(input: VertexInput) -> VertexOutput {
   var output: VertexOutput;
@@ -81,7 +86,7 @@ fn modelVertexMain(input: ModelVertexInput) -> VertexOutput {
 }
 
 fn sampleTerrainAlbedoLayer(uv: vec2<f32>, layer: f32) -> vec3<f32> {
-  return textureSample(albedoTexture, albedoSampler, fract(uv), i32(round(layer))).rgb;
+  return srgbToLinear(textureSample(albedoTexture, albedoSampler, fract(uv), i32(round(layer))).rgb);
 }
 
 fn sampleTerrainMaterialLayer(uv: vec2<f32>, layer: f32) -> vec4<f32> {
@@ -130,10 +135,6 @@ fn materialWorkflowIs(workflow: f32) -> bool {
 
 fn srgbToLinear(color: vec3<f32>) -> vec3<f32> {
   return pow(max(color, vec3<f32>(0.0)), vec3<f32>(2.2));
-}
-
-fn linearToSrgb(color: vec3<f32>) -> vec3<f32> {
-  return pow(max(color, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
 }
 
 fn terrainWeights(input: VertexOutput) -> vec4<f32> {
@@ -241,7 +242,7 @@ fn shadeMetallicRoughness(input: VertexOutput, normal: vec3<f32>, viewDirection:
   let f0 = mix(vec3<f32>(0.04), baseColor.rgb, metallic);
   let diffuseColor = baseColor.rgb * (1.0 - metallic);
   let litColor = pbrDirectLight(diffuseColor, f0, roughness, normal, viewDirection);
-  return vec4<f32>(linearToSrgb(litColor), baseColor.a);
+  return vec4<f32>(litColor, baseColor.a);
 }
 
 fn shadeSpecularGlossiness(input: VertexOutput, normal: vec3<f32>, viewDirection: vec3<f32>) -> vec4<f32> {
@@ -253,20 +254,24 @@ fn shadeSpecularGlossiness(input: VertexOutput, normal: vec3<f32>, viewDirection
   let diffuseColor = diffuse.rgb * (1.0 - maxSpecular);
   let roughness = clamp(1.0 - glossiness, 0.04, 1.0);
   let litColor = pbrDirectLight(diffuseColor, specular, roughness, normal, viewDirection);
-  return vec4<f32>(linearToSrgb(litColor), diffuse.a);
+  return vec4<f32>(litColor, diffuse.a);
 }
 
 @fragment
-fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
+fn fragmentMain(input: VertexOutput) -> SceneFragmentOutput {
   let viewDirection = normalize(camera.eyeWorld.xyz - input.worldPosition);
   let normal = normalize(input.worldNormal);
+  var color = shadeMetallicRoughness(input, normal, viewDirection);
   if (materialWorkflowIs(MATERIAL_WORKFLOW_TERRAIN)) {
-    return shadeTerrain(input, normal, viewDirection);
+    color = shadeTerrain(input, normal, viewDirection);
+  } else if (materialWorkflowIs(MATERIAL_WORKFLOW_SPECULAR_GLOSSINESS)) {
+    color = shadeSpecularGlossiness(input, normal, viewDirection);
   }
-  if (materialWorkflowIs(MATERIAL_WORKFLOW_SPECULAR_GLOSSINESS)) {
-    return shadeSpecularGlossiness(input, normal, viewDirection);
-  }
-  return shadeMetallicRoughness(input, normal, viewDirection);
+
+  var output: SceneFragmentOutput;
+  output.color = color;
+  output.linearDepth = distance(camera.eyeWorld.xyz, input.worldPosition);
+  return output;
 }
 
 struct SkyVertexOutput {
@@ -294,7 +299,7 @@ fn skyVertexMain(@builtin(vertex_index) vertexIndex: u32) -> SkyVertexOutput {
 }
 
 @fragment
-fn skyFragmentMain(input: SkyVertexOutput) -> @location(0) vec4<f32> {
+fn skyFragmentMain(input: SkyVertexOutput) -> SceneFragmentOutput {
   let farWorldH = camera.inverseViewProjection * vec4<f32>(input.ndc, 1.0, 1.0);
   let farWorld = farWorldH.xyz / farWorldH.w;
   let ray = normalize(farWorld - camera.eyeWorld.xyz);
@@ -309,5 +314,8 @@ fn skyFragmentMain(input: SkyVertexOutput) -> @location(0) vec4<f32> {
   let sunDisk = smoothstep(0.995, 0.9985, sunDot) * 1.75;
   skyColor += camera.sunColorAndAmbient.rgb * (sunGlow + sunDisk);
 
-  return vec4<f32>(skyColor, 1.0);
+  var output: SceneFragmentOutput;
+  output.color = vec4<f32>(skyColor, 1.0);
+  output.linearDepth = 0.0;
+  return output;
 }
