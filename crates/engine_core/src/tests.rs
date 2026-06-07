@@ -346,13 +346,80 @@ fn render_snapshot_tracks_player_camera_and_light() {
     assert_close(snapshot.camera.fov_y_radians, 70.0_f32.to_radians());
     assert_close(snapshot.camera.near_plane, 0.05);
     assert_close(snapshot.camera.far_plane, 500.0);
-    assert_vec3_near(
-        snapshot.main_light.direction,
-        Vec3::new(0.89, 0.25, 0.38).normalize(),
-    );
+    assert!(snapshot.main_light.direction.x > 0.45);
+    assert!(snapshot.main_light.direction.y > 0.80);
+    assert!(snapshot.main_light.direction.z > 0.18);
     assert_vec3_near(snapshot.main_light.color, Vec3::new(1.0, 0.96, 0.88));
-    assert_close(snapshot.main_light.intensity, 1.0);
-    assert_close(snapshot.main_light.ambient, 0.34);
+    assert!(snapshot.main_light.intensity > 0.9);
+    assert!(snapshot.main_light.ambient > 0.33);
+    assert_close(snapshot.sky.sun_elevation, snapshot.main_light.direction.y);
+    assert_eq!(snapshot.sky.turbidity, 2.25);
+    assert!(snapshot.sky.cloud_coverage > 0.0);
+    assert_eq!(snapshot.sky.star_intensity, 0.0);
+}
+
+#[test]
+fn sky_cycle_derives_day_night_light_and_presentation_values() {
+    let noon = sky_state_for_day_phase(0.25, 10.0);
+    assert_vec3_near(noon.main_light.direction, Vec3::UP);
+    assert_close(noon.main_light.intensity, 1.0);
+    assert_eq!(noon.sky.star_intensity, 0.0);
+    assert_eq!(noon.sky.night_blend, 0.0);
+    assert_eq!(noon.sky.elapsed_seconds, 10.0);
+
+    let midnight = sky_state_for_day_phase(0.75, 20.0);
+    assert!(midnight.main_light.direction.y < -0.99);
+    assert_eq!(midnight.main_light.intensity, 0.0);
+    assert_eq!(midnight.sky.star_intensity, 1.0);
+    assert_eq!(midnight.sky.night_blend, 1.0);
+    assert!(midnight.sky.moon_intensity > 0.7);
+
+    let wrapped = sky_state_for_day_phase(1.25, 30.0);
+    assert_vec3_near(wrapped.main_light.direction, noon.main_light.direction);
+
+    let sunset = sky_state_for_day_phase(0.49, 40.0);
+    assert!(sunset.main_light.color.x > sunset.main_light.color.y);
+    assert!(sunset.main_light.color.y > sunset.main_light.color.z);
+    assert!(sunset.main_light.color.z < noon.main_light.color.z);
+
+    let start = sky_state_at_elapsed_seconds(0.0);
+    let next_day = sky_state_at_elapsed_seconds(240.0);
+    assert_close(start.sky.day_phase, next_day.sky.day_phase);
+    assert_vec3_near(start.main_light.direction, next_day.main_light.direction);
+}
+
+#[test]
+fn sky_packet_defaults_and_write_order_are_stable() {
+    let default_day = SkyRenderPacket::default_day();
+    let state = sky_state_at_elapsed_seconds(f64::NAN);
+    let engine = Engine::new();
+    let engine_sky = engine.sky_render_state();
+    let mut values = [0.0; SKY_RENDER_PACKET_FLOAT_COUNT];
+
+    default_day.write_f32s(&mut values);
+
+    assert_eq!(default_day.elapsed_seconds, 0.0);
+    assert_close(default_day.day_phase, state.sky.day_phase);
+    assert_close(default_day.day_phase, engine_sky.sky.day_phase);
+    assert_close(default_day.cloud_coverage, 0.34);
+    assert_close(default_day.cloud_speed, 0.018);
+    assert_close(default_day.cloud_scale, 1.35);
+    assert_close(default_day.cloud_softness, 0.18);
+    assert_close(default_day.cloud_shadow, 0.42);
+    assert_eq!(state.sky.elapsed_seconds, 0.0);
+    assert_eq!(values.len(), SKY_RENDER_PACKET_FLOAT_COUNT);
+    assert_close(values[0], default_day.elapsed_seconds);
+    assert_close(values[1], default_day.day_phase);
+    assert_close(values[2], default_day.sun_elevation);
+    assert_close(values[3], default_day.star_intensity);
+    assert_close(values[4], default_day.turbidity);
+    assert_close(values[5], default_day.cloud_coverage);
+    assert_close(values[6], default_day.cloud_speed);
+    assert_close(values[7], default_day.cloud_scale);
+    assert_close(values[8], default_day.cloud_softness);
+    assert_close(values[9], default_day.cloud_shadow);
+    assert_close(values[10], default_day.moon_intensity);
+    assert_close(values[11], default_day.night_blend);
 }
 
 #[test]
@@ -413,8 +480,12 @@ fn render_snapshot_can_be_built_directly_from_player_view() {
     assert_close(values[2], 4.0);
     assert_close(values[6], 0.5);
     assert_close(values[7], -0.25);
-    assert_close(values[17], 1.0);
-    assert_close(values[18], 0.34);
+    assert!(values[17] > 0.9);
+    assert!(values[18] > 0.33);
+    assert_close(values[19], 0.0);
+    assert_close(values[21], values[12]);
+    assert_close(values[23], 2.25);
+    assert!(values[24] > 0.0);
 }
 
 #[test]
@@ -426,7 +497,7 @@ fn render_snapshot_writes_stable_f32_packet_layout() {
 
     engine.render_snapshot().unwrap().write_f32s(&mut values);
 
-    assert_eq!(values.len(), 19);
+    assert_eq!(values.len(), 31);
     assert_close(values[0], 1.0);
     assert_close(values[1], 3.65);
     assert_close(values[2], 3.0);
@@ -435,8 +506,12 @@ fn render_snapshot_writes_stable_f32_packet_layout() {
     assert_close(values[8], 70.0_f32.to_radians());
     assert_close(values[9], 0.05);
     assert_close(values[10], 500.0);
-    assert_close(values[17], 1.0);
-    assert_close(values[18], 0.34);
+    assert!(values[17] > 0.9);
+    assert!(values[18] > 0.33);
+    assert_close(values[19], 0.0);
+    assert_close(values[21], values[12]);
+    assert_close(values[23], 2.25);
+    assert!(values[24] > 0.0);
 }
 
 #[test]
@@ -522,7 +597,10 @@ fn wasm_facade_writes_render_snapshot_to_memory() {
 
     ofg_engine_create_player(1.0, 2.0, 3.0);
     assert_eq!(ofg_engine_set_player_view(0.5, -0.25), 1);
-    assert_eq!(ofg_engine_render_snapshot_f32_count(), 19);
+    assert_eq!(
+        ofg_engine_render_snapshot_f32_count(),
+        RENDER_SNAPSHOT_FLOAT_COUNT as u32
+    );
     assert_ne!(ofg_engine_render_snapshot_f32_ptr(), 0);
     assert_eq!(ofg_engine_write_render_snapshot(), 1);
 
@@ -532,8 +610,12 @@ fn wasm_facade_writes_render_snapshot_to_memory() {
     assert_close(values[2], 3.0);
     assert_close(values[6], 0.5);
     assert_close(values[7], -0.25);
-    assert_close(values[17], 1.0);
-    assert_close(values[18], 0.34);
+    assert!(values[17] > 0.9);
+    assert!(values[18] > 0.33);
+    assert_close(values[19], 0.0);
+    assert_close(values[21], values[12]);
+    assert_close(values[23], 2.25);
+    assert!(values[24] > 0.0);
 }
 
 fn assert_vec3_near(actual: Vec3, expected: Vec3) {

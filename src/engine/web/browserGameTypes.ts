@@ -116,6 +116,11 @@ export type RustBrowserGameDebugSnapshot = {
   readonly rendererRuntime: "rust-wgpu";
   readonly rendererStatus: EngineWebRendererStatus;
   readonly shadowDebugView: ShadowDebugView;
+  readonly skyRuntime?: "rust";
+  readonly skyDayPhase?: number;
+  readonly skySunElevation?: number;
+  readonly skyCloudCoverage?: number;
+  readonly skyStarIntensity?: number;
   readonly terrainWorkerCount: number;
   readonly playerControllerRuntime: "rust";
   readonly playerCharacterId?: PlayerCharacterId;

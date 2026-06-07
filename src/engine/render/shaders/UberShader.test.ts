@@ -62,6 +62,9 @@ describe("uber shader build", () => {
     ok(UBER_SHADER_SOURCE.includes("eyeWorld: vec4<f32>"));
     ok(UBER_SHADER_SOURCE.includes("sunDirectionAndIntensity: vec4<f32>"));
     ok(UBER_SHADER_SOURCE.includes("sunColorAndAmbient: vec4<f32>"));
+    ok(UBER_SHADER_SOURCE.includes("skyTimeAndLight: vec4<f32>"));
+    ok(UBER_SHADER_SOURCE.includes("skyAtmosphereAndCloud: vec4<f32>"));
+    ok(UBER_SHADER_SOURCE.includes("skyCloudAndNight: vec4<f32>"));
     ok(UBER_SHADER_SOURCE.includes("albedoFactor: vec4<f32>"));
     ok(UBER_SHADER_SOURCE.includes("specularAndFactor: vec4<f32>"));
     ok(UBER_SHADER_SOURCE.includes("textureOptions: vec4<f32>"));
@@ -106,7 +109,11 @@ describe("uber shader build", () => {
     ok(UBER_SHADER_SOURCE.includes("fn skyVertexMain"));
     ok(UBER_SHADER_SOURCE.includes("fn skyFragmentMain"));
     ok(UBER_SHADER_SOURCE.includes("inverseViewProjection"));
-    ok(UBER_SHADER_SOURCE.includes("sunDisk"));
+    ok(UBER_SHADER_SOURCE.includes("fn analyticSkyColor"));
+    ok(UBER_SHADER_SOURCE.includes("fn sunRadiance"));
+    ok(UBER_SHADER_SOURCE.includes("fn cloudLayer"));
+    ok(UBER_SHADER_SOURCE.includes("fn nightSkyColor"));
+    ok(UBER_SHADER_SOURCE.includes("fn starField"));
   });
 
   it("contains the shadow debug rendering contract", () => {

@@ -2,8 +2,9 @@ use crate::math::Vec3;
 use crate::player::yaw_pitch_forward;
 use crate::scene::EntityId;
 use crate::scene_resources::{MaterialId, MeshId};
+use crate::sky::{sky_state_at_elapsed_seconds, SkyRenderPacket};
 
-pub const RENDER_SNAPSHOT_FLOAT_COUNT: usize = 19;
+pub const RENDER_SNAPSHOT_FLOAT_COUNT: usize = 31;
 pub const RENDER_MESH_ITEM_WORLD_MATRIX_FLOAT_COUNT: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -29,6 +30,7 @@ pub struct RenderLightPacket {
 pub struct RenderSnapshot {
     pub camera: RenderCameraPacket,
     pub main_light: RenderLightPacket,
+    pub sky: SkyRenderPacket,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -41,6 +43,11 @@ pub struct RenderMeshItemPacket {
 
 impl RenderSnapshot {
     pub fn from_player_view(eye: Vec3, yaw: f32, pitch: f32) -> Self {
+        Self::from_player_view_at_time(eye, yaw, pitch, 0.0)
+    }
+
+    pub fn from_player_view_at_time(eye: Vec3, yaw: f32, pitch: f32, elapsed_seconds: f64) -> Self {
+        let sky_state = sky_state_at_elapsed_seconds(elapsed_seconds);
         Self {
             camera: RenderCameraPacket {
                 eye,
@@ -51,16 +58,14 @@ impl RenderSnapshot {
                 near_plane: 0.05,
                 far_plane: 500.0,
             },
-            main_light: RenderLightPacket {
-                direction: Vec3::new(0.89, 0.25, 0.38).normalize(),
-                color: Vec3::new(1.0, 0.96, 0.88),
-                intensity: 1.0,
-                ambient: 0.34,
-            },
+            main_light: sky_state.main_light,
+            sky: sky_state.sky,
         }
     }
 
     pub fn write_f32s(self, out: &mut [f32; RENDER_SNAPSHOT_FLOAT_COUNT]) {
+        let mut sky = [0.0; crate::SKY_RENDER_PACKET_FLOAT_COUNT];
+        self.sky.write_f32s(&mut sky);
         out[0] = self.camera.eye.x;
         out[1] = self.camera.eye.y;
         out[2] = self.camera.eye.z;
@@ -80,5 +85,6 @@ impl RenderSnapshot {
         out[16] = self.main_light.color.z;
         out[17] = self.main_light.intensity;
         out[18] = self.main_light.ambient;
+        out[19..31].copy_from_slice(&sky);
     }
 }

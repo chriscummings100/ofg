@@ -1,7 +1,7 @@
 use crate::render_math::{look_at_mat4, multiply_mat4, perspective_mat4, RenderVec3};
 use crate::render_uniforms::{inverse_mat4, FRAME_PACKET_FLOATS};
 
-pub const ENGINE_RENDER_SNAPSHOT_FLOATS: usize = 19;
+pub const ENGINE_RENDER_SNAPSHOT_FLOATS: usize = 31;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RenderPacketError {
@@ -49,6 +49,7 @@ pub fn build_frame_packet_from_engine_snapshot(
     frame[38..41].copy_from_slice(&snapshot[14..17]);
     frame[41] = snapshot[17];
     frame[42] = snapshot[18];
+    frame[43..55].copy_from_slice(&snapshot[19..31]);
 
     Ok(frame)
 }

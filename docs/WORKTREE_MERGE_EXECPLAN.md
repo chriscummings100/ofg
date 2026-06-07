@@ -17,7 +17,7 @@ The user-visible outcome is that the remote `main` branch contains the completed
 - [x] (2026-06-07 16:59Z) Read `PLANS.md`, listed worktrees, and checked the initial status of each branch.
 - [x] (2026-06-07 17:01Z) Commit and push dirty feature branches: `sky` at `06f2b01`, `postprocess` at `9fd65f8`, and `terrain` at `2067a1b`.
 - [x] (2026-06-07 17:02Z) Pulled latest `origin/main`; it was already up to date with `main`.
-- [ ] Merge `sky` into `main`, resolve conflicts, regenerate artifacts, validate, and run milestone review.
+- [x] (2026-06-07 17:16Z) Merged `sky` into `main`, resolved conflicts by preserving both shadow and sky debug contracts, regenerated shaders/WASM, fixed two Rust test helpers for the 31-float render snapshot shape, and validated with `npm run check:shaders`, `npm run check:wasm`, `npm run test:rust`, `npm run test:ts`, and `npm run smoke`.
 - [ ] Merge `postprocess` into `main`, resolve conflicts, regenerate artifacts, validate, and run milestone review.
 - [ ] Merge `terrain` into `main`, resolve conflicts, regenerate artifacts, validate, and run milestone review.
 - [ ] Confirm `shadow-maps` is already included in `main` or merge it if needed, then validate and review.
@@ -32,11 +32,23 @@ The user-visible outcome is that the remote `main` branch contains the completed
   Evidence: `git status --short --branch` in each sibling worktree.
 - Observation: `shadow-maps` points at the same commit as `main` and `origin/shadow-maps`.
   Evidence: `git worktree list --porcelain` and `git log --oneline --decorate --graph --max-count=30 --all`.
+- Observation: The sky merge needed source-level conflict resolution because `main` already had shadow debug contracts and sky added sky debug contracts plus larger camera uniforms.
+  Evidence: conflicts in `crates/engine_web/src/render_uniforms.rs`, `docs/API_CONTRACTS.md`, `src/app/game.ts`, `src/engine/web/browserGameTypes.ts`, `src/engine/web/rustBrowserGameAdapter.ts`, generated shader/WASM metadata, and `tools/browser-smoke.mjs`.
+- Observation: `npm run test:rust` initially failed because two shadow test helper snapshots still had 19 floats after sky expanded `ENGINE_RENDER_SNAPSHOT_FLOATS` to 31.
+  Evidence: Rust compiler errors in `crates/engine_web/src/render_math_tests.rs` and `crates/engine_web/src/render_uniform_tests.rs`; fixed by adding the same 12 sky packet floats used by `crates/engine_web/src/tests.rs`.
+- Observation: Sky milestone review required archiving the completed sky ExecPlan.
+  Evidence: `docs/SKY_RENDERING_PLAN.md` said completion was done but lived outside `docs/archived/`; it was moved to `docs/archived/SKY_RENDERING_PLAN.md` with an archive note.
 
 ## Decision Log
 
 - Decision: Treat "merge the feature branch main" as merging each completed feature branch into `main`, because the user listed completed feature worktrees and requested a final push after smoke verification.
   Rationale: The requested order says to pull latest main, merge the feature branch, fix conflicts, smoke, and push; that describes landing branches onto `main`.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: During the sky merge, preserve both `shadowDebugView` and sky debug fields in TypeScript debug hooks, adapter snapshots, docs, and browser smoke.
+  Rationale: The fields are independent black-box Rust debug surfaces and both are required by current smoke coverage.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: Archive `docs/SKY_RENDERING_PLAN.md` as part of the merge.
+  Rationale: The sky feature branch marked that ExecPlan complete, and repository instructions require completed active plans to move under `docs/archived/` with the active source of truth named.
   Date/Author: 2026-06-07 / Codex.
 
 ## Outcomes & Retrospective

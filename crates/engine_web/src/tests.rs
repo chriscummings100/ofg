@@ -243,6 +243,7 @@ fn frame_uniforms_are_packed_from_rust_render_packets() {
     assert_eq!(uniforms[39], frame[41]);
     assert_eq!(&uniforms[40..43], &frame[38..41]);
     assert_eq!(uniforms[43], frame[42]);
+    assert_eq!(&uniforms[44..56], &frame[43..55]);
     assert_eq!(
         build_frame_uniform_values(&frame[0..FRAME_PACKET_FLOATS - 1]),
         Err(RenderUniformError::InvalidFramePacket)
@@ -263,6 +264,11 @@ fn engine_render_snapshot_builds_frame_packet_in_rust() {
     assert_close(frame[38], 1.0);
     assert_close(frame[41], 1.25);
     assert_close(frame[42], 0.4);
+    assert_close(frame[43], 12.0);
+    assert_close(frame[45], 0.25);
+    assert_close(frame[47], 2.25);
+    assert_close(frame[53], 0.1);
+    assert_close(frame[54], 0.0);
     assert!(frame[16..32].iter().all(|value| value.is_finite()));
 }
 
@@ -1635,6 +1641,18 @@ fn sample_engine_render_snapshot() -> [f32; ENGINE_RENDER_SNAPSHOT_FLOATS] {
         0.88,
         1.25,
         0.4,
+        12.0,
+        0.04,
+        0.25,
+        0.0,
+        2.25,
+        0.44,
+        0.018,
+        1.35,
+        0.18,
+        0.42,
+        0.1,
+        0.0,
     ]
 }
 

@@ -386,6 +386,18 @@ fn sample_engine_render_snapshot() -> [f32; ENGINE_RENDER_SNAPSHOT_FLOATS] {
         0.88,
         1.25,
         0.4,
+        12.0,
+        0.04,
+        0.25,
+        0.0,
+        2.25,
+        0.44,
+        0.018,
+        1.35,
+        0.18,
+        0.42,
+        0.1,
+        0.0,
     ]
 }
 

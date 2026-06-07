@@ -73,6 +73,11 @@ async function runBrowserSmoke(url) {
     assertHud(firstHud, "FIRST", consoleMessages);
     const firstDebug = await readDebugContract(page);
     assertDebugContract(firstDebug);
+    await page.waitForTimeout(1100);
+    await waitForBrowserFrame(page);
+    const advancedSkyDebug = await readDebugContract(page);
+    assertDebugContract(advancedSkyDebug);
+    assertSkyTimeAdvanced(firstDebug, advancedSkyDebug);
     const firstImage = await saveScreenshot(page, "browser-first-person.png");
     assertPixelStats(firstImage.pixelStats, "browser first-person", consoleMessages);
     await setShadowDebugView(page, "cascadeIndex");
@@ -156,6 +161,7 @@ async function runBrowserSmoke(url) {
       toggledHud,
       reloadedHud,
       firstDebug,
+      advancedSkyDebug,
       cascadeDebug,
       visibilityDebug,
       depthDebug,
@@ -228,6 +234,11 @@ async function readDebugContract(page) {
       terrainRenderPacketRuntime: debug?.getTerrainRenderPacketRuntime?.() ?? "missing",
       rendererRuntime: debug?.getRendererRuntime?.() ?? "missing",
       shadowDebugView: debug?.getShadowDebugView?.() ?? "missing",
+      skyRuntime: debug?.getSkyRuntime?.() ?? "missing",
+      skyDayPhase: debug?.getSkyDayPhase?.(),
+      skySunElevation: debug?.getSkySunElevation?.(),
+      skyCloudCoverage: debug?.getSkyCloudCoverage?.(),
+      skyStarIntensity: debug?.getSkyStarIntensity?.(),
       rendererStatus: status === undefined
         ? undefined
         : {
@@ -328,6 +339,23 @@ function assertDebugContract(debug, expectedShadowDebugView = "off") {
 
   const status = debug.rendererStatus;
   if (
+    debug.skyRuntime !== "rust" ||
+    !Number.isFinite(debug.skyDayPhase) ||
+    debug.skyDayPhase < 0 ||
+    debug.skyDayPhase >= 1 ||
+    !Number.isFinite(debug.skySunElevation) ||
+    debug.skySunElevation < -1 ||
+    debug.skySunElevation > 1 ||
+    !Number.isFinite(debug.skyCloudCoverage) ||
+    debug.skyCloudCoverage < 0 ||
+    debug.skyCloudCoverage > 1 ||
+    !Number.isFinite(debug.skyStarIntensity) ||
+    debug.skyStarIntensity < 0 ||
+    debug.skyStarIntensity > 1
+  ) {
+    throw new Error(`Sky debug contract is not Rust-owned or has invalid values: ${JSON.stringify(debug)}`);
+  }
+  if (
     status === undefined ||
     !status.configured ||
     status.runtime !== "rust-wgpu" ||
@@ -343,6 +371,16 @@ function assertDebugContract(debug, expectedShadowDebugView = "off") {
     status.maxTextureArrayLayers < status.requiredTextureArrayLayers
   ) {
     throw new Error(`Renderer status is not a valid Rust/wgpu frame: ${JSON.stringify(debug)}`);
+  }
+}
+
+/// Fails if the Rust-owned sky cycle is static across browser frames.
+function assertSkyTimeAdvanced(before, after) {
+  const delta = (after.skyDayPhase - before.skyDayPhase + 1) % 1;
+  if (delta < 0.001 || delta > 0.02) {
+    throw new Error(
+      `Sky day phase did not advance at the expected Rust-owned rate: ${JSON.stringify({ before, after, delta })}`
+    );
   }
 }
 
