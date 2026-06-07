@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 use std::sync::mpsc;
 
-use engine_core::{RenderCameraPacket, RenderLightPacket, RenderSnapshot, Vec3};
+use engine_core::{sky_state_at_elapsed_seconds, RenderCameraPacket, RenderSnapshot, Vec3};
 use engine_web::{
     build_frame_packet_from_engine_snapshot, build_frame_uniform_values,
     build_object_uniform_values, REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_MATERIAL_PACKET,
@@ -399,6 +399,7 @@ impl CameraSetup {
     /// Converts camera and light values into renderer frame uniforms.
     fn frame_uniforms(&self) -> HarnessResult<[f32; engine_web::FRAME_UNIFORM_FLOATS]> {
         let mut snapshot = [0.0; engine_core::RENDER_SNAPSHOT_FLOAT_COUNT];
+        let sky_state = sky_state_at_elapsed_seconds(0.0);
         RenderSnapshot {
             camera: RenderCameraPacket {
                 eye: self.eye,
@@ -409,12 +410,8 @@ impl CameraSetup {
                 near_plane: 0.05,
                 far_plane: 500.0,
             },
-            main_light: RenderLightPacket {
-                direction: normalize(Vec3::new(0.89, 0.25, 0.38)),
-                color: Vec3::new(1.0, 0.96, 0.88),
-                intensity: 1.0,
-                ambient: 0.34,
-            },
+            main_light: sky_state.main_light,
+            sky: sky_state.sky,
         }
         .write_f32s(&mut snapshot);
 
@@ -733,16 +730,6 @@ fn read_rgba_output(
     Ok(pixels)
 }
 
-/// Returns a normalized vector, or zero for a degenerate vector.
-fn normalize(value: Vec3) -> Vec3 {
-    let length = (value.x * value.x + value.y * value.y + value.z * value.z).sqrt();
-    if length <= f32::EPSILON {
-        return Vec3::ZERO;
-    }
-
-    Vec3::new(value.x / length, value.y / length, value.z / length)
-}
-
 /// Returns the renderer aspect ratio.
 fn aspect_ratio() -> f32 {
     WIDTH as f32 / HEIGHT as f32
@@ -829,16 +816,6 @@ mod tests {
             }
             other => panic!("expected texture binding, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn normalize_returns_zero_for_degenerate_vectors_and_unit_vectors_otherwise() {
-        assert_eq!(normalize(Vec3::ZERO), Vec3::ZERO);
-
-        let normalized = normalize(Vec3::new(3.0, 4.0, 0.0));
-        assert!((normalized.x - 0.6).abs() < f32::EPSILON);
-        assert!((normalized.y - 0.8).abs() < f32::EPSILON);
-        assert_eq!(normalized.z, 0.0);
     }
 
     #[test]

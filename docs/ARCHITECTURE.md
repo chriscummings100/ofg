@@ -224,8 +224,13 @@ until tangents are imported or generated.
 
 The sky is also shader-driven. Rust/wgpu draws a full-screen sky pass before
 terrain and scene mesh geometry, reconstructs world rays from the inverse
-view-projection matrix, and renders a blue gradient plus a sun disk in the
-direction of the Rust-owned main light.
+view-projection matrix, and renders a Hosek/Wilkie-inspired analytic sky with
+sun glow, moon glow, procedural stars, and a moving procedural cloud layer.
+Rust owns the time-of-day cycle in `engine_core`, derives sun direction, sun
+color, intensity, ambient, cloud parameters, star intensity, and night blend,
+and packs those values into the shared camera uniform consumed by the WGSL sky
+pass. Browser TypeScript may expose debug/smoke sky values from
+`debugSnapshot()`, but it does not compute sky, lighting, cloud, or time state.
 
 ## Testing Direction
 

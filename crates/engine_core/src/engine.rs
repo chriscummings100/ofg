@@ -7,6 +7,7 @@ use crate::render_packet::RenderSnapshot;
 use crate::scene::{EntityId, LocalTransform, Scene, SceneError};
 use crate::scene_components::{CameraComponent, MeshRendererComponent, PlayerComponent};
 use crate::scene_resources::{DEBUG_PLAYER_MARKER_MATERIAL_LABEL, DEBUG_PLAYER_MARKER_MESH_LABEL};
+use crate::sky::{sky_state_at_elapsed_seconds, SkyRenderState};
 use crate::ENGINE_CORE_VERSION;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -79,6 +80,10 @@ impl Engine {
             elapsed_seconds: self.elapsed_seconds,
             entity_count: self.scene.entity_count(),
         }
+    }
+
+    pub fn sky_render_state(&self) -> SkyRenderState {
+        sky_state_at_elapsed_seconds(self.elapsed_seconds)
     }
 
     pub fn create_player(&mut self, position: Vec3) -> PlayerRig {
@@ -246,10 +251,11 @@ impl Engine {
         let (player_entity, player) = self.player_component()?;
         let eye = self.player_eye_transform_for(player_entity, player)?;
 
-        Ok(RenderSnapshot::from_player_view(
+        Ok(RenderSnapshot::from_player_view_at_time(
             eye.position,
             eye.yaw,
             eye.pitch,
+            self.elapsed_seconds,
         ))
     }
 

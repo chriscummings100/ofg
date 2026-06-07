@@ -73,6 +73,15 @@ pub struct BrowserPlayerCharacterSceneSnapshot {
     pub debug_marker_visible: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BrowserSkySnapshot {
+    pub runtime: &'static str,
+    pub day_phase: f32,
+    pub sun_elevation: f32,
+    pub cloud_coverage: f32,
+    pub star_intensity: f32,
+}
+
 pub struct BrowserGameState {
     engine: Engine,
     terrain_seed: u32,
@@ -399,6 +408,17 @@ impl BrowserGameState {
         let mut values = [0.0; RENDER_SNAPSHOT_FLOAT_COUNT];
         self.engine.render_snapshot()?.write_f32s(&mut values);
         Ok(values)
+    }
+
+    pub fn sky_snapshot(&self) -> BrowserSkySnapshot {
+        let sky = self.engine.sky_render_state().sky;
+        BrowserSkySnapshot {
+            runtime: "rust",
+            day_phase: sky.day_phase,
+            sun_elevation: sky.sun_elevation,
+            cloud_coverage: sky.cloud_coverage,
+            star_intensity: sky.star_intensity,
+        }
     }
 
     pub fn render_mesh_items(&self) -> Result<Vec<BrowserSceneMeshItem>, BrowserGameStateError> {

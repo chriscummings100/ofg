@@ -41,6 +41,11 @@ declare global {
       getTerrainRenderPacketRuntime: () => "rust";
       getRendererRuntime: () => "rust-wgpu";
       getRendererStatus: () => EngineWebRendererStatus;
+      getSkyRuntime: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["skyRuntime"];
+      getSkyDayPhase: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["skyDayPhase"];
+      getSkySunElevation: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["skySunElevation"];
+      getSkyCloudCoverage: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["skyCloudCoverage"];
+      getSkyStarIntensity: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["skyStarIntensity"];
       getTerrainWorkerCount: () => number;
       getPlayerControllerRuntime: () => "rust";
       getPlayerCharacterId: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerCharacterId"];
@@ -99,6 +104,11 @@ export async function startGame(elements: GameElements): Promise<void> {
     getTerrainRenderPacketRuntime: () => game.debugSnapshot().terrainRenderPacketRuntime,
     getRendererRuntime: () => game.debugSnapshot().rendererRuntime,
     getRendererStatus: () => game.debugSnapshot().rendererStatus,
+    getSkyRuntime: () => game.debugSnapshot().skyRuntime,
+    getSkyDayPhase: () => game.debugSnapshot().skyDayPhase,
+    getSkySunElevation: () => game.debugSnapshot().skySunElevation,
+    getSkyCloudCoverage: () => game.debugSnapshot().skyCloudCoverage,
+    getSkyStarIntensity: () => game.debugSnapshot().skyStarIntensity,
     getTerrainWorkerCount: () => game.debugSnapshot().terrainWorkerCount,
     getPlayerControllerRuntime: () => game.debugSnapshot().playerControllerRuntime,
     getPlayerCharacterId: () => game.debugSnapshot().playerCharacterId,

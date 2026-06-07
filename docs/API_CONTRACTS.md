@@ -174,6 +174,8 @@ Current hook categories:
 - Terrain keys and stream status from Rust `debugSnapshot()`.
 - Terrain preset and seed from Rust `debugSnapshot()`.
 - Renderer status from Rust `debugSnapshot()`.
+- Sky runtime, day phase, sun elevation, cloud coverage, and star intensity from
+  Rust `debugSnapshot()`.
 - Player character ID/label, visibility, follow-state, animation clip,
   walk/run blend, playback scale, locomotion speed, numeric animation tuning,
   and CPU-skinning state from Rust `debugSnapshot()`.
@@ -190,7 +192,7 @@ Compatibility fields:
 Contract rules:
 
 - Debug hooks may expose browser test affordances, but must not compute terrain,
-  renderer, or player state.
+  renderer, sky, cloud, time-of-day, lighting, or player state.
 - Smoke scripts must inspect both command results and screenshots/report JSON
   when visual behavior changes.
 
@@ -441,6 +443,10 @@ These are known contract risks for milestone reviewers:
   d.ts uses `any`.
 - Terrain vertex layout constants are duplicated across Rust and shader-facing
   renderer code.
+- Camera/frame uniform layout constants are duplicated across Rust frame-packet
+  builders, Rust/wgpu bind-group allocation, native smoke helpers, and WGSL
+  `Camera` fields. Sky/time additions must update all sites and shader tests in
+  one milestone.
 - Terrain preset maps are duplicated across TypeScript and Rust.
 - Runtime debug names still include worker terminology even though the playable
   terrain stream is Rust-owned and currently synchronous.

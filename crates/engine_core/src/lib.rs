@@ -7,6 +7,7 @@ mod scene;
 mod scene_access;
 mod scene_components;
 mod scene_resources;
+mod sky;
 
 pub const ENGINE_CORE_VERSION: u32 = 1;
 
@@ -28,6 +29,10 @@ pub use scene_components::{
 pub use scene_resources::{
     MaterialId, MaterialResource, MeshId, MeshResource, ResourceId, SceneResources,
     DEBUG_PLAYER_MARKER_MATERIAL_LABEL, DEBUG_PLAYER_MARKER_MESH_LABEL,
+};
+pub use sky::{
+    sky_state_at_elapsed_seconds, sky_state_for_day_phase, SkyRenderPacket, SkyRenderState,
+    SKY_RENDER_PACKET_FLOAT_COUNT,
 };
 
 #[cfg(test)]

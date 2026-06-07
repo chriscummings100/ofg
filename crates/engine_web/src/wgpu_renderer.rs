@@ -471,6 +471,28 @@ impl RustBrowserGame {
             "rendererStatus",
             renderer_status_to_js(self.renderer.status())?,
         )?;
+        let sky_snapshot = self.game_state.sky_snapshot();
+        set_js_property(&snapshot, "skyRuntime", JsValue::from_str(sky_snapshot.runtime))?;
+        set_js_property(
+            &snapshot,
+            "skyDayPhase",
+            JsValue::from_f64(sky_snapshot.day_phase as f64),
+        )?;
+        set_js_property(
+            &snapshot,
+            "skySunElevation",
+            JsValue::from_f64(sky_snapshot.sun_elevation as f64),
+        )?;
+        set_js_property(
+            &snapshot,
+            "skyCloudCoverage",
+            JsValue::from_f64(sky_snapshot.cloud_coverage as f64),
+        )?;
+        set_js_property(
+            &snapshot,
+            "skyStarIntensity",
+            JsValue::from_f64(sky_snapshot.star_intensity as f64),
+        )?;
         set_js_property(
             &snapshot,
             "terrainWorkerCount",

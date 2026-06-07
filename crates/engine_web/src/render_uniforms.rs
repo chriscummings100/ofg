@@ -1,6 +1,6 @@
-pub const FRAME_UNIFORM_FLOATS: usize = 44;
+pub const FRAME_UNIFORM_FLOATS: usize = 56;
 pub const OBJECT_UNIFORM_FLOATS: usize = 44;
-pub const FRAME_PACKET_FLOATS: usize = 43;
+pub const FRAME_PACKET_FLOATS: usize = 55;
 pub const WORLD_MATRIX_FLOATS: usize = 16;
 pub const MATERIAL_PACKET_FLOATS: usize = 10;
 
@@ -38,6 +38,7 @@ pub fn build_frame_uniform_values(
     values[39] = frame_packet[41];
     values[40..43].copy_from_slice(&frame_packet[38..41]);
     values[43] = frame_packet[42];
+    values[44..56].copy_from_slice(&frame_packet[43..55]);
 
     Ok(values)
 }

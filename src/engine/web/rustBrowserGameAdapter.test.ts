@@ -87,6 +87,11 @@ describe("RustBrowserGameAdapter", () => {
     equal(snapshot.playerCharacterVisible, true);
     equal(snapshot.playerCharacterFollowsPlayer, true);
     equal(snapshot.debugPlayerMarkerVisible, false);
+    equal(snapshot.skyRuntime, "rust");
+    equal(snapshot.skyDayPhase, 0.25);
+    equal(snapshot.skySunElevation, 0.64);
+    equal(snapshot.skyCloudCoverage, 0.34);
+    equal(snapshot.skyStarIntensity, 0.08);
   });
 });
 
@@ -161,6 +166,11 @@ function fakeBrowserGame(): FakeBrowserGame {
         },
         terrainWorkerCount: 6,
         playerControllerRuntime: "rust",
+        skyRuntime: "rust",
+        skyDayPhase: 0.25,
+        skySunElevation: 0.64,
+        skyCloudCoverage: 0.34,
+        skyStarIntensity: 0.08,
         playerCharacterId: "female",
         playerCharacterLabel: "Female",
         playerCharacterRuntime: "rust",

@@ -81,6 +81,11 @@ export class RustBrowserGameAdapter {
       terrainWorkerCount: snapshot.terrainWorkerCount,
       playerControllerRuntime: snapshot.playerControllerRuntime,
       rendererStatus: snapshot.rendererStatus,
+      skyRuntime: snapshot.skyRuntime,
+      skyDayPhase: snapshot.skyDayPhase,
+      skySunElevation: snapshot.skySunElevation,
+      skyCloudCoverage: snapshot.skyCloudCoverage,
+      skyStarIntensity: snapshot.skyStarIntensity,
       playerCharacterId: snapshot.playerCharacterId === undefined
         ? undefined
         : validatePlayerCharacterId(snapshot.playerCharacterId),
