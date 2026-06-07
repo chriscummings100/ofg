@@ -77,12 +77,14 @@ polish are future work.
   passes. No required findings remained; no API contract doc update was needed.
 - [x] (2026-06-07 13:21Z) Committed the local implementation as `04bd40e` and
   pushed branch `touch-controls` to `origin`.
-- [ ] Deploy and verify on the Cloudflare remote URL from an actual
-  WebGPU-capable mobile device. Partial progress: `curl.exe -I
-  https://ofg.chriscummings1024.workers.dev/` returned `200 OK` with COOP/COEP
-  headers on 2026-06-07, but the deployed HTML still lacked `#touch-controls`
-  after a cache-busted retry at 13:23Z, so the remote build had not updated to
-  this branch's pushed commit.
+- [x] (2026-06-07 13:32Z) Fast-forwarded `main` to `a8fe94a` from the
+  `C:\dev\ofg` worktree and pushed `origin/main`, allowing the stable
+  Cloudflare deployment to pick up the touch-controls commit.
+- [x] (2026-06-07 13:37Z) Verified the stable Cloudflare URL serves the
+  touch-control HTML and passes remote Chrome mobile-emulation smoke with
+  WebGPU, visible controls, touch joystick movement, and touch camera toggle.
+- [ ] Verify on the Cloudflare remote URL from an actual WebGPU-capable mobile
+  device. The user has offered to perform this final real-device check.
 
 ## Surprises & Discoveries
 
@@ -169,14 +171,25 @@ polish are future work.
   implementation files.
 
 - Observation: The stable Cloudflare URL is reachable and has the required
-  cross-origin isolation headers, but it had not deployed the touch-control
-  commit at the latest check.
+  cross-origin isolation headers, and after `main` was pushed it served the
+  touch-control HTML.
   Evidence: on 2026-06-07 13:21Z, `curl.exe -I
   https://ofg.chriscummings1024.workers.dev/` returned `200 OK`,
   `cross-origin-embedder-policy: require-corp`, and
   `cross-origin-opener-policy: same-origin`. The fetched HTML from the same URL,
   and from `?touch-controls=04bd40e` at 13:23Z, did not include
-  `#touch-controls`.
+  `#touch-controls`. After fast-forwarding and pushing `main`, a no-cache fetch
+  at 13:32Z returned HTML containing `#touch-controls`.
+
+- Observation: Remote Chrome mobile-emulation smoke passed against the stable
+  Cloudflare deployment.
+  Evidence: the smoke report at
+  `artifacts/remote-browser-smoke/2026-06-07T13-37-17-644Z/report.json`
+  recorded COOP `same-origin`, COEP `require-corp`, `crossOriginIsolated:
+  true`, `SharedArrayBuffer` available, `navigator.gpu` available, Rust/wgpu
+  renderer configured, touch controls visible, movement distance
+  `0.3666575458997926`, and touch camera toggle changing the HUD from `FIRST`
+  to `THIRD`.
 
 ## Decision Log
 
@@ -275,11 +288,11 @@ Cloudflare deployment, then verify the remote URL on an actual WebGPU-capable
 mobile device. Local Chrome mobile emulation is evidence for the implementation,
 but it is not a substitute for the real-device acceptance item.
 
-The implementation commit has been pushed to `origin/touch-controls`, but the
-stable Cloudflare URL was still serving older HTML at the latest check. The next
-deployment step is to trigger or wait for the Cloudflare build that includes
-commit `04bd40e`, then repeat the remote HTML/header check and real-device
-mobile verification.
+The implementation commit has been pushed to both `origin/touch-controls` and
+`origin/main`. The stable Cloudflare URL now serves the touch-control HTML and
+passed an automated remote Chrome mobile-emulation smoke check. The only
+remaining acceptance item is the user's actual WebGPU-capable mobile-device
+verification.
 
 ## Contract and Quality Baseline
 
@@ -540,7 +553,8 @@ Review result for the local implementation milestone on 2026-06-07:
     `tools/browser-smoke-mobile-touch.mjs`.
 
     Follow-ups recorded: actual Cloudflare mobile-device verification remains
-    pending in Progress and Acceptance.
+    pending in Progress and Acceptance. Remote Chrome mobile-emulation smoke has
+    since passed against the stable Cloudflare URL.
 
     Rejected findings: none.
 
@@ -659,6 +673,24 @@ Validation evidence from 2026-06-07:
     Result: `200 OK` with `cross-origin-embedder-policy: require-corp` and
     `cross-origin-opener-policy: same-origin`, but fetched HTML still lacked
     `#touch-controls`.
+
+    git merge --ff-only origin/touch-controls
+    git push origin main
+    Result: passed from the `C:\dev\ofg` main worktree. `origin/main` advanced
+    from `fe86913` to `a8fe94a`.
+
+    curl.exe -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" \
+      "https://ofg.chriscummings1024.workers.dev/?deploy-check=a8fe94a-nocache"
+    Result: passed. The fetched HTML included `#touch-controls`.
+
+    Remote Chrome mobile-emulation smoke against
+    https://ofg.chriscummings1024.workers.dev/?remote-smoke=a8fe94a
+    Result: passed. Report:
+    artifacts/remote-browser-smoke/2026-06-07T13-37-17-644Z/report.json
+    Screenshot:
+    artifacts/remote-browser-smoke/2026-06-07T13-37-17-644Z/remote-mobile-touch.png
+    Evidence: COOP/COEP present, WebGPU frame rendered, touch controls visible,
+    movementDistance 0.3666575458997926, camera HUD FIRST -> THIRD.
 
 Suggested joystick defaults:
 
