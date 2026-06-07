@@ -1,5 +1,10 @@
 # Integrate Completed Feature Worktrees
 
+Completion note: this ExecPlan was completed on 2026-06-07. The active source
+of truth for the finished integration is the pushed `main` branch, current
+active docs, renderer/terrain/input source, generated artifacts, and smoke-test
+reports. This plan is kept only as an archived implementation record.
+
 This ExecPlan is a living document. The sections Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective must stay up to date as work proceeds.
 
 Once this plan is started, proceed independently for as long as possible. Return to the user only for critical input that cannot be safely inferred, or when the plan is complete.
@@ -22,9 +27,9 @@ The user-visible outcome is that the remote `main` branch contains the completed
 - [x] (2026-06-07 17:59Z) Merged `terrain` into `main`, resolved Rust smoke/test/debug conflicts, regenerated WASM artifacts, fixed browser smoke to wait for rendered multi-LOD terrain before mobile assertions, and validated with `npm run check:shaders`, `npm run check:wasm`, `npm run test:rust`, `npm run test:ts`, `npm run smoke:terrain-seams`, `npm run smoke:terrain-presets`, `cargo run -p ofg_test_harness --bin ofg-render-smoke -- --out artifacts/rust-smoke --scenario lods`, `npm run bench:terrain:rust`, and `npm run smoke:browser`; the Rust half of `npm run smoke` also passed before the browser wait fix.
 - [x] (2026-06-07 18:01Z) Confirmed `shadow-maps` is already included in `main`; `git merge --no-ff shadow-maps` reported "Already up to date." Archived the completed cascading shadow maps ExecPlan and validated the docs-only change with `git diff --check`.
 - [x] (2026-06-07 18:06Z) Confirmed `touch-controls` is already included in `main`; `git merge --no-ff touch-controls` reported "Already up to date." Archived the completed touch controls ExecPlan and validated the integrated mobile touch path with `npm run test:ts` and `npm run smoke:browser`.
-- [ ] Run final `npm test`, `npm run build`, `npm run smoke:rust`, `npm run smoke:browser`, and `npm run smoke`.
-- [ ] Push final `main`.
-- [ ] Archive this completed ExecPlan under `C:\dev\ofg\docs\archived\` with a note that `main` is the active source of truth.
+- [x] (2026-06-07 18:16Z) Ran final validation: `npm test`, `npm run build`, `npm run smoke:rust`, `npm run smoke:browser`, and `npm run smoke` all passed.
+- [x] (2026-06-07 18:16Z) Archived this completed ExecPlan under `C:\dev\ofg\docs\archived\` with a note that pushed `main` is the active source of truth.
+- [x] (2026-06-07 18:16Z) Push final `main` with the archived integration plan commit.
 
 ## Surprises & Discoveries
 
@@ -82,7 +87,20 @@ The user-visible outcome is that the remote `main` branch contains the completed
 
 ## Outcomes & Retrospective
 
-To be completed after the final push.
+The completed feature branches are integrated into `main`: sky rendering,
+post-processing, multi-LOD terrain streaming, cascading shadow maps, and mobile
+touch controls. `sky`, `postprocess`, and `terrain` required merge conflict
+resolution and generated artifact rebuilds. `shadow-maps` and `touch-controls`
+were already reachable from `main`, so their remaining integration work was
+archiving completed plans and rerunning relevant validation.
+
+Final validation passed with `npm test`, `npm run build`, `npm run smoke:rust`,
+`npm run smoke:browser`, and `npm run smoke`. Terrain-specific validation also
+covered seams, presets, LOD smoke, and `npm run bench:terrain:rust`. The main
+remaining follow-up is file-size pressure: `crates/engine_web/src/post_process.rs`
+should split before further post-processing growth, and
+`crates/terrain_core/src/tests.rs` should be split by subsystem before more
+terrain test expansion.
 
 ## Contract and Quality Baseline
 

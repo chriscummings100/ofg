@@ -26,3 +26,5 @@ in the active replacement explaining where the source of truth moved.
   renderer/shader code, and smoke tests.
 - `TOUCH_CONTROLS_PLAN.md` was completed on 2026-06-07. Current mobile touch
   behavior is documented by the browser input/app code and browser smoke tests.
+- `WORKTREE_MERGE_EXECPLAN.md` was completed on 2026-06-07. The integrated
+  feature state lives on the pushed `main` branch.
