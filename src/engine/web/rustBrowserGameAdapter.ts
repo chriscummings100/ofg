@@ -68,7 +68,9 @@ export class RustBrowserGameAdapter {
         snapshot.playerPosition.z
       ),
       loadedTerrainChunkKeys: [...snapshot.loadedTerrainChunkKeys],
+      loadedTerrainNodeKeys: [...snapshot.loadedTerrainNodeKeys],
       terrainChunkKeys: [...snapshot.terrainChunkKeys],
+      terrainNodeKeys: [...snapshot.terrainNodeKeys],
       terrainPreset: snapshot.terrainPreset,
       terrainSeed: snapshot.terrainSeed,
       terrainStreamStatus: snapshot.terrainStreamStatus,

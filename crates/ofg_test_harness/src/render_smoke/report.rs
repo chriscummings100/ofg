@@ -90,9 +90,21 @@ pub struct ScenarioDebug {
     pub camera_target: [f32; 3],
     pub rendered_chunk_count: usize,
     pub loaded_chunk_count: usize,
+    pub rendered_node_count: usize,
+    pub loaded_node_count: usize,
+    pub max_rendered_lod: u8,
+    pub rendered_lod_counts: Vec<LodCountReport>,
     pub vertex_count: usize,
     pub index_count: usize,
     pub rendered_chunk_keys: Vec<String>,
+    pub rendered_node_keys: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LodCountReport {
+    pub lod: u8,
+    pub node_count: usize,
 }
 
 /// Computes pixel statistics for a rendered RGBA image.
@@ -363,9 +375,17 @@ mod tests {
                     camera_target: [6.0, 7.0, 8.0],
                     rendered_chunk_count: 1,
                     loaded_chunk_count: 2,
+                    rendered_node_count: 1,
+                    loaded_node_count: 2,
+                    max_rendered_lod: 0,
+                    rendered_lod_counts: vec![LodCountReport {
+                        lod: 0,
+                        node_count: 1,
+                    }],
                     vertex_count: 3,
                     index_count: 6,
                     rendered_chunk_keys: vec!["0,0,0".to_string()],
+                    rendered_node_keys: vec!["lod0:0,0,0".to_string()],
                 },
             }],
             shadow_images: vec![ShadowImageReport {

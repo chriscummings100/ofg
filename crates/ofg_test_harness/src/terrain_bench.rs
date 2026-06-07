@@ -9,12 +9,13 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use crate::terrain_bench_lod::{run_multi_lod_probe, MultiLodBenchmarkReport};
 use serde::Serialize;
 use terrain_core::benchmark::{
     density_chunk_sample_count, density_store_stats, fill_density_chunk,
     prepare_density_chunk_window, reset_density_store, DensityStoreStats, DensityWindowBounds,
 };
-use terrain_core::{build_chunk_mesh, TerrainChunkCoord};
+use terrain_core::{build_chunk_mesh, TerrainChunkCoord, DEFAULT_TERRAIN_PRESET};
 
 const DEFAULT_SEED: u32 = 0x0F6;
 const DEFAULT_CELL_SIZE: f64 = 1.0;
@@ -186,6 +187,7 @@ struct TerrainBenchmarkReport {
     results: BenchmarkResults,
     density_store: DensityStoreReport,
     phase_estimate: PhaseEstimate,
+    multi_lod: MultiLodBenchmarkReport,
     scenarios: Vec<BenchmarkScenario>,
     streaming_windows: Vec<StreamingWindowScenario>,
 }
@@ -315,6 +317,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         &mesh_build_and_copy_cold,
         &mesh_build_and_copy_prepared,
     );
+    println!("Running multi-LOD stream probe...");
+    let multi_lod = run_multi_lod_probe(args.seed, DEFAULT_TERRAIN_PRESET);
     let report = TerrainBenchmarkReport {
         benchmark: "terrain-rust-chunk-pipeline",
         implementation: "terrain_core-rlib",
@@ -345,6 +349,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             after_prepared_mesh: prepared_mesh_store_stats,
         },
         phase_estimate,
+        multi_lod,
         scenarios,
         streaming_windows,
     };
@@ -769,6 +774,13 @@ fn print_summary(
             .after_retained_window_prepare
             .generations,
         report.density_store.after_retained_window_prepare.evictions
+    );
+    println!(
+        "  multi-LOD stream: {} rendered nodes, max LOD {}, span {:.0}m x {:.0}m",
+        report.multi_lod.rendered_node_count,
+        report.multi_lod.max_rendered_lod,
+        report.multi_lod.visible_world_span_x_meters,
+        report.multi_lod.visible_world_span_z_meters
     );
     println!("Report: {}", path_string(output_path)?);
     Ok(())

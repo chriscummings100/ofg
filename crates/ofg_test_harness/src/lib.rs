@@ -2,3 +2,4 @@
 
 pub mod render_smoke;
 pub mod terrain_bench;
+pub mod terrain_bench_lod;

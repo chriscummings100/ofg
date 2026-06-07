@@ -544,6 +544,176 @@ fn density_store_facade_evicts_oldest_chunks_when_capacity_is_exceeded() {
 }
 
 #[test]
+fn terrain_node_parent_maps_negative_coords_with_floor_division() {
+    assert_eq!(
+        terrain_node_parent(node(0, -1, -2, -3)),
+        Some(node(1, -1, -1, -2))
+    );
+    assert_eq!(
+        terrain_node_coord_for_lod(coord(-1, -2, -3), 1),
+        coord(-1, -1, -2)
+    );
+    assert_eq!(terrain_node_cell_size(1.0, 3), 8.0);
+    assert_eq!(terrain_node_key(node(2, -1, 0, 4)), "lod2:-1,0,4");
+
+    let children = terrain_node_children(node(2, -1, 0, 1)).unwrap();
+    assert_eq!(children[0], node(1, -2, 0, 2));
+    assert_eq!(children[7], node(1, -1, 1, 3));
+    assert_eq!(terrain_node_children(node(0, 0, 0, 0)), None);
+}
+
+#[test]
+fn build_node_mesh_scales_cell_size_for_coarser_lod() {
+    let _lock = test_lock();
+    ofg_reset_density_chunk_store();
+
+    let node_mesh = build_node_mesh(0x0F6, 1, node(1, 0, 0, 0), 1.0);
+    let direct_mesh = build_chunk_mesh(0x0F6, 1, coord(0, 0, 0), 2.0);
+
+    assert_eq!(node_mesh.vertices, direct_mesh.vertices);
+    assert_eq!(node_mesh.indices, direct_mesh.indices);
+
+    ofg_reset_density_chunk_store();
+}
+
+#[test]
+fn stream_scheduler_builds_rootless_lod_bands_without_a_root_node() {
+    let mut scheduler = test_stream_scheduler_with_bands(
+        vec![
+            TerrainLodBand {
+                lod: 0,
+                horizontal_radius: 0,
+                vertical_chunk_offsets: vec![0],
+            },
+            TerrainLodBand {
+                lod: 1,
+                horizontal_radius: 1,
+                vertical_chunk_offsets: vec![0],
+            },
+        ],
+        16,
+    );
+
+    scheduler.sync_center(coord(0, 0, 0));
+    let desired = scheduler.desired_mesh_nodes();
+
+    assert_eq!(desired.len(), 10);
+    assert!(desired.contains(&node(0, 0, 0, 0)));
+    assert!(desired.contains(&node(1, -1, 0, -1)));
+    assert!(desired.contains(&node(1, 1, 0, 1)));
+    assert!(!desired.contains(&node(2, 0, 0, 0)));
+    assert!(scheduler
+        .desired_density_nodes()
+        .iter()
+        .any(|key| key.lod == 1));
+    assert_eq!(scheduler.status().desired_lod0_count, 1);
+    assert_eq!(scheduler.status().desired_mesh_count, 10);
+    assert_eq!(scheduler.status().lod_summaries.len(), 2);
+}
+
+#[test]
+fn stream_scheduler_schedules_parent_mesh_before_child_mesh() {
+    let mut scheduler = test_stream_scheduler_with_bands(
+        vec![
+            TerrainLodBand {
+                lod: 0,
+                horizontal_radius: 0,
+                vertical_chunk_offsets: vec![0],
+            },
+            TerrainLodBand {
+                lod: 1,
+                horizontal_radius: 0,
+                vertical_chunk_offsets: vec![0],
+            },
+        ],
+        8,
+    );
+
+    scheduler.sync_center(coord(0, 0, 0));
+    let parent_density_jobs = scheduler.tick();
+    assert_eq!(parent_density_jobs.len(), 8);
+    assert!(parent_density_jobs.iter().all(|job| {
+        matches!(
+            job,
+            TerrainStreamJob::Density {
+                key: TerrainNodeKey { lod: 1, .. },
+                ..
+            }
+        )
+    }));
+    complete_density_jobs(&mut scheduler, &parent_density_jobs);
+
+    let [TerrainStreamJob::Mesh {
+        generation,
+        key: parent_key,
+    }] = scheduler.tick()[..]
+    else {
+        panic!("expected parent mesh job before child density");
+    };
+    assert_eq!(parent_key, node(1, 0, 0, 0));
+    assert!(scheduler.complete_mesh(generation, parent_key, false));
+
+    let child_density_jobs = scheduler.tick();
+    assert_eq!(child_density_jobs.len(), 8);
+    assert!(child_density_jobs.iter().all(|job| {
+        matches!(
+            job,
+            TerrainStreamJob::Density {
+                key: TerrainNodeKey { lod: 0, .. },
+                ..
+            }
+        )
+    }));
+}
+
+#[test]
+fn stream_scheduler_treats_empty_parent_mesh_as_generated_cover() {
+    let mut scheduler = test_stream_scheduler_with_bands(
+        vec![
+            TerrainLodBand {
+                lod: 0,
+                horizontal_radius: 0,
+                vertical_chunk_offsets: vec![0],
+            },
+            TerrainLodBand {
+                lod: 1,
+                horizontal_radius: 0,
+                vertical_chunk_offsets: vec![0],
+            },
+        ],
+        8,
+    );
+
+    scheduler.sync_center(coord(0, 0, 0));
+    let parent_density_jobs = scheduler.tick();
+    complete_density_jobs(&mut scheduler, &parent_density_jobs);
+    let [TerrainStreamJob::Mesh {
+        generation,
+        key: parent_key,
+    }] = scheduler.tick()[..]
+    else {
+        panic!("expected parent mesh job");
+    };
+    assert!(scheduler.complete_mesh(generation, parent_key, true));
+    assert_eq!(
+        scheduler.node_stage(parent_key),
+        TerrainChunkStage::MeshEmpty { lod: 1 }
+    );
+
+    let child_density_jobs = scheduler.tick();
+    assert_eq!(child_density_jobs.len(), 8);
+    assert!(child_density_jobs.iter().all(|job| {
+        matches!(
+            job,
+            TerrainStreamJob::Density {
+                key: TerrainNodeKey { lod: 0, .. },
+                ..
+            }
+        )
+    }));
+}
+
+#[test]
 fn stream_scheduler_builds_lod0_targets_and_density_aprons() {
     let mut scheduler = test_stream_scheduler(0, vec![0], 8);
 
@@ -570,11 +740,11 @@ fn stream_scheduler_submits_nearest_density_jobs_first_up_to_capacity() {
         vec![
             TerrainStreamJob::Density {
                 generation: 0,
-                coord: coord(0, 0, 0)
+                key: node(0, 0, 0, 0)
             },
             TerrainStreamJob::Density {
                 generation: 0,
-                coord: coord(0, 1, 0)
+                key: node(0, 0, 1, 0)
             }
         ]
     );
@@ -596,10 +766,9 @@ fn stream_scheduler_waits_for_density_dependencies_before_lod0() {
 
     assert_eq!(
         scheduler.tick(),
-        vec![TerrainStreamJob::Lod {
+        vec![TerrainStreamJob::Mesh {
             generation: 0,
-            lod: 0,
-            coord: coord(0, 0, 0)
+            key: node(0, 0, 0, 0)
         }]
     );
 }
@@ -610,19 +779,18 @@ fn stream_scheduler_records_ready_and_empty_lod0_chunks() {
     ready_scheduler.sync_center(coord(0, 0, 0));
     let density_jobs = ready_scheduler.tick();
     complete_density_jobs(&mut ready_scheduler, &density_jobs);
-    let [TerrainStreamJob::Lod {
+    let [TerrainStreamJob::Mesh {
         generation,
-        coord: ready_coord,
-        ..
+        key: ready_key,
     }] = ready_scheduler.tick()[..]
     else {
-        panic!("expected one lod job");
+        panic!("expected one mesh job");
     };
 
-    assert!(ready_scheduler.complete_lod0(generation, ready_coord, false));
+    assert!(ready_scheduler.complete_mesh(generation, ready_key, false));
     assert_eq!(
-        ready_scheduler.chunk_stage(ready_coord),
-        TerrainChunkStage::LodReady { lod: 0 }
+        ready_scheduler.node_stage(ready_key),
+        TerrainChunkStage::MeshReady { lod: 0 }
     );
     assert_eq!(ready_scheduler.status().lod0_ready_count, 1);
 
@@ -630,19 +798,18 @@ fn stream_scheduler_records_ready_and_empty_lod0_chunks() {
     empty_scheduler.sync_center(coord(0, 0, 0));
     let density_jobs = empty_scheduler.tick();
     complete_density_jobs(&mut empty_scheduler, &density_jobs);
-    let [TerrainStreamJob::Lod {
+    let [TerrainStreamJob::Mesh {
         generation,
-        coord: empty_coord,
-        ..
+        key: empty_key,
     }] = empty_scheduler.tick()[..]
     else {
-        panic!("expected one lod job");
+        panic!("expected one mesh job");
     };
 
-    assert!(empty_scheduler.complete_lod0(generation, empty_coord, true));
+    assert!(empty_scheduler.complete_mesh(generation, empty_key, true));
     assert_eq!(
-        empty_scheduler.chunk_stage(empty_coord),
-        TerrainChunkStage::LodEmpty { lod: 0 }
+        empty_scheduler.node_stage(empty_key),
+        TerrainChunkStage::MeshEmpty { lod: 0 }
     );
     assert_eq!(empty_scheduler.status().lod0_empty_count, 1);
 }
@@ -654,7 +821,7 @@ fn stream_scheduler_reset_rejects_stale_density_results() {
     scheduler.sync_center(coord(0, 0, 0));
     let [TerrainStreamJob::Density {
         generation: old_generation,
-        coord: old_coord,
+        key: old_key,
     }] = scheduler.tick()[..]
     else {
         panic!("expected one density job");
@@ -664,23 +831,23 @@ fn stream_scheduler_reset_rejects_stale_density_results() {
     assert_eq!(scheduler.generation(), old_generation + 1);
     let [TerrainStreamJob::Density {
         generation: new_generation,
-        coord: new_coord,
+        key: new_key,
     }] = scheduler.tick()[..]
     else {
         panic!("expected one replacement density job");
     };
 
-    assert_eq!(old_coord, new_coord);
-    assert!(!scheduler.complete_density(old_generation, old_coord));
+    assert_eq!(old_key, new_key);
+    assert!(!scheduler.complete_density(old_generation, old_key));
     assert_eq!(
-        scheduler.chunk_stage(new_coord),
+        scheduler.node_stage(new_key),
         TerrainChunkStage::DensityInFlight {
             generation: new_generation
         }
     );
-    assert!(scheduler.complete_density(new_generation, new_coord));
+    assert!(scheduler.complete_density(new_generation, new_key));
     assert_eq!(
-        scheduler.chunk_stage(new_coord),
+        scheduler.node_stage(new_key),
         TerrainChunkStage::DensityReady
     );
 }
@@ -692,15 +859,14 @@ fn stream_scheduler_prunes_chunks_outside_the_current_window() {
     scheduler.sync_center(coord(0, 0, 0));
     let density_jobs = scheduler.tick();
     complete_density_jobs(&mut scheduler, &density_jobs);
-    let [TerrainStreamJob::Lod {
+    let [TerrainStreamJob::Mesh {
         generation,
-        coord: lod_coord,
-        ..
+        key: mesh_key,
     }] = scheduler.tick()[..]
     else {
-        panic!("expected one lod job");
+        panic!("expected one mesh job");
     };
-    assert!(scheduler.complete_lod0(generation, lod_coord, false));
+    assert!(scheduler.complete_mesh(generation, mesh_key, false));
 
     scheduler.sync_center(coord(4, 0, 0));
 
@@ -717,15 +883,15 @@ fn stream_scheduler_failed_density_jobs_can_be_retried() {
     let mut scheduler = test_stream_scheduler(0, vec![0], 1);
 
     scheduler.sync_center(coord(0, 0, 0));
-    let [TerrainStreamJob::Density { generation, coord }] = scheduler.tick()[..] else {
+    let [TerrainStreamJob::Density { generation, key }] = scheduler.tick()[..] else {
         panic!("expected one density job");
     };
 
-    assert!(scheduler.fail_density(generation, coord));
-    assert_eq!(scheduler.chunk_stage(coord), TerrainChunkStage::NotPresent);
+    assert!(scheduler.fail_density(generation, key));
+    assert_eq!(scheduler.node_stage(key), TerrainChunkStage::NotPresent);
     assert_eq!(
         scheduler.tick(),
-        vec![TerrainStreamJob::Density { generation, coord }]
+        vec![TerrainStreamJob::Density { generation, key }]
     );
 }
 
@@ -733,7 +899,38 @@ fn stream_scheduler_failed_density_jobs_can_be_retried() {
 fn stream_scheduler_validates_configuration() {
     assert_eq!(
         TerrainStreamScheduler::new(TerrainStreamConfig {
-            horizontal_radius: -1,
+            lod_bands: Vec::new(),
+            ..TerrainStreamConfig::default()
+        })
+        .err(),
+        Some(TerrainStreamError::EmptyLodBands)
+    );
+    assert_eq!(
+        TerrainStreamScheduler::new(TerrainStreamConfig {
+            lod_bands: vec![
+                TerrainLodBand {
+                    lod: 0,
+                    horizontal_radius: 0,
+                    vertical_chunk_offsets: vec![0],
+                },
+                TerrainLodBand {
+                    lod: 0,
+                    horizontal_radius: 1,
+                    vertical_chunk_offsets: vec![0],
+                },
+            ],
+            ..TerrainStreamConfig::default()
+        })
+        .err(),
+        Some(TerrainStreamError::DuplicateLodBands)
+    );
+    assert_eq!(
+        TerrainStreamScheduler::new(TerrainStreamConfig {
+            lod_bands: vec![TerrainLodBand {
+                lod: 0,
+                horizontal_radius: -1,
+                vertical_chunk_offsets: vec![0],
+            }],
             ..TerrainStreamConfig::default()
         })
         .err(),
@@ -741,7 +938,11 @@ fn stream_scheduler_validates_configuration() {
     );
     assert_eq!(
         TerrainStreamScheduler::new(TerrainStreamConfig {
-            vertical_chunk_offsets: Vec::new(),
+            lod_bands: vec![TerrainLodBand {
+                lod: 0,
+                horizontal_radius: 0,
+                vertical_chunk_offsets: Vec::new(),
+            }],
             ..TerrainStreamConfig::default()
         })
         .err(),
@@ -749,7 +950,11 @@ fn stream_scheduler_validates_configuration() {
     );
     assert_eq!(
         TerrainStreamScheduler::new(TerrainStreamConfig {
-            vertical_chunk_offsets: vec![0, 0],
+            lod_bands: vec![TerrainLodBand {
+                lod: 0,
+                horizontal_radius: 0,
+                vertical_chunk_offsets: vec![0, 0],
+            }],
             ..TerrainStreamConfig::default()
         })
         .err(),
@@ -763,6 +968,46 @@ fn stream_scheduler_validates_configuration() {
         .err(),
         Some(TerrainStreamError::ZeroMaxInFlightJobs)
     );
+}
+
+#[test]
+fn terrain_stream_config_helpers_and_errors_are_stable() {
+    let default_config = TerrainStreamConfig::default();
+    assert_eq!(
+        default_config,
+        TerrainStreamConfig::single_lod0(1, vec![-1, 0, 1], 1)
+    );
+
+    let messages = [
+        (
+            TerrainStreamError::EmptyLodBands,
+            "empty terrain stream LOD bands",
+        ),
+        (
+            TerrainStreamError::DuplicateLodBands,
+            "duplicate terrain stream LOD bands",
+        ),
+        (
+            TerrainStreamError::NegativeHorizontalRadius,
+            "negative terrain stream horizontal radius",
+        ),
+        (
+            TerrainStreamError::EmptyVerticalOffsets,
+            "empty terrain stream vertical offsets",
+        ),
+        (
+            TerrainStreamError::DuplicateVerticalOffsets,
+            "duplicate terrain stream vertical offsets",
+        ),
+        (
+            TerrainStreamError::ZeroMaxInFlightJobs,
+            "zero terrain stream max in-flight jobs",
+        ),
+    ];
+
+    for (error, message) in messages {
+        assert_eq!(error.to_string(), message);
+    }
 }
 
 #[test]
@@ -1061,9 +1306,20 @@ fn test_stream_scheduler(
     vertical_chunk_offsets: Vec<i32>,
     max_in_flight_jobs: usize,
 ) -> TerrainStreamScheduler {
-    TerrainStreamScheduler::new(TerrainStreamConfig {
+    TerrainStreamScheduler::new(TerrainStreamConfig::single_lod0(
         horizontal_radius,
         vertical_chunk_offsets,
+        max_in_flight_jobs,
+    ))
+    .expect("test stream config should be valid")
+}
+
+fn test_stream_scheduler_with_bands(
+    lod_bands: Vec<TerrainLodBand>,
+    max_in_flight_jobs: usize,
+) -> TerrainStreamScheduler {
+    TerrainStreamScheduler::new(TerrainStreamConfig {
+        lod_bands,
         max_in_flight_jobs,
     })
     .expect("test stream config should be valid")
@@ -1073,11 +1329,18 @@ fn coord(x: i32, y: i32, z: i32) -> TerrainChunkCoord {
     TerrainChunkCoord { x, y, z }
 }
 
+fn node(lod: u8, x: i32, y: i32, z: i32) -> TerrainNodeKey {
+    TerrainNodeKey {
+        lod,
+        coord: coord(x, y, z),
+    }
+}
+
 fn complete_density_jobs(scheduler: &mut TerrainStreamScheduler, jobs: &[TerrainStreamJob]) {
     for job in jobs {
-        let TerrainStreamJob::Density { generation, coord } = *job else {
+        let TerrainStreamJob::Density { generation, key } = *job else {
             panic!("expected density job");
         };
-        assert!(scheduler.complete_density(generation, coord));
+        assert!(scheduler.complete_density(generation, key));
     }
 }

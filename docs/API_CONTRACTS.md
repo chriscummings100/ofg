@@ -126,6 +126,16 @@ and the selected post-process debug view:
     rendererStatus.postProcessDofFocusRange: number
     rendererStatus.postProcessDofMaxBlurPixels: number
 
+Terrain debug state currently includes LOD0 compatibility keys
+`loadedTerrainChunkKeys` and `terrainChunkKeys`, plus explicit multi-resolution
+node keys `loadedTerrainNodeKeys` and `terrainNodeKeys`. Terrain node key strings
+are Rust-produced stable IDs in the form `lodN:x,y,z`. The accompanying
+`terrainStreamStatus` includes legacy chunk counts for HUD/smoke compatibility
+and node/LOD fields such as `loadedNodeCount`, `renderedNodeCount`,
+`maxRenderedLod`, and `terrainLodSummary`. Browser TypeScript may display or
+assert these values but must not compute desired nodes, LOD selection, fallback
+cover, density dependencies, mesh visibility, or renderer state.
+
 Contract rules:
 
 - Add new user/debug control through `GameCommand` before adding new public
@@ -194,7 +204,8 @@ not browser debug-hook terrain clients.
 
 Current hook categories:
 
-- Terrain keys and stream status from Rust `debugSnapshot()`.
+- Terrain chunk compatibility keys, terrain node keys, and terrain stream
+  status from Rust `debugSnapshot()`.
 - Terrain preset and seed from Rust `debugSnapshot()`.
 - Renderer status from Rust `debugSnapshot()`, including resource counts,
   frame count, total frame draw candidates, and visible post-cull frame draw

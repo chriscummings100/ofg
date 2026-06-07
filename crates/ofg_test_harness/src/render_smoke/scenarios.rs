@@ -5,12 +5,13 @@ use std::collections::BTreeMap;
 use engine_core::Vec3;
 use engine_web::{BrowserTerrainStream, TERRAIN_VERTEX_FLOATS};
 use terrain_core::{
-    height_at, terrain_chunk_key, MeshData, TerrainChunkCoord, DEFAULT_TERRAIN_PRESET,
+    height_at, terrain_chunk_key, terrain_node_key, MeshData, TerrainChunkCoord, TerrainNodeKey,
+    DEFAULT_TERRAIN_PRESET,
 };
 
 use super::error::{harness_error, HarnessResult};
 use super::renderer::CameraSetup;
-use super::report::ScenarioDebug;
+use super::report::{LodCountReport, ScenarioDebug};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ScenarioFilter {
@@ -18,6 +19,7 @@ pub enum ScenarioFilter {
     Boot,
     Presets,
     Seams,
+    Lods,
 }
 
 #[derive(Clone, Copy)]
@@ -33,6 +35,14 @@ pub struct Scenario {
     pub target_height_offset: f32,
     pub coverage: Option<ScenarioCoverage>,
     pub shadow_debug: bool,
+    pub stream_mode: ScenarioStreamMode,
+    pub max_stream_ticks: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ScenarioStreamMode {
+    Lod0,
+    MultiLod,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -70,8 +80,9 @@ impl ScenarioFilter {
             "boot" => Ok(Self::Boot),
             "presets" => Ok(Self::Presets),
             "seams" => Ok(Self::Seams),
+            "lods" => Ok(Self::Lods),
             _ => Err(harness_error(format!(
-                "Unknown --scenario '{value}'. Use all, boot, presets, or seams."
+                "Unknown --scenario '{value}'. Use all, boot, presets, seams, or lods."
             ))),
         }
     }
@@ -97,6 +108,8 @@ pub fn scenarios() -> Vec<Scenario> {
             target_height_offset: 4.0,
             coverage: None,
             shadow_debug: true,
+            stream_mode: ScenarioStreamMode::Lod0,
+            max_stream_ticks: 64,
         },
         Scenario {
             name: "preset-seed",
@@ -110,6 +123,8 @@ pub fn scenarios() -> Vec<Scenario> {
             target_height_offset: 4.0,
             coverage: None,
             shadow_debug: false,
+            stream_mode: ScenarioStreamMode::Lod0,
+            max_stream_ticks: 64,
         },
         Scenario {
             name: "preset-rollingHills",
@@ -123,6 +138,8 @@ pub fn scenarios() -> Vec<Scenario> {
             target_height_offset: 5.0,
             coverage: None,
             shadow_debug: false,
+            stream_mode: ScenarioStreamMode::Lod0,
+            max_stream_ticks: 64,
         },
         Scenario {
             name: "preset-mountainValley",
@@ -136,6 +153,8 @@ pub fn scenarios() -> Vec<Scenario> {
             target_height_offset: 7.0,
             coverage: None,
             shadow_debug: false,
+            stream_mode: ScenarioStreamMode::Lod0,
+            max_stream_ticks: 64,
         },
         Scenario {
             name: "preset-rockyHighland",
@@ -149,6 +168,8 @@ pub fn scenarios() -> Vec<Scenario> {
             target_height_offset: 6.0,
             coverage: None,
             shadow_debug: false,
+            stream_mode: ScenarioStreamMode::Lod0,
+            max_stream_ticks: 64,
         },
         Scenario {
             name: "x-seam-grazing",
@@ -166,6 +187,8 @@ pub fn scenarios() -> Vec<Scenario> {
                 high: 1,
             }),
             shadow_debug: false,
+            stream_mode: ScenarioStreamMode::Lod0,
+            max_stream_ticks: 64,
         },
         Scenario {
             name: "z-seam-grazing",
@@ -183,6 +206,8 @@ pub fn scenarios() -> Vec<Scenario> {
                 high: 1,
             }),
             shadow_debug: false,
+            stream_mode: ScenarioStreamMode::Lod0,
+            max_stream_ticks: 64,
         },
         Scenario {
             name: "chunk-corner-oblique",
@@ -201,6 +226,38 @@ pub fn scenarios() -> Vec<Scenario> {
                 z_high: 1,
             }),
             shadow_debug: false,
+            stream_mode: ScenarioStreamMode::Lod0,
+            max_stream_ticks: 64,
+        },
+        Scenario {
+            name: "far-view-multi-lod",
+            file_name: "far-view-multi-lod.png",
+            group: ScenarioFilter::Lods,
+            seed: 246,
+            preset: 2,
+            center_x: 0.0,
+            center_z: 0.0,
+            camera_offset: Vec3::new(220.0, 118.0, 260.0),
+            target_height_offset: 18.0,
+            coverage: None,
+            shadow_debug: false,
+            stream_mode: ScenarioStreamMode::MultiLod,
+            max_stream_ticks: 360,
+        },
+        Scenario {
+            name: "lod-boundary-oblique",
+            file_name: "lod-boundary-oblique.png",
+            group: ScenarioFilter::Lods,
+            seed: 246,
+            preset: 3,
+            center_x: 64.0,
+            center_z: 64.0,
+            camera_offset: Vec3::new(150.0, 62.0, 34.0),
+            target_height_offset: 8.0,
+            coverage: None,
+            shadow_debug: false,
+            stream_mode: ScenarioStreamMode::MultiLod,
+            max_stream_ticks: 360,
         },
     ]
 }
@@ -231,35 +288,38 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
         target.z + scenario.camera_offset.z,
     );
 
-    let mut stream = BrowserTerrainStream::new(scenario.seed, scenario.preset)
-        .map_err(|error| harness_error(format!("Could not create terrain stream: {error:?}")))?;
+    let mut stream = match scenario.stream_mode {
+        ScenarioStreamMode::Lod0 => BrowserTerrainStream::new_lod0(scenario.seed, scenario.preset),
+        ScenarioStreamMode::MultiLod => BrowserTerrainStream::new(scenario.seed, scenario.preset),
+    }
+    .map_err(|error| harness_error(format!("Could not create terrain stream: {error:?}")))?;
     stream.reset_around(center);
-    let mut meshes_by_coord = BTreeMap::<TerrainChunkCoord, MeshData>::new();
-    for _ in 0..64 {
+    let mut meshes_by_node = BTreeMap::<TerrainNodeKey, MeshData>::new();
+    for _ in 0..scenario.max_stream_ticks {
         let update = stream.tick(center);
-        for coord in update.removed_coords {
-            meshes_by_coord.remove(&coord);
+        for key in update.removed_nodes {
+            meshes_by_node.remove(&key);
         }
         for mesh_update in update.upserted_meshes {
-            meshes_by_coord.insert(mesh_update.coord, mesh_update.mesh);
+            meshes_by_node.insert(mesh_update.key, mesh_update.mesh);
         }
-        if !stream.status().pending {
+        if scenario_stream_ready(scenario, &stream) {
             break;
         }
     }
-    let status = stream.status();
-    if status.pending {
+    if !scenario_stream_ready(scenario, &stream) {
         return Err(harness_error(format!(
-            "Scenario '{}' terrain stream did not settle.",
+            "Scenario '{}' terrain stream did not reach its readiness target.",
             scenario.name
         )));
     }
-    if meshes_by_coord.is_empty() {
+    if meshes_by_node.is_empty() {
         return Err(harness_error(format!(
             "Scenario '{}' produced no renderable terrain meshes.",
             scenario.name
         )));
     }
+    let meshes_by_coord = lod0_meshes_by_coord(&meshes_by_node);
     assert_coverage(scenario, &meshes_by_coord)?;
 
     let rendered_chunk_keys = meshes_by_coord
@@ -268,15 +328,21 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
         .map(terrain_chunk_key)
         .collect::<Vec<_>>();
     let loaded_chunk_count = stream.loaded_chunk_keys().len();
-    let vertex_count = meshes_by_coord
+    let rendered_node_keys = meshes_by_node
+        .keys()
+        .copied()
+        .map(terrain_node_key)
+        .collect::<Vec<_>>();
+    let loaded_node_count = stream.loaded_node_keys().len();
+    let rendered_lod_counts = rendered_lod_counts(&meshes_by_node);
+    let max_rendered_lod = meshes_by_node.keys().map(|key| key.lod).max().unwrap_or(0);
+    let vertex_count = meshes_by_node
         .values()
         .map(|mesh| mesh.vertices.len() / TERRAIN_VERTEX_FLOATS as usize)
         .sum();
-    let index_count = meshes_by_coord
-        .values()
-        .map(|mesh| mesh.indices.len())
-        .sum();
-    let meshes = meshes_by_coord.into_values().collect::<Vec<_>>();
+    let index_count = meshes_by_node.values().map(|mesh| mesh.indices.len()).sum();
+    let rendered_node_count = rendered_node_keys.len();
+    let meshes = meshes_by_node.into_values().collect::<Vec<_>>();
 
     Ok(ScenarioTerrain {
         meshes,
@@ -290,11 +356,50 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
             camera_target: [target.x, target.y, target.z],
             rendered_chunk_count: rendered_chunk_keys.len(),
             loaded_chunk_count,
+            rendered_node_count,
+            loaded_node_count,
+            max_rendered_lod,
+            rendered_lod_counts,
             vertex_count,
             index_count,
             rendered_chunk_keys,
+            rendered_node_keys,
         },
     })
+}
+
+fn scenario_stream_ready(scenario: Scenario, stream: &BrowserTerrainStream) -> bool {
+    let status = stream.status();
+    match scenario.stream_mode {
+        ScenarioStreamMode::Lod0 => !status.pending,
+        ScenarioStreamMode::MultiLod => {
+            status.rendered_chunk_count > 0
+                && status.rendered_node_count > status.rendered_chunk_count
+                && status.max_rendered_lod >= 1
+        }
+    }
+}
+
+fn lod0_meshes_by_coord(
+    meshes_by_node: &BTreeMap<TerrainNodeKey, MeshData>,
+) -> BTreeMap<TerrainChunkCoord, MeshData> {
+    meshes_by_node
+        .iter()
+        .filter(|(key, _mesh)| key.lod == 0)
+        .map(|(key, mesh)| (key.coord, mesh.clone()))
+        .collect()
+}
+
+fn rendered_lod_counts(meshes_by_node: &BTreeMap<TerrainNodeKey, MeshData>) -> Vec<LodCountReport> {
+    let mut counts = BTreeMap::<u8, usize>::new();
+    for key in meshes_by_node.keys() {
+        *counts.entry(key.lod).or_insert(0) += 1;
+    }
+
+    counts
+        .into_iter()
+        .map(|(lod, node_count)| LodCountReport { lod, node_count })
+        .collect()
 }
 
 /// Validates seam scenarios render chunks on both sides of the target boundary.
@@ -363,150 +468,5 @@ fn terrain_preset_name(preset: u32) -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn scenario_filter_parses_and_matches_expected_groups() {
-        assert_eq!(ScenarioFilter::parse("all").unwrap(), ScenarioFilter::All);
-        assert_eq!(ScenarioFilter::parse("boot").unwrap(), ScenarioFilter::Boot);
-        assert_eq!(
-            ScenarioFilter::parse("presets").unwrap(),
-            ScenarioFilter::Presets
-        );
-        assert_eq!(
-            ScenarioFilter::parse("seams").unwrap(),
-            ScenarioFilter::Seams
-        );
-        assert!(ScenarioFilter::parse("terrain").is_err());
-
-        assert!(ScenarioFilter::All.matches(ScenarioFilter::Boot));
-        assert!(ScenarioFilter::All.matches(ScenarioFilter::Presets));
-        assert!(ScenarioFilter::Boot.matches(ScenarioFilter::Boot));
-        assert!(!ScenarioFilter::Boot.matches(ScenarioFilter::Seams));
-    }
-
-    #[test]
-    fn scenarios_cover_boot_preset_and_seam_groups() {
-        let scenarios = scenarios();
-
-        assert_eq!(
-            scenarios
-                .iter()
-                .filter(|scenario| ScenarioFilter::Boot.matches(scenario.group))
-                .count(),
-            1
-        );
-        assert_eq!(
-            scenarios
-                .iter()
-                .filter(|scenario| ScenarioFilter::Presets.matches(scenario.group))
-                .count(),
-            4
-        );
-        assert_eq!(
-            scenarios
-                .iter()
-                .filter(|scenario| ScenarioFilter::Seams.matches(scenario.group))
-                .count(),
-            3
-        );
-
-        let mut file_names = scenarios
-            .iter()
-            .map(|scenario| scenario.file_name)
-            .collect::<Vec<_>>();
-        file_names.sort_unstable();
-        file_names.dedup();
-        assert_eq!(file_names.len(), scenarios.len());
-        assert!(scenarios
-            .iter()
-            .filter(|scenario| ScenarioFilter::Seams.matches(scenario.group))
-            .all(|scenario| scenario.coverage.is_some()));
-        assert!(scenarios
-            .iter()
-            .all(|scenario| scenario.file_name.ends_with(".png")));
-        assert_eq!(
-            scenarios
-                .iter()
-                .filter(|scenario| scenario.shadow_debug)
-                .count(),
-            1
-        );
-    }
-
-    #[test]
-    fn builds_boot_scenario_terrain_with_debug_metadata() {
-        let scenario = scenarios()
-            .into_iter()
-            .find(|scenario| scenario.group == ScenarioFilter::Boot)
-            .expect("boot scenario should exist");
-
-        let terrain = build_scenario_terrain(scenario).expect("boot scenario should build terrain");
-
-        assert!(!terrain.meshes.is_empty());
-        assert_eq!(terrain.debug.terrain_seed, scenario.seed);
-        assert_eq!(terrain.debug.terrain_preset_code, scenario.preset);
-        assert_eq!(terrain.debug.terrain_preset, "rollingHills");
-        assert_eq!(terrain.debug.rendered_chunk_count, terrain.meshes.len());
-        assert!(terrain.debug.loaded_chunk_count >= terrain.debug.rendered_chunk_count);
-        assert!(terrain.debug.vertex_count > 0);
-        assert!(terrain.debug.index_count > 0);
-        assert!(terrain.camera.eye.x.is_finite());
-        assert!(terrain.camera.target.y.is_finite());
-    }
-
-    #[test]
-    fn seam_scenario_terrain_covers_both_sides_of_boundary() {
-        let scenario = scenarios()
-            .into_iter()
-            .find(|scenario| scenario.name == "x-seam-grazing")
-            .expect("x seam scenario should exist");
-
-        let terrain = build_scenario_terrain(scenario).expect("seam scenario should build terrain");
-
-        assert!(terrain
-            .debug
-            .rendered_chunk_keys
-            .iter()
-            .any(|key| key.starts_with("0,")));
-        assert!(terrain
-            .debug
-            .rendered_chunk_keys
-            .iter()
-            .any(|key| key.starts_with("1,")));
-    }
-
-    #[test]
-    fn coverage_assertion_reports_missing_axis_or_corner_chunks() {
-        let mut scenario = scenarios()[0];
-        let meshes_by_coord = BTreeMap::<TerrainChunkCoord, MeshData>::new();
-
-        scenario.coverage = None;
-        assert!(assert_coverage(scenario, &meshes_by_coord).is_ok());
-
-        scenario.coverage = Some(ScenarioCoverage::Axis {
-            axis: ChunkAxis::X,
-            low: 0,
-            high: 1,
-        });
-        assert!(assert_coverage(scenario, &meshes_by_coord).is_err());
-
-        scenario.coverage = Some(ScenarioCoverage::Corner {
-            x_low: 0,
-            x_high: 1,
-            z_low: 0,
-            z_high: 1,
-        });
-        assert!(assert_coverage(scenario, &meshes_by_coord).is_err());
-    }
-
-    #[test]
-    fn preset_names_fall_back_to_rolling_hills_for_unknown_codes() {
-        assert_eq!(terrain_preset_name(0), "seed");
-        assert_eq!(terrain_preset_name(1), "rollingHills");
-        assert_eq!(terrain_preset_name(2), "mountainValley");
-        assert_eq!(terrain_preset_name(3), "rockyHighland");
-        assert_eq!(terrain_preset_name(999), "rollingHills");
-    }
-}
+#[path = "scenarios_tests.rs"]
+mod tests;

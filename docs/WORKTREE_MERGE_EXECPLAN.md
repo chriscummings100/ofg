@@ -19,7 +19,7 @@ The user-visible outcome is that the remote `main` branch contains the completed
 - [x] (2026-06-07 17:02Z) Pulled latest `origin/main`; it was already up to date with `main`.
 - [x] (2026-06-07 17:16Z) Merged `sky` into `main`, resolved conflicts by preserving both shadow and sky debug contracts, regenerated shaders/WASM, fixed two Rust test helpers for the 31-float render snapshot shape, and validated with `npm run check:shaders`, `npm run check:wasm`, `npm run test:rust`, `npm run test:ts`, and `npm run smoke`.
 - [x] (2026-06-07 17:38Z) Merged `postprocess` into `main`, resolved conflicts by preserving sky, shadow, and post-process debug/renderer contracts together, regenerated shaders/WASM, and validated with `npm run check:shaders`, `npm run check:wasm`, `npm run test:rust`, `npm run test:ts`, and `npm run smoke`.
-- [ ] Merge `terrain` into `main`, resolve conflicts, regenerate artifacts, validate, and run milestone review.
+- [x] (2026-06-07 17:59Z) Merged `terrain` into `main`, resolved Rust smoke/test/debug conflicts, regenerated WASM artifacts, fixed browser smoke to wait for rendered multi-LOD terrain before mobile assertions, and validated with `npm run check:shaders`, `npm run check:wasm`, `npm run test:rust`, `npm run test:ts`, `npm run smoke:terrain-seams`, `npm run smoke:terrain-presets`, `cargo run -p ofg_test_harness --bin ofg-render-smoke -- --out artifacts/rust-smoke --scenario lods`, `npm run bench:terrain:rust`, and `npm run smoke:browser`; the Rust half of `npm run smoke` also passed before the browser wait fix.
 - [ ] Confirm `shadow-maps` is already included in `main` or merge it if needed, then validate and review.
 - [ ] Merge `touch-controls` into `main`, resolve conflicts, regenerate artifacts, validate, and run milestone review.
 - [ ] Run final `npm test`, `npm run build`, `npm run smoke:rust`, `npm run smoke:browser`, and `npm run smoke`.
@@ -42,6 +42,12 @@ The user-visible outcome is that the remote `main` branch contains the completed
   Evidence: conflicts were resolved in `src/engine/render/shaders/uber.wgsl`, `crates/engine_web/src/wgpu_renderer.rs`, `src/app/game.ts`, `src/engine/web/*`, `tools/build-shaders.mjs`, and `tools/browser-smoke.mjs`; smoke captured final, shadow, linear-depth, bloom, tone-map, DoF CoC, and DoF blurred views.
 - Observation: Post-process milestone review found no required fixes, but `crates/engine_web/src/post_process.rs` is above the 600-line split-pressure threshold.
   Evidence: local milestone review checked contract, code-quality, legacy, correctness, and validation passes; `crates/engine_web/src/post_process.rs` is 875 lines, below the 1000-line hard concern but worth splitting before additional post effects are added.
+- Observation: The terrain merge overlapped the shadow smoke scenario flags and terrain branch LOD stream controls.
+  Evidence: `crates/ofg_test_harness/src/render_smoke/scenarios.rs` now preserves `shadow_debug` for the boot shadow images while adding `ScenarioStreamMode`, per-scenario tick budgets, and LOD smoke scenarios.
+- Observation: `npm run smoke` initially failed in the browser mobile-touch scenario because the debug contract was asserted before the Rust stream had rendered any terrain nodes in that mobile page.
+  Evidence: the failure showed loaded LOD0/LOD1/LOD2 node keys but `terrainNodeKeys: []` and `renderedNodeCount: 0`; passing `waitForTerrainLodFrame` into `tools/browser-smoke-mobile-touch.mjs` made `npm run smoke:browser` pass.
+- Observation: Terrain milestone review found no required fixes, with file-size follow-ups already visible in the active terrain plan and API risk register.
+  Evidence: local review checked contract, code-quality, legacy, correctness, and validation passes; `docs/TERRAIN_PLAN.md` records stream split-pressure handling and coverage evidence, while `docs/API_CONTRACTS.md` already tracks oversized renderer/facade risk. `crates/terrain_core/src/tests.rs` is now over 1000 lines and should be split by terrain subsystem before further test growth.
 
 ## Decision Log
 
@@ -56,6 +62,12 @@ The user-visible outcome is that the remote `main` branch contains the completed
   Date/Author: 2026-06-07 / Codex.
 - Decision: Accept `crates/engine_web/src/post_process.rs` as a merge-time follow-up rather than splitting it during this integration.
   Rationale: The module has a purpose header, validated Rust-owned boundaries, tests, and smoke coverage; splitting during conflict resolution would add avoidable merge risk. Future post-process growth should extract target allocation, settings, and pass helpers before the file approaches 1000 lines.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: Keep the new focused `docs/TERRAIN_PLAN.md` active and the previous terrain plan archived at `docs/archived/TERRAIN_PLAN_2026-06-07.md`.
+  Rationale: The terrain branch replaced the historical mixed terrain document with an active multi-resolution terrain view-distance ExecPlan, and `docs/archived/README.md` now names the current source of truth.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: Treat the mobile browser-smoke wait fix as required merge glue, not a terrain behavior change.
+  Rationale: The Rust stream was exposing loaded LOD nodes, but the mobile page had not yet reached a rendered multi-LOD frame before the common debug assertion ran. Reusing the desktop `waitForTerrainLodFrame` keeps smoke black-box and avoids weakening the LOD assertion.
   Date/Author: 2026-06-07 / Codex.
 
 ## Outcomes & Retrospective

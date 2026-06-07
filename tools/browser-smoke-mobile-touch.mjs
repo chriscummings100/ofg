@@ -8,6 +8,7 @@ export async function runMobileTouchSmoke(options) {
     url,
     assertResponseHeaders,
     waitForBrowserFrame,
+    waitForTerrainLodFrame,
     assertNoBrowserFailures,
     readHud,
     assertHud,
@@ -35,6 +36,7 @@ export async function runMobileTouchSmoke(options) {
     const response = await page.goto(url, { waitUntil: "load" });
     assertResponseHeaders(response);
     await waitForBrowserFrame(page);
+    await waitForTerrainLodFrame(page);
     assertNoBrowserFailures(consoleMessages);
 
     const firstHud = await readHud(page);

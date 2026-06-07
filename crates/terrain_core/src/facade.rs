@@ -574,11 +574,11 @@ pub extern "C" fn ofg_stream_configure(
         )
     }
     .to_vec();
-    let config = TerrainStreamConfig {
+    let config = TerrainStreamConfig::single_lod0(
         horizontal_radius,
         vertical_chunk_offsets,
         max_in_flight_jobs,
-    };
+    );
     let Ok(scheduler) = TerrainStreamScheduler::new(config) else {
         return 0;
     };
@@ -654,11 +654,11 @@ pub extern "C" fn ofg_stream_complete_density(
         .expect("terrain stream scheduler lock poisoned")
         .complete_density(
             generation,
-            TerrainChunkCoord {
+            TerrainNodeKey::lod0(TerrainChunkCoord {
                 x: chunk_x,
                 y: chunk_y,
                 z: chunk_z,
-            },
+            }),
         ) as u32
 }
 
@@ -678,11 +678,11 @@ pub extern "C" fn ofg_stream_fail_density(
         .expect("terrain stream scheduler lock poisoned")
         .fail_density(
             generation,
-            TerrainChunkCoord {
+            TerrainNodeKey::lod0(TerrainChunkCoord {
                 x: chunk_x,
                 y: chunk_y,
                 z: chunk_z,
-            },
+            }),
         ) as u32
 }
 
@@ -765,7 +765,7 @@ pub extern "C" fn ofg_stream_write_lod0_dependency_coords(
     let coords = terrain_stream_scheduler()
         .lock()
         .expect("terrain stream scheduler lock poisoned")
-        .density_dependencies(TerrainChunkCoord {
+        .lod0_density_dependencies(TerrainChunkCoord {
             x: chunk_x,
             y: chunk_y,
             z: chunk_z,
@@ -1149,12 +1149,12 @@ fn write_stream_jobs(jobs: &[TerrainStreamJob]) -> u32 {
 
     for (index, job) in jobs.iter().take(count).enumerate() {
         let (kind, lod, generation, coord) = match *job {
-            TerrainStreamJob::Density { generation, coord } => (0, 0, generation, coord),
-            TerrainStreamJob::Lod {
-                generation,
-                lod,
-                coord,
-            } => (1, u32::from(lod), generation, coord),
+            TerrainStreamJob::Density { generation, key } => {
+                (0, u32::from(key.lod), generation, key.coord)
+            }
+            TerrainStreamJob::Mesh { generation, key } => {
+                (1, u32::from(key.lod), generation, key.coord)
+            }
         };
 
         unsafe {

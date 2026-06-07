@@ -169,7 +169,9 @@ function fakeBrowserGame(): EngineWebBrowserGame {
         playerMode: "firstPerson",
         playerPosition: { x: 0, y: 0, z: 0 },
         loadedTerrainChunkKeys: ["0,0,0"],
+        loadedTerrainNodeKeys: ["lod0:0,0,0"],
         terrainChunkKeys: ["0,0,0"],
+        terrainNodeKeys: ["lod0:0,0,0"],
         terrainPreset: "rollingHills",
         terrainSeed: 0x0F6,
         terrainStreamStatus: {
@@ -185,6 +187,22 @@ function fakeBrowserGame(): EngineWebBrowserGame {
           emptyChunkCount: 0,
           inFlightChunkCount: 0,
           missingChunkCount: 0,
+          loadedNodeCount: 1,
+          desiredRenderNodeCount: 1,
+          renderedNodeCount: 1,
+          emptyNodeCount: 0,
+          missingNodeCount: 0,
+          maxRenderedLod: 0,
+          terrainLodSummary: [
+            {
+              lod: 0,
+              desiredNodeCount: 1,
+              densityReadyNodeCount: 1,
+              renderedNodeCount: 1,
+              emptyNodeCount: 0,
+              missingNodeCount: 0
+            }
+          ],
           maxConcurrentChunkJobs: 6,
           workerPoolRuntime: "rust"
         },

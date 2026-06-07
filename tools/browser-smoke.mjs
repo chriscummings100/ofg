@@ -67,6 +67,7 @@ async function runBrowserSmoke(url) {
     const response = await page.goto(url, { waitUntil: "load" });
     assertResponseHeaders(response);
     await waitForBrowserFrame(page);
+    await waitForTerrainLodFrame(page);
     assertNoBrowserFailures(consoleMessages);
 
     const firstHud = await readHud(page);
@@ -175,6 +176,7 @@ async function runBrowserSmoke(url) {
     await page.keyboard.press("KeyC");
     await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "THIRD");
     await waitForBrowserFrame(page);
+    await waitForTerrainLodFrame(page);
     assertNoBrowserFailures(consoleMessages);
     const toggledHud = await readHud(page);
     assertHud(toggledHud, "THIRD", consoleMessages);
@@ -186,6 +188,7 @@ async function runBrowserSmoke(url) {
     const reloadResponse = await page.reload({ waitUntil: "load" });
     assertResponseHeaders(reloadResponse);
     await waitForBrowserFrame(page);
+    await waitForTerrainLodFrame(page);
     assertNoBrowserFailures(consoleMessages);
     const reloadedHud = await readHud(page);
     assertHud(reloadedHud, "FIRST", consoleMessages);
@@ -199,6 +202,7 @@ async function runBrowserSmoke(url) {
       url,
       assertResponseHeaders,
       waitForBrowserFrame,
+      waitForTerrainLodFrame,
       assertNoBrowserFailures,
       readHud,
       assertHud,
@@ -388,6 +392,21 @@ async function setPostProcessDepthOfField(
   await page.waitForTimeout(250);
 }
 
+/// Waits until Rust terrain streaming exposes at least two rendered LODs.
+async function waitForTerrainLodFrame(page) {
+  await page.waitForFunction(() => {
+    const debug = window.__ofgDebug;
+    const status = debug?.getTerrainStreamStatus?.();
+    const terrainNodeKeys = debug?.getTerrainNodeKeys?.() ?? [];
+    return status !== undefined &&
+      status.renderedChunkCount > 0 &&
+      status.renderedNodeCount > status.renderedChunkCount &&
+      status.maxRenderedLod >= 1 &&
+      terrainNodeKeys.some((key) => key.startsWith("lod0:")) &&
+      terrainNodeKeys.some((key) => key.startsWith("lod1:") || key.startsWith("lod2:"));
+  }, null, { timeout: 30000 });
+}
+
 /// Reads browser HUD values relevant to shell integration.
 async function readHud(page) {
   return page.evaluate(() => ({
@@ -428,6 +447,9 @@ async function readDebugContract(page) {
       terrainStreamSchedulerRuntime: debug?.getTerrainStreamSchedulerRuntime?.() ?? "missing",
       terrainDensityStoreRuntime: debug?.getTerrainDensityStoreRuntime?.() ?? "missing",
       terrainRenderPacketRuntime: debug?.getTerrainRenderPacketRuntime?.() ?? "missing",
+      loadedTerrainNodeKeys: debug?.getLoadedTerrainNodeKeys?.() ?? [],
+      terrainNodeKeys: debug?.getTerrainNodeKeys?.() ?? [],
+      terrainStreamStatus: debug?.getTerrainStreamStatus?.(),
       rendererRuntime: debug?.getRendererRuntime?.() ?? "missing",
       shadowDebugView: debug?.getShadowDebugView?.() ?? "missing",
       skyRuntime: debug?.getSkyRuntime?.() ?? "missing",
@@ -554,6 +576,31 @@ function assertDebugContract(debug, expectations = {}) {
     throw new Error(
       `Expected shadow debug view ${shadowDebugView}, saw ${debug.shadowDebugView}.`
     );
+  }
+
+  const terrainStatus = debug.terrainStreamStatus;
+  if (
+    terrainStatus === undefined ||
+    terrainStatus.renderedChunkCount <= 0 ||
+    terrainStatus.renderedNodeCount <= terrainStatus.renderedChunkCount ||
+    terrainStatus.maxRenderedLod < 1 ||
+    !Array.isArray(terrainStatus.terrainLodSummary) ||
+    terrainStatus.terrainLodSummary.filter((summary) => summary.renderedNodeCount > 0).length < 2
+  ) {
+    throw new Error(`Terrain stream status does not expose multiple rendered LODs: ${JSON.stringify(debug)}`);
+  }
+  if (
+    !Array.isArray(debug.terrainNodeKeys) ||
+    !debug.terrainNodeKeys.some((key) => key.startsWith("lod0:")) ||
+    !debug.terrainNodeKeys.some((key) => key.startsWith("lod1:") || key.startsWith("lod2:"))
+  ) {
+    throw new Error(`Terrain node keys do not expose mixed LODs: ${JSON.stringify(debug)}`);
+  }
+  if (
+    !Array.isArray(debug.loadedTerrainNodeKeys) ||
+    !debug.loadedTerrainNodeKeys.some((key) => key.startsWith("lod2:"))
+  ) {
+    throw new Error(`Loaded terrain node keys do not expose coarse LODs: ${JSON.stringify(debug)}`);
   }
 
   const status = debug.rendererStatus;

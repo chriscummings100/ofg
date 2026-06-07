@@ -109,6 +109,17 @@ export type TerrainStreamJobStats = {
   readonly indexCount?: number;
 };
 
+export type TerrainNodeKey = string;
+
+export type TerrainLodSummary = {
+  readonly lod: number;
+  readonly desiredNodeCount: number;
+  readonly densityReadyNodeCount: number;
+  readonly renderedNodeCount: number;
+  readonly emptyNodeCount: number;
+  readonly missingNodeCount: number;
+};
+
 export type TerrainStreamStatus = {
   readonly generation: number;
   readonly pending: boolean;
@@ -122,6 +133,13 @@ export type TerrainStreamStatus = {
   readonly emptyChunkCount: number;
   readonly inFlightChunkCount: number;
   readonly missingChunkCount: number;
+  readonly loadedNodeCount: number;
+  readonly desiredRenderNodeCount: number;
+  readonly renderedNodeCount: number;
+  readonly emptyNodeCount: number;
+  readonly missingNodeCount: number;
+  readonly maxRenderedLod: number;
+  readonly terrainLodSummary: TerrainLodSummary[];
   readonly maxConcurrentChunkJobs: number;
   readonly workerPoolRuntime: "rust";
   readonly lastDensityJobStats?: TerrainStreamJobStats;
@@ -132,7 +150,9 @@ export type RustBrowserGameDebugSnapshot = {
   readonly playerMode: PlayerMode;
   readonly playerPosition: Vec3;
   readonly loadedTerrainChunkKeys: TerrainChunkKey[];
+  readonly loadedTerrainNodeKeys: TerrainNodeKey[];
   readonly terrainChunkKeys: TerrainChunkKey[];
+  readonly terrainNodeKeys: TerrainNodeKey[];
   readonly terrainPreset: TerrainPresetId;
   readonly terrainSeed: number;
   readonly terrainStreamStatus: TerrainStreamStatus;
