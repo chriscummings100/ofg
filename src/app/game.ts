@@ -131,7 +131,7 @@ export async function startGame(elements: GameElements): Promise<void> {
     game.tick(frameInput);
 
     const playerMode = game.debugSnapshot().playerMode;
-    elements.cameraMode.textContent = playerMode === "firstPerson" ? "FIRST" : "FLY";
+    elements.cameraMode.textContent = cameraModeLabel(playerMode);
     elements.cameraMode.dataset.mode = playerMode;
     elements.frameTime.textContent = `${(deltaSeconds * 1000).toFixed(1)} ms`;
 
@@ -180,11 +180,22 @@ function readTerrainSeed(value: string | null): number | undefined {
 }
 
 function validatePlayerMode(mode: string): PlayerMode {
-  if (mode === "firstPerson" || mode === "debugFly") {
+  if (mode === "firstPerson" || mode === "thirdPerson" || mode === "debugFly") {
     return mode;
   }
 
   throw new Error(`Unknown player camera mode '${mode}'.`);
+}
+
+function cameraModeLabel(mode: PlayerMode): string {
+  switch (mode) {
+    case "firstPerson":
+      return "FIRST";
+    case "thirdPerson":
+      return "THIRD";
+    case "debugFly":
+      return "FLY";
+  }
 }
 
 function readFrameInput(

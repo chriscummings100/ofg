@@ -3,7 +3,7 @@ import type { TerrainChunkKey } from "../world/terrainChunk.js";
 import type { TerrainPresetId } from "../world/terrainDescriptor.js";
 import type { EngineWebRendererStatus } from "./engineWebWasm.js";
 
-export type PlayerMode = "firstPerson" | "debugFly";
+export type PlayerMode = "firstPerson" | "thirdPerson" | "debugFly";
 
 export type BrowserViewport = {
   readonly width: number;

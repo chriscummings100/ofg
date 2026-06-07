@@ -230,6 +230,30 @@ fn first_person_player_uses_fast_right_movement() {
 }
 
 #[test]
+fn third_person_player_moves_like_grounded_player_with_chase_camera() {
+    let mut engine = Engine::new();
+    engine.create_player(Vec3::new(0.0, 2.0, 0.0));
+    engine.set_player_mode(PlayerMode::ThirdPerson).unwrap();
+    engine
+        .set_player_movement_intent(PlayerMovementIntent {
+            forward: 1.0,
+            ..PlayerMovementIntent::default()
+        })
+        .unwrap();
+
+    assert_vec3_near(
+        engine.preview_player_position(1.0).unwrap(),
+        Vec3::new(0.0, 2.0, 5.5),
+    );
+    let eye = engine.update_player(1.0, Some(4.0)).unwrap();
+
+    assert_vec3_near(engine.player_position().unwrap(), Vec3::new(0.0, 4.0, 5.5));
+    assert_vec3_near(eye.position, Vec3::new(0.0, 6.25, -0.5));
+    assert_close(eye.yaw, 0.0);
+    assert_close(eye.pitch, 0.0);
+}
+
+#[test]
 fn player_look_deltas_update_yaw_and_clamp_pitch() {
     let mut engine = Engine::new();
     engine.create_player(Vec3::ZERO);
@@ -283,10 +307,15 @@ fn debug_fly_player_moves_without_grounding() {
 }
 
 #[test]
-fn player_camera_mode_toggles_between_first_person_and_debug_fly() {
+fn player_camera_mode_cycles_first_third_and_debug_fly() {
     let mut engine = Engine::new();
     engine.create_player(Vec3::ZERO);
 
+    assert_eq!(
+        engine.toggle_player_mode().unwrap(),
+        PlayerMode::ThirdPerson
+    );
+    assert_eq!(engine.player_mode().unwrap(), PlayerMode::ThirdPerson);
     assert_eq!(engine.toggle_player_mode().unwrap(), PlayerMode::DebugFly);
     assert_eq!(engine.player_mode().unwrap(), PlayerMode::DebugFly);
     assert_eq!(
@@ -297,6 +326,10 @@ fn player_camera_mode_toggles_between_first_person_and_debug_fly() {
         engine.set_player_mode_code(99),
         Err(EngineError::InvalidPlayerMode(99))
     );
+    assert_eq!(PlayerMode::FirstPerson.code(), 0);
+    assert_eq!(PlayerMode::DebugFly.code(), 1);
+    assert_eq!(PlayerMode::ThirdPerson.code(), 2);
+    assert_eq!(PlayerMode::from_code(2), Some(PlayerMode::ThirdPerson));
 }
 
 #[test]
@@ -327,6 +360,9 @@ fn render_mesh_items_track_player_marker_visibility() {
     let mut engine = Engine::new();
     let rig = engine.create_player(Vec3::new(1.0, 2.0, 3.0));
 
+    assert!(engine.render_mesh_items().unwrap().is_empty());
+
+    engine.set_player_mode(PlayerMode::ThirdPerson).unwrap();
     assert!(engine.render_mesh_items().unwrap().is_empty());
 
     engine.set_player_mode(PlayerMode::DebugFly).unwrap();
@@ -441,6 +477,10 @@ fn wasm_facade_exposes_player_state_and_controls() {
     assert_eq!(ofg_engine_has_player(), 1);
     assert_eq!(ofg_engine_entity_count(), 2);
     assert_eq!(ofg_engine_player_mode(), PlayerMode::FirstPerson.code());
+    assert_eq!(
+        ofg_engine_toggle_player_mode(),
+        PlayerMode::ThirdPerson.code()
+    );
     assert_eq!(ofg_engine_toggle_player_mode(), PlayerMode::DebugFly.code());
     assert_eq!(
         ofg_engine_toggle_player_mode(),

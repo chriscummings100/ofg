@@ -75,3 +75,8 @@ body {
   color: #f4d28d;
   border-color: rgb(244 210 141 / 48%);
 }
+
+#camera-mode[data-mode="thirdPerson"] {
+  color: #b7e7a2;
+  border-color: rgb(183 231 162 / 48%);
+}

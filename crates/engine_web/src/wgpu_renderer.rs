@@ -1846,6 +1846,7 @@ fn string_vec_to_js_array(values: Vec<String>) -> js_sys::Array {
 fn player_mode_to_js_name(mode: PlayerMode) -> &'static str {
     match mode {
         PlayerMode::FirstPerson => "firstPerson",
+        PlayerMode::ThirdPerson => "thirdPerson",
         PlayerMode::DebugFly => "debugFly",
     }
 }
@@ -1853,6 +1854,7 @@ fn player_mode_to_js_name(mode: PlayerMode) -> &'static str {
 fn player_mode_from_js_name(mode: &str) -> Option<PlayerMode> {
     match mode {
         "firstPerson" => Some(PlayerMode::FirstPerson),
+        "thirdPerson" => Some(PlayerMode::ThirdPerson),
         "debugFly" => Some(PlayerMode::DebugFly),
         _ => None,
     }

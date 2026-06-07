@@ -106,7 +106,7 @@ export class RustBrowserGameAdapter {
 }
 
 function validatePlayerMode(mode: PlayerMode): PlayerMode {
-  if (mode === "firstPerson" || mode === "debugFly") {
+  if (mode === "firstPerson" || mode === "thirdPerson" || mode === "debugFly") {
     return mode;
   }
 

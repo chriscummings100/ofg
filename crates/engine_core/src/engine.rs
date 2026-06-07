@@ -176,7 +176,8 @@ impl Engine {
 
     pub fn toggle_player_mode(&mut self) -> Result<PlayerMode, EngineError> {
         let next_mode = match self.player_mode()? {
-            PlayerMode::FirstPerson => PlayerMode::DebugFly,
+            PlayerMode::FirstPerson => PlayerMode::ThirdPerson,
+            PlayerMode::ThirdPerson => PlayerMode::DebugFly,
             PlayerMode::DebugFly => PlayerMode::FirstPerson,
         };
         self.set_player_mode(next_mode)?;
@@ -282,12 +283,13 @@ impl Engine {
         let (player_entity, player) = self.player_component()?;
 
         match player.mode {
-            PlayerMode::FirstPerson => self.preview_first_person_position_at_yaw(
-                player_entity,
-                player,
-                player.yaw - player.intent.look_delta_x * player.config.look_sensitivity,
-                delta_seconds,
-            ),
+            PlayerMode::FirstPerson | PlayerMode::ThirdPerson => self
+                .preview_grounded_player_position_at_yaw(
+                    player_entity,
+                    player,
+                    player.yaw - player.intent.look_delta_x * player.config.look_sensitivity,
+                    delta_seconds,
+                ),
             PlayerMode::DebugFly => Ok(player.debug_position.add(debug_fly_movement(
                 player,
                 player.debug_yaw - player.intent.look_delta_x * player.config.look_sensitivity,
@@ -307,12 +309,12 @@ impl Engine {
         let (player_entity, mut player) = self.player_component()?;
 
         match player.mode {
-            PlayerMode::FirstPerson => {
+            PlayerMode::FirstPerson | PlayerMode::ThirdPerson => {
                 player.yaw -= player.intent.look_delta_x * player.config.look_sensitivity;
                 player.pitch = (player.pitch
                     - player.intent.look_delta_y * player.config.look_sensitivity)
                     .clamp(-player.config.max_pitch, player.config.max_pitch);
-                let next_position = self.preview_first_person_position_at_yaw(
+                let next_position = self.preview_grounded_player_position_at_yaw(
                     player_entity,
                     player,
                     player.yaw,
@@ -392,7 +394,7 @@ impl Engine {
         Ok(())
     }
 
-    fn preview_first_person_position_at_yaw(
+    fn preview_grounded_player_position_at_yaw(
         &self,
         player_entity: EntityId,
         player: PlayerComponent,
@@ -436,6 +438,17 @@ impl Engine {
         }
 
         let player_position = self.scene.world_transform(player_entity)?.translation;
+
+        if player.mode == PlayerMode::ThirdPerson {
+            let camera_forward = yaw_pitch_forward(player.yaw, player.pitch);
+            return Ok(EyeTransform {
+                position: player_position
+                    .add(Vec3::UP.scale(player.config.third_person_camera_height))
+                    .add(camera_forward.scale(-player.config.third_person_camera_distance)),
+                yaw: player.yaw,
+                pitch: player.pitch,
+            });
+        }
 
         Ok(EyeTransform {
             position: player_position.add(Vec3::UP.scale(player.config.eye_height)),

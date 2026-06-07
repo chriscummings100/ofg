@@ -114,6 +114,35 @@ async function runBrowserSmoke(url) {
     const settledModelAnimation = await readModelAnimationDebug(page);
     assertModelAnimationIdle(settledModelAnimation);
 
+    await page.keyboard.press("KeyC");
+    await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "THIRD");
+    await page.waitForTimeout(250);
+    assertNoBrowserFailures(consoleMessages);
+
+    const thirdHud = await readHud(page);
+    assertHud(thirdHud, "THIRD", consoleMessages);
+    const thirdScreenshot = await saveScreenshot(page, "third-person.png");
+    screenshots.push(thirdScreenshot.path);
+    assertPixelStats(thirdScreenshot.stats, "third-person", consoleMessages);
+    const thirdPlayerCharacter = await readPlayerCharacterDebug(page);
+    assertPlayerCharacterDebug(thirdPlayerCharacter, true);
+    const thirdRendererRuntime = await readRendererRuntime(page);
+    assertRendererRuntime(thirdRendererRuntime);
+    assertPlayerCharacterRendererResources(thirdRendererRuntime, initialTerrain, true);
+
+    await page.keyboard.down("KeyW");
+    await page.waitForFunction(() => {
+      const debug = window.__ofgDebug;
+      return debug?.getActiveModelAnimationClip?.() === "Walk_Carry_Loop";
+    }, null, { timeout: 5000 });
+    await page.waitForTimeout(250);
+    const thirdWalkModelAnimation = await readModelAnimationDebug(page);
+    assertModelAnimationMoving(thirdWalkModelAnimation);
+    const thirdWalkScreenshot = await saveScreenshot(page, "third-person-walk.png");
+    screenshots.push(thirdWalkScreenshot.path);
+    assertPixelStats(thirdWalkScreenshot.stats, "third-person-walk", consoleMessages);
+    await page.keyboard.up("KeyW");
+
     await page.reload({ waitUntil: "load" });
     await waitForPlayableTerrain(page);
     await page.waitForTimeout(250);
@@ -150,6 +179,8 @@ async function runBrowserSmoke(url) {
     const resetTerrain = await readTerrainDebug(page);
     assertTerrainDebug(resetTerrain, "reset terrain");
 
+    await page.keyboard.press("KeyC");
+    await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "THIRD");
     await page.keyboard.press("KeyC");
     await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "FLY");
     await page.waitForTimeout(250);
@@ -198,6 +229,7 @@ async function runBrowserSmoke(url) {
       screenshots,
       firstHud,
       refreshedHud,
+      thirdHud,
       flyHud,
       playerControllerRuntime,
       renderPacketRuntime,
@@ -210,8 +242,10 @@ async function runBrowserSmoke(url) {
       movingModelAnimation,
       returnedModelAnimation,
       settledModelAnimation,
+      thirdWalkModelAnimation,
       modelSkinning,
       firstPlayerCharacter,
+      thirdPlayerCharacter,
       refreshedPlayerCharacter,
       flyPlayerCharacter,
       terrainStreamRuntime: refreshedTerrainStreamRuntime,
@@ -221,6 +255,8 @@ async function runBrowserSmoke(url) {
       streamedTerrain,
       firstPixelStats: firstScreenshot.stats,
       refreshedPixelStats: refreshedScreenshot.stats,
+      thirdPixelStats: thirdScreenshot.stats,
+      thirdWalkPixelStats: thirdWalkScreenshot.stats,
       streamedPixelStats: streamedScreenshot.stats,
       flyPixelStats: flyScreenshot.stats,
       consoleMessages

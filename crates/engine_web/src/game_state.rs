@@ -284,7 +284,11 @@ impl BrowserGameState {
                 look_delta_y: input.look_delta_y,
             })?;
 
-        let terrain_height = if self.player_mode()? == PlayerMode::FirstPerson {
+        let player_mode = self.player_mode()?;
+        let terrain_height = if matches!(
+            player_mode,
+            PlayerMode::FirstPerson | PlayerMode::ThirdPerson
+        ) {
             let preview = self.engine.preview_player_position(input.delta_seconds)?;
             Some(self.terrain_height_at(preview.x, preview.z)?)
         } else {
@@ -651,7 +655,10 @@ impl BrowserGameState {
             .scene()
             .world_transform(rig.player_entity)
             .map_err(EngineError::from)?;
-        let visible = self.engine.player_mode()? == PlayerMode::DebugFly;
+        let visible = matches!(
+            self.engine.player_mode()?,
+            PlayerMode::ThirdPerson | PlayerMode::DebugFly
+        );
 
         self.engine
             .scene_mut()

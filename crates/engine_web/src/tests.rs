@@ -989,6 +989,8 @@ fn browser_game_state_public_controls_cover_player_and_debug_camera_api() {
     assert_eq!(state.terrain_seed(), 0);
     assert_eq!(state.terrain_preset(), DEFAULT_TERRAIN_PRESET);
 
+    assert_eq!(state.toggle_player_mode().unwrap(), PlayerMode::ThirdPerson);
+    assert_eq!(state.player_mode().unwrap(), PlayerMode::ThirdPerson);
     assert_eq!(state.toggle_player_mode().unwrap(), PlayerMode::DebugFly);
     assert_eq!(state.player_mode().unwrap(), PlayerMode::DebugFly);
 
@@ -1016,10 +1018,51 @@ fn browser_game_state_public_controls_cover_player_and_debug_camera_api() {
         PlayerMode::DebugFly.code()
     );
     assert_eq!(
+        crate::player_mode_from_code(PlayerMode::ThirdPerson.code()),
+        Some(PlayerMode::ThirdPerson)
+    );
+    assert_eq!(
         crate::player_mode_from_code(PlayerMode::FirstPerson.code()),
         Some(PlayerMode::FirstPerson)
     );
     assert_eq!(crate::player_mode_from_code(99), None);
+}
+
+#[test]
+fn browser_game_state_third_person_draws_character_while_grounding_player() {
+    let mut state = BrowserGameState::new();
+    state
+        .configure_player_character_scene("player.mesh", "player.material", 1.0, 0.0)
+        .unwrap();
+    state.reset_game(0x0F6, 1).unwrap();
+    state.set_player_mode(PlayerMode::ThirdPerson).unwrap();
+    let before = state.player_position().unwrap();
+
+    state
+        .tick(BrowserGameInput {
+            delta_seconds: 1.0,
+            forward: 1.0,
+            right: 0.0,
+            up: 0.0,
+            fast: false,
+            look_delta_x: 0.0,
+            look_delta_y: 0.0,
+        })
+        .unwrap();
+
+    let after = state.player_position().unwrap();
+    assert!(after.z > before.z);
+    assert!(after.y.is_finite());
+    let items = state.render_mesh_items().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].mesh_label, "player.mesh");
+    assert_close(items[0].world_matrix[12], after.x);
+    assert_close(items[0].world_matrix[13], after.y);
+    assert_close(items[0].world_matrix[14], after.z);
+    let snapshot = state.player_character_scene_snapshot().unwrap().unwrap();
+    assert!(snapshot.visible);
+    assert!(snapshot.follows_player);
+    assert!(!snapshot.debug_marker_visible);
 }
 
 #[test]

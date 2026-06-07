@@ -82,7 +82,7 @@ submits rendering.
 smoke tests. Current commands are:
 
     { type: "togglePlayerMode" }
-    { type: "setPlayerMode", mode: "firstPerson" | "debugFly" }
+    { type: "setPlayerMode", mode: "firstPerson" | "thirdPerson" | "debugFly" }
     { type: "setPlayerPosition", x, y?, z }
     { type: "setDebugCamera", x, y, z, yaw, pitch }
     { type: "resetStreaming" }

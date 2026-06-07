@@ -4,6 +4,7 @@ use crate::scene::EntityId;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PlayerMode {
     FirstPerson,
+    ThirdPerson,
     DebugFly,
 }
 
@@ -12,6 +13,7 @@ impl PlayerMode {
         match self {
             Self::FirstPerson => 0,
             Self::DebugFly => 1,
+            Self::ThirdPerson => 2,
         }
     }
 
@@ -19,6 +21,7 @@ impl PlayerMode {
         match code {
             0 => Some(Self::FirstPerson),
             1 => Some(Self::DebugFly),
+            2 => Some(Self::ThirdPerson),
             _ => None,
         }
     }
@@ -52,6 +55,8 @@ pub struct PlayerConfig {
     pub move_speed: f32,
     pub debug_fly_speed: f32,
     pub eye_height: f32,
+    pub third_person_camera_distance: f32,
+    pub third_person_camera_height: f32,
     pub look_sensitivity: f32,
     pub max_pitch: f32,
 }
@@ -62,6 +67,8 @@ impl Default for PlayerConfig {
             move_speed: 5.5,
             debug_fly_speed: 11.0,
             eye_height: 1.65,
+            third_person_camera_distance: 6.0,
+            third_person_camera_height: 2.25,
             look_sensitivity: 0.0025,
             max_pitch: std::f32::consts::PI * 0.48,
         }

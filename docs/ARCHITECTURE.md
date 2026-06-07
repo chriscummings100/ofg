@@ -78,10 +78,10 @@ as a browser shell plus generic browser image decoder.
 
 - `engine_web` composes `engine_core` and `terrain_core` as Rust libraries for
   the active browser game facade. It owns player/camera movement, terrain-height
-  grounding, camera mode switching, scene mesh item resolution for the debug
-  player marker and imported model items, frame packet construction,
-  terrain stream advancement, terrain mesh upload/pruning, and Rust/wgpu draw
-  submission.
+  grounding, first-person/third-person/debug-fly camera mode switching, scene
+  mesh item resolution for the debug player marker and imported model items,
+  frame packet construction, terrain stream advancement, terrain mesh
+  upload/pruning, and Rust/wgpu draw submission.
 - `engine_core` remains the browser-free Rust logic crate for engine/player/world
   behavior and native tests. It owns the Rust scene/component model: one
   scene tree of entities addressed by stable generational `EntityId` handles,
