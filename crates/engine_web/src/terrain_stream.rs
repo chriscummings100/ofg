@@ -288,7 +288,8 @@ impl BrowserTerrainStream {
             .iter()
             .filter(|key| {
                 !desired_visible.contains(key)
-                    && (!stream_pending || hierarchy_conflicts_with_visible(**key, &desired_visible))
+                    && (!stream_pending
+                        || hierarchy_conflicts_with_visible(**key, &desired_visible))
             })
             .copied()
             .collect::<Vec<_>>();

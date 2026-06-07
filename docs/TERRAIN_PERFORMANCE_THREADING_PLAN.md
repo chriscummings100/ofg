@@ -54,9 +54,38 @@ patches, parent/child visible overlap, or TypeScript-owned terrain scheduling.
   `npm run bench:terrain:rust`, backed by
   `crates/ofg_test_harness/src/terrain_bench.rs` and
   `crates/ofg_test_harness/src/terrain_bench_lod.rs`.
-- [ ] Milestone 1: build a trustworthy terrain generation benchmark that
+- [x] Milestone 1: build a trustworthy terrain generation benchmark that
   samples realistic chunk populations and reports cost distributions plus phase
   breakdowns.
+- [x] (2026-06-07 22:56+01:00) Captured the pre-change terrain benchmark
+  baseline with
+  `npm run bench:terrain:rust -- --iterations 12 --mesh-iterations 6 --warmup 2`;
+  report:
+  `artifacts/terrain-bench/run-1780868582-991/report.json`.
+- [x] (2026-06-07 22:56+01:00) Added
+  `terrain_core::benchmark::profile_node_mesh_build` and split raw Dual
+  Contouring from material expansion so benchmark reports can time density,
+  contouring, material expansion, and buffer copy phases separately.
+- [x] (2026-06-07 22:56+01:00) Extended
+  `crates/ofg_test_harness/src/terrain_bench.rs` with a profiled node
+  population sampled from streaming-style LOD bands, movement centers, two seed
+  variants, all four presets, and explicit air/solid/surface probes.
+- [x] (2026-06-07 22:56+01:00) Ran targeted benchmark validation:
+  `cargo test -p terrain_core --features benchmark benchmark --no-fail-fast`
+  and `cargo test -p ofg_test_harness terrain_bench --no-fail-fast`.
+- [x] (2026-06-07 22:56+01:00) Ran the full improved benchmark with
+  `npm run bench:terrain:rust -- --iterations 24 --mesh-iterations 12 --warmup 3`;
+  report:
+  `artifacts/terrain-bench/run-1780870525-499/report.json`.
+- [x] (2026-06-07 22:56+01:00) Fixed local milestone-review code-size finding
+  by moving profiled terrain-node benchmark logic into
+  `crates/ofg_test_harness/src/terrain_bench_profile.rs`; after the split,
+  `terrain_bench.rs` is 935 lines and `terrain_bench_profile.rs` is 864 lines.
+- [x] (2026-06-07 23:18+01:00) Milestone 1 review complete. Sub-agent review
+  was not used because the user did not explicitly request delegated reviewers;
+  local contract, code-quality, legacy, correctness, and validation passes were
+  performed. Required findings were fixed before marking the milestone
+  complete.
 - [ ] Milestone 2: add at least one extra terrain LOD and tune default horizon
   bands to reach a multi-kilometer visible span without breaking hierarchical
   streaming.
@@ -94,6 +123,37 @@ patches, parent/child visible overlap, or TypeScript-owned terrain scheduling.
   biome/material transition, or part of a moving streaming delta. Benchmarks
   must report distributions across a realistic sample set, not just a single
   chunk.
+- Observation: the pre-change benchmark already showed density costs dominate
+  cold terrain generation and can spike badly in streaming windows.
+  Evidence: `artifacts/terrain-bench/run-1780868582-991/report.json` from
+  `npm run bench:terrain:rust -- --iterations 12 --mesh-iterations 6 --warmup 2`
+  reported cold mesh median 56.454 ms, prepared mesh median 8.067 ms, and
+  retained density-window p95 661.661 ms.
+- Observation: the new profiled population covers realistic distribution
+  requirements before LOD/threading changes begin.
+  Evidence: `artifacts/terrain-bench/run-1780870525-499/report.json` reports
+  328 profiled node samples, 2 seeds, 4 presets, 9 sources, 3 LODs, and class
+  counts for empty air, solid, surface sparse, surface heavy, and surface
+  complex nodes.
+- Observation: density generation is the dominant cost across the sampled node
+  population.
+  Evidence: the corrected full improved benchmark reported profiled cold-node
+  median 53.504 ms, p95 78.990 ms, mean 57.636 ms, with mean phase shares of
+  about 93.8% density, 5.8% contouring, 0.3% material expansion, and 0.0%
+  buffer copy. The prepared-density repeat for the same population reported
+  median 1.222 ms, p95 12.877 ms, and mean 4.075 ms.
+- Observation: milestone review caught that the first profiler implementation
+  only measured cold node builds even though this plan explicitly required
+  prepared-density build timing.
+  Evidence: `TerrainNodeBuildProfile` now includes `preparedTotalMs` and
+  prepared phase timings in the benchmark JSON. The corrected full report is
+  `artifacts/terrain-bench/run-1780870525-499/report.json`.
+- Observation: the detailed profile report is large enough to need attention if
+  it grows further.
+  Evidence: after splitting, `crates/ofg_test_harness/src/terrain_bench.rs` is
+  935 lines and `crates/ofg_test_harness/src/terrain_bench_profile.rs` is
+  864 lines. This is below the hard 1000-line split threshold, but above the
+  600-line split-pressure threshold.
 
 ## Decision Log
 
@@ -133,20 +193,42 @@ patches, parent/child visible overlap, or TypeScript-owned terrain scheduling.
   expose worker build time, transfer time, Rust completion time, and GPU upload
   time as separate costs.
   Date/Author: 2026-06-07 / Codex.
+- Decision: keep Milestone 1 profiling inside native Rust rather than adding a
+  browser benchmark.
+  Rationale: the first question is terrain generation cost and phase attribution.
+  Native Rust gives deterministic low-noise measurements and preserves the
+  contract that TypeScript must not become a terrain client. Browser transfer,
+  worker latency, and upload timing remain Milestone 3 and 4 work.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: split profiled-node benchmarking into
+  `crates/ofg_test_harness/src/terrain_bench_profile.rs`.
+  Rationale: local milestone review flagged the initial 1650-line
+  `terrain_bench.rs` as too large. Keeping the profile population/reporting in
+  a separate module preserves readability while leaving the command and JSON
+  artifact shape unchanged.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: allow `terrain_bench_profile.rs` to remain at 864 lines for this
+  milestone, but treat further growth as split work.
+  Rationale: it is below the hard 1000-line threshold and is cohesive: profile
+  population selection, profile report conversion, and profile-specific tests.
+  Later worker/upload profiling should go in separate modules rather than
+  growing this file.
+  Date/Author: 2026-06-07 / Codex.
 
 ## Outcomes & Retrospective
 
-Not started. Expected outcomes are:
+Milestone 1 is complete. The overall plan remains active. Current outcomes:
 
 - Default terrain uses at least one additional far LOD and reaches a
-  multi-kilometer visible terrain span.
-- `npm run bench:terrain:rust` reports realistic average and percentile costs
-  for terrain generation across many representative nodes, with phase
+  multi-kilometer visible terrain span. This remains Milestone 2 work.
+- `npm run bench:terrain:rust` now reports realistic average and percentile
+  costs for terrain generation across many representative nodes, with phase
   breakdowns that identify where time is spent.
 - Browser terrain generation no longer runs `build_node_mesh` on the main
-  frame path.
+  frame path. This remains Milestone 3 work.
 - Browser smoke or a dedicated performance smoke records worker generation,
   stale-completion handling, frame timing, and upload behavior during movement.
+  This remains Milestone 4 work.
 
 ## Contract and Quality Baseline
 
@@ -397,6 +479,32 @@ After each milestone:
    rejected finding with rationale in the Decision Log.
 5. Re-run the relevant validation commands for that milestone and record the
    artifacts or concise output evidence here.
+
+Milestone 1 review, 2026-06-07 / Codex:
+
+- Scope: benchmark profiling and realistic node population reporting for
+  `npm run bench:terrain:rust`; changed Rust benchmark helpers, mesh phase split,
+  benchmark harness report schema, and active docs/contracts.
+- Reviewers: contract, code quality, legacy, correctness, and validation passes
+  were done locally. Sub-agent review was skipped because delegated reviewers
+  were not explicitly requested by the user.
+- Required findings fixed: split the oversized 1650-line benchmark runner into
+  `terrain_bench.rs` plus `terrain_bench_profile.rs`; added missing
+  prepared-density repeat timings to `TerrainNodeBuildProfile` and benchmark
+  JSON; corrected cold-total timing so it no longer includes the prepared
+  repeat.
+- Follow-ups recorded: `terrain_bench_profile.rs` is 864 lines and should not
+  absorb later worker/upload profiling; split future profiling modules by
+  responsibility.
+- Rejected findings: none.
+- Validation rerun:
+  `cargo test -p terrain_core --features benchmark benchmark --no-fail-fast`,
+  `cargo test -p ofg_test_harness terrain_bench --no-fail-fast`,
+  `npm run bench:terrain:rust -- --iterations 24 --mesh-iterations 12 --warmup 3`,
+  and `git -c safe.directory=C:/dev/ofg diff --check`.
+- Remaining risk: benchmark profile samples are representative of the current
+  LOD2 stream and explicit class probes; Milestone 2 must update the sampling
+  bands when adding farther LODs.
 
 ## Validation and Acceptance
 

@@ -10,6 +10,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use crate::terrain_bench_lod::{run_multi_lod_probe, MultiLodBenchmarkReport};
+use crate::terrain_bench_profile::{
+    profile_scenario_count, run_profiled_node_population, TerrainNodePopulationProfileReport,
+};
 use serde::Serialize;
 use terrain_core::benchmark::{
     density_chunk_sample_count, density_store_stats, fill_density_chunk,
@@ -187,6 +190,7 @@ struct TerrainBenchmarkReport {
     results: BenchmarkResults,
     density_store: DensityStoreReport,
     phase_estimate: PhaseEstimate,
+    profiled_nodes: TerrainNodePopulationProfileReport,
     multi_lod: MultiLodBenchmarkReport,
     scenarios: Vec<BenchmarkScenario>,
     streaming_windows: Vec<StreamingWindowScenario>,
@@ -317,6 +321,11 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         &mesh_build_and_copy_cold,
         &mesh_build_and_copy_prepared,
     );
+    println!(
+        "Running profiled node-build population benchmark over {} samples...",
+        profile_scenario_count(args.seed, args.cell_size)
+    );
+    let profiled_nodes = run_profiled_node_population(args.seed, args.cell_size);
     println!("Running multi-LOD stream probe...");
     let multi_lod = run_multi_lod_probe(args.seed, DEFAULT_TERRAIN_PRESET);
     let report = TerrainBenchmarkReport {
@@ -349,6 +358,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             after_prepared_mesh: prepared_mesh_store_stats,
         },
         phase_estimate,
+        profiled_nodes,
         multi_lod,
         scenarios,
         streaming_windows,
@@ -774,6 +784,26 @@ fn print_summary(
             .after_retained_window_prepare
             .generations,
         report.density_store.after_retained_window_prepare.evictions
+    );
+    println!(
+        "  profiled nodes: {} samples, median {:.3} ms/node, p95 {:.3}, mean {:.3}",
+        report.profiled_nodes.sample_count,
+        report.profiled_nodes.timings.total.median_ms,
+        report.profiled_nodes.timings.total.p95_ms,
+        report.profiled_nodes.timings.total.mean_ms
+    );
+    println!(
+        "    prepared-density repeat: median {:.3} ms/node, p95 {:.3}, mean {:.3}",
+        report.profiled_nodes.prepared_timings.total.median_ms,
+        report.profiled_nodes.prepared_timings.total.p95_ms,
+        report.profiled_nodes.prepared_timings.total.mean_ms
+    );
+    println!(
+        "    phase mean shares: density {:.1}%, contour {:.1}%, material {:.1}%, copy {:.1}%",
+        report.profiled_nodes.timings.mean_density_share_of_total * 100.0,
+        report.profiled_nodes.timings.mean_contouring_share_of_total * 100.0,
+        report.profiled_nodes.timings.mean_material_share_of_total * 100.0,
+        report.profiled_nodes.timings.mean_copy_share_of_total * 100.0
     );
     println!(
         "  multi-LOD stream: {} rendered nodes, max LOD {}, span {:.0}m x {:.0}m",

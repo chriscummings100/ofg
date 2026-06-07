@@ -756,10 +756,9 @@ fn stream_scheduler_submits_nearest_build_jobs_first_up_to_capacity() {
             key: node(0, 0, 0, 0)
         }
     );
-    assert!(jobs.iter().all(|job| matches!(
-        job,
-        TerrainStreamJob::BuildNode { generation: 0, .. }
-    )));
+    assert!(jobs
+        .iter()
+        .all(|job| matches!(job, TerrainStreamJob::BuildNode { generation: 0, .. })));
     assert_eq!(scheduler.status().in_flight_density_count, 0);
     assert_eq!(scheduler.status().in_flight_lod_count, 2);
 }

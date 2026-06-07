@@ -336,6 +336,10 @@ builds the artifact and validates the expected raw export names directly from
 the WASM module; it no longer writes a generated TypeScript metadata module.
 Terrain performance benchmarking now uses `npm run bench:terrain:rust`, which
 calls `terrain_core` from Rust and writes JSON under `artifacts/terrain-bench/`.
+The terrain benchmark report must sample a realistic multi-node terrain
+population, not just a single chunk, and include aggregate/per-LOD/per-class
+generation timing distributions plus coarse phase breakdowns for density,
+Dual Contouring, material expansion, and buffer copy cost.
 
 Contract rules:
 

@@ -374,11 +374,7 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
     let index_count = meshes_by_node.values().map(|mesh| mesh.indices.len()).sum();
     let rendered_node_count = rendered_node_keys.len();
     let meshes = meshes_by_node.into_values().collect::<Vec<_>>();
-    let target = Vec3::new(
-        center.x,
-        center.y + scenario.target_height_offset,
-        center.z,
-    );
+    let target = Vec3::new(center.x, center.y + scenario.target_height_offset, center.z);
     let eye = Vec3::new(
         target.x + scenario.camera_offset.x,
         target.y + scenario.camera_offset.y,

@@ -12,6 +12,12 @@ pub struct MeshData {
     pub indices: Vec<u32>,
 }
 
+#[derive(Clone)]
+pub(crate) struct RawTerrainMesh {
+    pub(crate) vertices: Vec<f32>,
+    pub(crate) indices: Vec<u32>,
+}
+
 pub fn build_chunk_mesh(
     seed: u32,
     preset: u32,
@@ -79,10 +85,21 @@ pub(crate) fn build_neighbor_aware_chunk_mesh(
     chunks: &[TerrainDensityChunk],
     center_coord: TerrainChunkCoord,
 ) -> MeshData {
+    let raw_mesh = build_neighbor_aware_chunk_mesh_raw(noise, preset, seed, chunks, center_coord);
+    expand_terrain_mesh_for_triangle_material_palettes(&raw_mesh.vertices, &raw_mesh.indices)
+}
+
+pub(crate) fn build_neighbor_aware_chunk_mesh_raw(
+    noise: &SimplexNoise3D,
+    preset: TerrainPresetDefinition,
+    seed: u32,
+    chunks: &[TerrainDensityChunk],
+    center_coord: TerrainChunkCoord,
+) -> RawTerrainMesh {
     let center_chunk = match neighbor_chunk(chunks, center_coord, center_coord) {
         Some(chunk) => chunk,
         None => {
-            return MeshData {
+            return RawTerrainMesh {
                 vertices: Vec::new(),
                 indices: Vec::new(),
             };
@@ -127,7 +144,7 @@ pub(crate) fn build_neighbor_aware_chunk_mesh(
     emit_owned_y_edge_quads(center_chunk, &vertex_indices, &mut indices);
     emit_owned_z_edge_quads(center_chunk, &vertex_indices, &mut indices);
 
-    expand_terrain_mesh_for_triangle_material_palettes(&vertices, &indices)
+    RawTerrainMesh { vertices, indices }
 }
 
 pub(crate) fn extract_hermite_intersections(

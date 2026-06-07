@@ -249,7 +249,10 @@ impl TerrainStreamScheduler {
     }
 
     pub fn mesh_generated(&self, key: TerrainNodeKey) -> bool {
-        matches!(self.node_stage_raw(key), Some(NodeStage::Ready | NodeStage::Empty))
+        matches!(
+            self.node_stage_raw(key),
+            Some(NodeStage::Ready | NodeStage::Empty)
+        )
     }
 
     pub fn status(&self) -> TerrainStreamStatus {

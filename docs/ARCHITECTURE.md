@@ -99,7 +99,10 @@ as a browser shell plus generic browser image decoder.
   reaches it through `engine_web` as a Rust library. The standalone
   `terrain_core.wasm` artifact remains only for export-contract fixture checks;
   native Rust tests and `npm run bench:terrain:rust` cover terrain behavior and
-  benchmarking.
+  benchmarking. The Rust terrain benchmark includes a profiled terrain-node
+  population sampled from streaming-style LOD bands, movement centers, multiple
+  presets, derived seeds, and explicit air/solid/surface probes so generation
+  cost is reported as distributions instead of single-chunk anecdotes.
 - `engine_web` owns the Rust/wgpu browser renderer and current GLTF model path:
   WebGPU canvas surface, adapter/device/queue, surface configuration, depth
   texture, HDR scene color, linear-depth, and half-resolution bloom
@@ -280,4 +283,6 @@ pass. Browser TypeScript may expose debug/smoke sky values from
   `artifacts/rust-smoke/<run-id>/report.json`, and owns terrain preset and
   seam/corner image smoke.
 - Performance tests should be explicit scripts with stable scene seeds, not hidden
-  assertions inside regular unit tests.
+  assertions inside regular unit tests. Terrain generation performance is
+  measured by `npm run bench:terrain:rust`, including aggregate, per-LOD,
+  per-class, and phase timing distributions for realistic node populations.

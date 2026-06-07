@@ -2,6 +2,9 @@
 // that need density and store phase timings without turning TypeScript or
 // browser smoke tests back into terrain clients.
 
+use std::time::Instant;
+
+use crate::mesh::{build_neighbor_aware_chunk_mesh_raw, neighbor_chunk};
 use crate::*;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -21,6 +24,57 @@ pub struct DensityStoreStats {
     pub reuses: u64,
     pub generations: u64,
     pub evictions: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TerrainNodeBuildClass {
+    EmptyAir,
+    Solid,
+    SurfaceSparse,
+    SurfaceHeavy,
+    SurfaceComplex,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TerrainNodeBuildProfile {
+    pub key: TerrainNodeKey,
+    pub cell_size: f64,
+    pub class: TerrainNodeBuildClass,
+    pub total_ms: f64,
+    pub density_ms: f64,
+    pub contouring_ms: f64,
+    pub material_ms: f64,
+    pub copy_ms: f64,
+    pub prepared_total_ms: f64,
+    pub prepared_density_ms: f64,
+    pub prepared_contouring_ms: f64,
+    pub prepared_material_ms: f64,
+    pub prepared_copy_ms: f64,
+    pub reused_density_chunks: u64,
+    pub generated_density_chunks: u64,
+    pub evicted_density_chunks: u64,
+    pub prepared_reused_density_chunks: u64,
+    pub prepared_generated_density_chunks: u64,
+    pub prepared_evicted_density_chunks: u64,
+    pub raw_vertex_count: usize,
+    pub raw_index_count: usize,
+    pub vertex_count: usize,
+    pub index_count: usize,
+    pub vertex_bytes: usize,
+    pub index_bytes: usize,
+    pub copy_checksum: f64,
+}
+
+impl TerrainNodeBuildClass {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::EmptyAir => "emptyAir",
+            Self::Solid => "solid",
+            Self::SurfaceSparse => "surfaceSparse",
+            Self::SurfaceHeavy => "surfaceHeavy",
+            Self::SurfaceComplex => "surfaceComplex",
+        }
+    }
 }
 
 /// Returns the number of density samples in one terrain chunk.
@@ -43,6 +97,83 @@ pub fn fill_density_chunk(
     let preset_id = terrain_preset_index(preset);
     let preset = terrain_preset(preset_id);
     generate_density_chunk(&noise, preset, seed, coord, cell_size).densities
+}
+
+/// Builds one terrain node and records coarse generation phase timings.
+pub fn profile_node_mesh_build(
+    seed: u32,
+    preset: u32,
+    key: TerrainNodeKey,
+    base_cell_size: f64,
+) -> TerrainNodeBuildProfile {
+    if base_cell_size <= 0.0 {
+        return empty_profile(key, base_cell_size);
+    }
+
+    let total_started_at = Instant::now();
+    let noise = SimplexNoise3D::new(seed);
+    let preset_id = terrain_preset_index(preset);
+    let preset = terrain_preset(preset_id);
+    let cell_size = terrain_node_cell_size(base_cell_size, key.lod);
+
+    let density_stats_before = density_store_stats();
+    let density_started_at = Instant::now();
+    let chunks =
+        generate_neighbor_apron_chunks(&noise, preset, preset_id, seed, key.coord, cell_size);
+    let density_ms = elapsed_ms(density_started_at);
+    let density_stats_after = density_store_stats();
+
+    let contouring_started_at = Instant::now();
+    let raw_mesh = build_neighbor_aware_chunk_mesh_raw(&noise, preset, seed, &chunks, key.coord);
+    let contouring_ms = elapsed_ms(contouring_started_at);
+
+    let material_started_at = Instant::now();
+    let mesh =
+        expand_terrain_mesh_for_triangle_material_palettes(&raw_mesh.vertices, &raw_mesh.indices);
+    let material_ms = elapsed_ms(material_started_at);
+
+    let copy_started_at = Instant::now();
+    let copied_vertices = mesh.vertices.clone();
+    let copied_indices = mesh.indices.clone();
+    let copy_checksum = mesh_copy_checksum(&copied_vertices, &copied_indices);
+    let copy_ms = elapsed_ms(copy_started_at);
+    let cold_total_ms = elapsed_ms(total_started_at);
+    let prepared = profile_prepared_node_build(&noise, preset, preset_id, seed, key, cell_size);
+
+    TerrainNodeBuildProfile {
+        key,
+        cell_size,
+        class: classify_profiled_node(&chunks, key.coord, &mesh),
+        total_ms: cold_total_ms,
+        density_ms,
+        contouring_ms,
+        material_ms,
+        copy_ms,
+        prepared_total_ms: prepared.total_ms,
+        prepared_density_ms: prepared.density_ms,
+        prepared_contouring_ms: prepared.contouring_ms,
+        prepared_material_ms: prepared.material_ms,
+        prepared_copy_ms: prepared.copy_ms,
+        reused_density_chunks: density_stats_after
+            .reuses
+            .saturating_sub(density_stats_before.reuses),
+        generated_density_chunks: density_stats_after
+            .generations
+            .saturating_sub(density_stats_before.generations),
+        evicted_density_chunks: density_stats_after
+            .evictions
+            .saturating_sub(density_stats_before.evictions),
+        prepared_reused_density_chunks: prepared.reused_density_chunks,
+        prepared_generated_density_chunks: prepared.generated_density_chunks,
+        prepared_evicted_density_chunks: prepared.evicted_density_chunks,
+        raw_vertex_count: raw_mesh.vertices.len() / FLOATS_PER_VERTEX,
+        raw_index_count: raw_mesh.indices.len(),
+        vertex_count: mesh.vertices.len() / FLOATS_PER_VERTEX,
+        index_count: mesh.indices.len(),
+        vertex_bytes: mesh.vertices.len() * std::mem::size_of::<f32>(),
+        index_bytes: mesh.indices.len() * std::mem::size_of::<u32>(),
+        copy_checksum,
+    }
 }
 
 /// Clears the retained density chunk store used by terrain mesh generation.
@@ -115,6 +246,143 @@ pub fn prepare_density_chunk_window(
     prepared
 }
 
+fn empty_profile(key: TerrainNodeKey, base_cell_size: f64) -> TerrainNodeBuildProfile {
+    TerrainNodeBuildProfile {
+        key,
+        cell_size: base_cell_size,
+        class: TerrainNodeBuildClass::EmptyAir,
+        total_ms: 0.0,
+        density_ms: 0.0,
+        contouring_ms: 0.0,
+        material_ms: 0.0,
+        copy_ms: 0.0,
+        prepared_total_ms: 0.0,
+        prepared_density_ms: 0.0,
+        prepared_contouring_ms: 0.0,
+        prepared_material_ms: 0.0,
+        prepared_copy_ms: 0.0,
+        reused_density_chunks: 0,
+        generated_density_chunks: 0,
+        evicted_density_chunks: 0,
+        prepared_reused_density_chunks: 0,
+        prepared_generated_density_chunks: 0,
+        prepared_evicted_density_chunks: 0,
+        raw_vertex_count: 0,
+        raw_index_count: 0,
+        vertex_count: 0,
+        index_count: 0,
+        vertex_bytes: 0,
+        index_bytes: 0,
+        copy_checksum: 0.0,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct PreparedNodeBuildProfile {
+    total_ms: f64,
+    density_ms: f64,
+    contouring_ms: f64,
+    material_ms: f64,
+    copy_ms: f64,
+    reused_density_chunks: u64,
+    generated_density_chunks: u64,
+    evicted_density_chunks: u64,
+}
+
+fn profile_prepared_node_build(
+    noise: &SimplexNoise3D,
+    preset: TerrainPresetDefinition,
+    preset_id: u32,
+    seed: u32,
+    key: TerrainNodeKey,
+    cell_size: f64,
+) -> PreparedNodeBuildProfile {
+    let total_started_at = Instant::now();
+    let density_stats_before = density_store_stats();
+
+    let density_started_at = Instant::now();
+    let chunks =
+        generate_neighbor_apron_chunks(noise, preset, preset_id, seed, key.coord, cell_size);
+    let density_ms = elapsed_ms(density_started_at);
+    let density_stats_after = density_store_stats();
+
+    let contouring_started_at = Instant::now();
+    let raw_mesh = build_neighbor_aware_chunk_mesh_raw(noise, preset, seed, &chunks, key.coord);
+    let contouring_ms = elapsed_ms(contouring_started_at);
+
+    let material_started_at = Instant::now();
+    let mesh =
+        expand_terrain_mesh_for_triangle_material_palettes(&raw_mesh.vertices, &raw_mesh.indices);
+    let material_ms = elapsed_ms(material_started_at);
+
+    let copy_started_at = Instant::now();
+    let copied_vertices = mesh.vertices.clone();
+    let copied_indices = mesh.indices.clone();
+    let _copy_checksum = mesh_copy_checksum(&copied_vertices, &copied_indices);
+    let copy_ms = elapsed_ms(copy_started_at);
+
+    PreparedNodeBuildProfile {
+        total_ms: elapsed_ms(total_started_at),
+        density_ms,
+        contouring_ms,
+        material_ms,
+        copy_ms,
+        reused_density_chunks: density_stats_after
+            .reuses
+            .saturating_sub(density_stats_before.reuses),
+        generated_density_chunks: density_stats_after
+            .generations
+            .saturating_sub(density_stats_before.generations),
+        evicted_density_chunks: density_stats_after
+            .evictions
+            .saturating_sub(density_stats_before.evictions),
+    }
+}
+
+fn classify_profiled_node(
+    chunks: &[TerrainDensityChunk],
+    center_coord: TerrainChunkCoord,
+    mesh: &MeshData,
+) -> TerrainNodeBuildClass {
+    if !mesh.indices.is_empty() {
+        return match mesh.indices.len() {
+            0..=1_499 => TerrainNodeBuildClass::SurfaceSparse,
+            1_500..=5_999 => TerrainNodeBuildClass::SurfaceHeavy,
+            _ => TerrainNodeBuildClass::SurfaceComplex,
+        };
+    }
+
+    let Some(center_chunk) = neighbor_chunk(chunks, center_coord, center_coord) else {
+        return TerrainNodeBuildClass::EmptyAir;
+    };
+    let mut has_negative = false;
+    let mut has_positive = false;
+    for density in &center_chunk.densities {
+        has_negative |= *density <= 0.0;
+        has_positive |= *density > 0.0;
+        if has_negative && has_positive {
+            return TerrainNodeBuildClass::SurfaceSparse;
+        }
+    }
+
+    if has_negative {
+        TerrainNodeBuildClass::Solid
+    } else {
+        TerrainNodeBuildClass::EmptyAir
+    }
+}
+
+fn mesh_copy_checksum(vertices: &[f32], indices: &[u32]) -> f64 {
+    vertices.len() as f64
+        + indices.len() as f64
+        + vertices.first().copied().unwrap_or(0.0) as f64
+        + indices.first().copied().unwrap_or(0) as f64
+}
+
+fn elapsed_ms(started_at: Instant) -> f64 {
+    started_at.elapsed().as_secs_f64() * 1000.0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,5 +418,63 @@ mod tests {
         let after_second_prepare = density_store_stats();
         assert_eq!(after_second_prepare.entries, 2);
         assert!(after_second_prepare.reuses >= 2);
+    }
+
+    #[test]
+    fn benchmark_profile_records_phase_timings_and_buffers() {
+        let _lock = crate::test_lock();
+        reset_density_store();
+        let profile = profile_node_mesh_build(
+            0x0F6,
+            1,
+            TerrainNodeKey {
+                lod: 0,
+                coord: TerrainChunkCoord { x: 0, y: 0, z: 0 },
+            },
+            1.0,
+        );
+
+        assert_eq!(profile.key.lod, 0);
+        assert_eq!(profile.cell_size, 1.0);
+        assert!(profile.total_ms >= profile.density_ms);
+        assert!(profile.generated_density_chunks > 0);
+        assert!(profile.prepared_total_ms > 0.0);
+        assert_eq!(profile.prepared_generated_density_chunks, 0);
+        assert!(profile.prepared_reused_density_chunks >= 8);
+        assert_eq!(
+            profile.vertex_bytes,
+            profile.vertex_count * FLOATS_PER_VERTEX * 4
+        );
+        assert_eq!(profile.index_bytes, profile.index_count * 4);
+        assert!(profile.copy_checksum >= 0.0);
+        assert!(!profile.class.as_str().is_empty());
+    }
+
+    #[test]
+    fn benchmark_profile_classifies_air_and_solid_nodes() {
+        let _lock = crate::test_lock();
+        reset_density_store();
+        let air = profile_node_mesh_build(
+            0x0F6,
+            1,
+            TerrainNodeKey {
+                lod: 0,
+                coord: TerrainChunkCoord { x: 0, y: 10, z: 0 },
+            },
+            1.0,
+        );
+        reset_density_store();
+        let solid = profile_node_mesh_build(
+            0x0F6,
+            1,
+            TerrainNodeKey {
+                lod: 0,
+                coord: TerrainChunkCoord { x: 0, y: -10, z: 0 },
+            },
+            1.0,
+        );
+
+        assert_eq!(air.class, TerrainNodeBuildClass::EmptyAir);
+        assert_eq!(solid.class, TerrainNodeBuildClass::Solid);
     }
 }

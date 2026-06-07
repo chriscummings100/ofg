@@ -267,10 +267,7 @@ pub fn assert_pixel_stats(stats: PixelStats, label: &str) -> HarnessResult<()> {
 }
 
 /// Fails when the lower-center image region is dominated by sky-colored pixels.
-pub fn assert_no_large_lower_center_sky_hole(
-    stats: PixelStats,
-    label: &str,
-) -> HarnessResult<()> {
+pub fn assert_no_large_lower_center_sky_hole(stats: PixelStats, label: &str) -> HarnessResult<()> {
     if stats.lower_center_sampled_pixels > 0 && stats.lower_center_sky_like_ratio > 0.35 {
         return Err(harness_error(format!(
             "{label} image has a large lower-center sky-colored gap: ratio {}.",
