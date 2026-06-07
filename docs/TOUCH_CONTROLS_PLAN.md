@@ -75,8 +75,14 @@ polish are future work.
 - [x] (2026-06-07 13:18Z) Ran the repo-local `milestone-review` workflow
   locally across contract, code-quality, legacy, correctness, and validation
   passes. No required findings remained; no API contract doc update was needed.
+- [x] (2026-06-07 13:21Z) Committed the local implementation as `04bd40e` and
+  pushed branch `touch-controls` to `origin`.
 - [ ] Deploy and verify on the Cloudflare remote URL from an actual
-  WebGPU-capable mobile device.
+  WebGPU-capable mobile device. Partial progress: `curl.exe -I
+  https://ofg.chriscummings1024.workers.dev/` returned `200 OK` with COOP/COEP
+  headers on 2026-06-07, but the deployed HTML still lacked `#touch-controls`
+  after a cache-busted retry at 13:23Z, so the remote build had not updated to
+  this branch's pushed commit.
 
 ## Surprises & Discoveries
 
@@ -161,6 +167,16 @@ polish are future work.
   Evidence: `npm run coverage:rust` completed on 2026-06-07 and reported
   `files below 90% line coverage ... none`; this plan changes no Rust
   implementation files.
+
+- Observation: The stable Cloudflare URL is reachable and has the required
+  cross-origin isolation headers, but it had not deployed the touch-control
+  commit at the latest check.
+  Evidence: on 2026-06-07 13:21Z, `curl.exe -I
+  https://ofg.chriscummings1024.workers.dev/` returned `200 OK`,
+  `cross-origin-embedder-policy: require-corp`, and
+  `cross-origin-opener-policy: same-origin`. The fetched HTML from the same URL,
+  and from `?touch-controls=04bd40e` at 13:23Z, did not include
+  `#touch-controls`.
 
 ## Decision Log
 
@@ -258,6 +274,12 @@ The remaining gap is the final deployment milestone: commit, push, wait for the
 Cloudflare deployment, then verify the remote URL on an actual WebGPU-capable
 mobile device. Local Chrome mobile emulation is evidence for the implementation,
 but it is not a substitute for the real-device acceptance item.
+
+The implementation commit has been pushed to `origin/touch-controls`, but the
+stable Cloudflare URL was still serving older HTML at the latest check. The next
+deployment step is to trigger or wait for the Cloudflare build that includes
+commit `04bd40e`, then repeat the remote HTML/header check and real-device
+mobile verification.
 
 ## Contract and Quality Baseline
 
@@ -628,6 +650,15 @@ Validation evidence from 2026-06-07:
     In-app browser visual check on PORT=5183
     Result: terrain rendered with HUD top-left, camera toggle top-right, and
     joystick bottom-left without covering the HUD.
+
+    git push origin touch-controls
+    Result: passed. Branch `touch-controls` advanced from `62a0b78` to
+    `04bd40e`.
+
+    curl.exe -I https://ofg.chriscummings1024.workers.dev/
+    Result: `200 OK` with `cross-origin-embedder-policy: require-corp` and
+    `cross-origin-opener-policy: same-origin`, but fetched HTML still lacked
+    `#touch-controls`.
 
 Suggested joystick defaults:
 
