@@ -6,14 +6,16 @@ use std::sync::mpsc;
 use engine_core::{RenderCameraPacket, RenderLightPacket, RenderSnapshot, Vec3};
 use engine_web::{
     build_frame_packet_from_engine_snapshot, build_frame_uniform_values,
-    build_object_uniform_values, REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_MATERIAL_PACKET,
-    TERRAIN_VERTEX_FLOATS, WORLD_MATRIX_FLOATS,
+    build_object_uniform_values, build_shadow_cascades, RenderVec3, ShadowCascadeSet,
+    REQUIRED_TEXTURE_ARRAY_LAYERS, SHADOW_CASCADE_COUNT, SHADOW_MAP_SIZE, SHADOW_UNIFORM_FLOATS,
+    TERRAIN_MATERIAL_PACKET, TERRAIN_VERTEX_FLOATS, WORLD_MATRIX_FLOATS,
 };
 use terrain_core::MeshData;
 use wgpu::util::DeviceExt;
 
 use super::error::{harness_error, HarnessResult};
 use super::report::RendererReport;
+use super::shadow_debug::{ShadowDebugOutput, ShadowDebugRenderer};
 
 pub const WIDTH: u32 = 960;
 pub const HEIGHT: u32 = 540;
@@ -34,8 +36,11 @@ pub struct OffscreenRenderer {
     camera_bind_group: wgpu::BindGroup,
     object_uniform_buffer: wgpu::Buffer,
     object_bind_group: wgpu::BindGroup,
+    shadow_bind_group: wgpu::BindGroup,
+    _shadow_texture: wgpu::Texture,
     terrain_pipeline: wgpu::RenderPipeline,
     sky_pipeline: wgpu::RenderPipeline,
+    shadow_debug_renderer: ShadowDebugRenderer,
 }
 
 pub struct CameraSetup {
@@ -190,6 +195,75 @@ impl OffscreenRenderer {
                 },
             ],
         });
+        let shadow_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("smoke disabled shadow uniforms"),
+            size: uniform_byte_len(SHADOW_UNIFORM_FLOATS),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let shadow_texture = create_disabled_shadow_texture(&device);
+        let shadow_texture_view = shadow_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("smoke disabled shadow texture view"),
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            base_array_layer: 0,
+            array_layer_count: Some(SHADOW_CASCADE_COUNT as u32),
+            ..Default::default()
+        });
+        let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("smoke disabled shadow sampler"),
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
+        let shadow_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("smoke disabled shadow bind group layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Depth,
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                        count: None,
+                    },
+                ],
+            });
+        let shadow_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("smoke disabled shadow bind group"),
+            layout: &shadow_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: shadow_uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&shadow_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&shadow_sampler),
+                },
+            ],
+        });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("smoke uber shader"),
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(SHADER_SOURCE)),
@@ -197,7 +271,11 @@ impl OffscreenRenderer {
         let terrain_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("smoke terrain pipeline layout"),
-                bind_group_layouts: &[&camera_bind_group_layout, &object_bind_group_layout],
+                bind_group_layouts: &[
+                    &camera_bind_group_layout,
+                    &object_bind_group_layout,
+                    &shadow_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
         let sky_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -209,6 +287,12 @@ impl OffscreenRenderer {
             create_terrain_pipeline(&device, &terrain_pipeline_layout, &shader, COLOR_FORMAT);
         let sky_pipeline =
             create_sky_pipeline(&device, &sky_pipeline_layout, &shader, COLOR_FORMAT);
+        let shadow_debug_renderer = ShadowDebugRenderer::new(
+            &device,
+            &camera_bind_group_layout,
+            &object_bind_group_layout,
+            &shader,
+        );
 
         Ok(Self {
             device,
@@ -218,27 +302,17 @@ impl OffscreenRenderer {
             camera_bind_group,
             object_uniform_buffer,
             object_bind_group,
+            shadow_bind_group,
+            _shadow_texture: shadow_texture,
             terrain_pipeline,
             sky_pipeline,
+            shadow_debug_renderer,
         })
     }
 
     /// Renders terrain meshes to CPU-readable RGBA pixels.
     pub fn render(&self, camera: &CameraSetup, meshes: &[MeshData]) -> HarnessResult<Vec<u8>> {
-        let frame_uniforms = camera.frame_uniforms()?;
-        let object_uniforms =
-            build_object_uniform_values(&IDENTITY_WORLD_MATRIX, &TERRAIN_MATERIAL_PACKET)
-                .map_err(|error| harness_error(error.to_string()))?;
-        self.queue.write_buffer(
-            &self.camera_uniform_buffer,
-            0,
-            f32_as_bytes(&frame_uniforms),
-        );
-        self.queue.write_buffer(
-            &self.object_uniform_buffer,
-            0,
-            f32_as_bytes(&object_uniforms),
-        );
+        self.write_common_uniforms(camera)?;
 
         let gpu_meshes = meshes
             .iter()
@@ -310,6 +384,7 @@ impl OffscreenRenderer {
             pass.draw(0..3, 0..1);
             pass.set_pipeline(&self.terrain_pipeline);
             pass.set_bind_group(1, &self.object_bind_group, &[]);
+            pass.set_bind_group(2, &self.shadow_bind_group, &[]);
             for mesh in &gpu_meshes {
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
@@ -346,6 +421,23 @@ impl OffscreenRenderer {
             HEIGHT,
             unpadded_bytes_per_row,
             padded_bytes_per_row,
+        )
+    }
+
+    /// Renders and visualizes CSM depth layers for the terrain smoke scene.
+    pub fn render_shadow_debug(
+        &self,
+        camera: &CameraSetup,
+        meshes: &[MeshData],
+    ) -> HarnessResult<ShadowDebugOutput> {
+        self.write_common_uniforms(camera)?;
+        self.shadow_debug_renderer.render(
+            &self.device,
+            &self.queue,
+            &self.camera_bind_group,
+            &self.object_bind_group,
+            camera,
+            meshes,
         )
     }
 
@@ -393,11 +485,54 @@ impl OffscreenRenderer {
             index_count: mesh.indices.len() as u32,
         })
     }
+
+    /// Writes camera and terrain object uniforms shared by color and debug passes.
+    fn write_common_uniforms(&self, camera: &CameraSetup) -> HarnessResult<()> {
+        let frame_uniforms = camera.frame_uniforms()?;
+        let object_uniforms =
+            build_object_uniform_values(&IDENTITY_WORLD_MATRIX, &TERRAIN_MATERIAL_PACKET)
+                .map_err(|error| harness_error(error.to_string()))?;
+        self.queue.write_buffer(
+            &self.camera_uniform_buffer,
+            0,
+            f32_as_bytes(&frame_uniforms),
+        );
+        self.queue.write_buffer(
+            &self.object_uniform_buffer,
+            0,
+            f32_as_bytes(&object_uniforms),
+        );
+        Ok(())
+    }
 }
 
 impl CameraSetup {
     /// Converts camera and light values into renderer frame uniforms.
     fn frame_uniforms(&self) -> HarnessResult<[f32; engine_web::FRAME_UNIFORM_FLOATS]> {
+        let snapshot = self.render_snapshot_f32s();
+
+        let frame_packet = build_frame_packet_from_engine_snapshot(&snapshot, aspect_ratio())
+            .map_err(|error| harness_error(error.to_string()))?;
+        build_frame_uniform_values(&frame_packet).map_err(|error| harness_error(error.to_string()))
+    }
+
+    /// Builds shadow cascade matrices for this deterministic smoke camera.
+    pub(super) fn shadow_cascades(&self) -> HarnessResult<ShadowCascadeSet> {
+        let snapshot = self.render_snapshot_f32s();
+        build_shadow_cascades(
+            RenderVec3::new(snapshot[0], snapshot[1], snapshot[2]),
+            RenderVec3::new(snapshot[3], snapshot[4], snapshot[5]),
+            snapshot[8],
+            aspect_ratio(),
+            snapshot[9],
+            snapshot[10],
+            RenderVec3::new(snapshot[11], snapshot[12], snapshot[13]),
+        )
+        .ok_or_else(|| harness_error("Rust smoke could not build shadow cascades."))
+    }
+
+    /// Writes a stable engine render snapshot for color and shadow paths.
+    pub(super) fn render_snapshot_f32s(&self) -> [f32; engine_core::RENDER_SNAPSHOT_FLOAT_COUNT] {
         let mut snapshot = [0.0; engine_core::RENDER_SNAPSHOT_FLOAT_COUNT];
         RenderSnapshot {
             camera: RenderCameraPacket {
@@ -417,10 +552,7 @@ impl CameraSetup {
             },
         }
         .write_f32s(&mut snapshot);
-
-        let frame_packet = build_frame_packet_from_engine_snapshot(&snapshot, aspect_ratio())
-            .map_err(|error| harness_error(error.to_string()))?;
-        build_frame_uniform_values(&frame_packet).map_err(|error| harness_error(error.to_string()))
+        snapshot
     }
 }
 
@@ -699,8 +831,26 @@ fn create_depth_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu:
     })
 }
 
+/// Creates an inert shadow texture array for normal color smoke rendering.
+fn create_disabled_shadow_texture(device: &wgpu::Device) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("smoke disabled shadow texture"),
+        size: wgpu::Extent3d {
+            width: SHADOW_MAP_SIZE,
+            height: SHADOW_MAP_SIZE,
+            depth_or_array_layers: SHADOW_CASCADE_COUNT as u32,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Depth32Float,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    })
+}
+
 /// Reads padded GPU output into tightly packed RGBA pixels.
-fn read_rgba_output(
+pub(super) fn read_rgba_output(
     device: &wgpu::Device,
     output_buffer: &wgpu::Buffer,
     width: u32,
@@ -749,17 +899,17 @@ fn aspect_ratio() -> f32 {
 }
 
 /// Returns the byte length for a f32 uniform array.
-fn uniform_byte_len(float_count: usize) -> wgpu::BufferAddress {
+pub(super) fn uniform_byte_len(float_count: usize) -> wgpu::BufferAddress {
     (float_count * std::mem::size_of::<f32>()) as wgpu::BufferAddress
 }
 
 /// Returns an aligned row byte count.
-fn align_to(value: u32, alignment: u32) -> u32 {
+pub(super) fn align_to(value: u32, alignment: u32) -> u32 {
     value.div_ceil(alignment) * alignment
 }
 
 /// Converts f32 values to bytes for GPU upload.
-fn f32_as_bytes(values: &[f32]) -> &[u8] {
+pub(super) fn f32_as_bytes(values: &[f32]) -> &[u8] {
     unsafe {
         // SAFETY: `f32` has no invalid bit patterns, and the returned byte slice
         // is tied to the input slice lifetime for immediate GPU upload.
@@ -768,7 +918,7 @@ fn f32_as_bytes(values: &[f32]) -> &[u8] {
 }
 
 /// Converts u32 values to bytes for GPU upload.
-fn u32_as_bytes(values: &[u32]) -> &[u8] {
+pub(super) fn u32_as_bytes(values: &[u32]) -> &[u8] {
     unsafe {
         // SAFETY: `u32` has no invalid bit patterns, and the returned byte slice
         // is tied to the input slice lifetime for immediate GPU upload.

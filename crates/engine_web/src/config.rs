@@ -2,6 +2,11 @@ pub const REQUIRED_TEXTURE_ARRAY_LAYERS: u32 = 16;
 pub const MODEL_VERTEX_FLOATS: u32 = 12;
 pub const TERRAIN_VERTEX_FLOATS: u32 = 19;
 pub const TEXTURE_FORMAT_RGBA8_UNORM: u32 = 1;
+pub const SHADOW_CASCADE_COUNT: usize = 4;
+pub const SHADOW_MAP_SIZE: u32 = 1024;
+pub const SHADOW_MAX_DISTANCE: f32 = 220.0;
+pub const SHADOW_SPLIT_LAMBDA: f32 = 0.65;
+pub const SHADOW_CASTER_MARGIN: f32 = 80.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RendererConfig {

@@ -7,6 +7,15 @@ export type PlayerMode = "firstPerson" | "thirdPerson" | "debugFly";
 
 export type PlayerCharacterId = "male" | "female";
 
+export type ShadowDebugView =
+  | "off"
+  | "cascadeIndex"
+  | "shadowVisibility"
+  | "shadowDepthCascade0"
+  | "shadowDepthCascade1"
+  | "shadowDepthCascade2"
+  | "shadowDepthCascade3";
+
 export type PlayerAnimationTuning = {
   readonly walkSpeedMetersPerSecond: number;
   readonly runSpeedMetersPerSecond: number;
@@ -54,6 +63,7 @@ export type GameCommand =
       readonly yaw: number;
       readonly pitch: number;
     }
+  | { readonly type: "setShadowDebugView"; readonly view: ShadowDebugView }
   | { readonly type: "resetStreaming" };
 
 export type RustBrowserGameResetCommand = {
@@ -105,6 +115,7 @@ export type RustBrowserGameDebugSnapshot = {
   readonly terrainRenderPacketRuntime: "rust";
   readonly rendererRuntime: "rust-wgpu";
   readonly rendererStatus: EngineWebRendererStatus;
+  readonly shadowDebugView: ShadowDebugView;
   readonly terrainWorkerCount: number;
   readonly playerControllerRuntime: "rust";
   readonly playerCharacterId?: PlayerCharacterId;

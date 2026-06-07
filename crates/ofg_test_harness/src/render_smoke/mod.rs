@@ -13,13 +13,18 @@ mod error;
 mod renderer;
 mod report;
 mod scenarios;
+mod shadow_debug;
 
 pub use error::{HarnessError, HarnessResult};
 
 use error::harness_error;
 use renderer::{OffscreenRenderer, HEIGHT, WIDTH};
-use report::{analyze_pixels, assert_pixel_stats, path_string, ImageReport, SmokeReport};
+use report::{
+    analyze_pixels, analyze_shadow_debug_pixels, assert_pixel_stats, assert_shadow_debug_layers,
+    path_string, ImageReport, ShadowImageReport, SmokeReport,
+};
 use scenarios::{build_scenario_terrain, scenarios, Scenario, ScenarioFilter};
+use shadow_debug::ShadowDebugOutput;
 
 struct Args {
     out_root: PathBuf,
@@ -42,10 +47,15 @@ pub fn run() -> HarnessResult<()> {
     }
 
     let mut images = Vec::with_capacity(selected_scenarios.len());
+    let mut shadow_images = Vec::new();
     for scenario in selected_scenarios {
         let rendered = render_scenario(&renderer, scenario, &run_dir)?;
-        println!("Rust smoke image: {}", rendered.path);
-        images.push(rendered);
+        println!("Rust smoke image: {}", rendered.image.path);
+        for shadow_image in &rendered.shadow_images {
+            println!("Rust smoke shadow image: {}", shadow_image.path);
+        }
+        images.push(rendered.image);
+        shadow_images.extend(rendered.shadow_images);
     }
 
     let report = SmokeReport {
@@ -53,6 +63,7 @@ pub fn run() -> HarnessResult<()> {
         artifact_dir: path_string(&run_dir)?,
         renderer: renderer.report(),
         images,
+        shadow_images,
     };
     let report_path = run_dir.join("report.json");
     let mut report_json = serde_json::to_vec_pretty(&report)?;
@@ -63,6 +74,11 @@ pub fn run() -> HarnessResult<()> {
     println!("Artifacts: {}", path_string(&run_dir)?);
     println!("Report: {}", path_string(&report_path)?);
     Ok(())
+}
+
+struct RenderedScenario {
+    image: ImageReport,
+    shadow_images: Vec<ShadowImageReport>,
 }
 
 impl Args {
@@ -124,10 +140,10 @@ fn render_scenario(
     renderer: &OffscreenRenderer,
     scenario: Scenario,
     run_dir: &Path,
-) -> HarnessResult<ImageReport> {
+) -> HarnessResult<RenderedScenario> {
     let terrain = build_scenario_terrain(scenario)?;
     let pixels = renderer.render(&terrain.camera, &terrain.meshes)?;
-    let stats = analyze_pixels(&pixels);
+    let stats = analyze_pixels(&pixels, WIDTH, HEIGHT);
     assert_pixel_stats(stats, scenario.name)?;
 
     let image = RgbaImage::from_raw(WIDTH, HEIGHT, pixels)
@@ -135,14 +151,84 @@ fn render_scenario(
     let image_path = run_dir.join(scenario.file_name);
     image.save(&image_path)?;
 
-    Ok(ImageReport {
-        name: scenario.name.to_string(),
-        path: path_string(&image_path)?,
-        width: WIDTH,
-        height: HEIGHT,
-        pixel_stats: stats,
-        debug: terrain.debug,
+    let shadow_images = if scenario.shadow_debug {
+        let shadow_debug = renderer.render_shadow_debug(&terrain.camera, &terrain.meshes)?;
+        write_shadow_debug_images(shadow_debug, run_dir)?
+    } else {
+        Vec::new()
+    };
+
+    Ok(RenderedScenario {
+        image: ImageReport {
+            name: scenario.name.to_string(),
+            path: path_string(&image_path)?,
+            width: WIDTH,
+            height: HEIGHT,
+            pixel_stats: stats,
+            debug: terrain.debug,
+        },
+        shadow_images,
     })
+}
+
+/// Writes shadow cascade visualizations and an atlas for one debug scenario.
+fn write_shadow_debug_images(
+    output: ShadowDebugOutput,
+    run_dir: &Path,
+) -> HarnessResult<Vec<ShadowImageReport>> {
+    let mut reports = Vec::with_capacity(output.layers.len() + 1);
+    let mut layer_stats = Vec::with_capacity(output.layers.len());
+    for layer in output.layers {
+        let file_name = format!("shadow-cascade-{}.png", layer.cascade_index);
+        let name = format!("shadow-cascade-{}", layer.cascade_index);
+        let pixel_stats = analyze_pixels(
+            &layer.pixels,
+            engine_web::SHADOW_MAP_SIZE,
+            engine_web::SHADOW_MAP_SIZE,
+        );
+        let shadow_stats = analyze_shadow_debug_pixels(
+            &layer.pixels,
+            engine_web::SHADOW_MAP_SIZE,
+            engine_web::SHADOW_MAP_SIZE,
+        );
+        layer_stats.push(shadow_stats);
+        let image = RgbaImage::from_raw(
+            engine_web::SHADOW_MAP_SIZE,
+            engine_web::SHADOW_MAP_SIZE,
+            layer.pixels,
+        )
+        .ok_or_else(|| harness_error("Rust smoke could not create a shadow cascade image."))?;
+        let image_path = run_dir.join(file_name);
+        image.save(&image_path)?;
+
+        reports.push(ShadowImageReport {
+            name,
+            path: path_string(&image_path)?,
+            width: engine_web::SHADOW_MAP_SIZE,
+            height: engine_web::SHADOW_MAP_SIZE,
+            pixel_stats,
+            shadow_stats,
+        });
+    }
+    assert_shadow_debug_layers(&layer_stats, "boot-frame")?;
+
+    let atlas_pixel_stats = analyze_pixels(&output.atlas, output.atlas_width, output.atlas_height);
+    let atlas_shadow_stats =
+        analyze_shadow_debug_pixels(&output.atlas, output.atlas_width, output.atlas_height);
+    let atlas = RgbaImage::from_raw(output.atlas_width, output.atlas_height, output.atlas)
+        .ok_or_else(|| harness_error("Rust smoke could not create a shadow atlas image."))?;
+    let atlas_path = run_dir.join("shadow-atlas.png");
+    atlas.save(&atlas_path)?;
+    reports.push(ShadowImageReport {
+        name: "shadow-atlas".to_string(),
+        path: path_string(&atlas_path)?,
+        width: output.atlas_width,
+        height: output.atlas_height,
+        pixel_stats: atlas_pixel_stats,
+        shadow_stats: atlas_shadow_stats,
+    });
+
+    Ok(reports)
 }
 
 /// Creates a timestamp-like run id without pulling in a date-time dependency.

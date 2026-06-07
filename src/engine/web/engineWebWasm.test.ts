@@ -207,8 +207,13 @@ function fakeBrowserGame(): EngineWebBrowserGame {
           textureCount: 3,
           objectCount: 1,
           frameIndex: 0,
-          frameDrawCount: 0
+          frameDrawCount: 0,
+          frameVisibleDrawCount: 0,
+          frameShadowDrawCount: 0,
+          shadowCascadeCount: 4,
+          shadowMapSize: 1024
         },
+        shadowDebugView: "off",
         terrainWorkerCount: 6,
         playerControllerRuntime: "rust"
       };

@@ -1,3 +1,5 @@
+// Verifies the generated uber shader artifact and its renderer-facing contracts.
+
 import { equal, ok } from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -13,6 +15,8 @@ describe("uber shader build", () => {
     equal(UBER_SHADER_METADATA.sourcePath, "src/engine/render/shaders/uber.wgsl");
     equal(UBER_SHADER_METADATA.vertexEntryPoint, "vertexMain");
     equal(UBER_SHADER_METADATA.modelVertexEntryPoint, "modelVertexMain");
+    equal(UBER_SHADER_METADATA.shadowVertexEntryPoint, "shadowVertexMain");
+    equal(UBER_SHADER_METADATA.shadowModelVertexEntryPoint, "shadowModelVertexMain");
     equal(UBER_SHADER_METADATA.fragmentEntryPoint, "fragmentMain");
     equal(UBER_SHADER_METADATA.skyVertexEntryPoint, "skyVertexMain");
     equal(UBER_SHADER_METADATA.skyFragmentEntryPoint, "skyFragmentMain");
@@ -103,5 +107,21 @@ describe("uber shader build", () => {
     ok(UBER_SHADER_SOURCE.includes("fn skyFragmentMain"));
     ok(UBER_SHADER_SOURCE.includes("inverseViewProjection"));
     ok(UBER_SHADER_SOURCE.includes("sunDisk"));
+  });
+
+  it("contains the shadow debug rendering contract", () => {
+    ok(UBER_SHADER_SOURCE.includes("fn shadowVertexMain"));
+    ok(UBER_SHADER_SOURCE.includes("fn shadowModelVertexMain"));
+    ok(UBER_SHADER_SOURCE.includes("@group(2) @binding(0) var<uniform> shadows: Shadows"));
+    ok(UBER_SHADER_SOURCE.includes("@group(2) @binding(1) var shadowTexture: texture_depth_2d_array"));
+    ok(UBER_SHADER_SOURCE.includes("@group(2) @binding(2) var shadowSampler: sampler_comparison"));
+    ok(UBER_SHADER_SOURCE.includes("texture_depth_2d_array"));
+    ok(UBER_SHADER_SOURCE.includes("sampler_comparison"));
+    ok(UBER_SHADER_SOURCE.includes("textureSampleCompareLevel"));
+    ok(UBER_SHADER_SOURCE.includes("visibility / 9.0"));
+    ok(UBER_SHADER_SOURCE.includes("SHADOW_DEBUG_CASCADE_INDEX"));
+    ok(UBER_SHADER_SOURCE.includes("SHADOW_DEBUG_VISIBILITY"));
+    ok(UBER_SHADER_SOURCE.includes("fn shadowDebugColor"));
+    ok(UBER_SHADER_SOURCE.includes("fn loadShadowDepth"));
   });
 });

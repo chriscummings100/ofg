@@ -173,7 +173,14 @@ Current hook categories:
 
 - Terrain keys and stream status from Rust `debugSnapshot()`.
 - Terrain preset and seed from Rust `debugSnapshot()`.
-- Renderer status from Rust `debugSnapshot()`.
+- Renderer status from Rust `debugSnapshot()`, including resource counts,
+  frame count, total frame draw candidates, and visible post-cull frame draw
+  count. Shadow resource status currently reports cascade count, shadow-map
+  size, and per-frame shadow-pass draw count.
+- Shadow debug view state from Rust `debugSnapshot()` as `shadowDebugView`, plus
+  the browser-only `setShadowDebugView(...)` debug hook. Supported debug view
+  names are `off`, `cascadeIndex`, `shadowVisibility`, and
+  `shadowDepthCascade0` through `shadowDepthCascade3`.
 - Player character ID/label, visibility, follow-state, animation clip,
   walk/run blend, playback scale, locomotion speed, numeric animation tuning,
   and CPU-skinning state from Rust `debugSnapshot()`.

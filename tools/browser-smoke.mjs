@@ -73,6 +73,32 @@ async function runBrowserSmoke(url) {
     assertDebugContract(firstDebug);
     const firstImage = await saveScreenshot(page, "browser-first-person.png");
     assertPixelStats(firstImage.pixelStats, "browser first-person", consoleMessages);
+    await setShadowDebugView(page, "cascadeIndex");
+    assertNoBrowserFailures(consoleMessages);
+    const cascadeDebug = await readDebugContract(page);
+    assertDebugContract(cascadeDebug, "cascadeIndex");
+    const cascadeDebugImage = await saveScreenshot(page, "browser-shadow-cascade-index.png");
+    assertPixelStats(
+      cascadeDebugImage.pixelStats,
+      "browser shadow cascade debug",
+      consoleMessages
+    );
+    await setShadowDebugView(page, "shadowVisibility");
+    assertNoBrowserFailures(consoleMessages);
+    const visibilityDebug = await readDebugContract(page);
+    assertDebugContract(visibilityDebug, "shadowVisibility");
+    const visibilityDebugImage = await saveScreenshot(page, "browser-shadow-visibility.png");
+    assertPixelStats(
+      visibilityDebugImage.pixelStats,
+      "browser shadow visibility debug",
+      consoleMessages
+    );
+    await setShadowDebugView(page, "shadowDepthCascade0");
+    assertNoBrowserFailures(consoleMessages);
+    const depthDebug = await readDebugContract(page);
+    assertDebugContract(depthDebug, "shadowDepthCascade0");
+    await setShadowDebugView(page, "off");
+    assertNoBrowserFailures(consoleMessages);
 
     await page.keyboard.press("KeyC");
     await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "THIRD");
@@ -102,11 +128,14 @@ async function runBrowserSmoke(url) {
       artifactDir: reportPath(artifactDir),
       browserPath,
       headed,
-      images: [firstImage, toggledImage, reloadedImage],
+      images: [firstImage, cascadeDebugImage, visibilityDebugImage, toggledImage, reloadedImage],
       firstHud,
       toggledHud,
       reloadedHud,
       firstDebug,
+      cascadeDebug,
+      visibilityDebug,
+      depthDebug,
       toggledDebug,
       reloadedDebug,
       consoleMessages
@@ -127,7 +156,8 @@ async function waitForBrowserFrame(page) {
       frameTime !== "0.0 ms" &&
       status !== undefined &&
       status.configured === true &&
-      status.frameDrawCount > 0;
+      status.frameDrawCount > 0 &&
+      status.frameVisibleDrawCount > 0;
   }, null, { timeout: 10000 });
   await page.waitForTimeout(250);
 }
@@ -143,6 +173,18 @@ async function readHud(page) {
     canvasWidth: document.querySelector("canvas")?.width ?? 0,
     canvasHeight: document.querySelector("canvas")?.height ?? 0
   }));
+}
+
+/// Sets a Rust-owned shadow debug view through the black-box browser hook.
+async function setShadowDebugView(page, view) {
+  const activeView = await page.evaluate((nextView) => {
+    window.__ofgDebug?.setShadowDebugView?.(nextView);
+    return window.__ofgDebug?.getShadowDebugView?.();
+  }, view);
+  if (activeView !== view) {
+    throw new Error(`Expected shadow debug view '${view}', saw '${activeView}'.`);
+  }
+  await waitForBrowserFrame(page);
 }
 
 /// Reads black-box Rust runtime sentinels from the debug API.
@@ -161,6 +203,7 @@ async function readDebugContract(page) {
       terrainDensityStoreRuntime: debug?.getTerrainDensityStoreRuntime?.() ?? "missing",
       terrainRenderPacketRuntime: debug?.getTerrainRenderPacketRuntime?.() ?? "missing",
       rendererRuntime: debug?.getRendererRuntime?.() ?? "missing",
+      shadowDebugView: debug?.getShadowDebugView?.() ?? "missing",
       rendererStatus: status === undefined
         ? undefined
         : {
@@ -174,6 +217,10 @@ async function readDebugContract(page) {
             objectCount: status.objectCount,
             frameIndex: status.frameIndex.toString(),
             frameDrawCount: status.frameDrawCount,
+            frameVisibleDrawCount: status.frameVisibleDrawCount,
+            frameShadowDrawCount: status.frameShadowDrawCount,
+            shadowCascadeCount: status.shadowCascadeCount,
+            shadowMapSize: status.shadowMapSize,
             requiredTextureArrayLayers: status.requiredTextureArrayLayers,
             maxTextureArrayLayers: status.maxTextureArrayLayers
           }
@@ -216,7 +263,7 @@ function assertHud(hud, expectedMode, consoleMessages) {
 }
 
 /// Validates that debug hooks are black-box integration hooks only.
-function assertDebugContract(debug) {
+function assertDebugContract(debug, expectedShadowDebugView = "off") {
   if (!debug.hasDebug) {
     throw new Error("Debug API is unavailable.");
   }
@@ -249,6 +296,11 @@ function assertDebugContract(debug) {
   if (forbiddenMatches.length > 0) {
     throw new Error(`Debug API exposes terrain internals: ${forbiddenMatches.join(", ")}`);
   }
+  if (debug.shadowDebugView !== expectedShadowDebugView) {
+    throw new Error(
+      `Expected shadow debug view ${expectedShadowDebugView}, saw ${debug.shadowDebugView}.`
+    );
+  }
 
   const status = debug.rendererStatus;
   if (
@@ -256,6 +308,10 @@ function assertDebugContract(debug) {
     !status.configured ||
     status.runtime !== "rust-wgpu" ||
     status.frameDrawCount <= 0 ||
+    status.frameVisibleDrawCount <= 0 ||
+    status.frameShadowDrawCount <= 0 ||
+    status.shadowCascadeCount !== 4 ||
+    status.shadowMapSize !== 1024 ||
     status.meshCount <= 0 ||
     status.textureCount <= 0 ||
     status.objectCount <= 0 ||

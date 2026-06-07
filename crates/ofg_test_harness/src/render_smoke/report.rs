@@ -7,8 +7,6 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::error::{harness_error, HarnessResult};
-use super::renderer::{HEIGHT, WIDTH};
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SmokeReport {
@@ -16,6 +14,7 @@ pub struct SmokeReport {
     pub artifact_dir: String,
     pub renderer: RendererReport,
     pub images: Vec<ImageReport>,
+    pub shadow_images: Vec<ShadowImageReport>,
 }
 
 #[derive(Serialize)]
@@ -39,6 +38,17 @@ pub struct ImageReport {
     pub debug: ScenarioDebug,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShadowImageReport {
+    pub name: String,
+    pub path: String,
+    pub width: u32,
+    pub height: u32,
+    pub pixel_stats: PixelStats,
+    pub shadow_stats: ShadowDebugStats,
+}
+
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PixelStats {
@@ -54,6 +64,19 @@ pub struct MeanColor {
     pub r: f32,
     pub g: f32,
     pub b: f32,
+}
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShadowDebugStats {
+    pub sampled_pixels: u32,
+    pub non_black_pixels: u32,
+    pub non_white_pixels: u32,
+    pub unique_luma_buckets: usize,
+    pub dominant_luma_ratio: f32,
+    pub min_luma: u8,
+    pub max_luma: u8,
+    pub mean_luma: f32,
 }
 
 #[derive(Serialize)]
@@ -73,7 +96,7 @@ pub struct ScenarioDebug {
 }
 
 /// Computes pixel statistics for a rendered RGBA image.
-pub fn analyze_pixels(pixels: &[u8]) -> PixelStats {
+pub fn analyze_pixels(pixels: &[u8], width: u32, height: u32) -> PixelStats {
     let mut buckets = HashMap::<(u8, u8, u8), u32>::new();
     let mut sampled_pixels = 0;
     let mut opaque_pixels = 0;
@@ -81,9 +104,9 @@ pub fn analyze_pixels(pixels: &[u8]) -> PixelStats {
     let mut sum_g = 0_u64;
     let mut sum_b = 0_u64;
 
-    for y in (0..HEIGHT).step_by(4) {
-        for x in (0..WIDTH).step_by(4) {
-            let offset = ((y * WIDTH + x) * 4) as usize;
+    for y in (0..height).step_by(4) {
+        for x in (0..width).step_by(4) {
+            let offset = ((y * width + x) * 4) as usize;
             let r = pixels[offset];
             let g = pixels[offset + 1];
             let b = pixels[offset + 2];
@@ -111,6 +134,70 @@ pub fn analyze_pixels(pixels: &[u8]) -> PixelStats {
             b: sum_b as f32 / sampled_pixels as f32,
         },
     }
+}
+
+/// Computes luma statistics for a grayscale shadow debug visualization.
+pub fn analyze_shadow_debug_pixels(pixels: &[u8], width: u32, height: u32) -> ShadowDebugStats {
+    let mut buckets = HashMap::<u8, u32>::new();
+    let mut sampled_pixels = 0;
+    let mut non_black_pixels = 0;
+    let mut non_white_pixels = 0;
+    let mut sum_luma = 0_u64;
+    let mut min_luma = u8::MAX;
+    let mut max_luma = u8::MIN;
+
+    for y in (0..height).step_by(4) {
+        for x in (0..width).step_by(4) {
+            let offset = ((y * width + x) * 4) as usize;
+            let luma = pixels[offset];
+            *buckets.entry(luma >> 4).or_insert(0) += 1;
+            sampled_pixels += 1;
+            if luma > 0 {
+                non_black_pixels += 1;
+            }
+            if luma < 255 {
+                non_white_pixels += 1;
+            }
+            sum_luma += u64::from(luma);
+            min_luma = min_luma.min(luma);
+            max_luma = max_luma.max(luma);
+        }
+    }
+
+    let dominant_bucket_count = buckets.values().copied().max().unwrap_or(0);
+    ShadowDebugStats {
+        sampled_pixels,
+        non_black_pixels,
+        non_white_pixels,
+        unique_luma_buckets: buckets.len(),
+        dominant_luma_ratio: dominant_bucket_count as f32 / sampled_pixels as f32,
+        min_luma,
+        max_luma,
+        mean_luma: sum_luma as f32 / sampled_pixels as f32,
+    }
+}
+
+/// Fails when all shadow debug layers look empty or uninformative.
+pub fn assert_shadow_debug_layers(stats: &[ShadowDebugStats], label: &str) -> HarnessResult<()> {
+    if stats.is_empty() {
+        return Err(harness_error(format!(
+            "{label} did not produce shadow debug layers."
+        )));
+    }
+
+    let has_visible_depth = stats
+        .iter()
+        .any(|stats| stats.non_black_pixels > stats.sampled_pixels / 1000);
+    let has_luma_variation = stats
+        .iter()
+        .any(|stats| stats.unique_luma_buckets > 1 && stats.max_luma > stats.min_luma);
+    if !has_visible_depth || !has_luma_variation {
+        return Err(harness_error(format!(
+            "{label} shadow debug layers look blank: visibleDepth={has_visible_depth} variation={has_luma_variation}."
+        )));
+    }
+
+    Ok(())
 }
 
 /// Fails when a rendered image looks blank, transparent, or solid.
@@ -149,6 +236,7 @@ pub fn path_string(path: &Path) -> HarnessResult<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::renderer::{HEIGHT, WIDTH};
     use super::*;
 
     #[test]
@@ -164,7 +252,7 @@ mod tests {
             }
         }
 
-        let stats = analyze_pixels(&pixels);
+        let stats = analyze_pixels(&pixels, WIDTH, HEIGHT);
 
         assert_eq!(stats.sampled_pixels, (WIDTH / 4) * (HEIGHT / 4));
         assert_eq!(stats.opaque_pixels, stats.sampled_pixels);
@@ -174,6 +262,26 @@ mod tests {
         assert!(stats.mean_color.g > 0.0);
         assert!(stats.mean_color.b > 0.0);
         assert!(assert_pixel_stats(stats, "varied").is_ok());
+    }
+
+    #[test]
+    fn shadow_debug_stats_detect_visible_depth_layers() {
+        let mut blank = vec![0_u8; (16 * 16 * 4) as usize];
+        let blank_stats = analyze_shadow_debug_pixels(&blank, 16, 16);
+        assert_eq!(blank_stats.non_black_pixels, 0);
+        assert!(assert_shadow_debug_layers(&[blank_stats], "blank").is_err());
+
+        for index in 0..16 {
+            let offset = index * 4;
+            blank[offset] = (index * 8) as u8;
+            blank[offset + 1] = (index * 8) as u8;
+            blank[offset + 2] = (index * 8) as u8;
+            blank[offset + 3] = 255;
+        }
+        let varied_stats = analyze_shadow_debug_pixels(&blank, 16, 16);
+        assert!(varied_stats.non_black_pixels > 0);
+        assert!(varied_stats.unique_luma_buckets > 1);
+        assert!(assert_shadow_debug_layers(&[varied_stats], "varied").is_ok());
     }
 
     #[test]
@@ -260,6 +368,33 @@ mod tests {
                     rendered_chunk_keys: vec!["0,0,0".to_string()],
                 },
             }],
+            shadow_images: vec![ShadowImageReport {
+                name: "shadow-cascade-0".to_string(),
+                path: "artifacts/rust-smoke/run-test/shadow-cascade-0.png".to_string(),
+                width: 16,
+                height: 16,
+                pixel_stats: PixelStats {
+                    sampled_pixels: 1,
+                    opaque_pixels: 1,
+                    unique_color_buckets: 1,
+                    dominant_color_ratio: 1.0,
+                    mean_color: MeanColor {
+                        r: 4.0,
+                        g: 4.0,
+                        b: 4.0,
+                    },
+                },
+                shadow_stats: ShadowDebugStats {
+                    sampled_pixels: 1,
+                    non_black_pixels: 1,
+                    non_white_pixels: 1,
+                    unique_luma_buckets: 1,
+                    dominant_luma_ratio: 1.0,
+                    min_luma: 4,
+                    max_luma: 4,
+                    mean_luma: 4.0,
+                },
+            }],
         };
 
         let value = serde_json::to_value(report).expect("report should serialize");
@@ -269,6 +404,7 @@ mod tests {
         assert!(value["renderer"]["deviceType"].is_string());
         assert!(value["images"][0]["pixelStats"]["sampledPixels"].is_number());
         assert_eq!(value["images"][0]["debug"]["terrainPreset"], "rollingHills");
+        assert!(value["shadowImages"][0]["shadowStats"]["nonBlackPixels"].is_number());
     }
 
     #[test]

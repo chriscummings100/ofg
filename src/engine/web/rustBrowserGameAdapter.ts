@@ -10,6 +10,7 @@ import type {
   PlayerMode,
   RustBrowserGameCommand,
   RustBrowserGameDebugSnapshot,
+  ShadowDebugView,
 } from "./browserGameTypes.js";
 
 export class RustBrowserGameAdapter {
@@ -81,6 +82,7 @@ export class RustBrowserGameAdapter {
       terrainWorkerCount: snapshot.terrainWorkerCount,
       playerControllerRuntime: snapshot.playerControllerRuntime,
       rendererStatus: snapshot.rendererStatus,
+      shadowDebugView: validateShadowDebugView(snapshot.shadowDebugView),
       playerCharacterId: snapshot.playerCharacterId === undefined
         ? undefined
         : validatePlayerCharacterId(snapshot.playerCharacterId),
@@ -137,4 +139,20 @@ function validatePlayerCharacterId(character: PlayerCharacterId): PlayerCharacte
   }
 
   throw new Error(`Rust browser game returned unknown player character '${character}'.`);
+}
+
+function validateShadowDebugView(view: ShadowDebugView): ShadowDebugView {
+  if (
+    view === "off" ||
+    view === "cascadeIndex" ||
+    view === "shadowVisibility" ||
+    view === "shadowDepthCascade0" ||
+    view === "shadowDepthCascade1" ||
+    view === "shadowDepthCascade2" ||
+    view === "shadowDepthCascade3"
+  ) {
+    return view;
+  }
+
+  throw new Error(`Rust browser game returned unknown shadow debug view '${view}'.`);
 }

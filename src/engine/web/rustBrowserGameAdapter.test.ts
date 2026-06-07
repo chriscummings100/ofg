@@ -48,6 +48,7 @@ describe("RustBrowserGameAdapter", () => {
     });
     adapter.command({ type: "setPlayerPosition", x: 96, z: 12 });
     adapter.command({ type: "setDebugCamera", x: 1, y: 2, z: 3, yaw: 0.25, pitch: -0.5 });
+    adapter.command({ type: "setShadowDebugView", view: "cascadeIndex" });
     const snapshot = adapter.getDebugSnapshot();
 
     equal(fake.commandCalls[0]?.type, "resetGame");
@@ -62,8 +63,10 @@ describe("RustBrowserGameAdapter", () => {
     equal(fake.commandCalls[5]?.type, "setPlayerAnimationTuning");
     equal(fake.commandCalls[6]?.type, "setPlayerPosition");
     equal(fake.commandCalls[7]?.type, "setDebugCamera");
+    equal(fake.commandCalls[8]?.type, "setShadowDebugView");
     equal(snapshot.playerMode, "firstPerson");
     equal(snapshot.playerPosition.x, 96);
+    equal(snapshot.shadowDebugView, "shadowVisibility");
     equal(snapshot.loadedTerrainChunkKeys[0], "0,0,0");
     equal(snapshot.playerCharacterId, "female");
     equal(snapshot.playerCharacterLabel, "Female");
@@ -157,8 +160,13 @@ function fakeBrowserGame(): FakeBrowserGame {
           textureCount: 3,
           objectCount: 1,
           frameIndex: 1,
-          frameDrawCount: 1
+          frameDrawCount: 1,
+          frameVisibleDrawCount: 1,
+          frameShadowDrawCount: 0,
+          shadowCascadeCount: 4,
+          shadowMapSize: 1024
         },
+        shadowDebugView: "shadowVisibility",
         terrainWorkerCount: 6,
         playerControllerRuntime: "rust",
         playerCharacterId: "female",

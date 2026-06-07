@@ -23,6 +23,10 @@ export type EngineWebRendererStatus = {
   readonly objectCount: number;
   readonly frameIndex: number;
   readonly frameDrawCount: number;
+  readonly frameVisibleDrawCount: number;
+  readonly frameShadowDrawCount: number;
+  readonly shadowCascadeCount: number;
+  readonly shadowMapSize: number;
 };
 
 export type EngineWebBrowserGame = {

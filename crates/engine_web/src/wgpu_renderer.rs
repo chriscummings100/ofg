@@ -8,8 +8,8 @@ use wasm_bindgen::JsCast;
 use wgpu::util::DeviceExt;
 
 use crate::config::{
-    MODEL_VERTEX_FLOATS, REQUIRED_TEXTURE_ARRAY_LAYERS, TERRAIN_VERTEX_FLOATS,
-    TEXTURE_FORMAT_RGBA8_UNORM,
+    MODEL_VERTEX_FLOATS, REQUIRED_TEXTURE_ARRAY_LAYERS, SHADOW_CASCADE_COUNT, SHADOW_MAP_SIZE,
+    TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
 };
 use crate::game_state::{BrowserGameInput, BrowserGameState};
 use crate::materials::TERRAIN_MATERIAL_PACKET;
@@ -27,12 +27,23 @@ use crate::model_texture_assets::decode_model_texture;
 use crate::player_character::{
     PlayerCharacterDescriptor, PlayerCharacterId, PLAYER_CHARACTER_DESCRIPTORS,
 };
-use crate::render_packets::build_frame_packet_from_engine_snapshot;
+use crate::render_math::{
+    aabb_from_vertex_positions, frustum_from_view_projection, frustum_intersects_aabb,
+    transform_aabb, Aabb, RenderVec3,
+};
+use crate::render_packets::{
+    build_frame_packet_from_engine_snapshot, ENGINE_RENDER_SNAPSHOT_FLOATS,
+};
 use crate::render_uniforms::{
-    build_frame_uniform_values, build_object_uniform_values, FRAME_PACKET_FLOATS,
-    FRAME_UNIFORM_FLOATS, MATERIAL_PACKET_FLOATS, OBJECT_UNIFORM_FLOATS, WORLD_MATRIX_FLOATS,
+    build_frame_uniform_values, build_object_uniform_values, build_shadow_uniform_values,
+    FRAME_PACKET_FLOATS, FRAME_UNIFORM_FLOATS, MATERIAL_PACKET_FLOATS, OBJECT_UNIFORM_FLOATS,
+    SHADOW_DEBUG_MODE_OFFSET, WORLD_MATRIX_FLOATS,
 };
 use crate::resources::{ResourceHandle, ResourceStore};
+use crate::shadow_renderer::{
+    create_shadow_pipelines, create_shadow_resources, ShadowPipelines, ShadowResources,
+};
+use crate::shadows::{build_shadow_cascades, ShadowCascadeSet};
 use crate::terrain_stream::{BrowserTerrainStream, BrowserTerrainStreamStatus, TerrainJobStats};
 use crate::terrain_textures::{load_terrain_texture_arrays, TerrainTextureArrays};
 use crate::ENGINE_WEB_VERSION;
@@ -41,6 +52,8 @@ use terrain_core::{terrain_chunk_key, TerrainChunkCoord, DEFAULT_TERRAIN_PRESET}
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
 const SHADER_SOURCE: &str = include_str!("../../../src/engine/render/shaders/uber.wgsl");
+const SHADOW_CONSTANT_BIAS: f32 = 0.0015;
+const SHADOW_NORMAL_BIAS: f32 = 0.0;
 
 #[wasm_bindgen]
 pub struct RustBrowserGame {
@@ -70,6 +83,10 @@ struct RustBrowserGameStatus {
     object_count: u32,
     frame_index: u32,
     frame_draw_count: u32,
+    frame_visible_draw_count: u32,
+    frame_shadow_draw_count: u32,
+    shadow_cascade_count: u32,
+    shadow_map_size: u32,
 }
 
 struct BrowserWgpuRenderer {
@@ -79,6 +96,7 @@ struct BrowserWgpuRenderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     depth_texture: wgpu::Texture,
+    shadow_resources: ShadowResources,
     camera_uniform_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     object_bind_group_layout: wgpu::BindGroupLayout,
@@ -86,6 +104,8 @@ struct BrowserWgpuRenderer {
     sky_pipeline: wgpu::RenderPipeline,
     pipeline: wgpu::RenderPipeline,
     model_pipeline: wgpu::RenderPipeline,
+    shadow_pipelines: ShadowPipelines,
+    shadow_debug_view: ShadowDebugView,
     max_texture_array_layers: u32,
     meshes: ResourceStore<GpuMesh>,
     textures: ResourceStore<GpuTexture>,
@@ -95,6 +115,8 @@ struct BrowserWgpuRenderer {
     fallback_material: ResourceHandle,
     frame_index: u32,
     frame_draw_count: u32,
+    frame_visible_draw_count: u32,
+    frame_shadow_draw_count: u32,
 }
 
 struct GpuMesh {
@@ -103,6 +125,7 @@ struct GpuMesh {
     index_count: u32,
     vertex_float_count: usize,
     vertex_layout: MeshVertexLayout,
+    local_bounds: Aabb,
 }
 
 struct GpuTexture {
@@ -115,6 +138,13 @@ struct GpuObject {
     albedo_texture: Option<ResourceHandle>,
     normal_texture: Option<ResourceHandle>,
     material_texture: Option<ResourceHandle>,
+}
+
+#[derive(Clone, Copy)]
+struct PreparedRenderItem {
+    mesh_handle: ResourceHandle,
+    object_handle: ResourceHandle,
+    world_bounds: Aabb,
 }
 
 struct PlayerCharacterSlot {
@@ -148,12 +178,62 @@ enum MeshVertexLayout {
     Model,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ShadowDebugView {
+    Off,
+    CascadeIndex,
+    ShadowVisibility,
+    ShadowDepthCascade0,
+    ShadowDepthCascade1,
+    ShadowDepthCascade2,
+    ShadowDepthCascade3,
+}
+
 impl MeshVertexLayout {
     fn from_floats_per_vertex(floats_per_vertex: u32) -> Option<Self> {
         match floats_per_vertex {
             TERRAIN_VERTEX_FLOATS => Some(Self::Terrain),
             MODEL_VERTEX_FLOATS => Some(Self::Model),
             _ => None,
+        }
+    }
+}
+
+impl ShadowDebugView {
+    fn from_js_name(name: &str) -> Option<Self> {
+        match name {
+            "off" => Some(Self::Off),
+            "cascadeIndex" => Some(Self::CascadeIndex),
+            "shadowVisibility" => Some(Self::ShadowVisibility),
+            "shadowDepthCascade0" => Some(Self::ShadowDepthCascade0),
+            "shadowDepthCascade1" => Some(Self::ShadowDepthCascade1),
+            "shadowDepthCascade2" => Some(Self::ShadowDepthCascade2),
+            "shadowDepthCascade3" => Some(Self::ShadowDepthCascade3),
+            _ => None,
+        }
+    }
+
+    fn js_name(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::CascadeIndex => "cascadeIndex",
+            Self::ShadowVisibility => "shadowVisibility",
+            Self::ShadowDepthCascade0 => "shadowDepthCascade0",
+            Self::ShadowDepthCascade1 => "shadowDepthCascade1",
+            Self::ShadowDepthCascade2 => "shadowDepthCascade2",
+            Self::ShadowDepthCascade3 => "shadowDepthCascade3",
+        }
+    }
+
+    fn uniform_code(self) -> f32 {
+        match self {
+            Self::Off => 0.0,
+            Self::CascadeIndex => 1.0,
+            Self::ShadowVisibility => 2.0,
+            Self::ShadowDepthCascade0 => 3.0,
+            Self::ShadowDepthCascade1 => 4.0,
+            Self::ShadowDepthCascade2 => 5.0,
+            Self::ShadowDepthCascade3 => 6.0,
         }
     }
 }
@@ -387,6 +467,15 @@ impl RustBrowserGame {
                     .set_debug_camera(position, yaw, pitch)
                     .map_err(js_error)?;
             }
+            "setShadowDebugView" => {
+                let view_name = js_required_string(&command, "view", "command.view")?;
+                let view = ShadowDebugView::from_js_name(&view_name).ok_or_else(|| {
+                    js_error(format!(
+                        "Rust browser game received unknown shadow debug view '{view_name}'."
+                    ))
+                })?;
+                self.renderer.set_shadow_debug_view(view);
+            }
             _ => {
                 return Err(js_error(format!(
                     "Rust browser game received unknown command '{command_type}'."
@@ -470,6 +559,11 @@ impl RustBrowserGame {
             &snapshot,
             "rendererStatus",
             renderer_status_to_js(self.renderer.status())?,
+        )?;
+        set_js_property(
+            &snapshot,
+            "shadowDebugView",
+            JsValue::from_str(self.renderer.shadow_debug_view_name()),
         )?;
         set_js_property(
             &snapshot,
@@ -1008,6 +1102,7 @@ impl BrowserWgpuRenderer {
         surface.configure(&device, &config);
 
         let depth_texture = create_depth_texture(&device, display_width, display_height);
+        let shadow_resources = create_shadow_resources(&device);
         let camera_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("camera uniforms"),
             size: uniform_byte_len(FRAME_UNIFORM_FLOATS),
@@ -1075,7 +1170,11 @@ impl BrowserWgpuRenderer {
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("terrain pipeline layout"),
-            bind_group_layouts: &[&camera_bind_group_layout, &object_bind_group_layout],
+            bind_group_layouts: &[
+                &camera_bind_group_layout,
+                &object_bind_group_layout,
+                &shadow_resources.bind_group_layout,
+            ],
             push_constant_ranges: &[],
         });
         let sky_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1083,9 +1182,20 @@ impl BrowserWgpuRenderer {
             bind_group_layouts: &[&camera_bind_group_layout],
             push_constant_ranges: &[],
         });
+        let shadow_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("shadow pipeline layout"),
+                bind_group_layouts: &[
+                    &camera_bind_group_layout,
+                    &object_bind_group_layout,
+                    &shadow_resources.depth_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
         let pipeline = create_main_pipeline(&device, &pipeline_layout, &shader, format);
         let model_pipeline = create_model_pipeline(&device, &pipeline_layout, &shader, format);
         let sky_pipeline = create_sky_pipeline(&device, &sky_pipeline_layout, &shader, format);
+        let shadow_pipelines = create_shadow_pipelines(&device, &shadow_pipeline_layout, &shader);
         let mut renderer = Self {
             canvas,
             surface,
@@ -1093,6 +1203,7 @@ impl BrowserWgpuRenderer {
             queue,
             config,
             depth_texture,
+            shadow_resources,
             camera_uniform_buffer,
             camera_bind_group,
             object_bind_group_layout,
@@ -1100,6 +1211,8 @@ impl BrowserWgpuRenderer {
             sky_pipeline,
             pipeline,
             model_pipeline,
+            shadow_pipelines,
+            shadow_debug_view: ShadowDebugView::Off,
             max_texture_array_layers,
             meshes: ResourceStore::new(),
             textures: ResourceStore::new(),
@@ -1109,6 +1222,8 @@ impl BrowserWgpuRenderer {
             fallback_material: ResourceHandle::INVALID,
             frame_index: 0,
             frame_draw_count: 0,
+            frame_visible_draw_count: 0,
+            frame_shadow_draw_count: 0,
         };
         renderer.create_fallback_textures()?;
         Ok(renderer)
@@ -1155,6 +1270,8 @@ impl BrowserWgpuRenderer {
         {
             return Err(js_error("Rust WebGPU renderer rejected an invalid mesh."));
         }
+        let local_bounds = aabb_from_vertex_positions(vertices, floats_per_vertex, 0)
+            .ok_or_else(|| js_error("Rust WebGPU renderer rejected an invalid mesh."))?;
 
         let vertex_buffer = self
             .device
@@ -1177,6 +1294,7 @@ impl BrowserWgpuRenderer {
             index_count: indices.len() as u32,
             vertex_float_count: vertices.len(),
             vertex_layout,
+            local_bounds,
         }))
     }
 
@@ -1198,9 +1316,12 @@ impl BrowserWgpuRenderer {
             ));
         }
 
+        let local_bounds = aabb_from_vertex_positions(vertices, floats_per_vertex, 0)
+            .ok_or_else(|| js_error("Rust WebGPU renderer rejected an invalid mesh update."))?;
+
         let mesh = self
             .meshes
-            .get(handle)
+            .get_mut(handle)
             .ok_or_else(|| js_error("Rust WebGPU renderer rejected a stale mesh handle."))?;
         if mesh.vertex_layout != vertex_layout || mesh.vertex_float_count != vertices.len() {
             return Err(js_error(
@@ -1210,6 +1331,7 @@ impl BrowserWgpuRenderer {
 
         self.queue
             .write_buffer(&mesh.vertex_buffer, 0, f32_as_bytes(vertices));
+        mesh.local_bounds = local_bounds;
         Ok(())
     }
 
@@ -1291,6 +1413,7 @@ impl BrowserWgpuRenderer {
     fn render(
         &mut self,
         frame_packet: &[f32],
+        shadow_cascades: &ShadowCascadeSet,
         mesh_handles: &[f64],
         object_handles: &[f64],
         albedo_texture_handles: &[f64],
@@ -1317,6 +1440,10 @@ impl BrowserWgpuRenderer {
                 "Rust WebGPU renderer received mismatched render packet arrays.",
             ));
         }
+        let mut view_projection = [0.0; WORLD_MATRIX_FLOATS];
+        view_projection.copy_from_slice(&frame_packet[0..WORLD_MATRIX_FLOATS]);
+        let camera_frustum = frustum_from_view_projection(&view_projection)
+            .ok_or_else(|| js_error("Rust WebGPU renderer received an invalid camera frustum."))?;
         let frame_uniforms = build_frame_uniform_values(frame_packet).map_err(js_error)?;
 
         let frame = match self.surface.get_current_texture() {
@@ -1346,13 +1473,17 @@ impl BrowserWgpuRenderer {
             let albedo_texture = handle_from_js(albedo_texture_handles[index])?;
             let normal_texture = handle_from_js(normal_texture_handles[index])?;
             let material_texture = handle_from_js(material_texture_handles[index])?;
-            if self.meshes.get(mesh_handle).is_none() {
-                return Err(js_error(
-                    "Rust WebGPU renderer received a stale mesh handle.",
-                ));
-            }
-            let object_uniforms = build_object_uniform_values(
+            let local_bounds = self
+                .meshes
+                .get(mesh_handle)
+                .ok_or_else(|| js_error("Rust WebGPU renderer received a stale mesh handle."))?
+                .local_bounds;
+            let mut world_matrix = [0.0; WORLD_MATRIX_FLOATS];
+            world_matrix.copy_from_slice(
                 &world_matrices[index * WORLD_MATRIX_FLOATS..(index + 1) * WORLD_MATRIX_FLOATS],
+            );
+            let object_uniforms = build_object_uniform_values(
+                &world_matrix,
                 &material_packets
                     [index * MATERIAL_PACKET_FLOATS..(index + 1) * MATERIAL_PACKET_FLOATS],
             )
@@ -1364,7 +1495,11 @@ impl BrowserWgpuRenderer {
                 material_texture,
                 &object_uniforms,
             )?;
-            render_items.push((mesh_handle, object_handle));
+            render_items.push(PreparedRenderItem {
+                mesh_handle,
+                object_handle,
+                world_bounds: transform_aabb(local_bounds, &world_matrix),
+            });
         }
 
         let mut encoder = self
@@ -1372,6 +1507,8 @@ impl BrowserWgpuRenderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("rust webgpu frame encoder"),
             });
+        let shadow_draw_count =
+            self.render_shadow_passes(&mut encoder, &render_items, shadow_cascades)?;
         {
             let color_attachments = [Some(wgpu::RenderPassColorAttachment {
                 view: &view,
@@ -1403,13 +1540,18 @@ impl BrowserWgpuRenderer {
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
             pass.set_pipeline(&self.sky_pipeline);
             pass.draw(0..3, 0..1);
+            pass.set_bind_group(2, &self.shadow_resources.bind_group, &[]);
 
             let mut active_vertex_layout = None;
-            for (mesh_handle, object_handle) in render_items {
-                let mesh = self.meshes.get(mesh_handle).ok_or_else(|| {
+            let mut visible_draw_count = 0_u32;
+            for item in &render_items {
+                if !frustum_intersects_aabb(camera_frustum, item.world_bounds) {
+                    continue;
+                }
+                let mesh = self.meshes.get(item.mesh_handle).ok_or_else(|| {
                     js_error("Rust WebGPU renderer received a stale mesh handle.")
                 })?;
-                let object = self.objects.get(object_handle).ok_or_else(|| {
+                let object = self.objects.get(item.object_handle).ok_or_else(|| {
                     js_error("Rust WebGPU renderer received a stale object handle.")
                 })?;
                 let bind_group = object.bind_group.as_ref().ok_or_else(|| {
@@ -1427,13 +1569,102 @@ impl BrowserWgpuRenderer {
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                visible_draw_count = visible_draw_count.saturating_add(1);
             }
+            self.frame_visible_draw_count = visible_draw_count;
+            self.frame_shadow_draw_count = shadow_draw_count;
         }
         self.queue.submit(Some(encoder.finish()));
         frame.present();
         self.frame_index = self.frame_index.saturating_add(1);
         self.frame_draw_count = item_count as u32;
         Ok(())
+    }
+
+    fn render_shadow_passes(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        render_items: &[PreparedRenderItem],
+        shadow_cascades: &ShadowCascadeSet,
+    ) -> Result<u32, JsValue> {
+        let mut base_uniforms = build_shadow_uniform_values(
+            shadow_cascades,
+            true,
+            SHADOW_CONSTANT_BIAS,
+            SHADOW_NORMAL_BIAS,
+            1.0 / SHADOW_MAP_SIZE as f32,
+        )
+        .map_err(js_error)?;
+        base_uniforms[SHADOW_DEBUG_MODE_OFFSET] = self.shadow_debug_view.uniform_code();
+        self.queue.write_buffer(
+            &self.shadow_resources.uniform_buffer,
+            0,
+            f32_as_bytes(&base_uniforms),
+        );
+
+        let mut shadow_draw_count = 0_u32;
+        for cascade_index in 0..SHADOW_CASCADE_COUNT {
+            let mut cascade_uniforms = base_uniforms;
+            cascade_uniforms[0..WORLD_MATRIX_FLOATS]
+                .copy_from_slice(&shadow_cascades.cascades[cascade_index].light_view_projection);
+            self.queue.write_buffer(
+                &self.shadow_resources.cascade_uniform_buffers[cascade_index],
+                0,
+                f32_as_bytes(&cascade_uniforms),
+            );
+
+            let depth_attachment = Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.shadow_resources.layer_views[cascade_index],
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            });
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("shadow map render pass"),
+                color_attachments: &[],
+                depth_stencil_attachment: depth_attachment,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            pass.set_bind_group(
+                2,
+                &self.shadow_resources.cascade_bind_groups[cascade_index],
+                &[],
+            );
+
+            let mut active_vertex_layout = None;
+            for item in render_items {
+                let mesh = self.meshes.get(item.mesh_handle).ok_or_else(|| {
+                    js_error("Rust WebGPU renderer received a stale mesh handle.")
+                })?;
+                let object = self.objects.get(item.object_handle).ok_or_else(|| {
+                    js_error("Rust WebGPU renderer received a stale object handle.")
+                })?;
+                let bind_group = object.bind_group.as_ref().ok_or_else(|| {
+                    js_error("Rust WebGPU renderer object bind group was not prepared.")
+                })?;
+
+                if active_vertex_layout != Some(mesh.vertex_layout) {
+                    match mesh.vertex_layout {
+                        MeshVertexLayout::Terrain => {
+                            pass.set_pipeline(&self.shadow_pipelines.terrain)
+                        }
+                        MeshVertexLayout::Model => pass.set_pipeline(&self.shadow_pipelines.model),
+                    }
+                    active_vertex_layout = Some(mesh.vertex_layout);
+                }
+                pass.set_bind_group(1, bind_group, &[]);
+                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                shadow_draw_count = shadow_draw_count.saturating_add(1);
+            }
+        }
+
+        Ok(shadow_draw_count)
     }
 
     fn render_engine_frame(
@@ -1450,9 +1681,11 @@ impl BrowserWgpuRenderer {
     ) -> Result<(), JsValue> {
         let frame_packet =
             build_frame_packet_from_engine_snapshot(engine_snapshot, aspect).map_err(js_error)?;
+        let shadow_cascades = build_shadow_cascades_from_engine_snapshot(engine_snapshot, aspect)?;
 
         self.render(
             &frame_packet,
+            &shadow_cascades,
             mesh_handles,
             object_handles,
             albedo_texture_handles,
@@ -1607,7 +1840,22 @@ impl BrowserWgpuRenderer {
         Ok(self.textures.insert(GpuTexture { view }))
     }
 
+    fn set_shadow_debug_view(&mut self, view: ShadowDebugView) {
+        self.shadow_debug_view = view;
+    }
+
+    fn shadow_debug_view_name(&self) -> &'static str {
+        self.shadow_debug_view.js_name()
+    }
+
     fn status(&self) -> RustBrowserGameStatus {
+        let shadow_cascade_count = self
+            .shadow_resources
+            .layer_views
+            .len()
+            .min(u32::MAX as usize) as u32;
+        debug_assert_eq!(shadow_cascade_count, SHADOW_CASCADE_COUNT as u32);
+
         RustBrowserGameStatus {
             version: ENGINE_WEB_VERSION,
             configured: true,
@@ -1620,6 +1868,10 @@ impl BrowserWgpuRenderer {
             object_count: self.objects.len().min(u32::MAX as usize) as u32,
             frame_index: self.frame_index,
             frame_draw_count: self.frame_draw_count,
+            frame_visible_draw_count: self.frame_visible_draw_count,
+            frame_shadow_draw_count: self.frame_shadow_draw_count,
+            shadow_cascade_count,
+            shadow_map_size: SHADOW_MAP_SIZE,
         }
     }
 }
@@ -1635,6 +1887,28 @@ fn texture_binding(binding: u32) -> wgpu::BindGroupLayoutEntry {
         },
         count: None,
     }
+}
+
+fn build_shadow_cascades_from_engine_snapshot(
+    snapshot: &[f32],
+    aspect: f32,
+) -> Result<ShadowCascadeSet, JsValue> {
+    if snapshot.len() != ENGINE_RENDER_SNAPSHOT_FLOATS {
+        return Err(js_error(
+            "Rust WebGPU renderer received an invalid engine render snapshot for shadows.",
+        ));
+    }
+
+    build_shadow_cascades(
+        RenderVec3::new(snapshot[0], snapshot[1], snapshot[2]),
+        RenderVec3::new(snapshot[3], snapshot[4], snapshot[5]),
+        snapshot[8],
+        aspect,
+        snapshot[9],
+        snapshot[10],
+        RenderVec3::new(snapshot[11], snapshot[12], snapshot[13]),
+    )
+    .ok_or_else(|| js_error("Rust WebGPU renderer could not build shadow cascades."))
 }
 
 fn create_main_pipeline(
@@ -2193,6 +2467,26 @@ fn renderer_status_to_js(status: RustBrowserGameStatus) -> Result<JsValue, JsVal
         &object,
         "frameDrawCount",
         JsValue::from_f64(status.frame_draw_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "frameVisibleDrawCount",
+        JsValue::from_f64(status.frame_visible_draw_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "frameShadowDrawCount",
+        JsValue::from_f64(status.frame_shadow_draw_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "shadowCascadeCount",
+        JsValue::from_f64(status.shadow_cascade_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "shadowMapSize",
+        JsValue::from_f64(status.shadow_map_size as f64),
     )?;
 
     Ok(object.into())

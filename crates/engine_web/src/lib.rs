@@ -10,10 +10,14 @@ mod model_render_assets;
 mod model_skinning;
 mod model_texture_assets;
 mod player_character;
+mod render_math;
 mod render_packets;
 mod render_uniforms;
 mod renderer;
 mod resources;
+#[cfg(target_arch = "wasm32")]
+mod shadow_renderer;
+mod shadows;
 mod terrain_stream;
 mod terrain_textures;
 #[cfg(target_arch = "wasm32")]
@@ -23,7 +27,8 @@ pub const ENGINE_WEB_VERSION: u32 = 1;
 
 pub use config::{
     RendererConfig, RendererConfigError, MODEL_VERTEX_FLOATS, REQUIRED_TEXTURE_ARRAY_LAYERS,
-    TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
+    SHADOW_CASCADE_COUNT, SHADOW_CASTER_MARGIN, SHADOW_MAP_SIZE, SHADOW_MAX_DISTANCE,
+    SHADOW_SPLIT_LAMBDA, TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
 };
 pub use game_state::{
     player_mode_code, player_mode_from_code, BrowserGameInput, BrowserGameState,
@@ -81,18 +86,27 @@ pub use player_character::{
     player_character_descriptor, PlayerCharacterDescriptor, PlayerCharacterId,
     PLAYER_CHARACTER_DESCRIPTORS,
 };
+pub use render_math::{
+    aabb_from_vertex_positions, frustum_from_view_projection, frustum_intersects_aabb,
+    look_at_mat4, multiply_mat4, orthographic_mat4, perspective_mat4, transform_aabb,
+    transform_point, Aabb, Frustum, Plane, RenderVec3,
+};
 pub use render_packets::{
     build_frame_packet_from_engine_snapshot, RenderPacketError, ENGINE_RENDER_SNAPSHOT_FLOATS,
 };
 pub use render_uniforms::{
-    build_frame_uniform_values, build_object_uniform_values, RenderUniformError,
-    FRAME_PACKET_FLOATS, FRAME_UNIFORM_FLOATS, MATERIAL_PACKET_FLOATS, OBJECT_UNIFORM_FLOATS,
-    WORLD_MATRIX_FLOATS,
+    build_frame_uniform_values, build_object_uniform_values, build_shadow_uniform_values,
+    RenderUniformError, FRAME_PACKET_FLOATS, FRAME_UNIFORM_FLOATS, MATERIAL_PACKET_FLOATS,
+    OBJECT_UNIFORM_FLOATS, SHADOW_DEBUG_MODE_OFFSET, SHADOW_UNIFORM_FLOATS, WORLD_MATRIX_FLOATS,
 };
 pub use renderer::{
     MeshResource, RendererResourceCounts, RendererState, RendererStateError, TextureResource,
 };
 pub use resources::{ResourceHandle, ResourceStoreError};
+pub use shadows::{
+    build_shadow_cascades, camera_frustum_corners_world, compute_cascade_splits, ShadowCascade,
+    ShadowCascadeSet,
+};
 pub use terrain_stream::{
     BrowserTerrainMeshUpdate, BrowserTerrainStream, BrowserTerrainStreamStatus,
     BrowserTerrainStreamUpdate, TerrainJobStats,
@@ -108,5 +122,9 @@ pub use wgpu_renderer::*;
 
 #[cfg(test)]
 mod model_materials_tests;
+#[cfg(test)]
+mod render_math_tests;
+#[cfg(test)]
+mod render_uniform_tests;
 #[cfg(test)]
 mod tests;

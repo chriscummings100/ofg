@@ -15,7 +15,8 @@ import {
   type BrowserFrameInput,
   type PlayerAnimationTuning,
   type PlayerCharacterId,
-  type PlayerMode
+  type PlayerMode,
+  type ShadowDebugView
 } from "../engine/web/browserGameTypes.js";
 
 type GameElements = {
@@ -41,6 +42,7 @@ declare global {
       getTerrainRenderPacketRuntime: () => "rust";
       getRendererRuntime: () => "rust-wgpu";
       getRendererStatus: () => EngineWebRendererStatus;
+      getShadowDebugView: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["shadowDebugView"];
       getTerrainWorkerCount: () => number;
       getPlayerControllerRuntime: () => "rust";
       getPlayerCharacterId: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerCharacterId"];
@@ -73,6 +75,7 @@ declare global {
       resetTerrainStreaming: () => void;
       setCameraMode: (mode: PlayerMode) => void;
       setDebugCamera: (x: number, y: number, z: number, yaw: number, pitch: number) => void;
+      setShadowDebugView: (view: ShadowDebugView) => void;
       setPlayerAnimationTuning: (tuning: Partial<PlayerAnimationTuning>) => void;
       setPlayerCharacter: (character: PlayerCharacterId) => void;
       setPlayerPosition: (x: number, z: number) => void;
@@ -99,6 +102,7 @@ export async function startGame(elements: GameElements): Promise<void> {
     getTerrainRenderPacketRuntime: () => game.debugSnapshot().terrainRenderPacketRuntime,
     getRendererRuntime: () => game.debugSnapshot().rendererRuntime,
     getRendererStatus: () => game.debugSnapshot().rendererStatus,
+    getShadowDebugView: () => game.debugSnapshot().shadowDebugView,
     getTerrainWorkerCount: () => game.debugSnapshot().terrainWorkerCount,
     getPlayerControllerRuntime: () => game.debugSnapshot().playerControllerRuntime,
     getPlayerCharacterId: () => game.debugSnapshot().playerCharacterId,
@@ -143,6 +147,9 @@ export async function startGame(elements: GameElements): Promise<void> {
     },
     setDebugCamera(x, y, z, yaw, pitch) {
       game.command({ type: "setDebugCamera", x, y, z, yaw, pitch });
+    },
+    setShadowDebugView(view) {
+      game.command({ type: "setShadowDebugView", view: validateShadowDebugView(view) });
     },
     setPlayerAnimationTuning(tuning) {
       game.command({
@@ -254,6 +261,22 @@ function validatePlayerCharacterId(character: string): PlayerCharacterId {
   }
 
   throw new Error(`Unknown player character '${character}'.`);
+}
+
+function validateShadowDebugView(view: string): ShadowDebugView {
+  if (
+    view === "off" ||
+    view === "cascadeIndex" ||
+    view === "shadowVisibility" ||
+    view === "shadowDepthCascade0" ||
+    view === "shadowDepthCascade1" ||
+    view === "shadowDepthCascade2" ||
+    view === "shadowDepthCascade3"
+  ) {
+    return view;
+  }
+
+  throw new Error(`Unknown shadow debug view '${view}'.`);
 }
 
 function updateCharacterToggle(

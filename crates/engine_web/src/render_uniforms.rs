@@ -1,13 +1,19 @@
+use crate::config::SHADOW_CASCADE_COUNT;
+use crate::shadows::ShadowCascadeSet;
+
 pub const FRAME_UNIFORM_FLOATS: usize = 44;
 pub const OBJECT_UNIFORM_FLOATS: usize = 44;
 pub const FRAME_PACKET_FLOATS: usize = 43;
 pub const WORLD_MATRIX_FLOATS: usize = 16;
 pub const MATERIAL_PACKET_FLOATS: usize = 10;
+pub const SHADOW_UNIFORM_FLOATS: usize = 76;
+pub const SHADOW_DEBUG_MODE_OFFSET: usize = 72;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RenderUniformError {
     InvalidFramePacket,
     InvalidObjectPacket,
+    InvalidShadowPacket,
     SingularWorldMatrix,
 }
 
@@ -16,6 +22,7 @@ impl std::fmt::Display for RenderUniformError {
         let message = match self {
             Self::InvalidFramePacket => "invalid Rust WebGPU frame packet",
             Self::InvalidObjectPacket => "invalid Rust WebGPU object packet",
+            Self::InvalidShadowPacket => "invalid Rust WebGPU shadow packet",
             Self::SingularWorldMatrix => "singular Rust WebGPU world matrix",
         };
         formatter.write_str(message)
@@ -61,6 +68,57 @@ pub fn build_object_uniform_values(
     values[39] = material_packet[7];
     values[40] = material_packet[8];
     values[41] = material_packet[9];
+
+    Ok(values)
+}
+
+/// Packs the shadow uniform buffer consumed by future CSM WGSL paths.
+pub fn build_shadow_uniform_values(
+    cascades: &ShadowCascadeSet,
+    enabled: bool,
+    constant_bias: f32,
+    normal_bias: f32,
+    texel_size: f32,
+) -> Result<[f32; SHADOW_UNIFORM_FLOATS], RenderUniformError> {
+    if !constant_bias.is_finite()
+        || !normal_bias.is_finite()
+        || !texel_size.is_finite()
+        || constant_bias < 0.0
+        || normal_bias < 0.0
+        || texel_size < 0.0
+        || (enabled && texel_size <= 0.0)
+    {
+        return Err(RenderUniformError::InvalidShadowPacket);
+    }
+
+    let mut values = [0.0; SHADOW_UNIFORM_FLOATS];
+    let mut previous_split = 0.0;
+    for index in 0..SHADOW_CASCADE_COUNT {
+        let cascade = cascades.cascades[index];
+        let split = cascades.split_depths[index];
+        if !cascade.near_depth.is_finite()
+            || !cascade.far_depth.is_finite()
+            || !split.is_finite()
+            || cascade.near_depth < 0.0
+            || cascade.far_depth <= cascade.near_depth
+            || split <= previous_split
+            || (split - cascade.far_depth).abs() > 0.001
+            || !matrix_values_are_finite(&cascade.light_view_projection)
+        {
+            return Err(RenderUniformError::InvalidShadowPacket);
+        }
+
+        let matrix_offset = index * WORLD_MATRIX_FLOATS;
+        values[matrix_offset..matrix_offset + WORLD_MATRIX_FLOATS]
+            .copy_from_slice(&cascade.light_view_projection);
+        values[64 + index] = split;
+        previous_split = split;
+    }
+
+    values[68] = if enabled { 1.0 } else { 0.0 };
+    values[69] = constant_bias;
+    values[70] = normal_bias;
+    values[71] = texel_size;
 
     Ok(values)
 }
@@ -127,4 +185,8 @@ pub(crate) fn inverse_mat4(matrix: &[f32]) -> Option<[f32; WORLD_MATRIX_FLOATS]>
         (a31 * b01 - a30 * b03 - a32 * b00) * determinant,
         (a20 * b03 - a21 * b01 + a22 * b00) * determinant,
     ])
+}
+
+fn matrix_values_are_finite(matrix: &[f32; WORLD_MATRIX_FLOATS]) -> bool {
+    matrix.iter().all(|value| value.is_finite())
 }

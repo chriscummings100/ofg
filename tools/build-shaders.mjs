@@ -1,3 +1,5 @@
+// Builds deterministic TypeScript shader artifacts from checked-in WGSL sources.
+
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -16,6 +18,8 @@ const shaders = [
     metadataExport: "UBER_SHADER_METADATA",
     vertexEntryPoint: "vertexMain",
     modelVertexEntryPoint: "modelVertexMain",
+    shadowVertexEntryPoint: "shadowVertexMain",
+    shadowModelVertexEntryPoint: "shadowModelVertexMain",
     fragmentEntryPoint: "fragmentMain",
     skyVertexEntryPoint: "skyVertexMain",
     skyFragmentEntryPoint: "skyFragmentMain"
@@ -66,6 +70,8 @@ function buildTypeScriptModule(shader, source) {
     sourceHash: `sha256-${sourceHash}`,
     vertexEntryPoint: shader.vertexEntryPoint,
     modelVertexEntryPoint: shader.modelVertexEntryPoint,
+    shadowVertexEntryPoint: shader.shadowVertexEntryPoint,
+    shadowModelVertexEntryPoint: shader.shadowModelVertexEntryPoint,
     fragmentEntryPoint: shader.fragmentEntryPoint,
     skyVertexEntryPoint: shader.skyVertexEntryPoint,
     skyFragmentEntryPoint: shader.skyFragmentEntryPoint
@@ -83,6 +89,8 @@ function buildTypeScriptModule(shader, source) {
     "  readonly sourceHash: string;",
     "  readonly vertexEntryPoint: string;",
     "  readonly modelVertexEntryPoint: string;",
+    "  readonly shadowVertexEntryPoint: string;",
+    "  readonly shadowModelVertexEntryPoint: string;",
     "  readonly fragmentEntryPoint: string;",
     "  readonly skyVertexEntryPoint: string;",
     "  readonly skyFragmentEntryPoint: string;",

@@ -32,6 +32,7 @@ pub struct Scenario {
     pub camera_offset: Vec3,
     pub target_height_offset: f32,
     pub coverage: Option<ScenarioCoverage>,
+    pub shadow_debug: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -95,6 +96,7 @@ pub fn scenarios() -> Vec<Scenario> {
             camera_offset: Vec3::new(48.0, 36.0, 62.0),
             target_height_offset: 4.0,
             coverage: None,
+            shadow_debug: true,
         },
         Scenario {
             name: "preset-seed",
@@ -107,6 +109,7 @@ pub fn scenarios() -> Vec<Scenario> {
             camera_offset: Vec3::new(44.0, 34.0, 58.0),
             target_height_offset: 4.0,
             coverage: None,
+            shadow_debug: false,
         },
         Scenario {
             name: "preset-rollingHills",
@@ -119,6 +122,7 @@ pub fn scenarios() -> Vec<Scenario> {
             camera_offset: Vec3::new(48.0, 34.0, 58.0),
             target_height_offset: 5.0,
             coverage: None,
+            shadow_debug: false,
         },
         Scenario {
             name: "preset-mountainValley",
@@ -131,6 +135,7 @@ pub fn scenarios() -> Vec<Scenario> {
             camera_offset: Vec3::new(60.0, 52.0, 78.0),
             target_height_offset: 7.0,
             coverage: None,
+            shadow_debug: false,
         },
         Scenario {
             name: "preset-rockyHighland",
@@ -143,6 +148,7 @@ pub fn scenarios() -> Vec<Scenario> {
             camera_offset: Vec3::new(58.0, 44.0, 62.0),
             target_height_offset: 6.0,
             coverage: None,
+            shadow_debug: false,
         },
         Scenario {
             name: "x-seam-grazing",
@@ -159,6 +165,7 @@ pub fn scenarios() -> Vec<Scenario> {
                 low: 0,
                 high: 1,
             }),
+            shadow_debug: false,
         },
         Scenario {
             name: "z-seam-grazing",
@@ -175,6 +182,7 @@ pub fn scenarios() -> Vec<Scenario> {
                 low: 0,
                 high: 1,
             }),
+            shadow_debug: false,
         },
         Scenario {
             name: "chunk-corner-oblique",
@@ -192,6 +200,7 @@ pub fn scenarios() -> Vec<Scenario> {
                 z_low: 0,
                 z_high: 1,
             }),
+            shadow_debug: false,
         },
     ]
 }
@@ -417,6 +426,13 @@ mod tests {
         assert!(scenarios
             .iter()
             .all(|scenario| scenario.file_name.ends_with(".png")));
+        assert_eq!(
+            scenarios
+                .iter()
+                .filter(|scenario| scenario.shadow_debug)
+                .count(),
+            1
+        );
     }
 
     #[test]

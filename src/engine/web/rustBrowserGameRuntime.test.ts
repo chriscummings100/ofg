@@ -34,13 +34,19 @@ describe("RustBrowserGameRuntime", () => {
     runtime.tick(frame);
     runtime.command({ type: "resetStreaming" });
     runtime.command({ type: "setPlayerPosition", x: 32, z: 16 });
+    runtime.command({ type: "setShadowDebugView", view: "shadowDepthCascade0" });
     const snapshot = runtime.debugSnapshot();
 
     deepEqual(renderer.tickCalls[0], frame);
     deepEqual(renderer.commandCalls[0], { type: "resetStreaming" });
     deepEqual(renderer.commandCalls[1], { type: "setPlayerPosition", x: 32, z: 16 });
+    deepEqual(renderer.commandCalls[2], {
+      type: "setShadowDebugView",
+      view: "shadowDepthCascade0"
+    });
     equal(snapshot.terrainStreamStatus.workerPoolRuntime, "rust");
     equal(snapshot.rendererStatus.runtime, "rust-wgpu");
+    equal(snapshot.shadowDebugView, "cascadeIndex");
     equal(snapshot.playerMode, "debugFly");
     deepEqual(snapshot.playerPosition, { x: 32, y: 8, z: 16 });
   });
@@ -105,8 +111,13 @@ function fakeRenderer(): FakeRenderer {
           textureCount: 3,
           objectCount: 1,
           frameIndex: 1,
-          frameDrawCount: 1
+          frameDrawCount: 1,
+          frameVisibleDrawCount: 1,
+          frameShadowDrawCount: 0,
+          shadowCascadeCount: 4,
+          shadowMapSize: 1024
         },
+        shadowDebugView: "cascadeIndex",
         terrainWorkerCount: 6,
         playerControllerRuntime: "rust"
       };
