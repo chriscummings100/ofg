@@ -78,7 +78,7 @@ describe("RustBrowserGameRuntime", () => {
       focusRange: 4,
       maxBlurPixels: 10
     });
-    equal(snapshot.terrainStreamStatus.workerPoolRuntime, "rust");
+    equal(snapshot.terrainStreamStatus.workerPoolRuntime, "rust-sync");
     equal(snapshot.rendererStatus.runtime, "rust-wgpu");
     equal(snapshot.rendererStatus.postProcessRuntime, "rust-wgpu");
     equal(snapshot.rendererStatus.postProcessToneMappingEnabled, true);
@@ -148,12 +148,19 @@ function fakeRenderer(): FakeRenderer {
             }
           ],
           maxConcurrentChunkJobs: 6,
-          workerPoolRuntime: "rust"
+          workerPoolRuntime: "rust-sync",
+          terrainWorkerCount: 0,
+          terrainWorkerInFlightCount: 0,
+          terrainWorkerQueuedRequestCount: 0,
+          terrainWorkerCompletedCount: 0,
+          terrainWorkerStaleCompletionCount: 0,
+          terrainWorkerFailedCount: 0,
+          synchronousBuildCount: 0
         },
         terrainStreamerRuntime: "rust",
         terrainStreamSchedulerRuntime: "rust",
         terrainDensityStoreRuntime: "rust",
-        terrainWorkerPoolRuntime: "rust",
+        terrainWorkerPoolRuntime: "rust-sync",
         renderPacketRuntime: "rust",
         terrainRenderPacketRuntime: "rust",
         rendererRuntime: "rust-wgpu",
@@ -187,7 +194,7 @@ function fakeRenderer(): FakeRenderer {
           postProcessDofMaxBlurPixels: 6
         },
         shadowDebugView: "cascadeIndex",
-        terrainWorkerCount: 6,
+        terrainWorkerCount: 0,
         playerControllerRuntime: "rust"
       };
     }

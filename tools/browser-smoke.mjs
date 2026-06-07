@@ -450,6 +450,8 @@ async function readDebugContract(page) {
       terrainStreamerRuntime: debug?.getTerrainStreamerRuntime?.() ?? "missing",
       terrainStreamSchedulerRuntime: debug?.getTerrainStreamSchedulerRuntime?.() ?? "missing",
       terrainDensityStoreRuntime: debug?.getTerrainDensityStoreRuntime?.() ?? "missing",
+      terrainWorkerPoolRuntime: debug?.getTerrainWorkerPoolRuntime?.() ?? "missing",
+      terrainWorkerCount: debug?.getTerrainWorkerCount?.() ?? 0,
       terrainRenderPacketRuntime: debug?.getTerrainRenderPacketRuntime?.() ?? "missing",
       loadedTerrainNodeKeys: debug?.getLoadedTerrainNodeKeys?.() ?? [],
       terrainNodeKeys: debug?.getTerrainNodeKeys?.() ?? [],
@@ -591,10 +593,20 @@ function assertDebugContract(debug, expectations = {}) {
     terrainStatus.maxRenderedLod < 3 ||
     terrainStatus.visibleWorldSpanXMeters < minMultiKmTerrainSpanMeters ||
     terrainStatus.visibleWorldSpanZMeters < minMultiKmTerrainSpanMeters ||
+    terrainStatus.workerPoolRuntime !== "browser-worker" ||
+    terrainStatus.terrainWorkerCount <= 1 ||
+    terrainStatus.terrainWorkerCount !== debug.terrainWorkerCount ||
+    terrainStatus.terrainWorkerCompletedCount <= 0 ||
+    terrainStatus.terrainWorkerFailedCount !== 0 ||
+    terrainStatus.terrainWorkerStaleCompletionCount !== 0 ||
+    terrainStatus.synchronousBuildCount !== 0 ||
     !Array.isArray(terrainStatus.terrainLodSummary) ||
     terrainStatus.terrainLodSummary.filter((summary) => summary.renderedNodeCount > 0).length < 2
   ) {
     throw new Error(`Terrain stream status does not expose multiple rendered LODs: ${JSON.stringify(debug)}`);
+  }
+  if (debug.terrainWorkerPoolRuntime !== "browser-worker") {
+    throw new Error(`Expected browser terrain workers, saw ${JSON.stringify(debug)}`);
   }
   if (
     !Array.isArray(debug.terrainNodeKeys) ||

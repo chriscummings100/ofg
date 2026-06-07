@@ -241,8 +241,9 @@ This work must preserve the current Rust-owned terrain architecture:
 - `OFG-API-004`: terrain vertex and material layout remains 19 `f32` values
   unless a later explicitly recorded fix updates every layout site and shader
   test.
-- `OFG-API-006`: standalone `terrain_core.wasm` remains fixture-only. Terrain
-  behavior tests should run through native Rust or `engine_web`.
+- `OFG-API-006`: standalone `terrain_core.wasm` remains limited to export
+  checks and the dedicated browser terrain build worker. Terrain behavior tests
+  should run through native Rust or `engine_web`.
 - `OFG-API-009`: TypeScript must not regain terrain generation, stream
   scheduling, mesh generation, worker payload ownership, or render submission.
 

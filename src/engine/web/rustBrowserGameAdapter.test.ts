@@ -1,7 +1,9 @@
 import { equal } from "node:assert/strict";
+import { deepEqual } from "node:assert/strict";
 import type { BrowserFrameInput } from "./browserGameTypes.js";
 import type { EngineWebBrowserGame } from "./engineWebWasm.js";
-import { RustBrowserGameAdapter } from "./rustBrowserGameAdapter.js";
+import { RustBrowserGameAdapter, type TerrainWorkerBridge } from "./rustBrowserGameAdapter.js";
+import type { TerrainBuildCompletion, TerrainBuildRequest } from "./terrainWorkerClient.js";
 
 describe("RustBrowserGameAdapter", () => {
   it("resizes and ticks through the Rust browser game facade", () => {
@@ -14,6 +16,20 @@ describe("RustBrowserGameAdapter", () => {
     equal(fake.tickCalls[0], frame);
     equal(fake.resizeCalls[0]?.width, 640);
     equal(fake.resizeCalls[0]?.height, 480);
+  });
+
+  it("routes terrain worker completions and requests around the Rust tick", () => {
+    const fake = fakeBrowserGame();
+    const request = fakeTerrainBuildRequest(8);
+    const completion = fakeTerrainBuildCompletion(7);
+    fake.pendingTerrainBuildRequests.push(request);
+    const workers = fakeTerrainWorkers([completion]);
+    const adapter = new RustBrowserGameAdapter(fakeCanvas(), fake, workers);
+
+    withFakeWindow(() => adapter.tick(fakeFrameInput()));
+
+    deepEqual(fake.completedTerrainBuilds[0], [completion]);
+    deepEqual(workers.submittedRequests[0], [request]);
   });
 
   it("forwards browser frame input and player controls to the Rust game facade", () => {
@@ -128,6 +144,8 @@ type FakeBrowserGame = EngineWebBrowserGame & {
   resizeCalls: Array<Parameters<EngineWebBrowserGame["resize"]>[0]>;
   tickCalls: BrowserFrameInput[];
   commandCalls: Array<Parameters<EngineWebBrowserGame["command"]>[0]>;
+  completedTerrainBuilds: TerrainBuildCompletion[][];
+  pendingTerrainBuildRequests: TerrainBuildRequest[];
 };
 
 function fakeBrowserGame(): FakeBrowserGame {
@@ -135,11 +153,21 @@ function fakeBrowserGame(): FakeBrowserGame {
     resizeCalls: [],
     tickCalls: [],
     commandCalls: [],
+    completedTerrainBuilds: [],
+    pendingTerrainBuildRequests: [],
     resize(viewport) {
       this.resizeCalls.push(viewport);
     },
     tick(frame) {
       this.tickCalls.push(frame);
+    },
+    configureTerrainWorkers() {},
+    takeTerrainBuildRequests() {
+      return this.pendingTerrainBuildRequests.splice(0);
+    },
+    completeTerrainBuilds(completions) {
+      this.completedTerrainBuilds.push([...completions]);
+      return completions.length;
     },
     command(command) {
       this.commandCalls.push(command);
@@ -190,12 +218,19 @@ function fakeBrowserGame(): FakeBrowserGame {
             }
           ],
           maxConcurrentChunkJobs: 6,
-          workerPoolRuntime: "rust"
+          workerPoolRuntime: "rust-sync",
+          terrainWorkerCount: 0,
+          terrainWorkerInFlightCount: 0,
+          terrainWorkerQueuedRequestCount: 0,
+          terrainWorkerCompletedCount: 0,
+          terrainWorkerStaleCompletionCount: 0,
+          terrainWorkerFailedCount: 0,
+          synchronousBuildCount: 0
         },
         terrainStreamerRuntime: "rust",
         terrainStreamSchedulerRuntime: "rust",
         terrainDensityStoreRuntime: "rust",
-        terrainWorkerPoolRuntime: "rust",
+        terrainWorkerPoolRuntime: "rust-sync",
         renderPacketRuntime: "rust",
         terrainRenderPacketRuntime: "rust",
         rendererRuntime: "rust-wgpu",
@@ -229,7 +264,7 @@ function fakeBrowserGame(): FakeBrowserGame {
           postProcessDofMaxBlurPixels: 6
         },
         shadowDebugView: "shadowVisibility",
-        terrainWorkerCount: 6,
+        terrainWorkerCount: 0,
         playerControllerRuntime: "rust",
         skyRuntime: "rust",
         skyDayPhase: 0.25,
@@ -260,6 +295,50 @@ function fakeBrowserGame(): FakeBrowserGame {
         modelSkinningJointCount: 2
       };
     }
+  };
+}
+
+function fakeTerrainWorkers(completions: TerrainBuildCompletion[]): TerrainWorkerBridge & {
+  submittedRequests: TerrainBuildRequest[][];
+} {
+  return {
+    workerCount: 2,
+    submittedRequests: [],
+    takeCompletions() {
+      return completions.splice(0);
+    },
+    submitRequests(requests) {
+      this.submittedRequests.push([...requests]);
+    },
+    reset() {}
+  };
+}
+
+function fakeTerrainBuildRequest(requestId: number): TerrainBuildRequest {
+  return {
+    requestId,
+    generation: 1,
+    lod: 0,
+    x: 0,
+    y: 0,
+    z: 0,
+    seed: 0x0F6,
+    preset: 1,
+    cellSize: 1
+  };
+}
+
+function fakeTerrainBuildCompletion(requestId: number): TerrainBuildCompletion {
+  return {
+    requestId,
+    generation: 1,
+    lod: 0,
+    x: 0,
+    y: 0,
+    z: 0,
+    failed: false,
+    vertices: new Float32Array([1, 2, 3]),
+    indices: new Uint32Array([0])
   };
 }
 

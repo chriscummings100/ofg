@@ -10,6 +10,7 @@ import type {
   RustBrowserGameCommand,
   RustBrowserGameDebugSnapshot
 } from "./browserGameTypes.js";
+import type { TerrainBuildCompletion, TerrainBuildRequest } from "./terrainWorkerClient.js";
 
 export type EngineWebRendererStatus = {
   readonly version: number;
@@ -44,6 +45,9 @@ export type EngineWebRendererStatus = {
 export type EngineWebBrowserGame = {
   resize(viewport: BrowserViewport): void;
   tick(frame: BrowserFrameInput): void;
+  configureTerrainWorkers(options: { readonly workerCount: number }): void;
+  takeTerrainBuildRequests(): TerrainBuildRequest[];
+  completeTerrainBuilds(completions: readonly TerrainBuildCompletion[]): number;
   command(command: RustBrowserGameCommand): void;
   debugSnapshot(): RustBrowserGameDebugSnapshot;
 };

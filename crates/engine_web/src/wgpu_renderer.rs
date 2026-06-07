@@ -48,11 +48,14 @@ use crate::shadow_renderer::{
     create_shadow_pipelines, create_shadow_resources, ShadowPipelines, ShadowResources,
 };
 use crate::shadows::{build_shadow_cascades, ShadowCascadeSet};
-use crate::terrain_stream::{BrowserTerrainStream, BrowserTerrainStreamStatus, TerrainJobStats};
+use crate::terrain_stream::{
+    BrowserTerrainBuildCompletion, BrowserTerrainBuildRequest, BrowserTerrainStream,
+    BrowserTerrainStreamStatus, TerrainJobStats, MAX_SAFE_TERRAIN_WORKER_REQUEST_ID,
+};
 use crate::terrain_textures::{load_terrain_texture_arrays, TerrainTextureArrays};
 use crate::ENGINE_WEB_VERSION;
 use engine_core::{PlayerConfig, PlayerMode, Vec3};
-use terrain_core::{terrain_node_key, TerrainNodeKey, DEFAULT_TERRAIN_PRESET};
+use terrain_core::{terrain_node_key, TerrainChunkCoord, TerrainNodeKey, DEFAULT_TERRAIN_PRESET};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
 const SHADER_SOURCE: &str = include_str!("../../../src/engine/render/shaders/uber.wgsl");
@@ -413,6 +416,33 @@ impl RustBrowserGame {
         self.render_frame()
     }
 
+    #[wasm_bindgen(js_name = configureTerrainWorkers)]
+    pub fn configure_terrain_workers(&mut self, options: JsValue) -> Result<(), JsValue> {
+        let worker_count = js_required_u32(&options, "workerCount", "terrainWorkers.workerCount")?;
+        self.terrain_stream
+            .configure_worker_runtime(worker_count as usize)
+            .map_err(js_error)
+    }
+
+    #[wasm_bindgen(js_name = takeTerrainBuildRequests)]
+    pub fn take_terrain_build_requests(&mut self) -> Result<JsValue, JsValue> {
+        terrain_build_requests_to_js(self.terrain_stream.take_worker_build_requests())
+    }
+
+    #[wasm_bindgen(js_name = completeTerrainBuilds)]
+    pub fn complete_terrain_builds(&mut self, completions: JsValue) -> Result<u32, JsValue> {
+        let array = js_sys::Array::from(&completions);
+        let mut accepted_count = 0;
+        for value in array.iter() {
+            let completion = terrain_build_completion_from_js(&value)?;
+            if self.terrain_stream.complete_worker_build(completion) {
+                accepted_count += 1;
+            }
+        }
+
+        Ok(accepted_count)
+    }
+
     #[wasm_bindgen(js_name = command)]
     pub fn command(&mut self, command: JsValue) -> Result<(), JsValue> {
         let command_type = js_required_string(&command, "type", "command.type")?;
@@ -538,6 +568,7 @@ impl RustBrowserGame {
         let player_mode = self.game_state.player_mode().map_err(js_error)?;
         let player_position = self.game_state.player_position().map_err(js_error)?;
         let player_character = self.active_player_character_slot()?;
+        let terrain_status = self.terrain_stream.status();
         let position = js_sys::Object::new();
         set_js_property(&position, "x", JsValue::from_f64(player_position.x as f64))?;
         set_js_property(&position, "y", JsValue::from_f64(player_position.y as f64))?;
@@ -583,7 +614,7 @@ impl RustBrowserGame {
         set_js_property(
             &snapshot,
             "terrainStreamStatus",
-            terrain_stream_status_to_js(self.terrain_stream.status())?,
+            terrain_stream_status_to_js(terrain_status.clone())?,
         )?;
         set_js_property(
             &snapshot,
@@ -603,7 +634,7 @@ impl RustBrowserGame {
         set_js_property(
             &snapshot,
             "terrainWorkerPoolRuntime",
-            JsValue::from_str("rust"),
+            JsValue::from_str(terrain_status.terrain_worker_runtime),
         )?;
         set_js_property(&snapshot, "renderPacketRuntime", JsValue::from_str("rust"))?;
         set_js_property(
@@ -651,7 +682,7 @@ impl RustBrowserGame {
         set_js_property(
             &snapshot,
             "terrainWorkerCount",
-            JsValue::from_f64(self.terrain_stream.worker_count() as f64),
+            JsValue::from_f64(terrain_status.terrain_worker_count as f64),
         )?;
         set_js_property(
             &snapshot,
@@ -1033,7 +1064,7 @@ impl RustBrowserGame {
 
     fn update_terrain_stream(&mut self) -> Result<(), JsValue> {
         let player_position = self.game_state.player_position().map_err(js_error)?;
-        let update = self.terrain_stream.tick(player_position);
+        let update = self.terrain_stream.tick_for_workers(player_position);
 
         for key in update.removed_nodes {
             self.destroy_terrain_mesh(key)?;
@@ -2585,6 +2616,46 @@ fn js_required_u32(object: &JsValue, property: &str, path: &str) -> Result<u32, 
     Ok(number as u32)
 }
 
+fn js_required_u64(object: &JsValue, property: &str, path: &str) -> Result<u64, JsValue> {
+    let value = js_required_property(object, property, path)?;
+    let Some(number) = value.as_f64() else {
+        return Err(js_error(format!(
+            "Rust browser game expected {path} to be a number."
+        )));
+    };
+    if !number.is_finite()
+        || number.fract() != 0.0
+        || number < 0.0
+        || number > MAX_SAFE_TERRAIN_WORKER_REQUEST_ID as f64
+    {
+        return Err(js_error(format!(
+            "Rust browser game expected {path} to be a JavaScript safe u64."
+        )));
+    }
+
+    Ok(number as u64)
+}
+
+fn js_required_i32(object: &JsValue, property: &str, path: &str) -> Result<i32, JsValue> {
+    let value = js_required_property(object, property, path)?;
+    let Some(number) = value.as_f64() else {
+        return Err(js_error(format!(
+            "Rust browser game expected {path} to be a number."
+        )));
+    };
+    if !number.is_finite()
+        || number.fract() != 0.0
+        || number < i32::MIN as f64
+        || number > i32::MAX as f64
+    {
+        return Err(js_error(format!(
+            "Rust browser game expected {path} to be an i32."
+        )));
+    }
+
+    Ok(number as i32)
+}
+
 fn js_required_bool(object: &JsValue, property: &str, path: &str) -> Result<bool, JsValue> {
     let value = js_required_property(object, property, path)?;
     value.as_bool().ok_or_else(|| {
@@ -2736,6 +2807,70 @@ fn renderer_status_to_js(status: RustBrowserGameStatus) -> Result<JsValue, JsVal
     Ok(object.into())
 }
 
+fn terrain_build_requests_to_js(
+    requests: Vec<BrowserTerrainBuildRequest>,
+) -> Result<JsValue, JsValue> {
+    let array = js_sys::Array::new();
+    for request in requests {
+        let object = js_sys::Object::new();
+        set_js_property(
+            &object,
+            "requestId",
+            JsValue::from_f64(request.request_id as f64),
+        )?;
+        set_js_property(
+            &object,
+            "generation",
+            JsValue::from_f64(request.generation as f64),
+        )?;
+        set_js_property(&object, "lod", JsValue::from_f64(request.key.lod as f64))?;
+        set_js_property(&object, "x", JsValue::from_f64(request.key.coord.x as f64))?;
+        set_js_property(&object, "y", JsValue::from_f64(request.key.coord.y as f64))?;
+        set_js_property(&object, "z", JsValue::from_f64(request.key.coord.z as f64))?;
+        set_js_property(&object, "seed", JsValue::from_f64(request.seed as f64))?;
+        set_js_property(&object, "preset", JsValue::from_f64(request.preset as f64))?;
+        set_js_property(&object, "cellSize", JsValue::from_f64(request.cell_size))?;
+        array.push(&object);
+    }
+
+    Ok(array.into())
+}
+
+fn terrain_build_completion_from_js(
+    value: &JsValue,
+) -> Result<BrowserTerrainBuildCompletion, JsValue> {
+    let request_id = js_required_u64(value, "requestId", "terrainBuild.requestId")?;
+    let generation = js_required_u64(value, "generation", "terrainBuild.generation")?;
+    let lod = js_required_u32(value, "lod", "terrainBuild.lod")?;
+    if lod > u8::MAX as u32 {
+        return Err(js_error(
+            "Rust browser game expected terrainBuild.lod to fit u8.",
+        ));
+    }
+    let key = TerrainNodeKey {
+        lod: lod as u8,
+        coord: TerrainChunkCoord {
+            x: js_required_i32(value, "x", "terrainBuild.x")?,
+            y: js_required_i32(value, "y", "terrainBuild.y")?,
+            z: js_required_i32(value, "z", "terrainBuild.z")?,
+        },
+    };
+    let failed = js_required_bool(value, "failed", "terrainBuild.failed")?;
+    let vertices_value = js_required_property(value, "vertices", "terrainBuild.vertices")?;
+    let indices_value = js_required_property(value, "indices", "terrainBuild.indices")?;
+    let vertices = js_sys::Float32Array::new(&vertices_value).to_vec();
+    let indices = js_sys::Uint32Array::new(&indices_value).to_vec();
+
+    Ok(BrowserTerrainBuildCompletion {
+        request_id,
+        generation,
+        key,
+        vertices,
+        indices,
+        failed,
+    })
+}
+
 fn terrain_stream_status_to_js(status: BrowserTerrainStreamStatus) -> Result<JsValue, JsValue> {
     let object = js_sys::Object::new();
     set_js_property(
@@ -2844,7 +2979,46 @@ fn terrain_stream_status_to_js(status: BrowserTerrainStreamStatus) -> Result<JsV
         "maxConcurrentChunkJobs",
         JsValue::from_f64(status.max_concurrent_chunk_jobs as f64),
     )?;
-    set_js_property(&object, "workerPoolRuntime", JsValue::from_str("rust"))?;
+    set_js_property(
+        &object,
+        "workerPoolRuntime",
+        JsValue::from_str(status.terrain_worker_runtime),
+    )?;
+    set_js_property(
+        &object,
+        "terrainWorkerCount",
+        JsValue::from_f64(status.terrain_worker_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "terrainWorkerInFlightCount",
+        JsValue::from_f64(status.terrain_worker_in_flight_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "terrainWorkerQueuedRequestCount",
+        JsValue::from_f64(status.terrain_worker_queued_request_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "terrainWorkerCompletedCount",
+        JsValue::from_f64(status.terrain_worker_completed_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "terrainWorkerStaleCompletionCount",
+        JsValue::from_f64(status.terrain_worker_stale_completion_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "terrainWorkerFailedCount",
+        JsValue::from_f64(status.terrain_worker_failed_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "synchronousBuildCount",
+        JsValue::from_f64(status.synchronous_build_count as f64),
+    )?;
     if let Some(stats) = status.last_density_job_stats {
         set_js_property(
             &object,

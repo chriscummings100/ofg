@@ -110,8 +110,9 @@ pub use shadows::{
     ShadowCascadeSet,
 };
 pub use terrain_stream::{
-    BrowserTerrainLodStatus, BrowserTerrainMeshUpdate, BrowserTerrainStream,
-    BrowserTerrainStreamStatus, BrowserTerrainStreamUpdate, TerrainJobStats,
+    BrowserTerrainBuildCompletion, BrowserTerrainBuildRequest, BrowserTerrainLodStatus,
+    BrowserTerrainMeshUpdate, BrowserTerrainStream, BrowserTerrainStreamStatus,
+    BrowserTerrainStreamUpdate, TerrainJobStats,
 };
 pub use terrain_textures::{
     terrain_texture_array_requests, terrain_texture_array_requests_from_manifest_json,

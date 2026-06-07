@@ -50,7 +50,7 @@ declare global {
       getTerrainStreamerRuntime: () => "rust";
       getTerrainStreamSchedulerRuntime: () => "rust";
       getTerrainDensityStoreRuntime: () => "rust";
-      getTerrainWorkerPoolRuntime: () => "rust";
+      getTerrainWorkerPoolRuntime: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["terrainWorkerPoolRuntime"];
       getRenderPacketRuntime: () => "rust";
       getTerrainRenderPacketRuntime: () => "rust";
       getRendererRuntime: () => "rust-wgpu";

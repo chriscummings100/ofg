@@ -30,11 +30,11 @@ src/engine/input
   DOM input tracking with edge-triggered key events and mouse deltas.
 
 src/engine/browser
-  Generic browser substrate helpers. `BrowserWorkerHost` remains as tested
-  generic worker substrate, but the playable terrain path no longer uses a
-  TypeScript terrain worker bridge. `textureAssetLoader.ts` decodes
-  Rust-provided generic texture-array URL requests into RGBA arrays and fetches
-  opaque byte asset requests without owning terrain material, model, or
+  Generic browser substrate helpers. `BrowserWorkerHost` remains as a tested
+  generic worker substrate; the terrain worker client uses it only to route
+  Rust-issued opaque build requests and completions. `textureAssetLoader.ts`
+  decodes Rust-provided generic texture-array URL requests into RGBA arrays and
+  fetches opaque byte asset requests without owning terrain material, model, or
   animation semantics.
 
 src/engine/world
@@ -59,9 +59,11 @@ src/engine/web
   terrain. `engineWebWasm.ts` loads the wasm-bindgen `RustBrowserGame` facade
   and applies a narrow browser compatibility shim for the pinned `wgpu` limit
   name. `rustBrowserGameRuntime.ts` is the TypeScript shell around debug hooks
-  and browser game input types; terrain streaming, texture manifest ownership,
-  GLTF model loading/animation/skinning, and mesh upload live inside
-  `engine_web.wasm`.
+  and browser game input types. `terrainWorkerClient.ts` and
+  `terrainBuildWorker.ts` host browser worker execution for Rust-issued terrain
+  build requests, but terrain scheduling, completion validation, texture
+  manifest ownership, GLTF model loading/animation/skinning, visibility, and
+  mesh upload live inside `engine_web.wasm`.
 
 src/engine/render/shaders
   Shader source inputs. `uber.wgsl` is compiled into a TypeScript artifact for
@@ -96,9 +98,11 @@ as a browser shell plus generic browser image decoder.
 - `terrain_core` owns terrain height/density sampling, generated chunk mesh
   emission, stream scheduling, density storage, worker-pool request-state tests,
   and the tested legacy terrain mesh packet store. The playable browser path now
-  reaches it through `engine_web` as a Rust library. The standalone
-  `terrain_core.wasm` artifact remains only for export-contract fixture checks;
-  native Rust tests and `npm run bench:terrain:rust` cover terrain behavior and
+  reaches it through `engine_web` as a Rust library for scheduling and through a
+  dedicated browser worker `terrain_core.wasm` instance for build execution. The
+  standalone `terrain_core.wasm` artifact remains a narrow export-contract and
+  worker-build artifact, not a TypeScript terrain ownership boundary; native
+  Rust tests and `npm run bench:terrain:rust` cover terrain behavior and
   benchmarking. The Rust terrain benchmark includes a profiled terrain-node
   population sampled from streaming-style LOD bands, movement centers, multiple
   presets, derived seeds, and explicit air/solid/surface probes so generation
@@ -158,8 +162,12 @@ compatibility query for player grounding until movement is density/mesh aware.
 
 `engine_web` now keeps the playable browser terrain stream inside Rust. Its
 `BrowserTerrainStream` uses `terrain_core` as a Rust library for stream desired
-sets, generated/empty state, and node mesh generation. The `terrain_core`
-scheduler and renderer-facing stream updates address work as
+sets, generated/empty state, request ids, retry state, and completion
+validation. On the browser path, Rust emits opaque terrain build requests,
+TypeScript routes them through a browser worker pool, and each worker calls the
+raw `terrain_core.wasm` mesh-build export before returning typed-array mesh
+buffers to Rust. The `terrain_core` scheduler and renderer-facing stream
+updates address work as
 `TerrainNodeKey { lod, coord }`, with LOD0 chunk compatibility adapters and
 legacy density-named status fields retained for current HUD/smoke fields and
 the fixture-only facade. The wasm-bindgen facade has no public terrain mesh
@@ -274,11 +282,13 @@ pass. Browser TypeScript may expose debug/smoke sky values from
 - Browser smoke tests cover browser integration only: WebGPU canvas rendering,
   wasm-bindgen loading, browser asset fetch/decode, HUD state, reload behavior,
   browser isolation headers, DOM input forwarding, Rust runtime sentinel strings,
-  Rust/wgpu renderer status, and post-process debug view selection.
+  Rust/wgpu renderer status, terrain worker transport counters, and
+  post-process debug view selection.
 - Rust terrain tests cover height/density determinism, density chunk fill, mesh
   buffers, retained stores, stream scheduling, and worker-pool fixtures. The
-  removed TypeScript `terrain_core.wasm` adapters must not be recreated for
-  test coverage.
+  removed TypeScript terrain ownership adapters must not be recreated for test
+  coverage; the dedicated browser build worker is the only TypeScript path that
+  loads `terrain_core.wasm`.
 - Rust offscreen image smoke in `crates/ofg_test_harness` creates native `wgpu`
   render targets, ticks Rust terrain streaming, renders terrain/sky PNGs, writes
   `artifacts/rust-smoke/<run-id>/report.json`, and owns terrain preset and

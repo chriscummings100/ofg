@@ -764,6 +764,21 @@ fn stream_scheduler_submits_nearest_build_jobs_first_up_to_capacity() {
 }
 
 #[test]
+fn stream_scheduler_updates_max_in_flight_capacity() {
+    let mut scheduler = test_stream_scheduler(1, vec![0], 1);
+
+    assert_eq!(
+        scheduler.set_max_in_flight_jobs(0),
+        Err(TerrainStreamError::ZeroMaxInFlightJobs)
+    );
+    scheduler.set_max_in_flight_jobs(3).unwrap();
+    scheduler.sync_center(coord(0, 0, 0));
+
+    assert_eq!(scheduler.tick().len(), 3);
+    assert_eq!(scheduler.status().max_in_flight_jobs, 3);
+}
+
+#[test]
 fn stream_scheduler_does_not_submit_children_until_parent_is_generated() {
     let mut scheduler = test_stream_scheduler_with_bands(
         vec![

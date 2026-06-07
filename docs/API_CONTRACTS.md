@@ -64,6 +64,14 @@ TypeScript shell supplies the canvas and a generic asset loader.
 state, advances Rust terrain streaming, uploads/prunes terrain meshes, and
 submits rendering.
 
+The wasm-bindgen game object also exposes internal terrain worker methods used
+only by `RustBrowserGameAdapter`: `configureTerrainWorkers(options)`,
+`takeTerrainBuildRequests()`, and `completeTerrainBuilds(completions)`.
+Rust owns the request ids, generation numbers, node keys, retry semantics, and
+completion validation. TypeScript may route these opaque packets through browser
+workers, but it must not decide desired terrain, LOD visibility, fallback cover,
+or whether a returned mesh is current.
+
     export type BrowserFrameInput = {
       readonly deltaSeconds: number;
       readonly movement: {
@@ -135,6 +143,10 @@ and node/LOD fields such as `loadedNodeCount`, `renderedNodeCount`,
 `maxRenderedLod`, `visibleWorldSpanXMeters`, `visibleWorldSpanZMeters`, and
 `terrainLodSummary`. The default playable stream currently reaches LOD4 and
 reports a settled horizontal visible span of at least 4096 meters in X and Z.
+The browser playable path reports `workerPoolRuntime === "browser-worker"`,
+the actual `terrainWorkerCount`, worker in-flight/queued/completed/stale/failed
+counters, and `synchronousBuildCount`. Native tests and Rust smoke can still
+use the synchronous stream path, where the runtime reports `"rust-sync"`.
 Browser TypeScript may display or assert these values but must not compute
 desired nodes, LOD selection, fallback cover, density dependencies, mesh
 visibility, or renderer state.
@@ -241,10 +253,11 @@ Current hook categories:
 
 Compatibility fields:
 
-- `terrainWorkerPoolRuntime` and `terrainWorkerCount` are legacy-shaped debug
-  names. The playable runtime no longer has a TypeScript terrain worker bridge;
-  `terrainWorkerCount` currently reflects Rust stream work capacity. Future
-  cleanup may rename these fields, but smoke tests currently rely on them.
+- `terrainWorkerPoolRuntime` and `terrainWorkerCount` are active debug fields
+  for the browser worker transport. They describe the runtime actually used for
+  terrain build requests, not LOD policy ownership. The playable browser runtime
+  should report `"browser-worker"` with a positive worker count; synchronous
+  Rust-only harnesses may report `"rust-sync"`.
 
 Contract rules:
 
@@ -333,8 +346,10 @@ terrain WASM memory buffers, call terrain density/mesh/scheduler exports, or
 validate generated TypeScript metadata for the standalone terrain artifact.
 
 The standalone `assets/wasm/terrain_core.wasm` artifact still exists as an
-export-contract fixture while the native Rust test and smoke system is being
-completed. It is not the playable terrain runtime. `tools/build-terrain-wasm.mjs`
+export-contract fixture and as the implementation loaded by the dedicated
+browser terrain build worker. It is not a TypeScript-owned terrain runtime:
+Rust still schedules requests through `engine_web`, validates completions, owns
+visibility, and uploads renderer resources. `tools/build-terrain-wasm.mjs`
 builds the artifact and validates the expected raw export names directly from
 the WASM module; it no longer writes a generated TypeScript metadata module.
 Terrain performance benchmarking now uses `npm run bench:terrain:rust`, which
@@ -347,7 +362,8 @@ Dual Contouring, material expansion, and buffer copy cost.
 Contract rules:
 
 - Runtime app code and TypeScript tests must not load or call
-  `terrain_core.wasm` directly.
+  `terrain_core.wasm` directly, except for `src/engine/web/terrainBuildWorker.ts`
+  fulfilling Rust-issued opaque build requests.
 - Do not recreate TypeScript adapters for terrain density sampling, chunk
   filling, stream scheduling, density storage, mesh generation, or raw terrain
   WASM memory buffers.
@@ -537,8 +553,8 @@ These are known contract risks for milestone reviewers:
   `Camera` fields. Sky/time additions must update all sites and shader tests in
   one milestone.
 - Terrain preset maps are duplicated across TypeScript and Rust.
-- Runtime debug names still include worker terminology even though the playable
-  terrain stream is Rust-owned and currently synchronous.
+- Browser terrain generation now uses browser workers for the playable path,
+  while Rust retains scheduler, validation, visibility, and renderer ownership.
 - `crates/engine_web/src/wgpu_renderer.rs` is still over the maximum preferred
   file size, `crates/engine_web/src/model_assets.rs` is over the split-pressure
   threshold, and `crates/terrain_core/src/facade.rs` is also oversized. Continue

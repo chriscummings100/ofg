@@ -73,6 +73,18 @@ impl TerrainStreamScheduler {
         self.generation
     }
 
+    pub fn set_max_in_flight_jobs(
+        &mut self,
+        max_in_flight_jobs: usize,
+    ) -> Result<(), TerrainStreamError> {
+        if max_in_flight_jobs == 0 {
+            return Err(TerrainStreamError::ZeroMaxInFlightJobs);
+        }
+
+        self.config.max_in_flight_jobs = max_in_flight_jobs;
+        Ok(())
+    }
+
     pub fn sync_center(&mut self, center_coord: TerrainChunkCoord) {
         self.center_coord = Some(center_coord);
         self.desired_nodes = self.build_desired_nodes(center_coord);

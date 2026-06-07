@@ -163,6 +163,13 @@ function fakeBrowserGame(): EngineWebBrowserGame {
   return {
     resize() {},
     tick() {},
+    configureTerrainWorkers() {},
+    takeTerrainBuildRequests() {
+      return [];
+    },
+    completeTerrainBuilds(completions) {
+      return completions.length;
+    },
     command() {},
     debugSnapshot() {
       return {
@@ -206,12 +213,19 @@ function fakeBrowserGame(): EngineWebBrowserGame {
             }
           ],
           maxConcurrentChunkJobs: 6,
-          workerPoolRuntime: "rust"
+          workerPoolRuntime: "rust-sync",
+          terrainWorkerCount: 0,
+          terrainWorkerInFlightCount: 0,
+          terrainWorkerQueuedRequestCount: 0,
+          terrainWorkerCompletedCount: 0,
+          terrainWorkerStaleCompletionCount: 0,
+          terrainWorkerFailedCount: 0,
+          synchronousBuildCount: 0
         },
         terrainStreamerRuntime: "rust",
         terrainStreamSchedulerRuntime: "rust",
         terrainDensityStoreRuntime: "rust",
-        terrainWorkerPoolRuntime: "rust",
+        terrainWorkerPoolRuntime: "rust-sync",
         renderPacketRuntime: "rust",
         terrainRenderPacketRuntime: "rust",
         rendererRuntime: "rust-wgpu",
@@ -245,7 +259,7 @@ function fakeBrowserGame(): EngineWebBrowserGame {
           postProcessDofMaxBlurPixels: 6
         },
         shadowDebugView: "off",
-        terrainWorkerCount: 6,
+        terrainWorkerCount: 0,
         playerControllerRuntime: "rust"
       };
     }

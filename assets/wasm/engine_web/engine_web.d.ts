@@ -6,6 +6,9 @@ export class RustBrowserGame {
   static create(canvas: HTMLCanvasElement, asset_loader: any): Promise<RustBrowserGame>;
   resize(viewport: any): void;
   tick(frame: any): void;
+  configureTerrainWorkers(options: any): void;
+  takeTerrainBuildRequests(): any;
+  completeTerrainBuilds(completions: any): number;
   command(command: any): void;
   debugSnapshot(): any;
 }
@@ -18,6 +21,9 @@ export interface InitOutput {
   readonly rustbrowsergame_create: (a: number, b: number) => number;
   readonly rustbrowsergame_resize: (a: number, b: number, c: number) => void;
   readonly rustbrowsergame_tick: (a: number, b: number, c: number) => void;
+  readonly rustbrowsergame_configureTerrainWorkers: (a: number, b: number, c: number) => void;
+  readonly rustbrowsergame_takeTerrainBuildRequests: (a: number, b: number) => void;
+  readonly rustbrowsergame_completeTerrainBuilds: (a: number, b: number, c: number) => void;
   readonly rustbrowsergame_command: (a: number, b: number, c: number) => void;
   readonly rustbrowsergame_debugSnapshot: (a: number, b: number) => void;
   readonly ofg_terrain_core_version: () => number;

@@ -119,9 +119,38 @@ patches, parent/child visible overlap, or TypeScript-owned terrain scheduling.
   local contract, code-quality, legacy, correctness, and validation passes were
   performed. Required findings were fixed before marking the milestone
   complete.
-- [ ] Milestone 3: move node generation off the browser main thread using
+- [x] Milestone 3: move node generation off the browser main thread using
   browser workers while keeping Rust scheduler ownership and stale-completion
   validation.
+- [x] (2026-06-08 00:45+01:00) Added Rust-owned terrain build request and
+  completion packets. `BrowserTerrainStream::tick_for_workers` now queues
+  worker jobs instead of calling `build_node_mesh` on the browser frame path;
+  Rust still owns request ids, generation tokens, node keys, retries, stale
+  completion rejection, empty-node state, mesh cache updates, and visible-node
+  synchronization.
+- [x] (2026-06-08 00:45+01:00) Added the browser worker bridge:
+  `TerrainWorkerClient` routes opaque Rust requests through
+  `BrowserWorkerHost`, `terrainBuildWorker.ts` loads `terrain_core.wasm` and
+  calls the raw mesh export, and `RustBrowserGameAdapter` drains completions
+  before each Rust tick and submits new requests after the tick.
+- [x] (2026-06-08 00:45+01:00) Extended debug status and smoke assertions for
+  the real worker runtime. Final browser smoke
+  `artifacts/browser-smoke/2026-06-07T23-35-19-209Z/report.json` reported
+  `terrainWorkerPoolRuntime: "browser-worker"`, 12 workers, 770 completed
+  worker builds, 0 failed completions, 0 stale completions,
+  `synchronousBuildCount: 0`, max rendered LOD4, 4608 m by 4608 m visible span,
+  and 0 missing nodes.
+- [x] (2026-06-08 00:45+01:00) Ran Milestone 3 validation:
+  `cargo test -p terrain_core stream_scheduler --no-fail-fast`,
+  `cargo test -p engine_web worker --no-fail-fast`,
+  `npm run test:ts`, `npm test`, `npm run check:wasm`,
+  `npm run smoke:browser`, and
+  `git -c safe.directory=C:/dev/ofg diff --check`.
+- [x] (2026-06-08 00:45+01:00) Milestone 3 review complete. Sub-agent review
+  was not used because the user did not explicitly request delegated reviewers;
+  local contract, code-quality, legacy, correctness, and validation passes were
+  performed. Required findings were fixed before marking the milestone
+  complete.
 - [ ] Milestone 4: add browser stutter/performance validation that proves worker
   generation is active and records frame-time/upload behavior during movement.
 - [ ] Milestone 5: run full validation, update contracts/docs, run
@@ -204,6 +233,25 @@ patches, parent/child visible overlap, or TypeScript-owned terrain scheduling.
   mean shares of about 88.9% density, 10.3% contouring, 0.7% material
   expansion, and 0.1% copy. The prepared-density repeat reports median
   7.983 ms and p95 13.431 ms.
+- Observation: the browser playable path now proves actual worker generation,
+  not just a scheduler capacity number.
+  Evidence:
+  `artifacts/browser-smoke/2026-06-07T23-35-19-209Z/report.json` reports
+  `workerPoolRuntime: "browser-worker"`, 12 workers, 770 completed worker
+  builds, 0 failed completions, 0 stale completions, and
+  `synchronousBuildCount: 0`.
+- Observation: worker pool failures must fail all outstanding requests, not
+  only requests assigned to the worker that reported the error.
+  Evidence: `BrowserWorkerHost::reset` terminates and recreates the whole pool.
+  Milestone review caught that only failing one worker slot could orphan
+  in-flight requests assigned to other workers. `TerrainWorkerClient` now emits
+  failed completions for every outstanding request before resetting the pool.
+- Observation: moving generation off-thread does not automatically eliminate
+  all main-thread hitches.
+  Evidence: Rust still accepts completed typed arrays, updates mesh cache state,
+  and uploads/prunes renderer meshes during later frame ticks. Browser smoke
+  proves worker generation is active, but it does not yet measure completion
+  burst cost or GPU upload cost during movement deltas.
 
 ## Decision Log
 
@@ -289,10 +337,34 @@ patches, parent/child visible overlap, or TypeScript-owned terrain scheduling.
   old per-LOD sample count made quick benchmark runs too slow while the normal
   path is still synchronous.
   Date/Author: 2026-06-07 / Codex.
+- Decision: use `terrain_core.wasm` only inside the dedicated browser terrain
+  build worker for Milestone 3.
+  Rationale: this gets pure CPU generation off the browser frame path without
+  making TypeScript own terrain scheduling, desired sets, LOD visibility, mesh
+  validity, renderer uploads, or retry policy. Rust emits opaque build requests
+  and validates every completion.
+  Date/Author: 2026-06-08 / Codex.
+- Decision: a browser worker process error fails all outstanding terrain build
+  requests before resetting the worker pool.
+  Rationale: the worker host reset terminates every worker, so requests assigned
+  to other workers would otherwise be orphaned and remain in-flight forever.
+  Rust receives failed completions and can retry through the scheduler.
+  Date/Author: 2026-06-08 / Codex.
+- Decision: keep worker request ids within the JavaScript safe-integer range.
+  Rationale: wasm-bindgen object packets currently cross the boundary as JS
+  numbers. Rust wraps generated request ids before `2^53 - 1` and rejects
+  completion ids outside that range.
+  Date/Author: 2026-06-08 / Codex.
+- Decision: defer completion-burst and renderer-upload budgeting to Milestone 4.
+  Rationale: Milestone 3 proves generation no longer runs on the frame path.
+  Upload and completion costs are still main-thread work and need a movement
+  performance smoke with frame deltas, worker queue depth, completion bursts,
+  and upload timing.
+  Date/Author: 2026-06-08 / Codex.
 
 ## Outcomes & Retrospective
 
-Milestones 1 and 2 are complete. The overall plan remains active. Current
+Milestones 1 through 3 are complete. The overall plan remains active. Current
 outcomes:
 
 - Default terrain now uses additional LOD3 and LOD4 far bands and reaches a
@@ -301,10 +373,13 @@ outcomes:
 - `npm run bench:terrain:rust` now reports realistic average and percentile
   costs for terrain generation across many representative nodes, with phase
   breakdowns that identify where time is spent.
-- Browser terrain generation no longer runs `build_node_mesh` on the main
-  frame path. This remains Milestone 3 work.
-- Browser smoke or a dedicated performance smoke records worker generation,
-  stale-completion handling, frame timing, and upload behavior during movement.
+- Browser terrain generation no longer runs `build_node_mesh` on the browser
+  frame path. The playable browser path reports `"browser-worker"` with 12
+  workers on the validated machine, 770 completed worker builds, 0 failed/stale
+  completions, and `synchronousBuildCount: 0` in the final smoke report.
+- Browser smoke now records worker generation and stale/failure counters.
+  A dedicated performance smoke still needs to record frame timing, completion
+  bursts, and upload behavior during movement.
   This remains Milestone 4 work.
 
 ## Contract and Quality Baseline
@@ -614,6 +689,44 @@ Milestone 2 review, 2026-06-08 / Codex:
   before worker generation exists. Correctness and smoke pass, but the roughly
   69-second far-settle tests and 318-second Rust smoke run are evidence that
   Milestone 3 must move generation off the frame path.
+
+Milestone 3 review, 2026-06-08 / Codex:
+
+- Scope: browser-worker terrain generation path; changed Rust terrain stream
+  request/completion state, wasm-bindgen worker methods, TypeScript worker
+  client and worker module, browser runtime adapter routing, debug snapshot
+  schema, browser smoke assertions, generated engine_web WASM artifacts, and
+  active docs/contracts.
+- Reviewers: contract, code quality, legacy, correctness, and validation passes
+  were done locally. Sub-agent review was skipped because delegated reviewers
+  were not explicitly requested by the user.
+- Required findings fixed: worker pool errors now fail every outstanding
+  request before pool reset instead of orphaning requests assigned to other
+  workers; worker request ids are capped to JavaScript safe integers and the
+  Rust completion parser rejects out-of-range ids; `RustBrowserGameAdapter`
+  now creates terrain workers after wasm game creation and disposes them if
+  worker configuration or initial resize fails; stale active docs now describe
+  `terrain_core.wasm` as a dedicated worker-build artifact rather than
+  fixture-only.
+- Follow-ups recorded: Milestone 4 must measure completion-burst and renderer
+  upload costs because those remain main-thread work; `crates/engine_web/src/wgpu_renderer.rs`
+  is still far over the preferred file size and absorbed more wasm packet glue;
+  `tools/browser-smoke.mjs` and `crates/engine_web/src/tests.rs` remain
+  oversized existing files and should be split by responsibility before they
+  absorb more performance-smoke or worker lifecycle coverage.
+- Rejected findings: no separate module-mocking test was added for the
+  `RustBrowserGameAdapter.create` disposal guard. The worker routing and reset
+  behavior are covered at constructor level, the final browser smoke exercises
+  normal static creation, and adding brittle import mocking would not improve
+  the worker-streaming contract enough for this milestone.
+- Validation rerun after review fixes: `cargo fmt --all --check`,
+  `cargo test -p engine_web worker --no-fail-fast`, `npm run test:ts`,
+  `npm run check:wasm`, `npm run smoke:browser`, `npm test`, and
+  `git -c safe.directory=C:/dev/ofg diff --check`.
+- Remaining risk: browser smoke proves worker generation is active and not
+  synchronous, but it does not yet measure stutter during running movement,
+  completion bursts, transfer/copy overhead, or GPU upload spikes. That is
+  Milestone 4.
 
 ## Validation and Acceptance
 

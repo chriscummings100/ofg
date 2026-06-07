@@ -6,25 +6,25 @@ use crate::{
     build_specular_glossiness_material_packet, horizontal_movement_is_active,
     import_gltf_model_from_slice, model_primitive_vertex_floats, skin_joint_matrices,
     skin_primitive_vertices, skinned_model_render_assets, BrowserGameInput, BrowserGameState,
-    BrowserGameStateError, BrowserTerrainStream, LocomotionAnimationController,
-    MaterialPacketError, MeshResource, ModelAnimationChannel, ModelAnimationClip,
-    ModelAnimationInterpolation, ModelAnimationOutputs, ModelAnimationTarget, ModelAsset,
-    ModelAssetError, ModelMaterial, ModelNode, ModelNodeTransform, ModelPrimitive, ModelSkin,
-    ModelVertex, PlayerCharacterLocomotionTuning, PlayerCharacterModel, RenderPacketError,
-    RenderUniformError, RendererState, RendererStateError, ResourceHandle, RgbaTextureArrayAsset,
-    TerrainTextureArrays, TerrainTextureError, TextureResource, ENGINE_RENDER_SNAPSHOT_FLOATS,
-    FRAME_PACKET_FLOATS, MATERIAL_PACKET_FLOATS, MATERIAL_WORKFLOW_METALLIC_ROUGHNESS,
-    MATERIAL_WORKFLOW_SPECULAR_GLOSSINESS, MODEL_VERTEX_FLOATS, QUATERNIUS_IDLE_CLIP_NAME,
-    QUATERNIUS_RUN_CLIP_NAME, QUATERNIUS_WALK_CLIP_NAME, REQUIRED_TEXTURE_ARRAY_LAYERS,
-    SAMPLE_STATIC_BOX_MATERIAL_LABEL, SAMPLE_STATIC_BOX_MESH_LABEL,
-    TERRAIN_ALBEDO_TEXTURE_ARRAY_ID, TERRAIN_MATERIAL_ID, TERRAIN_MATERIAL_PACKET,
-    TERRAIN_MATERIAL_TEXTURE_ARRAY_ID, TERRAIN_NORMAL_TEXTURE_ARRAY_ID, TERRAIN_VERTEX_FLOATS,
-    TEXTURE_FORMAT_RGBA8_UNORM, WORLD_MATRIX_FLOATS,
+    BrowserGameStateError, BrowserTerrainBuildCompletion, BrowserTerrainStream,
+    LocomotionAnimationController, MaterialPacketError, MeshResource, ModelAnimationChannel,
+    ModelAnimationClip, ModelAnimationInterpolation, ModelAnimationOutputs, ModelAnimationTarget,
+    ModelAsset, ModelAssetError, ModelMaterial, ModelNode, ModelNodeTransform, ModelPrimitive,
+    ModelSkin, ModelVertex, PlayerCharacterLocomotionTuning, PlayerCharacterModel,
+    RenderPacketError, RenderUniformError, RendererState, RendererStateError, ResourceHandle,
+    RgbaTextureArrayAsset, TerrainTextureArrays, TerrainTextureError, TextureResource,
+    ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS, MATERIAL_PACKET_FLOATS,
+    MATERIAL_WORKFLOW_METALLIC_ROUGHNESS, MATERIAL_WORKFLOW_SPECULAR_GLOSSINESS,
+    MODEL_VERTEX_FLOATS, QUATERNIUS_IDLE_CLIP_NAME, QUATERNIUS_RUN_CLIP_NAME,
+    QUATERNIUS_WALK_CLIP_NAME, REQUIRED_TEXTURE_ARRAY_LAYERS, SAMPLE_STATIC_BOX_MATERIAL_LABEL,
+    SAMPLE_STATIC_BOX_MESH_LABEL, TERRAIN_ALBEDO_TEXTURE_ARRAY_ID, TERRAIN_MATERIAL_ID,
+    TERRAIN_MATERIAL_PACKET, TERRAIN_MATERIAL_TEXTURE_ARRAY_ID, TERRAIN_NORMAL_TEXTURE_ARRAY_ID,
+    TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM, WORLD_MATRIX_FLOATS,
 };
 use engine_core::{EngineError, MaterialId, MeshId, PlayerMode, TerrainComponent, Vec3};
 use terrain_core::{
-    height_at, terrain_node_cell_size, terrain_node_parent, TerrainLodBand, TerrainNodeKey,
-    DEFAULT_TERRAIN_PRESET, TERRAIN_CHUNK_CELLS_PER_AXIS,
+    build_node_mesh, height_at, terrain_node_cell_size, terrain_node_parent, TerrainLodBand,
+    TerrainNodeKey, DEFAULT_TERRAIN_PRESET, TERRAIN_CHUNK_CELLS_PER_AXIS,
 };
 
 const STATIC_BOX_GLB: &[u8] = include_bytes!("../../../assets/models/test-fixtures/static-box.glb");
@@ -1668,6 +1668,132 @@ fn browser_terrain_stream_default_bands_render_multiple_lods_after_settling() {
     assert!(render_node_keys
         .iter()
         .any(|key| key.starts_with("lod3:") || key.starts_with("lod4:")));
+}
+
+#[test]
+fn browser_terrain_stream_queues_worker_requests_without_sync_building() {
+    let mut stream = BrowserTerrainStream::new_with_lod_bands(
+        0x0F6,
+        1,
+        vec![TerrainLodBand {
+            lod: 0,
+            horizontal_radius: 0,
+            vertical_chunk_offsets: vec![0],
+        }],
+    )
+    .unwrap();
+    stream.configure_worker_runtime(2).unwrap();
+    let origin = Vec3::new(0.0, 0.0, 0.0);
+    stream.reset_around(origin);
+
+    let update = stream.tick_for_workers(origin);
+    assert!(update.upserted_meshes.is_empty());
+    assert_eq!(stream.status().synchronous_build_count, 0);
+
+    let requests = stream.take_worker_build_requests();
+    assert_eq!(requests.len(), 1);
+    let request = requests[0];
+    assert_eq!(request.seed, 0x0F6);
+    assert_eq!(request.preset, 1);
+    assert_eq!(request.key.lod, 0);
+    assert_eq!(stream.status().terrain_worker_count, 2);
+    assert_eq!(stream.status().terrain_worker_in_flight_count, 1);
+    assert_eq!(stream.status().terrain_worker_queued_request_count, 0);
+
+    let mesh = build_node_mesh(request.seed, request.preset, request.key, 1.0);
+    assert!(stream.complete_worker_build(BrowserTerrainBuildCompletion {
+        request_id: request.request_id,
+        generation: request.generation,
+        key: request.key,
+        vertices: mesh.vertices,
+        indices: mesh.indices,
+        failed: false,
+    }));
+
+    let update = stream.tick_for_workers(origin);
+    assert_eq!(update.upserted_meshes.len(), 1);
+    let status = stream.status();
+    assert_eq!(status.terrain_worker_runtime, "browser-worker");
+    assert_eq!(status.terrain_worker_completed_count, 1);
+    assert_eq!(status.terrain_worker_in_flight_count, 0);
+    assert_eq!(status.synchronous_build_count, 0);
+    assert_eq!(status.pending, false);
+}
+
+#[test]
+fn browser_terrain_stream_rejects_stale_worker_completions_and_retries() {
+    let mut stream = BrowserTerrainStream::new_with_lod_bands(
+        0x0F6,
+        1,
+        vec![TerrainLodBand {
+            lod: 0,
+            horizontal_radius: 0,
+            vertical_chunk_offsets: vec![0],
+        }],
+    )
+    .unwrap();
+    stream.configure_worker_runtime(1).unwrap();
+    let origin = Vec3::new(0.0, 0.0, 0.0);
+    stream.reset_around(origin);
+    stream.tick_for_workers(origin);
+    let request = stream.take_worker_build_requests()[0];
+    let wrong_key = TerrainNodeKey {
+        lod: request.key.lod,
+        coord: terrain_core::TerrainChunkCoord {
+            x: request.key.coord.x + 1,
+            y: request.key.coord.y,
+            z: request.key.coord.z,
+        },
+    };
+
+    assert!(
+        !stream.complete_worker_build(BrowserTerrainBuildCompletion {
+            request_id: request.request_id,
+            generation: request.generation,
+            key: wrong_key,
+            vertices: Vec::new(),
+            indices: Vec::new(),
+            failed: false,
+        })
+    );
+    assert_eq!(stream.status().terrain_worker_stale_completion_count, 1);
+
+    stream.tick_for_workers(origin);
+    let retry = stream.take_worker_build_requests();
+    assert_eq!(retry.len(), 1);
+    assert_eq!(retry[0].key, request.key);
+}
+
+#[test]
+fn browser_terrain_stream_rejects_worker_completions_after_reset() {
+    let mut stream = BrowserTerrainStream::new_with_lod_bands(
+        0x0F6,
+        1,
+        vec![TerrainLodBand {
+            lod: 0,
+            horizontal_radius: 0,
+            vertical_chunk_offsets: vec![0],
+        }],
+    )
+    .unwrap();
+    stream.configure_worker_runtime(1).unwrap();
+    let origin = Vec3::new(0.0, 0.0, 0.0);
+    stream.reset_around(origin);
+    stream.tick_for_workers(origin);
+    let request = stream.take_worker_build_requests()[0];
+
+    stream.reset_around(Vec3::new(96.0, 0.0, 0.0));
+    assert!(
+        !stream.complete_worker_build(BrowserTerrainBuildCompletion {
+            request_id: request.request_id,
+            generation: request.generation,
+            key: request.key,
+            vertices: Vec::new(),
+            indices: Vec::new(),
+            failed: false,
+        })
+    );
+    assert_eq!(stream.status().terrain_worker_stale_completion_count, 1);
 }
 
 #[test]

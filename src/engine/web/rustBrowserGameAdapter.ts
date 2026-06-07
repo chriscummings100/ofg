@@ -12,6 +12,14 @@ import type {
   RustBrowserGameDebugSnapshot,
   ShadowDebugView,
 } from "./browserGameTypes.js";
+import { TerrainWorkerClient, type TerrainBuildCompletion } from "./terrainWorkerClient.js";
+
+export type TerrainWorkerBridge = {
+  readonly workerCount: number;
+  takeCompletions(): TerrainBuildCompletion[];
+  submitRequests(requests: ReturnType<EngineWebBrowserGame["takeTerrainBuildRequests"]>): void;
+  reset(): void;
+};
 
 export class RustBrowserGameAdapter {
   readonly runtime = "rust-wgpu" as const;
@@ -20,7 +28,8 @@ export class RustBrowserGameAdapter {
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly game: EngineWebBrowserGame
+    private readonly game: EngineWebBrowserGame,
+    private readonly terrainWorkers?: TerrainWorkerBridge
   ) {}
 
   static async create(
@@ -28,8 +37,15 @@ export class RustBrowserGameAdapter {
     assetLoader?: BrowserTextureAssetLoader
   ): Promise<RustBrowserGameAdapter> {
     const game = await createEngineWebBrowserGame(canvas, assetLoader);
-    const adapter = new RustBrowserGameAdapter(canvas, game);
-    adapter.resize();
+    const terrainWorkers = new TerrainWorkerClient();
+    const adapter = new RustBrowserGameAdapter(canvas, game, terrainWorkers);
+    try {
+      game.configureTerrainWorkers({ workerCount: terrainWorkers.workerCount });
+      adapter.resize();
+    } catch (error) {
+      terrainWorkers.dispose();
+      throw error;
+    }
 
     return adapter;
   }
@@ -50,10 +66,18 @@ export class RustBrowserGameAdapter {
 
   tick(frame: BrowserFrameInput): void {
     this.resize();
+    const completions = this.terrainWorkers?.takeCompletions() ?? [];
+    if (completions.length > 0) {
+      this.game.completeTerrainBuilds(completions);
+    }
     this.game.tick(frame);
+    this.terrainWorkers?.submitRequests(this.game.takeTerrainBuildRequests());
   }
 
   command(command: RustBrowserGameCommand): void {
+    if (command.type === "resetGame" || command.type === "resetStreaming") {
+      this.terrainWorkers?.reset();
+    }
     this.game.command(command);
   }
 

@@ -109,6 +109,8 @@ export type TerrainStreamJobStats = {
   readonly indexCount?: number;
 };
 
+export type TerrainWorkerPoolRuntime = "rust-sync" | "browser-worker";
+
 export type TerrainNodeKey = string;
 
 export type TerrainLodSummary = {
@@ -143,7 +145,14 @@ export type TerrainStreamStatus = {
   readonly visibleWorldSpanZMeters: number;
   readonly terrainLodSummary: TerrainLodSummary[];
   readonly maxConcurrentChunkJobs: number;
-  readonly workerPoolRuntime: "rust";
+  readonly workerPoolRuntime: TerrainWorkerPoolRuntime;
+  readonly terrainWorkerCount: number;
+  readonly terrainWorkerInFlightCount: number;
+  readonly terrainWorkerQueuedRequestCount: number;
+  readonly terrainWorkerCompletedCount: number;
+  readonly terrainWorkerStaleCompletionCount: number;
+  readonly terrainWorkerFailedCount: number;
+  readonly synchronousBuildCount: number;
   readonly lastDensityJobStats?: TerrainStreamJobStats;
   readonly lastChunkJobStats?: TerrainStreamJobStats;
 };
@@ -161,7 +170,7 @@ export type RustBrowserGameDebugSnapshot = {
   readonly terrainStreamerRuntime: "rust";
   readonly terrainStreamSchedulerRuntime: "rust";
   readonly terrainDensityStoreRuntime: "rust";
-  readonly terrainWorkerPoolRuntime: "rust";
+  readonly terrainWorkerPoolRuntime: TerrainWorkerPoolRuntime;
   readonly renderPacketRuntime: "rust";
   readonly terrainRenderPacketRuntime: "rust";
   readonly rendererRuntime: "rust-wgpu";

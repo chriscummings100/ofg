@@ -56,7 +56,7 @@ This plan also reduces the supported API surface where the review found accident
 - Observation: The sub-agent review found broad behavior coverage but incomplete direct API contract coverage.
   Evidence: gaps clustered around `terrain_core` facade buffer/status APIs, `engine_web` wasm bridge commands, `ofg_test_harness` public report/scenario helpers, TypeScript `startGame`, generated artifact hashes, and build-tool `--check` behavior.
 - Observation: The former `tools/benchmark-terrain-wasm.mjs` TypeScript/Node terrain WASM client was an architecture leak and has been removed.
-  Evidence: before removal, the script instantiated `assets/wasm/terrain_core.wasm` and called terrain density, store, and mesh exports directly for benchmarks. After removal, `rg` finds those calls only in the allowed standalone export-contract builder.
+  Evidence: before removal, the script instantiated `assets/wasm/terrain_core.wasm` and called terrain density, store, and mesh exports directly for benchmarks. After removal, raw terrain WASM use is restricted to the allowed standalone export-contract builder and the dedicated browser terrain build worker, which only fulfills Rust-issued opaque build requests.
 - Observation: No supported consumer used the raw `ofg_engine_web_*` facade.
   Evidence: after deleting `crates/engine_web/src/facade.rs` and regenerating wasm-bindgen glue, `npm run check:engine-web-wasm` passed and `rg` found no `ofg_engine_web_` references outside docs and the build-script forbidden-prefix guard.
 - Observation: The Rust terrain benchmark reproduces the old benchmark phases without `terrain_core.wasm` instantiation.
@@ -133,7 +133,7 @@ This plan preserves the Rust-first ownership established by `docs/API_CONTRACTS.
 
 `OFG-API-003: Debug And Smoke-Test Hooks` remains active. Browser debug hooks are integration hooks. Tests should verify that they forward documented commands and expose black-box runtime sentinels, not terrain internals.
 
-`OFG-API-006: Standalone Terrain WASM Artifact` is now an export-contract fixture only. The TypeScript terrain benchmark has been replaced by Rust, and the standalone `terrain_core.wasm` artifact stays only while build/check tooling needs to verify the raw export contract. Removing it from the regular build remains a separate future cleanup decision.
+`OFG-API-006: Standalone Terrain WASM Artifact` is now an export-contract fixture and dedicated browser-worker build artifact only. The TypeScript terrain benchmark has been replaced by Rust, and the standalone `terrain_core.wasm` artifact stays only while build/check tooling needs to verify the raw export contract and browser workers need to fulfill Rust-issued opaque mesh build requests. Removing it from the regular build remains a separate future cleanup decision.
 
 `OFG-API-009: Forbidden TypeScript Ownership` is enforced by this plan. TypeScript tests and tools must not become terrain clients. Any new TypeScript test touching terrain names should prove browser shell configuration, import-graph quarantine, generated metadata, or debug sentinel behavior only.
 
