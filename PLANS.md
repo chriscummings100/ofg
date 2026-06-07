@@ -16,6 +16,7 @@ This file defines how to write and maintain an ExecPlan: a self-contained, livin
 - Living document: revise Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective as work proceeds while keeping the plan self-contained.
 - Outcome-focused: describe what the user can do after the change and how to see it working; the plan must lead to demonstrably working behavior, not just code edits.
 - Explicit acceptance: state behaviors, commands, and observable outputs that prove success.
+- Coverage completion gate: an implementation plan is not complete until each modified implementation file passes the default coverage attention gate. In practice, run the repo coverage command, confirm changed implementation files do not appear in the default filtered coverage output, and treat the documented line-coverage attention threshold (currently about 90%) as the minimum bar unless the plan records an explicit exception with rationale.
 
 ## Formatting Rules
 - Default envelope is a single fenced code block labeled `md`; do not nest other triple backticks inside—indent commands, transcripts, and diffs instead.
@@ -99,6 +100,8 @@ After each milestone:
 
 ## Validation and Acceptance
 Behavioral acceptance criteria plus test commands and expected results.
+
+For implementation work, include the coverage command and expected filtered output. The plan is complete only when modified implementation files do not appear in the default coverage attention report because they meet the documented threshold, currently about 90% line coverage, or when an explicit exception is recorded with rationale.
 
 ## Idempotence and Recovery
 How to retry or roll back safely; ensure steps can be rerun without harm.
