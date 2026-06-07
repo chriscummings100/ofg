@@ -20,10 +20,11 @@ pub use error::{HarnessError, HarnessResult};
 use error::harness_error;
 use renderer::{OffscreenRenderer, HEIGHT, WIDTH};
 use report::{
-    analyze_pixels, analyze_shadow_debug_pixels, assert_pixel_stats, assert_shadow_debug_layers,
-    path_string, ImageReport, ShadowImageReport, SmokeReport,
+    analyze_pixels, analyze_shadow_debug_pixels, assert_no_large_lower_center_sky_hole,
+    assert_pixel_stats, assert_shadow_debug_layers, path_string, ImageReport, ShadowImageReport,
+    SmokeReport,
 };
-use scenarios::{build_scenario_terrain, scenarios, Scenario, ScenarioFilter};
+use scenarios::{build_scenario_terrain, scenarios, Scenario, ScenarioFilter, ScenarioStreamMode};
 use shadow_debug::ShadowDebugOutput;
 
 struct Args {
@@ -120,7 +121,7 @@ where
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: ofg-render-smoke [--out artifacts/rust-smoke] [--scenario all|boot|presets|seams]"
+                    "Usage: ofg-render-smoke [--out artifacts/rust-smoke] [--scenario all|boot|presets|seams|lods]"
                 );
                 std::process::exit(0);
             }
@@ -145,6 +146,9 @@ fn render_scenario(
     let pixels = renderer.render(&terrain.camera, &terrain.meshes)?;
     let stats = analyze_pixels(&pixels, WIDTH, HEIGHT);
     assert_pixel_stats(stats, scenario.name)?;
+    if scenario.stream_mode == ScenarioStreamMode::MultiLod {
+        assert_no_large_lower_center_sky_hole(stats, scenario.name)?;
+    }
 
     let image = RgbaImage::from_raw(WIDTH, HEIGHT, pixels)
         .ok_or_else(|| harness_error("Rust smoke could not create an RGBA image."))?;

@@ -136,6 +136,14 @@ and node/LOD fields such as `loadedNodeCount`, `renderedNodeCount`,
 assert these values but must not compute desired nodes, LOD selection, fallback
 cover, density dependencies, mesh visibility, or renderer state.
 
+The active stream scheduler is generated-node based: a scheduled node build
+produces either a renderable mesh or an empty node. Some debug and fixture
+fields retain density-shaped names such as `densityReadyChunkCount` or
+`missingDensityCount` for compatibility with existing HUD, smoke, and
+standalone `terrain_core.wasm` export checks. Browser code must treat these as
+opaque Rust-owned status values, not as a signal to reintroduce a browser terrain
+density pipeline.
+
 Contract rules:
 
 - Add new user/debug control through `GameCommand` before adding new public

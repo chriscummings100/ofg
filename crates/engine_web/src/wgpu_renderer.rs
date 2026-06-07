@@ -618,7 +618,11 @@ impl RustBrowserGame {
             renderer_status_to_js(self.renderer.status())?,
         )?;
         let sky_snapshot = self.game_state.sky_snapshot();
-        set_js_property(&snapshot, "skyRuntime", JsValue::from_str(sky_snapshot.runtime))?;
+        set_js_property(
+            &snapshot,
+            "skyRuntime",
+            JsValue::from_str(sky_snapshot.runtime),
+        )?;
         set_js_property(
             &snapshot,
             "skyDayPhase",

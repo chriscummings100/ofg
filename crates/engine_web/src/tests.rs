@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::{
     blend_node_transforms, build_frame_packet_from_engine_snapshot, build_frame_uniform_values,
     build_material_packet, build_metallic_roughness_material_packet, build_object_uniform_values,
@@ -20,7 +22,10 @@ use crate::{
     TEXTURE_FORMAT_RGBA8_UNORM, WORLD_MATRIX_FLOATS,
 };
 use engine_core::{EngineError, MaterialId, MeshId, PlayerMode, TerrainComponent, Vec3};
-use terrain_core::{height_at, TerrainLodBand, DEFAULT_TERRAIN_PRESET};
+use terrain_core::{
+    height_at, terrain_node_cell_size, terrain_node_parent, TerrainLodBand, TerrainNodeKey,
+    DEFAULT_TERRAIN_PRESET, TERRAIN_CHUNK_CELLS_PER_AXIS,
+};
 
 const STATIC_BOX_GLB: &[u8] = include_bytes!("../../../assets/models/test-fixtures/static-box.glb");
 const BOX_ANIMATED_GLB: &[u8] =
@@ -1615,11 +1620,12 @@ fn browser_terrain_stream_generates_and_prunes_meshes_in_rust() {
     let moved = Vec3::new(96.0, 0.0, 0.0);
     let update = stream.tick(moved);
 
-    assert!(update
-        .removed_nodes
-        .iter()
-        .any(|key| key.lod == 0 && key.coord.x == 0));
+    assert!(update.removed_nodes.is_empty());
     assert!(stream.loaded_chunk_keys().contains(&"3,0,0".to_string()));
+    assert!(stream.render_chunk_keys().contains(&"0,0,0".to_string()));
+
+    settle_terrain_stream(&mut stream, moved, 80);
+
     assert!(!stream.render_chunk_keys().contains(&"0,0,0".to_string()));
 }
 
@@ -1632,17 +1638,23 @@ fn browser_terrain_stream_default_bands_render_multiple_lods_after_settling() {
     for _ in 0..360 {
         stream.tick(origin);
         let status = stream.status();
-        if status.rendered_chunk_count > 0 && status.max_rendered_lod >= 1 {
+        if !status.pending && status.rendered_chunk_count > 0 && status.max_rendered_lod >= 1 {
             break;
         }
     }
 
     let status = stream.status();
     let render_node_keys = stream.render_node_keys();
+    let loaded_node_keys = stream.loaded_node_keys();
 
     assert!(status.rendered_chunk_count > 0);
     assert!(status.rendered_node_count > status.rendered_chunk_count);
     assert!(status.max_rendered_lod >= 1);
+    assert_eq!(status.pending, false);
+    assert_eq!(status.missing_node_count, 0);
+    assert!(loaded_node_keys
+        .iter()
+        .any(|key| key.starts_with("lod2:") && key.contains(",-1,")));
     assert!(render_node_keys.iter().any(|key| key.starts_with("lod0:")));
     assert!(render_node_keys
         .iter()
@@ -1691,7 +1703,56 @@ fn browser_terrain_stream_generates_unique_mesh_keys_across_lods() {
 }
 
 #[test]
-fn browser_terrain_stream_keeps_parent_visible_until_children_are_ready() {
+fn browser_terrain_stream_keeps_current_position_covered_while_running() {
+    let mut stream = BrowserTerrainStream::new_with_lod_bands(
+        0x0F6,
+        1,
+        vec![
+            TerrainLodBand {
+                lod: 0,
+                horizontal_radius: 0,
+                vertical_chunk_offsets: vec![-1, 0, 1],
+            },
+            TerrainLodBand {
+                lod: 1,
+                horizontal_radius: 1,
+                vertical_chunk_offsets: vec![-1, 0],
+            },
+            TerrainLodBand {
+                lod: 2,
+                horizontal_radius: 1,
+                vertical_chunk_offsets: vec![-1, 0],
+            },
+        ],
+    )
+    .unwrap();
+    let mut position = terrain_position(0x0F6, 1, 0.0, 0.0);
+    stream.reset_around(position);
+    settle_terrain_stream(&mut stream, position, 240);
+    assert_visible_stream_cover(&stream, position);
+
+    for step in 1..=48 {
+        let x = step as f32 * 4.0;
+        let z = step as f32 * 1.75;
+        position = terrain_position(0x0F6, 1, x, z);
+        stream.tick(position);
+        assert_visible_stream_cover(&stream, position);
+
+        for _ in 0..2 {
+            stream.tick(position);
+            assert_visible_stream_cover(&stream, position);
+        }
+    }
+
+    settle_terrain_stream(&mut stream, position, 240);
+    let status = stream.status();
+    assert!(!status.pending);
+    assert_eq!(status.missing_node_count, 0);
+    assert_visible_stream_cover(&stream, position);
+}
+
+#[test]
+fn browser_terrain_stream_swaps_parent_out_after_complete_child_group() {
     let mut stream = BrowserTerrainStream::new_with_lod_bands(
         0x0F6,
         1,
@@ -1938,6 +1999,62 @@ fn translation_matrix(x: f32, y: f32, z: f32) -> [f32; 16] {
     [
         1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, x, y, z, 1.0,
     ]
+}
+
+fn terrain_position(seed: u32, preset: u32, x: f32, z: f32) -> Vec3 {
+    Vec3::new(x, height_at(seed, preset, x as f64, z as f64) as f32, z)
+}
+
+fn settle_terrain_stream(stream: &mut BrowserTerrainStream, position: Vec3, max_ticks: usize) {
+    for _ in 0..max_ticks {
+        stream.tick(position);
+        if !stream.status().pending {
+            return;
+        }
+    }
+}
+
+fn assert_visible_stream_cover(stream: &BrowserTerrainStream, position: Vec3) {
+    let visible_nodes = stream.render_nodes();
+    assert!(!visible_nodes.is_empty());
+    assert_no_visible_parent_child_overlap(&visible_nodes);
+    assert!(
+        visible_nodes
+            .iter()
+            .any(|key| node_covers_position(*key, position)),
+        "no visible terrain node covered player position {position:?}; visible nodes: {visible_nodes:?}"
+    );
+}
+
+fn assert_no_visible_parent_child_overlap(visible_nodes: &[TerrainNodeKey]) {
+    let visible = visible_nodes.iter().copied().collect::<BTreeSet<_>>();
+    for key in visible_nodes {
+        let mut ancestor = terrain_node_parent(*key);
+        while let Some(parent) = ancestor {
+            assert!(
+                !visible.contains(&parent),
+                "visible terrain nodes overlap parent {parent:?} and child {key:?}"
+            );
+            ancestor = terrain_node_parent(parent);
+        }
+    }
+}
+
+fn node_covers_position(key: TerrainNodeKey, position: Vec3) -> bool {
+    let node_size = terrain_node_cell_size(1.0, key.lod) * TERRAIN_CHUNK_CELLS_PER_AXIS as f64;
+    let min_x = key.coord.x as f64 * node_size;
+    let min_y = key.coord.y as f64 * node_size;
+    let min_z = key.coord.z as f64 * node_size;
+    let x = position.x as f64;
+    let y = position.y as f64;
+    let z = position.z as f64;
+
+    x >= min_x
+        && x < min_x + node_size
+        && y >= min_y
+        && y < min_y + node_size
+        && z >= min_z
+        && z < min_z + node_size
 }
 
 fn assert_close(actual: f32, expected: f32) {

@@ -56,7 +56,7 @@ fn scenarios_cover_boot_preset_seam_and_lod_groups() {
             .iter()
             .filter(|scenario| ScenarioFilter::Lods.matches(scenario.group))
             .count(),
-        2
+        3
     );
 
     let mut file_names = scenarios
@@ -73,6 +73,9 @@ fn scenarios_cover_boot_preset_seam_and_lod_groups() {
     assert!(scenarios
         .iter()
         .all(|scenario| scenario.file_name.ends_with(".png")));
+    assert!(scenarios
+        .iter()
+        .any(|scenario| scenario.name == "running-stream-delta" && scenario.movement.is_some()));
     assert_eq!(
         scenarios
             .iter()

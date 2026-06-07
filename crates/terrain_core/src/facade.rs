@@ -1149,10 +1149,7 @@ fn write_stream_jobs(jobs: &[TerrainStreamJob]) -> u32 {
 
     for (index, job) in jobs.iter().take(count).enumerate() {
         let (kind, lod, generation, coord) = match *job {
-            TerrainStreamJob::Density { generation, key } => {
-                (0, u32::from(key.lod), generation, key.coord)
-            }
-            TerrainStreamJob::Mesh { generation, key } => {
+            TerrainStreamJob::BuildNode { generation, key } => {
                 (1, u32::from(key.lod), generation, key.coord)
             }
         };

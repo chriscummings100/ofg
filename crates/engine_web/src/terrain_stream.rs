@@ -139,21 +139,12 @@ impl BrowserTerrainStream {
 
     pub fn tick(&mut self, center: Vec3) -> BrowserTerrainStreamUpdate {
         let mut update = BrowserTerrainStreamUpdate::default();
-        self.sync_around(center, &mut update);
+        self.sync_around(center);
 
         for job in self.scheduler.tick() {
             match job {
-                TerrainStreamJob::Density { generation, key } => {
-                    if self.scheduler.complete_density(generation, key) {
-                        self.last_density_job_stats = Some(TerrainJobStats {
-                            total_ms: 0.0,
-                            vertex_count: 0,
-                            index_count: 0,
-                        });
-                    }
-                }
-                TerrainStreamJob::Mesh { generation, key } => {
-                    self.complete_mesh_job(generation, key);
+                TerrainStreamJob::BuildNode { generation, key } => {
+                    self.complete_node_job(generation, key);
                 }
             }
         }
@@ -242,44 +233,39 @@ impl BrowserTerrainStream {
         self.scheduler.status().max_in_flight_jobs
     }
 
-    fn sync_around(&mut self, center: Vec3, update: &mut BrowserTerrainStreamUpdate) {
+    fn sync_around(&mut self, center: Vec3) {
         let center_coord = self.coord_containing_position(center);
         if self.last_center_coord != Some(center_coord) {
             self.scheduler.sync_center(center_coord);
             self.last_center_coord = Some(center_coord);
         }
 
-        self.retain_desired_meshes(update);
+        self.retain_desired_meshes();
     }
 
-    fn retain_desired_meshes(&mut self, update: &mut BrowserTerrainStreamUpdate) {
+    fn retain_desired_meshes(&mut self) {
         let desired = self
             .scheduler
             .desired_mesh_nodes()
             .into_iter()
             .collect::<BTreeSet<_>>();
-        let removed = self
-            .visible_nodes
-            .iter()
-            .filter(|key| !desired.contains(key))
-            .copied()
-            .collect::<Vec<_>>();
 
-        for key in &removed {
-            self.visible_nodes.remove(key);
-            update.removed_nodes.push(*key);
-        }
-
-        self.mesh_cache.retain(|key, _mesh| desired.contains(key));
+        self.mesh_cache
+            .retain(|key, _mesh| desired.contains(key) || self.visible_nodes.contains(key));
     }
 
-    fn complete_mesh_job(&mut self, generation: u64, key: TerrainNodeKey) {
+    fn complete_node_job(&mut self, generation: u64, key: TerrainNodeKey) {
         let mesh = build_node_mesh(self.seed, self.preset, key, self.cell_size);
         let empty = mesh.indices.is_empty();
-        if !self.scheduler.complete_mesh(generation, key, empty) {
+        if !self.scheduler.complete_node(generation, key, empty) {
             return;
         }
 
+        self.last_density_job_stats = Some(TerrainJobStats {
+            total_ms: 0.0,
+            vertex_count: 0,
+            index_count: 0,
+        });
         self.last_chunk_job_stats = Some(TerrainJobStats {
             total_ms: 0.0,
             vertex_count: mesh.vertices.len(),
@@ -296,10 +282,14 @@ impl BrowserTerrainStream {
 
     fn sync_visible_meshes(&mut self, update: &mut BrowserTerrainStreamUpdate) {
         let desired_visible = self.select_visible_nodes();
+        let stream_pending = is_stream_pending(&self.scheduler.status());
         let removed = self
             .visible_nodes
             .iter()
-            .filter(|key| !desired_visible.contains(key))
+            .filter(|key| {
+                !desired_visible.contains(key)
+                    && (!stream_pending || hierarchy_conflicts_with_visible(**key, &desired_visible))
+            })
             .copied()
             .collect::<Vec<_>>();
         let added = desired_visible
@@ -391,12 +381,12 @@ fn default_terrain_lod_bands() -> Vec<TerrainLodBand> {
         TerrainLodBand {
             lod: 1,
             horizontal_radius: 2,
-            vertical_chunk_offsets: vec![-1, 0, 1],
+            vertical_chunk_offsets: DEFAULT_TERRAIN_VERTICAL_OFFSETS.to_vec(),
         },
         TerrainLodBand {
             lod: 2,
-            horizontal_radius: 4,
-            vertical_chunk_offsets: vec![0],
+            horizontal_radius: 3,
+            vertical_chunk_offsets: DEFAULT_TERRAIN_VERTICAL_OFFSETS.to_vec(),
         },
     ]
 }
@@ -431,4 +421,33 @@ fn is_stream_pending(status: &CoreTerrainStreamStatus) -> bool {
         || status.in_flight_lod_count > 0
         || status.missing_density_count > 0
         || status.missing_mesh_count > 0
+}
+
+fn hierarchy_conflicts_with_visible(
+    key: TerrainNodeKey,
+    desired_visible: &BTreeSet<TerrainNodeKey>,
+) -> bool {
+    let mut ancestor = terrain_node_parent(key);
+    while let Some(parent) = ancestor {
+        if desired_visible.contains(&parent) {
+            return true;
+        }
+        ancestor = terrain_node_parent(parent);
+    }
+
+    desired_visible
+        .iter()
+        .any(|visible_key| is_ancestor_of(key, *visible_key))
+}
+
+fn is_ancestor_of(ancestor: TerrainNodeKey, child: TerrainNodeKey) -> bool {
+    let mut current = terrain_node_parent(child);
+    while let Some(parent) = current {
+        if parent == ancestor {
+            return true;
+        }
+        current = terrain_node_parent(parent);
+    }
+
+    false
 }

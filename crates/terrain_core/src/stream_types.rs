@@ -41,11 +41,7 @@ impl Default for TerrainStreamConfig {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TerrainStreamJob {
-    Density {
-        generation: u64,
-        key: TerrainNodeKey,
-    },
-    Mesh {
+    BuildNode {
         generation: u64,
         key: TerrainNodeKey,
     },

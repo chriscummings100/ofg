@@ -383,7 +383,10 @@ fn sky_cycle_derives_day_night_light_and_presentation_values() {
     assert!(sunset.main_light.color.z < noon.main_light.color.z);
 
     let start = sky_state_at_elapsed_seconds(0.0);
-    let next_day = sky_state_at_elapsed_seconds(240.0);
+    let after_old_fast_cycle = sky_state_at_elapsed_seconds(240.0);
+    let next_day = sky_state_at_elapsed_seconds(86_400.0);
+    assert!(after_old_fast_cycle.main_light.intensity > 0.9);
+    assert_eq!(after_old_fast_cycle.sky.star_intensity, 0.0);
     assert_close(start.sky.day_phase, next_day.sky.day_phase);
     assert_vec3_near(start.main_light.direction, next_day.main_light.direction);
 }

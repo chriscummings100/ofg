@@ -57,6 +57,9 @@ pub struct PixelStats {
     pub unique_color_buckets: usize,
     pub dominant_color_ratio: f32,
     pub mean_color: MeanColor,
+    pub lower_center_sky_like_pixels: u32,
+    pub lower_center_sampled_pixels: u32,
+    pub lower_center_sky_like_ratio: f32,
 }
 
 #[derive(Clone, Copy, Serialize)]
@@ -92,6 +95,10 @@ pub struct ScenarioDebug {
     pub loaded_chunk_count: usize,
     pub rendered_node_count: usize,
     pub loaded_node_count: usize,
+    pub stream_pending: bool,
+    pub desired_render_node_count: usize,
+    pub empty_node_count: usize,
+    pub missing_node_count: usize,
     pub max_rendered_lod: u8,
     pub rendered_lod_counts: Vec<LodCountReport>,
     pub vertex_count: usize,
@@ -112,9 +119,14 @@ pub fn analyze_pixels(pixels: &[u8], width: u32, height: u32) -> PixelStats {
     let mut buckets = HashMap::<(u8, u8, u8), u32>::new();
     let mut sampled_pixels = 0;
     let mut opaque_pixels = 0;
+    let mut lower_center_sampled_pixels = 0;
+    let mut lower_center_sky_like_pixels = 0;
     let mut sum_r = 0_u64;
     let mut sum_g = 0_u64;
     let mut sum_b = 0_u64;
+    let lower_y = height * 45 / 100;
+    let center_min_x = width / 5;
+    let center_max_x = width * 4 / 5;
 
     for y in (0..height).step_by(4) {
         for x in (0..width).step_by(4) {
@@ -131,10 +143,21 @@ pub fn analyze_pixels(pixels: &[u8], width: u32, height: u32) -> PixelStats {
             sum_r += u64::from(r);
             sum_g += u64::from(g);
             sum_b += u64::from(b);
+            if y >= lower_y && x >= center_min_x && x < center_max_x {
+                lower_center_sampled_pixels += 1;
+                if is_sky_like_pixel(r, g, b, a) {
+                    lower_center_sky_like_pixels += 1;
+                }
+            }
         }
     }
 
     let dominant_bucket_count = buckets.values().copied().max().unwrap_or(0);
+    let lower_center_sky_like_ratio = if lower_center_sampled_pixels == 0 {
+        0.0
+    } else {
+        lower_center_sky_like_pixels as f32 / lower_center_sampled_pixels as f32
+    };
     PixelStats {
         sampled_pixels,
         opaque_pixels,
@@ -145,7 +168,14 @@ pub fn analyze_pixels(pixels: &[u8], width: u32, height: u32) -> PixelStats {
             g: sum_g as f32 / sampled_pixels as f32,
             b: sum_b as f32 / sampled_pixels as f32,
         },
+        lower_center_sky_like_pixels,
+        lower_center_sampled_pixels,
+        lower_center_sky_like_ratio,
     }
+}
+
+fn is_sky_like_pixel(r: u8, g: u8, b: u8, a: u8) -> bool {
+    a > 200 && r > 165 && g > 190 && b > 190 && g.abs_diff(b) < 45
 }
 
 /// Computes luma statistics for a grayscale shadow debug visualization.
@@ -236,6 +266,21 @@ pub fn assert_pixel_stats(stats: PixelStats, label: &str) -> HarnessResult<()> {
     Ok(())
 }
 
+/// Fails when the lower-center image region is dominated by sky-colored pixels.
+pub fn assert_no_large_lower_center_sky_hole(
+    stats: PixelStats,
+    label: &str,
+) -> HarnessResult<()> {
+    if stats.lower_center_sampled_pixels > 0 && stats.lower_center_sky_like_ratio > 0.35 {
+        return Err(harness_error(format!(
+            "{label} image has a large lower-center sky-colored gap: ratio {}.",
+            stats.lower_center_sky_like_ratio
+        )));
+    }
+
+    Ok(())
+}
+
 /// Returns an absolute, forward-slash-normalized path string for reports.
 pub fn path_string(path: &Path) -> HarnessResult<String> {
     let absolute = fs::canonicalize(path)?;
@@ -277,6 +322,33 @@ mod tests {
     }
 
     #[test]
+    fn analyze_pixels_counts_sky_like_holes_in_lower_center_region() {
+        let mut pixels = vec![0_u8; (WIDTH * HEIGHT * 4) as usize];
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let offset = ((y * WIDTH + x) * 4) as usize;
+                pixels[offset] = 24;
+                pixels[offset + 1] = 80;
+                pixels[offset + 2] = 34;
+                pixels[offset + 3] = 255;
+            }
+        }
+
+        let sample_x = (WIDTH / 2) / 4 * 4;
+        let sample_y = (HEIGHT / 2) / 4 * 4;
+        let offset = ((sample_y * WIDTH + sample_x) * 4) as usize;
+        pixels[offset] = 205;
+        pixels[offset + 1] = 238;
+        pixels[offset + 2] = 242;
+
+        let stats = analyze_pixels(&pixels, WIDTH, HEIGHT);
+
+        assert_eq!(stats.lower_center_sky_like_pixels, 1);
+        assert!(stats.lower_center_sampled_pixels > 1);
+        assert!(stats.lower_center_sky_like_ratio > 0.0);
+    }
+
+    #[test]
     fn shadow_debug_stats_detect_visible_depth_layers() {
         let mut blank = vec![0_u8; (16 * 16 * 4) as usize];
         let blank_stats = analyze_shadow_debug_pixels(&blank, 16, 16);
@@ -308,6 +380,9 @@ mod tests {
                 g: 2.0,
                 b: 3.0,
             },
+            lower_center_sky_like_pixels: 0,
+            lower_center_sampled_pixels: 100,
+            lower_center_sky_like_ratio: 0.0,
         };
         assert!(assert_pixel_stats(mostly_transparent, "transparent").is_err());
 
@@ -321,6 +396,9 @@ mod tests {
                 g: 2.0,
                 b: 3.0,
             },
+            lower_center_sky_like_pixels: 0,
+            lower_center_sampled_pixels: 100,
+            lower_center_sky_like_ratio: 0.0,
         };
         assert!(assert_pixel_stats(low_variation, "flat").is_err());
 
@@ -334,8 +412,37 @@ mod tests {
                 g: 2.0,
                 b: 3.0,
             },
+            lower_center_sky_like_pixels: 0,
+            lower_center_sampled_pixels: 100,
+            lower_center_sky_like_ratio: 0.0,
         };
         assert!(assert_pixel_stats(solid_fill, "solid").is_err());
+    }
+
+    #[test]
+    fn lower_center_sky_hole_assertion_rejects_large_gaps() {
+        let small_gap = PixelStats {
+            sampled_pixels: 100,
+            opaque_pixels: 100,
+            unique_color_buckets: 16,
+            dominant_color_ratio: 0.25,
+            mean_color: MeanColor {
+                r: 1.0,
+                g: 2.0,
+                b: 3.0,
+            },
+            lower_center_sky_like_pixels: 20,
+            lower_center_sampled_pixels: 100,
+            lower_center_sky_like_ratio: 0.2,
+        };
+        assert!(assert_no_large_lower_center_sky_hole(small_gap, "small").is_ok());
+
+        let large_gap = PixelStats {
+            lower_center_sky_like_pixels: 40,
+            lower_center_sky_like_ratio: 0.4,
+            ..small_gap
+        };
+        assert!(assert_no_large_lower_center_sky_hole(large_gap, "large").is_err());
     }
 
     #[test]
@@ -365,6 +472,9 @@ mod tests {
                         g: 2.0,
                         b: 3.0,
                     },
+                    lower_center_sky_like_pixels: 0,
+                    lower_center_sampled_pixels: 1,
+                    lower_center_sky_like_ratio: 0.0,
                 },
                 debug: ScenarioDebug {
                     terrain_seed: 246,
@@ -377,6 +487,10 @@ mod tests {
                     loaded_chunk_count: 2,
                     rendered_node_count: 1,
                     loaded_node_count: 2,
+                    stream_pending: false,
+                    desired_render_node_count: 1,
+                    empty_node_count: 0,
+                    missing_node_count: 0,
                     max_rendered_lod: 0,
                     rendered_lod_counts: vec![LodCountReport {
                         lod: 0,
@@ -403,6 +517,9 @@ mod tests {
                         g: 4.0,
                         b: 4.0,
                     },
+                    lower_center_sky_like_pixels: 0,
+                    lower_center_sampled_pixels: 1,
+                    lower_center_sky_like_ratio: 0.0,
                 },
                 shadow_stats: ShadowDebugStats {
                     sampled_pixels: 1,

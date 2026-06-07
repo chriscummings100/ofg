@@ -7,7 +7,7 @@ use crate::render_packet::RenderLightPacket;
 
 pub const SKY_RENDER_PACKET_FLOAT_COUNT: usize = 12;
 
-const DAY_LENGTH_SECONDS: f32 = 240.0;
+const DAY_LENGTH_SECONDS: f32 = 86_400.0;
 const INITIAL_DAY_PHASE: f32 = 0.16;
 const SUN_HORIZONTAL_X: f32 = 0.919_145;
 const SUN_HORIZONTAL_Z: f32 = 0.393_919;

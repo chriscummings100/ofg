@@ -78,7 +78,7 @@ async function runBrowserSmoke(url) {
     await waitForBrowserFrame(page);
     const advancedSkyDebug = await readDebugContract(page);
     assertDebugContract(advancedSkyDebug);
-    assertSkyTimeAdvanced(firstDebug, advancedSkyDebug);
+    assertSkyRemainsInspectable(firstDebug, advancedSkyDebug);
     const firstImage = await saveScreenshot(page, "browser-first-person.png");
     assertPixelStats(firstImage.pixelStats, "browser first-person", consoleMessages);
     await setShadowDebugView(page, "cascadeIndex");
@@ -392,13 +392,14 @@ async function setPostProcessDepthOfField(
   await page.waitForTimeout(250);
 }
 
-/// Waits until Rust terrain streaming exposes at least two rendered LODs.
+/// Waits until Rust terrain streaming exposes a settled mixed-LOD frame.
 async function waitForTerrainLodFrame(page) {
   await page.waitForFunction(() => {
     const debug = window.__ofgDebug;
     const status = debug?.getTerrainStreamStatus?.();
     const terrainNodeKeys = debug?.getTerrainNodeKeys?.() ?? [];
     return status !== undefined &&
+      status.pending === false &&
       status.renderedChunkCount > 0 &&
       status.renderedNodeCount > status.renderedChunkCount &&
       status.maxRenderedLod >= 1 &&
@@ -581,6 +582,7 @@ function assertDebugContract(debug, expectations = {}) {
   const terrainStatus = debug.terrainStreamStatus;
   if (
     terrainStatus === undefined ||
+    terrainStatus.pending !== false ||
     terrainStatus.renderedChunkCount <= 0 ||
     terrainStatus.renderedNodeCount <= terrainStatus.renderedChunkCount ||
     terrainStatus.maxRenderedLod < 1 ||
@@ -658,12 +660,16 @@ function assertDebugContract(debug, expectations = {}) {
   }
 }
 
-/// Fails if the Rust-owned sky cycle is static across browser frames.
-function assertSkyTimeAdvanced(before, after) {
+/// Fails if the Rust-owned sky cycle drifts out of inspectable daylight during smoke.
+function assertSkyRemainsInspectable(before, after) {
   const delta = (after.skyDayPhase - before.skyDayPhase + 1) % 1;
-  if (delta < 0.001 || delta > 0.02) {
+  if (
+    delta > 0.001 ||
+    after.skySunElevation < 0.75 ||
+    after.skyStarIntensity !== 0
+  ) {
     throw new Error(
-      `Sky day phase did not advance at the expected Rust-owned rate: ${JSON.stringify({ before, after, delta })}`
+      `Sky day phase changed too quickly or left daylight during smoke: ${JSON.stringify({ before, after, delta })}`
     );
   }
 }

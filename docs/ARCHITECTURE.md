@@ -136,12 +136,14 @@ The active direction is a small Rust-owned scene/component layer in
 The visible seed terrain now defaults to a Rust-owned multi-LOD terrain view.
 Near terrain still uses the current highest-detail LOD0 Dual Contouring chunks,
 while farther bands render coarser LOD1 and LOD2 nodes with larger world-space
-cell sizes. The runtime streamer builds neighbor-aware meshes with deterministic
-same-LOD seam ownership, keeps generated mesh data cached, and selects a
-hole-free visible cover by keeping parent nodes rendered until their desired
-child group is generated or proven empty. Terrain stream scheduling, browser
-stream updates, renderer mesh IDs, and debug snapshots are node-keyed for a
-rootless multi-resolution LOD grid.
+cell sizes. The runtime streamer schedules generated nodes as the active unit of
+work: a node build produces either a renderable mesh or an empty node, with
+density sampling kept as an internal meshing detail. It builds neighbor-aware
+meshes with deterministic same-LOD seam ownership, keeps generated mesh data
+cached, and selects a hole-free visible cover by keeping parent nodes rendered
+until their desired child group is generated or proven empty. Terrain stream
+scheduling, browser stream updates, renderer mesh IDs, and debug snapshots are
+node-keyed for a rootless multi-resolution LOD grid.
 
 The terrain data model is 3D from the start. A terrain density chunk has 32 cells
 per axis and 33 samples per axis, so adjacent chunks share boundary samples
@@ -152,14 +154,15 @@ compatibility query for player grounding until movement is density/mesh aware.
 
 `engine_web` now keeps the playable browser terrain stream inside Rust. Its
 `BrowserTerrainStream` uses `terrain_core` as a Rust library for stream desired
-sets, dependency coordinates, ready/empty state, and node mesh generation. The
-`terrain_core` scheduler and renderer-facing stream updates address work as
-`TerrainNodeKey { lod, coord }`, with LOD0 chunk compatibility adapters for
-current HUD/smoke fields and the fixture-only facade. The wasm-bindgen facade
-has no public terrain mesh upload, destroy, retain, clear, or render-frame
-method; `tick(frame)` advances player/camera state, advances terrain streaming,
-uploads/prunes terrain meshes, and submits the frame. Loaded chunk keys and
-terrain node keys are exposed only in the Rust-assembled debug snapshot.
+sets, generated/empty state, and node mesh generation. The `terrain_core`
+scheduler and renderer-facing stream updates address work as
+`TerrainNodeKey { lod, coord }`, with LOD0 chunk compatibility adapters and
+legacy density-named status fields retained for current HUD/smoke fields and
+the fixture-only facade. The wasm-bindgen facade has no public terrain mesh
+upload, destroy, retain, clear, or render-frame method; `tick(frame)` advances
+player/camera state, advances terrain streaming, uploads/prunes terrain meshes,
+and submits the frame. Loaded chunk keys and terrain node keys are exposed only
+in the Rust-assembled debug snapshot.
 Runtime terrain meshes carry position, color, normal, uv, material layer indices,
 and material weights from Rust `terrain_core`. Rust/wgpu owns the actual GPU
 mesh handles, node-keyed object handles, and active draw set. The old compiled

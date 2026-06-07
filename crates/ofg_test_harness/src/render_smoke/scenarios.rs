@@ -1,12 +1,13 @@
 // Deterministic terrain scenarios for the native Rust image smoke harness.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use engine_core::Vec3;
 use engine_web::{BrowserTerrainStream, TERRAIN_VERTEX_FLOATS};
 use terrain_core::{
-    height_at, terrain_chunk_key, terrain_node_key, MeshData, TerrainChunkCoord, TerrainNodeKey,
-    DEFAULT_TERRAIN_PRESET,
+    height_at, terrain_chunk_key, terrain_node_cell_size, terrain_node_key, terrain_node_parent,
+    MeshData, TerrainChunkCoord, TerrainNodeKey, DEFAULT_TERRAIN_PRESET,
+    TERRAIN_CHUNK_CELLS_PER_AXIS,
 };
 
 use super::error::{harness_error, HarnessResult};
@@ -37,6 +38,15 @@ pub struct Scenario {
     pub shadow_debug: bool,
     pub stream_mode: ScenarioStreamMode,
     pub max_stream_ticks: usize,
+    pub movement: Option<ScenarioMovement>,
+}
+
+#[derive(Clone, Copy)]
+pub struct ScenarioMovement {
+    pub step_count: usize,
+    pub step_x: f32,
+    pub step_z: f32,
+    pub ticks_per_step: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -110,6 +120,7 @@ pub fn scenarios() -> Vec<Scenario> {
             shadow_debug: true,
             stream_mode: ScenarioStreamMode::Lod0,
             max_stream_ticks: 64,
+            movement: None,
         },
         Scenario {
             name: "preset-seed",
@@ -125,6 +136,7 @@ pub fn scenarios() -> Vec<Scenario> {
             shadow_debug: false,
             stream_mode: ScenarioStreamMode::Lod0,
             max_stream_ticks: 64,
+            movement: None,
         },
         Scenario {
             name: "preset-rollingHills",
@@ -140,6 +152,7 @@ pub fn scenarios() -> Vec<Scenario> {
             shadow_debug: false,
             stream_mode: ScenarioStreamMode::Lod0,
             max_stream_ticks: 64,
+            movement: None,
         },
         Scenario {
             name: "preset-mountainValley",
@@ -155,6 +168,7 @@ pub fn scenarios() -> Vec<Scenario> {
             shadow_debug: false,
             stream_mode: ScenarioStreamMode::Lod0,
             max_stream_ticks: 64,
+            movement: None,
         },
         Scenario {
             name: "preset-rockyHighland",
@@ -170,6 +184,7 @@ pub fn scenarios() -> Vec<Scenario> {
             shadow_debug: false,
             stream_mode: ScenarioStreamMode::Lod0,
             max_stream_ticks: 64,
+            movement: None,
         },
         Scenario {
             name: "x-seam-grazing",
@@ -189,6 +204,7 @@ pub fn scenarios() -> Vec<Scenario> {
             shadow_debug: false,
             stream_mode: ScenarioStreamMode::Lod0,
             max_stream_ticks: 64,
+            movement: None,
         },
         Scenario {
             name: "z-seam-grazing",
@@ -208,6 +224,7 @@ pub fn scenarios() -> Vec<Scenario> {
             shadow_debug: false,
             stream_mode: ScenarioStreamMode::Lod0,
             max_stream_ticks: 64,
+            movement: None,
         },
         Scenario {
             name: "chunk-corner-oblique",
@@ -228,6 +245,7 @@ pub fn scenarios() -> Vec<Scenario> {
             shadow_debug: false,
             stream_mode: ScenarioStreamMode::Lod0,
             max_stream_ticks: 64,
+            movement: None,
         },
         Scenario {
             name: "far-view-multi-lod",
@@ -243,6 +261,7 @@ pub fn scenarios() -> Vec<Scenario> {
             shadow_debug: false,
             stream_mode: ScenarioStreamMode::MultiLod,
             max_stream_ticks: 360,
+            movement: None,
         },
         Scenario {
             name: "lod-boundary-oblique",
@@ -258,35 +277,41 @@ pub fn scenarios() -> Vec<Scenario> {
             shadow_debug: false,
             stream_mode: ScenarioStreamMode::MultiLod,
             max_stream_ticks: 360,
+            movement: None,
+        },
+        Scenario {
+            name: "running-stream-delta",
+            file_name: "running-stream-delta.png",
+            group: ScenarioFilter::Lods,
+            seed: 246,
+            preset: 2,
+            center_x: 0.0,
+            center_z: 0.0,
+            camera_offset: Vec3::new(150.0, 72.0, 170.0),
+            target_height_offset: 10.0,
+            coverage: None,
+            shadow_debug: false,
+            stream_mode: ScenarioStreamMode::MultiLod,
+            max_stream_ticks: 480,
+            movement: Some(ScenarioMovement {
+                step_count: 48,
+                step_x: 4.0,
+                step_z: 1.75,
+                ticks_per_step: 2,
+            }),
         },
     ]
 }
 
 /// Builds Rust terrain stream meshes for a scenario.
 pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerrain> {
-    let center_height = height_at(
+    let mut center = terrain_position(
         scenario.seed,
         scenario.preset,
-        f64::from(scenario.center_x),
-        f64::from(scenario.center_z),
-    ) as f32;
-    if !center_height.is_finite() {
-        return Err(harness_error(format!(
-            "Scenario '{}' produced a non-finite terrain center height.",
-            scenario.name
-        )));
-    }
-    let center = Vec3::new(scenario.center_x, center_height, scenario.center_z);
-    let target = Vec3::new(
         scenario.center_x,
-        center_height + scenario.target_height_offset,
         scenario.center_z,
-    );
-    let eye = Vec3::new(
-        target.x + scenario.camera_offset.x,
-        target.y + scenario.camera_offset.y,
-        target.z + scenario.camera_offset.z,
-    );
+        scenario.name,
+    )?;
 
     let mut stream = match scenario.stream_mode {
         ScenarioStreamMode::Lod0 => BrowserTerrainStream::new_lod0(scenario.seed, scenario.preset),
@@ -295,24 +320,29 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
     .map_err(|error| harness_error(format!("Could not create terrain stream: {error:?}")))?;
     stream.reset_around(center);
     let mut meshes_by_node = BTreeMap::<TerrainNodeKey, MeshData>::new();
-    for _ in 0..scenario.max_stream_ticks {
-        let update = stream.tick(center);
-        for key in update.removed_nodes {
-            meshes_by_node.remove(&key);
+
+    settle_stream(scenario, &mut stream, center, &mut meshes_by_node)?;
+    assert_visible_stream_cover(scenario, &stream, center)?;
+
+    if let Some(movement) = scenario.movement {
+        for step in 1..=movement.step_count {
+            center = terrain_position(
+                scenario.seed,
+                scenario.preset,
+                scenario.center_x + movement.step_x * step as f32,
+                scenario.center_z + movement.step_z * step as f32,
+                scenario.name,
+            )?;
+            for _ in 0..movement.ticks_per_step {
+                apply_stream_update(&mut stream, center, &mut meshes_by_node);
+                assert_visible_stream_cover(scenario, &stream, center)?;
+            }
         }
-        for mesh_update in update.upserted_meshes {
-            meshes_by_node.insert(mesh_update.key, mesh_update.mesh);
-        }
-        if scenario_stream_ready(scenario, &stream) {
-            break;
-        }
+
+        settle_stream(scenario, &mut stream, center, &mut meshes_by_node)?;
+        assert_visible_stream_cover(scenario, &stream, center)?;
     }
-    if !scenario_stream_ready(scenario, &stream) {
-        return Err(harness_error(format!(
-            "Scenario '{}' terrain stream did not reach its readiness target.",
-            scenario.name
-        )));
-    }
+
     if meshes_by_node.is_empty() {
         return Err(harness_error(format!(
             "Scenario '{}' produced no renderable terrain meshes.",
@@ -336,6 +366,7 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
     let loaded_node_count = stream.loaded_node_keys().len();
     let rendered_lod_counts = rendered_lod_counts(&meshes_by_node);
     let max_rendered_lod = meshes_by_node.keys().map(|key| key.lod).max().unwrap_or(0);
+    let status = stream.status();
     let vertex_count = meshes_by_node
         .values()
         .map(|mesh| mesh.vertices.len() / TERRAIN_VERTEX_FLOATS as usize)
@@ -343,6 +374,16 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
     let index_count = meshes_by_node.values().map(|mesh| mesh.indices.len()).sum();
     let rendered_node_count = rendered_node_keys.len();
     let meshes = meshes_by_node.into_values().collect::<Vec<_>>();
+    let target = Vec3::new(
+        center.x,
+        center.y + scenario.target_height_offset,
+        center.z,
+    );
+    let eye = Vec3::new(
+        target.x + scenario.camera_offset.x,
+        target.y + scenario.camera_offset.y,
+        target.z + scenario.camera_offset.z,
+    );
 
     Ok(ScenarioTerrain {
         meshes,
@@ -358,6 +399,10 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
             loaded_chunk_count,
             rendered_node_count,
             loaded_node_count,
+            stream_pending: status.pending,
+            desired_render_node_count: status.desired_render_node_count,
+            empty_node_count: status.empty_node_count,
+            missing_node_count: status.missing_node_count,
             max_rendered_lod,
             rendered_lod_counts,
             vertex_count,
@@ -373,11 +418,126 @@ fn scenario_stream_ready(scenario: Scenario, stream: &BrowserTerrainStream) -> b
     match scenario.stream_mode {
         ScenarioStreamMode::Lod0 => !status.pending,
         ScenarioStreamMode::MultiLod => {
-            status.rendered_chunk_count > 0
+            !status.pending
+                && status.rendered_chunk_count > 0
                 && status.rendered_node_count > status.rendered_chunk_count
                 && status.max_rendered_lod >= 1
         }
     }
+}
+
+fn terrain_position(
+    seed: u32,
+    preset: u32,
+    x: f32,
+    z: f32,
+    scenario_name: &str,
+) -> HarnessResult<Vec3> {
+    let y = height_at(seed, preset, f64::from(x), f64::from(z)) as f32;
+    if !y.is_finite() {
+        return Err(harness_error(format!(
+            "Scenario '{scenario_name}' produced a non-finite terrain center height.",
+        )));
+    }
+
+    Ok(Vec3::new(x, y, z))
+}
+
+fn settle_stream(
+    scenario: Scenario,
+    stream: &mut BrowserTerrainStream,
+    center: Vec3,
+    meshes_by_node: &mut BTreeMap<TerrainNodeKey, MeshData>,
+) -> HarnessResult<()> {
+    for _ in 0..scenario.max_stream_ticks {
+        apply_stream_update(stream, center, meshes_by_node);
+        if scenario_stream_ready(scenario, stream) {
+            return Ok(());
+        }
+    }
+
+    Err(harness_error(format!(
+        "Scenario '{}' terrain stream did not reach its readiness target.",
+        scenario.name
+    )))
+}
+
+fn apply_stream_update(
+    stream: &mut BrowserTerrainStream,
+    center: Vec3,
+    meshes_by_node: &mut BTreeMap<TerrainNodeKey, MeshData>,
+) {
+    let update = stream.tick(center);
+    for key in update.removed_nodes {
+        meshes_by_node.remove(&key);
+    }
+    for mesh_update in update.upserted_meshes {
+        meshes_by_node.insert(mesh_update.key, mesh_update.mesh);
+    }
+}
+
+fn assert_visible_stream_cover(
+    scenario: Scenario,
+    stream: &BrowserTerrainStream,
+    position: Vec3,
+) -> HarnessResult<()> {
+    let visible_nodes = stream.render_nodes();
+    if visible_nodes.is_empty() {
+        return Err(harness_error(format!(
+            "Scenario '{}' has no visible terrain nodes at position {:?}.",
+            scenario.name, position
+        )));
+    }
+    assert_no_visible_parent_child_overlap(scenario, &visible_nodes)?;
+    if !visible_nodes
+        .iter()
+        .any(|key| node_covers_position(*key, position))
+    {
+        return Err(harness_error(format!(
+            "Scenario '{}' has no visible terrain node covering position {:?}.",
+            scenario.name, position
+        )));
+    }
+
+    Ok(())
+}
+
+fn assert_no_visible_parent_child_overlap(
+    scenario: Scenario,
+    visible_nodes: &[TerrainNodeKey],
+) -> HarnessResult<()> {
+    let visible = visible_nodes.iter().copied().collect::<BTreeSet<_>>();
+    for key in visible_nodes {
+        let mut ancestor = terrain_node_parent(*key);
+        while let Some(parent) = ancestor {
+            if visible.contains(&parent) {
+                return Err(harness_error(format!(
+                    "Scenario '{}' rendered overlapping terrain parent {:?} and child {:?}.",
+                    scenario.name, parent, key
+                )));
+            }
+            ancestor = terrain_node_parent(parent);
+        }
+    }
+
+    Ok(())
+}
+
+fn node_covers_position(key: TerrainNodeKey, position: Vec3) -> bool {
+    let node_size = terrain_node_cell_size(1.0, key.lod) * TERRAIN_CHUNK_CELLS_PER_AXIS as f64;
+    let min_x = key.coord.x as f64 * node_size;
+    let min_y = key.coord.y as f64 * node_size;
+    let min_z = key.coord.z as f64 * node_size;
+    let x = f64::from(position.x);
+    let y = f64::from(position.y);
+    let z = f64::from(position.z);
+
+    x >= min_x
+        && x < min_x + node_size
+        && y >= min_y
+        && y < min_y + node_size
+        && z >= min_z
+        && z < min_z + node_size
 }
 
 fn lod0_meshes_by_coord(

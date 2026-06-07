@@ -71,11 +71,9 @@ export interface InitOutput {
   readonly ofg_stream_invalidate_all: () => void;
   readonly ofg_stream_tick: () => number;
   readonly ofg_stream_complete_density: (a: number, b: number, c: number, d: number) => number;
-  readonly ofg_stream_fail_density: (a: number, b: number, c: number, d: number) => number;
   readonly ofg_stream_complete_lod0: (a: number, b: number, c: number, d: number, e: number) => number;
   readonly ofg_stream_fail_lod0: (a: number, b: number, c: number, d: number) => number;
   readonly ofg_stream_write_desired_density_coords: () => number;
-  readonly ofg_stream_write_desired_lod0_coords: () => number;
   readonly ofg_stream_write_lod0_dependency_coords: (a: number, b: number, c: number) => number;
   readonly ofg_stream_status_desired_density_count: () => number;
   readonly ofg_stream_status_desired_lod0_count: () => number;
@@ -106,9 +104,11 @@ export interface InitOutput {
   readonly ofg_macro_base_elevation_at: (a: number, b: number, c: number, d: number) => number;
   readonly ofg_density_at: (a: number, b: number, c: number, d: number, e: number) => number;
   readonly ofg_height_at: (a: number, b: number, c: number, d: number) => number;
+  readonly ofg_stream_fail_density: (a: number, b: number, c: number, d: number) => number;
   readonly ofg_stream_job_buffer_capacity: () => number;
   readonly ofg_terrain_mesh_packet_coord_buffer_capacity: () => number;
   readonly ofg_worker_pool_max_workers: () => number;
+  readonly ofg_stream_write_desired_lod0_coords: () => number;
   readonly ofg_engine_core_version: () => number;
   readonly ofg_engine_create: () => void;
   readonly ofg_engine_create_entity: () => bigint;
