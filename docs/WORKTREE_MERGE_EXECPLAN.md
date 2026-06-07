@@ -18,7 +18,7 @@ The user-visible outcome is that the remote `main` branch contains the completed
 - [x] (2026-06-07 17:01Z) Commit and push dirty feature branches: `sky` at `06f2b01`, `postprocess` at `9fd65f8`, and `terrain` at `2067a1b`.
 - [x] (2026-06-07 17:02Z) Pulled latest `origin/main`; it was already up to date with `main`.
 - [x] (2026-06-07 17:16Z) Merged `sky` into `main`, resolved conflicts by preserving both shadow and sky debug contracts, regenerated shaders/WASM, fixed two Rust test helpers for the 31-float render snapshot shape, and validated with `npm run check:shaders`, `npm run check:wasm`, `npm run test:rust`, `npm run test:ts`, and `npm run smoke`.
-- [ ] Merge `postprocess` into `main`, resolve conflicts, regenerate artifacts, validate, and run milestone review.
+- [x] (2026-06-07 17:38Z) Merged `postprocess` into `main`, resolved conflicts by preserving sky, shadow, and post-process debug/renderer contracts together, regenerated shaders/WASM, and validated with `npm run check:shaders`, `npm run check:wasm`, `npm run test:rust`, `npm run test:ts`, and `npm run smoke`.
 - [ ] Merge `terrain` into `main`, resolve conflicts, regenerate artifacts, validate, and run milestone review.
 - [ ] Confirm `shadow-maps` is already included in `main` or merge it if needed, then validate and review.
 - [ ] Merge `touch-controls` into `main`, resolve conflicts, regenerate artifacts, validate, and run milestone review.
@@ -38,6 +38,10 @@ The user-visible outcome is that the remote `main` branch contains the completed
   Evidence: Rust compiler errors in `crates/engine_web/src/render_math_tests.rs` and `crates/engine_web/src/render_uniform_tests.rs`; fixed by adding the same 12 sky packet floats used by `crates/engine_web/src/tests.rs`.
 - Observation: Sky milestone review required archiving the completed sky ExecPlan.
   Evidence: `docs/SKY_RENDERING_PLAN.md` said completion was done but lived outside `docs/archived/`; it was moved to `docs/archived/SKY_RENDERING_PLAN.md` with an archive note.
+- Observation: The post-process merge overlapped the already-merged sky and shadow renderer paths in the WGSL scene output, Rust renderer status, browser debug hooks, generated shader metadata, and browser smoke.
+  Evidence: conflicts were resolved in `src/engine/render/shaders/uber.wgsl`, `crates/engine_web/src/wgpu_renderer.rs`, `src/app/game.ts`, `src/engine/web/*`, `tools/build-shaders.mjs`, and `tools/browser-smoke.mjs`; smoke captured final, shadow, linear-depth, bloom, tone-map, DoF CoC, and DoF blurred views.
+- Observation: Post-process milestone review found no required fixes, but `crates/engine_web/src/post_process.rs` is above the 600-line split-pressure threshold.
+  Evidence: local milestone review checked contract, code-quality, legacy, correctness, and validation passes; `crates/engine_web/src/post_process.rs` is 875 lines, below the 1000-line hard concern but worth splitting before additional post effects are added.
 
 ## Decision Log
 
@@ -49,6 +53,9 @@ The user-visible outcome is that the remote `main` branch contains the completed
   Date/Author: 2026-06-07 / Codex.
 - Decision: Archive `docs/SKY_RENDERING_PLAN.md` as part of the merge.
   Rationale: The sky feature branch marked that ExecPlan complete, and repository instructions require completed active plans to move under `docs/archived/` with the active source of truth named.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: Accept `crates/engine_web/src/post_process.rs` as a merge-time follow-up rather than splitting it during this integration.
+  Rationale: The module has a purpose header, validated Rust-owned boundaries, tests, and smoke coverage; splitting during conflict resolution would add avoidable merge risk. Future post-process growth should extract target allocation, settings, and pass helpers before the file approaches 1000 lines.
   Date/Author: 2026-06-07 / Codex.
 
 ## Outcomes & Retrospective

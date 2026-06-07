@@ -35,6 +35,21 @@ describe("RustBrowserGameRuntime", () => {
     runtime.command({ type: "resetStreaming" });
     runtime.command({ type: "setPlayerPosition", x: 32, z: 16 });
     runtime.command({ type: "setShadowDebugView", view: "shadowDepthCascade0" });
+    runtime.command({ type: "setPostProcessDebugView", view: "sceneColor" });
+    runtime.command({ type: "setPostProcessToneMapping", enabled: false, exposure: 0.75 });
+    runtime.command({
+      type: "setPostProcessBloom",
+      enabled: true,
+      threshold: 0.85,
+      intensity: 0.3
+    });
+    runtime.command({
+      type: "setPostProcessDepthOfField",
+      enabled: true,
+      focusDistance: 18,
+      focusRange: 4,
+      maxBlurPixels: 10
+    });
     const snapshot = runtime.debugSnapshot();
 
     deepEqual(renderer.tickCalls[0], frame);
@@ -44,8 +59,31 @@ describe("RustBrowserGameRuntime", () => {
       type: "setShadowDebugView",
       view: "shadowDepthCascade0"
     });
+    deepEqual(renderer.commandCalls[3], { type: "setPostProcessDebugView", view: "sceneColor" });
+    deepEqual(renderer.commandCalls[4], {
+      type: "setPostProcessToneMapping",
+      enabled: false,
+      exposure: 0.75
+    });
+    deepEqual(renderer.commandCalls[5], {
+      type: "setPostProcessBloom",
+      enabled: true,
+      threshold: 0.85,
+      intensity: 0.3
+    });
+    deepEqual(renderer.commandCalls[6], {
+      type: "setPostProcessDepthOfField",
+      enabled: true,
+      focusDistance: 18,
+      focusRange: 4,
+      maxBlurPixels: 10
+    });
     equal(snapshot.terrainStreamStatus.workerPoolRuntime, "rust");
     equal(snapshot.rendererStatus.runtime, "rust-wgpu");
+    equal(snapshot.rendererStatus.postProcessRuntime, "rust-wgpu");
+    equal(snapshot.rendererStatus.postProcessToneMappingEnabled, true);
+    equal(snapshot.rendererStatus.postProcessBloomEnabled, true);
+    equal(snapshot.rendererStatus.postProcessDofEnabled, false);
     equal(snapshot.shadowDebugView, "cascadeIndex");
     equal(snapshot.playerMode, "debugFly");
     deepEqual(snapshot.playerPosition, { x: 32, y: 8, z: 16 });
@@ -115,7 +153,18 @@ function fakeRenderer(): FakeRenderer {
           frameVisibleDrawCount: 1,
           frameShadowDrawCount: 0,
           shadowCascadeCount: 4,
-          shadowMapSize: 1024
+          shadowMapSize: 1024,
+          postProcessRuntime: "rust-wgpu",
+          postProcessDebugView: "final",
+          postProcessExposure: 1,
+          postProcessToneMappingEnabled: true,
+          postProcessBloomEnabled: true,
+          postProcessBloomThreshold: 1,
+          postProcessBloomIntensity: 0.08,
+          postProcessDofEnabled: false,
+          postProcessDofFocusDistance: 30,
+          postProcessDofFocusRange: 8,
+          postProcessDofMaxBlurPixels: 6
         },
         shadowDebugView: "cascadeIndex",
         terrainWorkerCount: 6,

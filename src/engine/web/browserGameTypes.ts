@@ -16,6 +16,15 @@ export type ShadowDebugView =
   | "shadowDepthCascade2"
   | "shadowDepthCascade3";
 
+export type PostProcessDebugView =
+  | "final"
+  | "sceneColor"
+  | "linearDepth"
+  | "postToneMap"
+  | "bloom"
+  | "dofCoc"
+  | "dofBlurred";
+
 export type PlayerAnimationTuning = {
   readonly walkSpeedMetersPerSecond: number;
   readonly runSpeedMetersPerSecond: number;
@@ -64,6 +73,26 @@ export type GameCommand =
       readonly pitch: number;
     }
   | { readonly type: "setShadowDebugView"; readonly view: ShadowDebugView }
+  | { readonly type: "setShadowDebugView"; readonly view: ShadowDebugView }
+  | { readonly type: "setPostProcessDebugView"; readonly view: PostProcessDebugView }
+  | {
+      readonly type: "setPostProcessToneMapping";
+      readonly enabled: boolean;
+      readonly exposure: number;
+    }
+  | {
+      readonly type: "setPostProcessBloom";
+      readonly enabled: boolean;
+      readonly threshold: number;
+      readonly intensity: number;
+    }
+  | {
+      readonly type: "setPostProcessDepthOfField";
+      readonly enabled: boolean;
+      readonly focusDistance: number;
+      readonly focusRange: number;
+      readonly maxBlurPixels: number;
+    }
   | { readonly type: "resetStreaming" };
 
 export type RustBrowserGameResetCommand = {

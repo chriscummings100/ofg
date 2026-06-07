@@ -49,6 +49,21 @@ describe("RustBrowserGameAdapter", () => {
     adapter.command({ type: "setPlayerPosition", x: 96, z: 12 });
     adapter.command({ type: "setDebugCamera", x: 1, y: 2, z: 3, yaw: 0.25, pitch: -0.5 });
     adapter.command({ type: "setShadowDebugView", view: "cascadeIndex" });
+    adapter.command({ type: "setPostProcessDebugView", view: "linearDepth" });
+    adapter.command({ type: "setPostProcessToneMapping", enabled: true, exposure: 1.25 });
+    adapter.command({
+      type: "setPostProcessBloom",
+      enabled: true,
+      threshold: 0.9,
+      intensity: 0.2
+    });
+    adapter.command({
+      type: "setPostProcessDepthOfField",
+      enabled: true,
+      focusDistance: 18,
+      focusRange: 4,
+      maxBlurPixels: 10
+    });
     const snapshot = adapter.getDebugSnapshot();
 
     equal(fake.commandCalls[0]?.type, "resetGame");
@@ -64,10 +79,19 @@ describe("RustBrowserGameAdapter", () => {
     equal(fake.commandCalls[6]?.type, "setPlayerPosition");
     equal(fake.commandCalls[7]?.type, "setDebugCamera");
     equal(fake.commandCalls[8]?.type, "setShadowDebugView");
+    equal(fake.commandCalls[9]?.type, "setPostProcessDebugView");
+    equal(fake.commandCalls[10]?.type, "setPostProcessToneMapping");
+    equal(fake.commandCalls[11]?.type, "setPostProcessBloom");
+    equal(fake.commandCalls[12]?.type, "setPostProcessDepthOfField");
     equal(snapshot.playerMode, "firstPerson");
     equal(snapshot.playerPosition.x, 96);
     equal(snapshot.shadowDebugView, "shadowVisibility");
     equal(snapshot.loadedTerrainChunkKeys[0], "0,0,0");
+    equal(snapshot.rendererStatus.postProcessDebugView, "final");
+    equal(snapshot.rendererStatus.postProcessExposure, 1);
+    equal(snapshot.rendererStatus.postProcessBloomThreshold, 1);
+    equal(snapshot.rendererStatus.postProcessDofEnabled, false);
+    equal(snapshot.rendererStatus.postProcessDofFocusDistance, 30);
     equal(snapshot.playerCharacterId, "female");
     equal(snapshot.playerCharacterLabel, "Female");
     equal(snapshot.modelAnimationRuntime, "rust");
@@ -169,7 +193,18 @@ function fakeBrowserGame(): FakeBrowserGame {
           frameVisibleDrawCount: 1,
           frameShadowDrawCount: 0,
           shadowCascadeCount: 4,
-          shadowMapSize: 1024
+          shadowMapSize: 1024,
+          postProcessRuntime: "rust-wgpu",
+          postProcessDebugView: "final",
+          postProcessExposure: 1,
+          postProcessToneMappingEnabled: true,
+          postProcessBloomEnabled: true,
+          postProcessBloomThreshold: 1,
+          postProcessBloomIntensity: 0.08,
+          postProcessDofEnabled: false,
+          postProcessDofFocusDistance: 30,
+          postProcessDofFocusRange: 8,
+          postProcessDofMaxBlurPixels: 6
         },
         shadowDebugView: "shadowVisibility",
         terrainWorkerCount: 6,

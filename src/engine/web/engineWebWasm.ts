@@ -6,6 +6,7 @@ import {
 import type {
   BrowserFrameInput,
   BrowserViewport,
+  PostProcessDebugView,
   RustBrowserGameCommand,
   RustBrowserGameDebugSnapshot
 } from "./browserGameTypes.js";
@@ -27,6 +28,17 @@ export type EngineWebRendererStatus = {
   readonly frameShadowDrawCount: number;
   readonly shadowCascadeCount: number;
   readonly shadowMapSize: number;
+  readonly postProcessRuntime: "rust-wgpu";
+  readonly postProcessDebugView: PostProcessDebugView;
+  readonly postProcessExposure: number;
+  readonly postProcessToneMappingEnabled: boolean;
+  readonly postProcessBloomEnabled: boolean;
+  readonly postProcessBloomThreshold: number;
+  readonly postProcessBloomIntensity: number;
+  readonly postProcessDofEnabled: boolean;
+  readonly postProcessDofFocusDistance: number;
+  readonly postProcessDofFocusRange: number;
+  readonly postProcessDofMaxBlurPixels: number;
 };
 
 export type EngineWebBrowserGame = {

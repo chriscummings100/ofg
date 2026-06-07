@@ -83,7 +83,7 @@ async function runBrowserSmoke(url) {
     await setShadowDebugView(page, "cascadeIndex");
     assertNoBrowserFailures(consoleMessages);
     const cascadeDebug = await readDebugContract(page);
-    assertDebugContract(cascadeDebug, "cascadeIndex");
+    assertDebugContract(cascadeDebug, { shadowDebugView: "cascadeIndex" });
     const cascadeDebugImage = await saveScreenshot(page, "browser-shadow-cascade-index.png");
     assertPixelStats(
       cascadeDebugImage.pixelStats,
@@ -93,7 +93,7 @@ async function runBrowserSmoke(url) {
     await setShadowDebugView(page, "shadowVisibility");
     assertNoBrowserFailures(consoleMessages);
     const visibilityDebug = await readDebugContract(page);
-    assertDebugContract(visibilityDebug, "shadowVisibility");
+    assertDebugContract(visibilityDebug, { shadowDebugView: "shadowVisibility" });
     const visibilityDebugImage = await saveScreenshot(page, "browser-shadow-visibility.png");
     assertPixelStats(
       visibilityDebugImage.pixelStats,
@@ -103,9 +103,74 @@ async function runBrowserSmoke(url) {
     await setShadowDebugView(page, "shadowDepthCascade0");
     assertNoBrowserFailures(consoleMessages);
     const depthDebug = await readDebugContract(page);
-    assertDebugContract(depthDebug, "shadowDepthCascade0");
+    assertDebugContract(depthDebug, { shadowDebugView: "shadowDepthCascade0" });
     await setShadowDebugView(page, "off");
     assertNoBrowserFailures(consoleMessages);
+
+    await setPostProcessDebugView(page, "linearDepth");
+    assertNoBrowserFailures(consoleMessages);
+    const linearDepthDebug = await readDebugContract(page);
+    assertDebugContract(linearDepthDebug, { postProcessDebugView: "linearDepth" });
+    const linearDepthImage = await saveScreenshot(page, "browser-linear-depth.png");
+    assertPixelStats(linearDepthImage.pixelStats, "browser linear depth", consoleMessages);
+    await setPostProcessBloom(page, true, 0.2, 0.6);
+    await setPostProcessDebugView(page, "bloom");
+    assertNoBrowserFailures(consoleMessages);
+    const bloomDebug = await readDebugContract(page);
+    assertDebugContract(bloomDebug, {
+      postProcessDebugView: "bloom",
+      bloomThreshold: 0.2,
+      bloomIntensity: 0.6
+    });
+    const bloomImage = await saveScreenshot(page, "browser-bloom.png");
+    assertPixelStats(bloomImage.pixelStats, "browser bloom", consoleMessages);
+    await setPostProcessToneMapping(page, true, 1.1);
+    await setPostProcessDebugView(page, "postToneMap");
+    assertNoBrowserFailures(consoleMessages);
+    const postToneMapDebug = await readDebugContract(page);
+    assertDebugContract(postToneMapDebug, {
+      postProcessDebugView: "postToneMap",
+      postProcessExposure: 1.1,
+      bloomThreshold: 0.2,
+      bloomIntensity: 0.6
+    });
+    const postToneMapImage = await saveScreenshot(page, "browser-post-tone-map.png");
+    assertPixelStats(postToneMapImage.pixelStats, "browser post tone map", consoleMessages);
+    await setPostProcessDepthOfField(page, true, 8, 1, 12);
+    await setPostProcessDebugView(page, "dofCoc");
+    assertNoBrowserFailures(consoleMessages);
+    const dofCocDebug = await readDebugContract(page);
+    assertDebugContract(dofCocDebug, {
+      postProcessDebugView: "dofCoc",
+      postProcessExposure: 1.1,
+      bloomThreshold: 0.2,
+      bloomIntensity: 0.6,
+      dofEnabled: true,
+      dofFocusDistance: 8,
+      dofFocusRange: 1,
+      dofMaxBlurPixels: 12
+    });
+    const dofCocImage = await saveScreenshot(page, "browser-dof-coc.png");
+    assertPixelStats(dofCocImage.pixelStats, "browser DoF CoC", consoleMessages);
+    await setPostProcessDebugView(page, "dofBlurred");
+    assertNoBrowserFailures(consoleMessages);
+    const dofBlurredDebug = await readDebugContract(page);
+    assertDebugContract(dofBlurredDebug, {
+      postProcessDebugView: "dofBlurred",
+      postProcessExposure: 1.1,
+      bloomThreshold: 0.2,
+      bloomIntensity: 0.6,
+      dofEnabled: true,
+      dofFocusDistance: 8,
+      dofFocusRange: 1,
+      dofMaxBlurPixels: 12
+    });
+    const dofBlurredImage = await saveScreenshot(page, "browser-dof-blurred.png");
+    assertPixelStats(dofBlurredImage.pixelStats, "browser DoF blurred", consoleMessages);
+    await setPostProcessToneMapping(page, true, 1.0);
+    await setPostProcessBloom(page, true, 1.0, 0.08);
+    await setPostProcessDepthOfField(page, false, 30, 8, 6);
+    await setPostProcessDebugView(page, "final");
 
     await page.keyboard.press("KeyC");
     await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "THIRD");
@@ -153,6 +218,11 @@ async function runBrowserSmoke(url) {
         firstImage,
         cascadeDebugImage,
         visibilityDebugImage,
+        linearDepthImage,
+        bloomImage,
+        postToneMapImage,
+        dofCocImage,
+        dofBlurredImage,
         toggledImage,
         reloadedImage,
         mobileTouch.image
@@ -165,6 +235,11 @@ async function runBrowserSmoke(url) {
       cascadeDebug,
       visibilityDebug,
       depthDebug,
+      linearDepthDebug,
+      bloomDebug,
+      postToneMapDebug,
+      dofCocDebug,
+      dofBlurredDebug,
       toggledDebug,
       reloadedDebug,
       mobileTouch,
@@ -188,7 +263,128 @@ async function waitForBrowserFrame(page) {
       status.configured === true &&
       status.frameDrawCount > 0 &&
       status.frameVisibleDrawCount > 0;
-  }, null, { timeout: 10000 });
+  }, null, { timeout: 20000 });
+  await page.waitForTimeout(250);
+}
+
+/// Selects a post-process debug view and waits for Rust/wgpu to report it.
+async function setPostProcessDebugView(page, view) {
+  const startingFrameIndex = await page.evaluate(() =>
+    window.__ofgDebug?.getRendererStatus?.()?.frameIndex ?? 0
+  );
+  await page.evaluate((selectedView) => {
+    window.__ofgDebug?.setPostProcessDebugView?.(selectedView);
+  }, view);
+  await page.waitForFunction(({ selectedView, frameIndex }) => {
+    const status = window.__ofgDebug?.getRendererStatus?.();
+    const debugView = window.__ofgDebug?.getPostProcessDebugView?.();
+    return debugView === selectedView &&
+      status?.postProcessDebugView === selectedView &&
+      status.frameIndex > frameIndex;
+  }, { selectedView: view, frameIndex: startingFrameIndex }, { timeout: 10000 });
+  await page.waitForTimeout(250);
+}
+
+/// Updates tone-map settings and waits for a frame with those settings.
+async function setPostProcessToneMapping(page, enabled, exposure) {
+  const startingFrameIndex = await page.evaluate(() =>
+    window.__ofgDebug?.getRendererStatus?.()?.frameIndex ?? 0
+  );
+  await page.evaluate(({ selectedEnabled, selectedExposure }) => {
+    window.__ofgDebug?.setPostProcessToneMapping?.(selectedEnabled, selectedExposure);
+  }, { selectedEnabled: enabled, selectedExposure: exposure });
+  await page.waitForFunction(({ selectedEnabled, selectedExposure, frameIndex }) => {
+    const status = window.__ofgDebug?.getRendererStatus?.();
+    return status?.postProcessToneMappingEnabled === selectedEnabled &&
+      Math.abs(status.postProcessExposure - selectedExposure) < 0.0001 &&
+      status.frameIndex > frameIndex;
+  }, { selectedEnabled: enabled, selectedExposure: exposure, frameIndex: startingFrameIndex }, {
+    timeout: 10000
+  });
+  await page.waitForTimeout(250);
+}
+
+/// Updates bloom settings and waits for a frame with those settings.
+async function setPostProcessBloom(page, enabled, threshold, intensity) {
+  const startingFrameIndex = await page.evaluate(() =>
+    window.__ofgDebug?.getRendererStatus?.()?.frameIndex ?? 0
+  );
+  await page.evaluate(({ selectedEnabled, selectedThreshold, selectedIntensity }) => {
+    window.__ofgDebug?.setPostProcessBloom?.(
+      selectedEnabled,
+      selectedThreshold,
+      selectedIntensity
+    );
+  }, { selectedEnabled: enabled, selectedThreshold: threshold, selectedIntensity: intensity });
+  await page.waitForFunction(({
+    selectedEnabled,
+    selectedThreshold,
+    selectedIntensity,
+    frameIndex
+  }) => {
+    const status = window.__ofgDebug?.getRendererStatus?.();
+    return status?.postProcessBloomEnabled === selectedEnabled &&
+      Math.abs(status.postProcessBloomThreshold - selectedThreshold) < 0.0001 &&
+      Math.abs(status.postProcessBloomIntensity - selectedIntensity) < 0.0001 &&
+      status.frameIndex > frameIndex;
+  }, {
+    selectedEnabled: enabled,
+    selectedThreshold: threshold,
+    selectedIntensity: intensity,
+    frameIndex: startingFrameIndex
+  }, { timeout: 10000 });
+  await page.waitForTimeout(250);
+}
+
+/// Updates depth-of-field settings and waits for a frame with those settings.
+async function setPostProcessDepthOfField(
+  page,
+  enabled,
+  focusDistance,
+  focusRange,
+  maxBlurPixels
+) {
+  const startingFrameIndex = await page.evaluate(() =>
+    window.__ofgDebug?.getRendererStatus?.()?.frameIndex ?? 0
+  );
+  await page.evaluate(({
+    selectedEnabled,
+    selectedFocusDistance,
+    selectedFocusRange,
+    selectedMaxBlurPixels
+  }) => {
+    window.__ofgDebug?.setPostProcessDepthOfField?.(
+      selectedEnabled,
+      selectedFocusDistance,
+      selectedFocusRange,
+      selectedMaxBlurPixels
+    );
+  }, {
+    selectedEnabled: enabled,
+    selectedFocusDistance: focusDistance,
+    selectedFocusRange: focusRange,
+    selectedMaxBlurPixels: maxBlurPixels
+  });
+  await page.waitForFunction(({
+    selectedEnabled,
+    selectedFocusDistance,
+    selectedFocusRange,
+    selectedMaxBlurPixels,
+    frameIndex
+  }) => {
+    const status = window.__ofgDebug?.getRendererStatus?.();
+    return status?.postProcessDofEnabled === selectedEnabled &&
+      Math.abs(status.postProcessDofFocusDistance - selectedFocusDistance) < 0.0001 &&
+      Math.abs(status.postProcessDofFocusRange - selectedFocusRange) < 0.0001 &&
+      Math.abs(status.postProcessDofMaxBlurPixels - selectedMaxBlurPixels) < 0.0001 &&
+      status.frameIndex > frameIndex;
+  }, {
+    selectedEnabled: enabled,
+    selectedFocusDistance: focusDistance,
+    selectedFocusRange: focusRange,
+    selectedMaxBlurPixels: maxBlurPixels,
+    frameIndex: startingFrameIndex
+  }, { timeout: 10000 });
   await page.waitForTimeout(250);
 }
 
@@ -239,6 +435,7 @@ async function readDebugContract(page) {
       skySunElevation: debug?.getSkySunElevation?.(),
       skyCloudCoverage: debug?.getSkyCloudCoverage?.(),
       skyStarIntensity: debug?.getSkyStarIntensity?.(),
+      postProcessDebugView: debug?.getPostProcessDebugView?.() ?? "missing",
       rendererStatus: status === undefined
         ? undefined
         : {
@@ -256,6 +453,17 @@ async function readDebugContract(page) {
             frameShadowDrawCount: status.frameShadowDrawCount,
             shadowCascadeCount: status.shadowCascadeCount,
             shadowMapSize: status.shadowMapSize,
+            postProcessRuntime: status.postProcessRuntime,
+            postProcessDebugView: status.postProcessDebugView,
+            postProcessExposure: status.postProcessExposure,
+            postProcessToneMappingEnabled: status.postProcessToneMappingEnabled,
+            postProcessBloomEnabled: status.postProcessBloomEnabled,
+            postProcessBloomThreshold: status.postProcessBloomThreshold,
+            postProcessBloomIntensity: status.postProcessBloomIntensity,
+            postProcessDofEnabled: status.postProcessDofEnabled,
+            postProcessDofFocusDistance: status.postProcessDofFocusDistance,
+            postProcessDofFocusRange: status.postProcessDofFocusRange,
+            postProcessDofMaxBlurPixels: status.postProcessDofMaxBlurPixels,
             requiredTextureArrayLayers: status.requiredTextureArrayLayers,
             maxTextureArrayLayers: status.maxTextureArrayLayers
           }
@@ -298,7 +506,18 @@ function assertHud(hud, expectedMode, consoleMessages) {
 }
 
 /// Validates that debug hooks are black-box integration hooks only.
-function assertDebugContract(debug, expectedShadowDebugView = "off") {
+function assertDebugContract(debug, expectations = {}) {
+  const {
+    shadowDebugView = "off",
+    postProcessDebugView = "final",
+    postProcessExposure = 1.0,
+    bloomThreshold = 1.0,
+    bloomIntensity = 0.08,
+    dofEnabled = false,
+    dofFocusDistance = 30,
+    dofFocusRange = 8,
+    dofMaxBlurPixels = 6
+  } = expectations;
   if (!debug.hasDebug) {
     throw new Error("Debug API is unavailable.");
   }
@@ -331,9 +550,9 @@ function assertDebugContract(debug, expectedShadowDebugView = "off") {
   if (forbiddenMatches.length > 0) {
     throw new Error(`Debug API exposes terrain internals: ${forbiddenMatches.join(", ")}`);
   }
-  if (debug.shadowDebugView !== expectedShadowDebugView) {
+  if (debug.shadowDebugView !== shadowDebugView) {
     throw new Error(
-      `Expected shadow debug view ${expectedShadowDebugView}, saw ${debug.shadowDebugView}.`
+      `Expected shadow debug view ${shadowDebugView}, saw ${debug.shadowDebugView}.`
     );
   }
 
@@ -359,6 +578,24 @@ function assertDebugContract(debug, expectedShadowDebugView = "off") {
     status === undefined ||
     !status.configured ||
     status.runtime !== "rust-wgpu" ||
+    status.postProcessRuntime !== "rust-wgpu" ||
+    status.postProcessDebugView !== postProcessDebugView ||
+    debug.postProcessDebugView !== postProcessDebugView ||
+    status.postProcessToneMappingEnabled !== true ||
+    !Number.isFinite(status.postProcessExposure) ||
+    Math.abs(status.postProcessExposure - postProcessExposure) > 0.0001 ||
+    status.postProcessBloomEnabled !== true ||
+    !Number.isFinite(status.postProcessBloomThreshold) ||
+    Math.abs(status.postProcessBloomThreshold - bloomThreshold) > 0.0001 ||
+    !Number.isFinite(status.postProcessBloomIntensity) ||
+    Math.abs(status.postProcessBloomIntensity - bloomIntensity) > 0.0001 ||
+    status.postProcessDofEnabled !== dofEnabled ||
+    !Number.isFinite(status.postProcessDofFocusDistance) ||
+    Math.abs(status.postProcessDofFocusDistance - dofFocusDistance) > 0.0001 ||
+    !Number.isFinite(status.postProcessDofFocusRange) ||
+    Math.abs(status.postProcessDofFocusRange - dofFocusRange) > 0.0001 ||
+    !Number.isFinite(status.postProcessDofMaxBlurPixels) ||
+    Math.abs(status.postProcessDofMaxBlurPixels - dofMaxBlurPixels) > 0.0001 ||
     status.frameDrawCount <= 0 ||
     status.frameVisibleDrawCount <= 0 ||
     status.frameShadowDrawCount <= 0 ||

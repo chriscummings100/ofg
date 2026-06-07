@@ -24,10 +24,10 @@ decisions.
 
 | ID | Boundary | Status | Source of truth |
 |---|---|---|---|
-| OFG-API-001 | Browser shell to Rust browser game | Active | `src/engine/web/browserGameTypes.ts`, `src/engine/web/engineWebWasm.ts`, `crates/engine_web/src/wgpu_renderer.rs` |
+| OFG-API-001 | Browser shell to Rust browser game | Active | `src/engine/web/browserGameTypes.ts`, `src/engine/web/engineWebWasm.ts`, `crates/engine_web/src/wgpu_renderer.rs`, `crates/engine_web/src/post_process.rs` |
 | OFG-API-002 | Rust browser game to browser asset loader | Active | `src/engine/browser/textureAssetLoader.ts`, `crates/engine_web/src/terrain_textures.rs` |
 | OFG-API-003 | Debug and smoke-test hooks | Active | `src/app/game.ts`, `src/engine/web/browserGameTypes.ts`, `tools/browser-smoke.mjs` |
-| OFG-API-004 | Terrain vertex and material layout | Active | `crates/terrain_core/src/constants.rs`, `crates/engine_web/src/config.rs`, `crates/engine_web/src/wgpu_renderer.rs`, `src/engine/render/shaders/UberShader.test.ts` |
+| OFG-API-004 | Terrain vertex and material layout | Active | `crates/terrain_core/src/constants.rs`, `crates/engine_web/src/config.rs`, `crates/engine_web/src/wgpu_renderer.rs`, `src/engine/render/shaders/UberShader.test.ts`, `src/engine/render/shaders/PostShader.test.ts` |
 | OFG-API-005 | Terrain presets and world descriptor codes | Active | `src/engine/world/terrainDescriptor.ts`, `src/engine/web/rustBrowserGameRuntime.ts`, `crates/terrain_core/src/presets.rs` |
 | OFG-API-006 | Standalone `terrain_core.wasm` artifact | Fixture | `tools/build-terrain-wasm.mjs`, `crates/terrain_core/src/facade.rs` |
 | OFG-API-007 | Raw linked WASM exports in `engine_web` | Unsupported | `assets/wasm/engine_web/engine_web.d.ts`, `crates/*/src/facade.rs` |
@@ -90,6 +90,13 @@ smoke tests. Current commands are:
       runPlaybackScale }
     { type: "setPlayerPosition", x, y?, z }
     { type: "setDebugCamera", x, y, z, yaw, pitch }
+    { type: "setPostProcessDebugView", view: "final" | "sceneColor" |
+      "linearDepth" | "postToneMap" | "bloom" | "dofCoc" |
+      "dofBlurred" }
+    { type: "setPostProcessToneMapping", enabled, exposure }
+    { type: "setPostProcessBloom", enabled, threshold, intensity }
+    { type: "setPostProcessDepthOfField", enabled, focusDistance,
+      focusRange, maxBlurPixels }
     { type: "resetStreaming" }
 
 The TypeScript runtime also sends the internal create-time reset command:
@@ -102,6 +109,22 @@ general public UI command.
 `debugSnapshot()` returns the Rust-assembled game/debug state. TypeScript may
 validate and copy values, but it must not derive terrain stream, renderer,
 player, or chunk state itself.
+Renderer status currently includes the Rust/wgpu post-process runtime sentinel
+and the selected post-process debug view:
+
+    rendererStatus.postProcessRuntime === "rust-wgpu"
+    rendererStatus.postProcessDebugView === "final" | "sceneColor" |
+      "linearDepth" | "postToneMap" | "bloom" | "dofCoc" |
+      "dofBlurred"
+    rendererStatus.postProcessExposure: number
+    rendererStatus.postProcessToneMappingEnabled: boolean
+    rendererStatus.postProcessBloomEnabled: boolean
+    rendererStatus.postProcessBloomThreshold: number
+    rendererStatus.postProcessBloomIntensity: number
+    rendererStatus.postProcessDofEnabled: boolean
+    rendererStatus.postProcessDofFocusDistance: number
+    rendererStatus.postProcessDofFocusRange: number
+    rendererStatus.postProcessDofMaxBlurPixels: number
 
 Contract rules:
 
@@ -176,7 +199,9 @@ Current hook categories:
 - Renderer status from Rust `debugSnapshot()`, including resource counts,
   frame count, total frame draw candidates, and visible post-cull frame draw
   count. Shadow resource status currently reports cascade count, shadow-map
-  size, and per-frame shadow-pass draw count.
+  size, and per-frame shadow-pass draw count. Post-process status reports the
+  selected debug view, exposure, tone mapping, bloom, and depth-of-field
+  settings.
 - Shadow debug view state from Rust `debugSnapshot()` as `shadowDebugView`, plus
   the browser-only `setShadowDebugView(...)` debug hook. Supported debug view
   names are `off`, `cascadeIndex`, `shadowVisibility`, and
@@ -188,6 +213,9 @@ Current hook categories:
   and CPU-skinning state from Rust `debugSnapshot()`.
 - Runtime ownership sentinel strings such as `"rust"` and `"rust-wgpu"`.
 - Debug commands that call `game.command(...)`.
+- Post-process debug view commands and screenshots. Current debug views are
+  final output, HDR scene color, linear depth, post-tone-map color, and bloom
+  contribution, DoF circle of confusion, and DoF blurred scene color.
 
 Compatibility fields:
 
@@ -202,6 +230,9 @@ Contract rules:
   renderer, sky, cloud, time-of-day, lighting, or player state.
 - Smoke scripts must inspect both command results and screenshots/report JSON
   when visual behavior changes.
+- Browser smoke must keep post-process debug views as black-box Rust/wgpu
+  outputs. It may select a view through `game.command(...)`, but must not
+  compute or interpret renderer textures in TypeScript.
 
 ## OFG-API-004: Terrain Vertex And Material Layout
 
@@ -221,10 +252,35 @@ WebGPU vertex-buffer layout. Shader contract tests still validate that the WGSL
 locations match the renderer layout. Reviewers must treat this as a fragile
 contract until it is generated from one source.
 
+The shared scene shader currently writes two fragment outputs for the
+post-process frame graph:
+
+| Output | Shader location | Format |
+|---|---:|---|
+| scene color | 0 | Browser path `Rgba16Float`; smoke path readback color |
+| linear depth/distance | 1 | `R32Float` |
+
+Scene shader outputs are scene-linear. The fullscreen post-process shader owns
+exposure and filmic tone mapping before presenting to the browser surface. The
+browser renderer chooses an sRGB surface format when available, so the final
+post shader writes display-linear values and lets the surface handle sRGB
+encoding. Bloom is Rust/wgpu-owned: the browser path extracts bright HDR scene
+energy into a half-resolution `Rgba16Float` bloom target, composites that target
+before tone mapping, and exposes enabled/threshold/intensity through Rust
+commands and renderer status. Depth of field is Rust/wgpu-owned and default
+off: the post shader derives a per-pixel circle of confusion from the
+renderer-owned linear-depth target, samples a small fullscreen blur in post, and
+exposes enabled/focus-distance/focus-range/max-blur-pixels through Rust commands
+and renderer status.
+
 Contract rules:
 
 - Any stride, offset, material-index, material-weight, or shader-location change
   must update all four sites and the shader/renderer tests in the same
+  milestone.
+- Any fragment output, scene target format, or post-process debug-view change
+  must update `uber.wgsl`, `post.wgsl`, generated shader artifacts, Rust/wgpu
+  pipeline target descriptors, and browser/Rust smoke coverage in the same
   milestone.
 - Terrain and shader changes must run `npm run check:shaders`, `npm test`, and
   the relevant terrain/browser smoke tests.

@@ -79,6 +79,11 @@ describe("uber shader build", () => {
     ok(UBER_SHADER_SOURCE.includes("fn shadeSpecularGlossiness"));
   });
 
+  it("leaves display conversion to the post-process shader", () => {
+    ok(UBER_SHADER_SOURCE.includes("fn srgbToLinear"));
+    ok(!UBER_SHADER_SOURCE.includes("linearToSrgb"));
+  });
+
   it("contains the triplanar terrain sampling contract", () => {
     ok(UBER_SHADER_SOURCE.includes("MATERIAL_WORKFLOW_TERRAIN"));
     ok(UBER_SHADER_SOURCE.includes("fn sampleTriplanarTerrainAlbedoLayer"));
@@ -130,5 +135,12 @@ describe("uber shader build", () => {
     ok(UBER_SHADER_SOURCE.includes("SHADOW_DEBUG_VISIBILITY"));
     ok(UBER_SHADER_SOURCE.includes("fn shadowDebugColor"));
     ok(UBER_SHADER_SOURCE.includes("fn loadShadowDepth"));
+  });
+
+  it("writes scene color and linear depth for post processing", () => {
+    ok(UBER_SHADER_SOURCE.includes("struct SceneFragmentOutput"));
+    ok(UBER_SHADER_SOURCE.includes("@location(0) color: vec4<f32>"));
+    ok(UBER_SHADER_SOURCE.includes("@location(1) linearDepth: f32"));
+    ok(UBER_SHADER_SOURCE.includes("distance(camera.eyeWorld.xyz, input.worldPosition)"));
   });
 });
