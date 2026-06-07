@@ -9,8 +9,8 @@ and 2026-06-07.
 
 Files:
 
-- `quaternius-superhero-male.glb`: converted from `Universal Base Characters[Standard]/Base Characters/Godot - UE/Superhero_Male_FullBody.gltf` plus its external `.bin`. Texture image URIs remain in the source JSON, but the current OFG importer uses material factors and embedded mesh buffers only.
-- `quaternius-superhero-female.glb`: converted from `Universal Base Characters[Standard]/Base Characters/Godot - UE/Superhero_Female_FullBody.gltf` plus its external `.bin`. Texture image URIs remain in the source JSON, but the current OFG importer uses material factors and embedded mesh buffers only.
+- `quaternius-superhero-male.glb`: converted from `Universal Base Characters[Standard]/Base Characters/Godot - UE/Superhero_Male_FullBody.gltf` plus its external `.bin` and referenced PNG textures. The checked-in GLB embeds the mesh buffer and the seven referenced PNG images as GLB buffer-view images.
+- `quaternius-superhero-female.glb`: converted from `Universal Base Characters[Standard]/Base Characters/Godot - UE/Superhero_Female_FullBody.gltf` plus its external `.bin` and referenced PNG textures. The checked-in GLB embeds the mesh buffer and the seven referenced PNG images as GLB buffer-view images.
 - `quaternius-ual1-standard.glb`: copied from `Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb` for the shared humanoid skeleton and base locomotion clips such as `Idle_Loop`, `Walk_Loop`, and `Sprint_Loop`.
 - `quaternius-ual2-standard.glb`: copied from `Universal Animation Library 2[Standard]/Unreal-Godot/UAL2_Standard.glb` for the shared humanoid skeleton, mannequin mesh, and earlier idle/walk animation tests.
 

@@ -4,12 +4,15 @@
 
 use std::fmt;
 
-use crate::materials::{build_material_packet, MaterialPacketError};
+use crate::materials::{
+    build_metallic_roughness_material_packet, build_specular_glossiness_material_packet,
+    MaterialPacketError,
+};
 use crate::model_animation::{blend_node_transforms, ModelAnimationClip};
 use crate::model_assets::{
-    model_primitive_vertex_floats, ModelAsset, ModelAssetError, ModelMaterial, ModelNodeTransform,
-    ModelPrimitive,
+    model_primitive_vertex_floats, ModelAsset, ModelAssetError, ModelNodeTransform, ModelPrimitive,
 };
+use crate::model_materials::{ModelMaterial, ModelMaterialWorkflow};
 use crate::model_render_assets::ModelRenderAssetError;
 use crate::model_skinning::{skin_joint_matrices, skin_primitive_vertices};
 use crate::render_uniforms::MATERIAL_PACKET_FLOATS;
@@ -23,13 +26,18 @@ const MOVEMENT_EPSILON: f32 = 0.01;
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlayerCharacterModel {
     model: ModelAsset,
-    primitive: ModelPrimitive,
-    skin_index: usize,
+    parts: Vec<PlayerCharacterPart>,
     node_base_transforms: Vec<ModelNodeTransform>,
     controller: LocomotionAnimationController,
+    skin_joint_count: usize,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct PlayerCharacterPart {
+    primitive: ModelPrimitive,
+    skin_index: usize,
     material_packet: [f32; MATERIAL_PACKET_FLOATS],
     mesh_node_index: usize,
-    skin_joint_count: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -119,22 +127,16 @@ impl PlayerCharacterModel {
         body_model: ModelAsset,
         animation_model: &ModelAsset,
     ) -> Result<Self, PlayerCharacterModelError> {
-        let (primitive, mesh_node_index, skin_index) = largest_skinned_primitive(&body_model)?;
-        let skin_joint_count = body_model
-            .skins
-            .get(skin_index)
-            .ok_or(PlayerCharacterModelError::ModelAsset(
-                ModelAssetError::InvalidSkinIndex { skin_index },
-            ))?
-            .joints
-            .len();
+        let parts = skinned_primitive_parts(&body_model)?;
+        let skin_joint_count = parts
+            .iter()
+            .filter_map(|part| body_model.skins.get(part.skin_index))
+            .map(|skin| skin.joints.len())
+            .max()
+            .unwrap_or(0);
         let idle_clip = named_animation_clip(animation_model, QUATERNIUS_IDLE_CLIP_NAME)?;
         let walk_clip = named_animation_clip(animation_model, QUATERNIUS_WALK_CLIP_NAME)?;
         let run_clip = named_animation_clip(animation_model, QUATERNIUS_RUN_CLIP_NAME)?;
-        let material = primitive
-            .material
-            .and_then(|material_index| body_model.materials.get(material_index));
-        let material_packet = model_material_packet(material)?;
         let node_base_transforms = body_model
             .nodes
             .iter()
@@ -143,8 +145,7 @@ impl PlayerCharacterModel {
 
         Ok(Self {
             model: body_model,
-            primitive,
-            skin_index,
+            parts,
             node_base_transforms,
             controller: LocomotionAnimationController::new(
                 idle_clip,
@@ -153,8 +154,6 @@ impl PlayerCharacterModel {
                 DEFAULT_BLEND_DURATION_SECONDS,
                 PlayerCharacterLocomotionTuning::default(),
             )?,
-            material_packet,
-            mesh_node_index,
             skin_joint_count,
         })
     }
@@ -166,6 +165,15 @@ impl PlayerCharacterModel {
             .current_pose(&self.node_base_transforms)
             .map_err(PlayerCharacterModelError::ModelAsset)?;
         self.vertices_for_pose(&pose)
+    }
+
+    /// Returns renderer-ready vertices for every character primitive.
+    pub fn current_part_vertices(&self) -> Result<Vec<Vec<f32>>, PlayerCharacterModelError> {
+        let pose = self
+            .controller
+            .current_pose(&self.node_base_transforms)
+            .map_err(PlayerCharacterModelError::ModelAsset)?;
+        self.part_vertices_for_pose(&pose)
     }
 
     /// Advances locomotion animation and returns renderer-ready skinned vertices.
@@ -182,19 +190,58 @@ impl PlayerCharacterModel {
         self.vertices_for_pose(&pose)
     }
 
+    /// Advances locomotion animation and returns renderer-ready vertices per primitive.
+    pub fn tick_part_vertices(
+        &mut self,
+        delta_seconds: f32,
+        locomotion_speed_meters_per_second: f32,
+    ) -> Result<Vec<Vec<f32>>, PlayerCharacterModelError> {
+        let pose = self.controller.advance_pose(
+            &self.node_base_transforms,
+            delta_seconds,
+            locomotion_speed_meters_per_second,
+        )?;
+        self.part_vertices_for_pose(&pose)
+    }
+
     /// Returns the imported index buffer for the selected primitive.
     pub fn indices(&self) -> &[u32] {
-        &self.primitive.indices
+        self.part_indices(0)
+    }
+
+    /// Returns the number of skinned primitives in this character model.
+    pub fn part_count(&self) -> usize {
+        self.parts.len()
+    }
+
+    /// Returns one imported index buffer for a character primitive.
+    pub fn part_indices(&self, part_index: usize) -> &[u32] {
+        &self.parts[part_index].primitive.indices
     }
 
     /// Returns the material packet for the selected primitive.
     pub fn material_packet(&self) -> [f32; MATERIAL_PACKET_FLOATS] {
-        self.material_packet
+        self.part_material_packet(0)
+    }
+
+    /// Returns one material packet for a character primitive.
+    pub fn part_material_packet(&self, part_index: usize) -> [f32; MATERIAL_PACKET_FLOATS] {
+        self.parts[part_index].material_packet
+    }
+
+    /// Returns the imported glTF material index for one character primitive.
+    pub fn part_material_index(&self, part_index: usize) -> Option<usize> {
+        self.parts[part_index].primitive.material
     }
 
     /// Returns the GLTF node that instances the selected mesh primitive.
     pub fn mesh_node_index(&self) -> usize {
-        self.mesh_node_index
+        self.part_mesh_node_index(0)
+    }
+
+    /// Returns the GLTF node that instances one mesh primitive.
+    pub fn part_mesh_node_index(&self, part_index: usize) -> usize {
+        self.parts[part_index].mesh_node_index
     }
 
     /// Returns the number of joints in the selected skin.
@@ -225,13 +272,35 @@ impl PlayerCharacterModel {
         &self,
         pose: &[ModelNodeTransform],
     ) -> Result<Vec<f32>, PlayerCharacterModelError> {
-        let joint_matrices = skin_joint_matrices(&self.model, self.skin_index, pose)
+        self.part_vertices_for_pose(pose)?.into_iter().next().ok_or(
+            PlayerCharacterModelError::RenderAsset(ModelRenderAssetError::MissingPrimitive),
+        )
+    }
+
+    /// CPU-skins every sampled pose part into the renderer's model vertex layout.
+    fn part_vertices_for_pose(
+        &self,
+        pose: &[ModelNodeTransform],
+    ) -> Result<Vec<Vec<f32>>, PlayerCharacterModelError> {
+        self.parts
+            .iter()
+            .map(|part| self.vertices_for_part_pose(part, pose))
+            .collect()
+    }
+
+    /// CPU-skins one part of a sampled pose into the renderer's model vertex layout.
+    fn vertices_for_part_pose(
+        &self,
+        part: &PlayerCharacterPart,
+        pose: &[ModelNodeTransform],
+    ) -> Result<Vec<f32>, PlayerCharacterModelError> {
+        let joint_matrices = skin_joint_matrices(&self.model, part.skin_index, pose)
             .map_err(PlayerCharacterModelError::ModelAsset)?;
-        let skinned_vertices = skin_primitive_vertices(&self.primitive, &joint_matrices)
+        let skinned_vertices = skin_primitive_vertices(&part.primitive, &joint_matrices)
             .map_err(PlayerCharacterModelError::ModelAsset)?;
         let skinned_primitive = ModelPrimitive {
             vertices: skinned_vertices,
-            ..self.primitive.clone()
+            ..part.primitive.clone()
         };
 
         Ok(model_primitive_vertex_floats(&skinned_primitive))
@@ -551,17 +620,17 @@ fn named_animation_clip(
         })
 }
 
-/// Selects the largest primitive that is attached to a skinned mesh node.
-fn largest_skinned_primitive(
+/// Collects every primitive that is attached to a skinned mesh node.
+fn skinned_primitive_parts(
     model: &ModelAsset,
-) -> Result<(ModelPrimitive, usize, usize), PlayerCharacterModelError> {
+) -> Result<Vec<PlayerCharacterPart>, PlayerCharacterModelError> {
     if model.primitives.is_empty() {
         return Err(PlayerCharacterModelError::RenderAsset(
             ModelRenderAssetError::MissingPrimitive,
         ));
     }
 
-    let mut best: Option<(&ModelPrimitive, usize, usize)> = None;
+    let mut parts = Vec::new();
     for primitive in &model.primitives {
         let Some((node_index, node)) = model
             .nodes
@@ -572,15 +641,19 @@ fn largest_skinned_primitive(
             continue;
         };
         let skin_index = node.skin.expect("node skin was checked above");
-        if best.as_ref().map_or(true, |(best_primitive, _, _)| {
-            primitive.vertices.len() > best_primitive.vertices.len()
-        }) {
-            best = Some((primitive, node_index, skin_index));
-        }
+        let material = primitive
+            .material
+            .and_then(|material_index| model.materials.get(material_index));
+        parts.push(PlayerCharacterPart {
+            primitive: primitive.clone(),
+            skin_index,
+            material_packet: model_material_packet(material)?,
+            mesh_node_index: node_index,
+        });
     }
 
-    if let Some((primitive, node_index, skin_index)) = best {
-        return Ok((primitive.clone(), node_index, skin_index));
+    if !parts.is_empty() {
+        return Ok(parts);
     }
 
     let primitive = model
@@ -683,10 +756,30 @@ fn validate_locomotion_tuning(
 fn model_material_packet(
     material: Option<&ModelMaterial>,
 ) -> Result<[f32; MATERIAL_PACKET_FLOATS], PlayerCharacterModelError> {
-    let albedo = material
-        .map(|material| material.base_color_factor)
-        .unwrap_or([1.0, 1.0, 1.0, 1.0]);
-
-    build_material_packet(albedo, [0.08, 0.08, 0.08], 0.18, 0.0, 1.0)
-        .map_err(PlayerCharacterModelError::MaterialPacket)
+    match material.map(|material| &material.workflow) {
+        Some(ModelMaterialWorkflow::MetallicRoughness {
+            base_color_factor,
+            metallic_factor,
+            roughness_factor,
+            ..
+        }) => build_metallic_roughness_material_packet(
+            *base_color_factor,
+            *metallic_factor,
+            *roughness_factor,
+            1.0,
+        ),
+        Some(ModelMaterialWorkflow::SpecularGlossiness {
+            diffuse_factor,
+            specular_factor,
+            glossiness_factor,
+            ..
+        }) => build_specular_glossiness_material_packet(
+            *diffuse_factor,
+            *specular_factor,
+            *glossiness_factor,
+            1.0,
+        ),
+        None => build_metallic_roughness_material_packet([1.0, 1.0, 1.0, 1.0], 1.0, 1.0, 1.0),
+    }
+    .map_err(PlayerCharacterModelError::MaterialPacket)
 }

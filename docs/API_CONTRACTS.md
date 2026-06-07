@@ -327,17 +327,20 @@ Allowed TypeScript responsibilities remain:
 The completed feature plan is archived at
 `docs/archived/GLTF_CHARACTER_PLAN.md`. The current supported slice loads
 checked-in GLB fixtures through the generic byte asset loader, parses them in
-Rust, registers model mesh/material resources, attaches model nodes to the Rust
-scene, renders them through Rust/wgpu, samples non-skinned node animation clips
-for translation, rotation, and scale, imports skin joints/inverse bind matrices,
-CPU-skins rigged model vertices, updates a same-size model vertex buffer every
+Rust, imports renderer-neutral image/texture/sampler/material records, registers
+model mesh/material/texture resources, attaches model nodes to the Rust scene,
+renders them through Rust/wgpu, samples non-skinned node animation clips for
+translation, rotation, and scale, imports skin joints/inverse bind matrices,
+CPU-skins rigged model vertices, updates same-size model vertex buffers every
 frame, and selects/blends idle, walk, and sprint clips from Rust horizontal
-movement speed. The current live player character path uses a shared Quaternius
-Universal Animation Library 1 GLB for `Idle_Loop`, `Walk_Loop`, and
-`Sprint_Loop`, plus separate male/female Quaternius base-character body GLBs.
-The current checked-in bodies are Superhero male/female placeholders because the
-free Standard download available to this repo does not include Regular
-male/female full-body GLBs.
+movement speed. Model images embedded in GLB buffer views or data URIs are
+decoded in Rust to one-layer RGBA texture arrays; external GLTF image URIs are
+preserved by the importer but are not accepted by the runtime texture resolver
+yet. The current live player character path uses a shared Quaternius Universal
+Animation Library 1 GLB for `Idle_Loop`, `Walk_Loop`, and `Sprint_Loop`, plus
+separate male/female Quaternius base-character body GLBs. The current checked-in
+bodies are Superhero male/female placeholders because the free Standard download
+available to this repo does not include Regular male/female full-body GLBs.
 
 The active character is selected through the Rust command lane with stable
 browser IDs:
@@ -349,16 +352,28 @@ browser IDs:
       runSpeedMetersPerSecond, idlePlaybackScale, walkPlaybackScale,
       runPlaybackScale }
 
-The selected body is attached to a Rust-owned player character scene item that
-follows the Rust player transform, stays hidden in first-person, and replaces
-the old yellow debug marker as the browser debug-fly player representation.
-Rust debug snapshots expose the selected character ID/label, active/next clip,
-crossfade weight, walk/run blend weight, numeric playback scale, locomotion
-speed, numeric tuning values, and CPU-skinning joint count for HUD/debug/smoke
-tests. GPU skinning,
-multi-primitive character assembly, clothing/material texture support,
-automatic foot-contact extraction, inverse kinematics, and full animation-tuning
-UI remain future milestones under the same boundary.
+The selected body is attached to Rust-owned player character scene items, one
+per skinned GLTF primitive, that follow the Rust player transform, stay hidden
+in first-person, and replace the old yellow debug marker as the browser
+debug-fly player representation. Rust debug snapshots expose the selected
+character ID/label, active/next clip, crossfade weight, walk/run blend weight,
+numeric playback scale, locomotion speed, numeric tuning values, active model
+primitive/material/texture counts, non-fallback albedo part count, and
+CPU-skinning joint count for HUD/debug/smoke tests. GPU skinning, tangent-space
+normal-map application, automatic foot-contact extraction, inverse kinematics,
+and full animation-tuning UI remain future milestones under the same boundary.
+
+Supported model material workflows:
+
+- glTF 2.0 core metallic-roughness. Rust imports base-color factors/textures,
+  metallic and roughness factors, and metallic-roughness texture references.
+  The shader uses roughness from texture green and metallic from texture blue,
+  distinct from terrain material texture channels.
+- Archived `KHR_materials_pbrSpecularGlossiness`. Rust imports diffuse
+  factors/textures, specular factors, glossiness factors, and
+  specular-glossiness textures. The renderer uses this path when the extension
+  is present; required-extension fixtures should not silently fall back to core
+  metallic-roughness.
 
 The intended runtime format is checked-in GLB for model and animation assets.
 Rust owns GLTF parsing, model resource registration, scene node/entity creation,
@@ -383,11 +398,12 @@ Contract rules:
 
 - TypeScript must not parse GLTF JSON or GLB chunks.
 - TypeScript must not inspect meshes, nodes, skins, animation channels, clips,
-  materials, or skeletons.
+  materials, textures, images, samplers, material workflows, or skeletons.
 - TypeScript must not create per-model or per-entity render calls.
 - Rust debug snapshots may expose active model, player-character visibility,
   character ID/label, clip, blend, walk/run blend, playback scale, locomotion
-  speed, numeric tuning values, and skinning state for HUD and smoke tests.
+  speed, numeric tuning values, primitive/material/texture counts, non-fallback
+  texture counts, and skinning state for HUD and smoke tests.
 - Static model meshes, skinned model meshes, and animation data should use
   explicit Rust-owned contracts rather than overloading the terrain vertex
   layout.
@@ -408,8 +424,9 @@ These are known contract risks for milestone reviewers:
 - `crates/engine_web/src/wgpu_renderer.rs` is still over the maximum preferred
   file size, `crates/engine_web/src/model_assets.rs` is over the split-pressure
   threshold, and `crates/terrain_core/src/facade.rs` is also oversized. Continue
-  extracting focused model/renderer modules before GPU skinning, multi-primitive
-  character rendering, or retargeting adds more renderer code.
+  extracting focused model/renderer modules before GPU skinning, tangent-space
+  normal maps, static model showcase loading, or retargeting adds more renderer
+  code.
 - The GLTF path uses the generic byte asset loader and Rust-owned animation
   sampling; keep TypeScript generic and do not let it grow model or animation
   semantics while expanding the feature.

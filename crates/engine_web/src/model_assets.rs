@@ -6,6 +6,10 @@ use std::fmt;
 
 use crate::config::MODEL_VERTEX_FLOATS;
 use crate::model_animation::{import_animations, ModelAnimationClip};
+use crate::model_materials::{
+    import_model_images, import_model_materials, import_model_samplers, import_model_textures,
+    ModelImage, ModelMaterial, ModelSampler, ModelTexture,
+};
 
 pub const SAMPLE_ANIMATED_BOX_MODEL_ID: &str = "model.test-fixtures.animated-box";
 pub const SAMPLE_ANIMATED_BOX_MODEL_URL: &str = "/assets/models/test-fixtures/box-animated.glb";
@@ -23,6 +27,13 @@ pub const SAMPLE_STATIC_BOX_MODEL_URL: &str = "/assets/models/test-fixtures/stat
 pub const SAMPLE_STATIC_BOX_MESH_LABEL: &str = "model.test-fixtures.static-box.primitive0.mesh";
 pub const SAMPLE_STATIC_BOX_MATERIAL_LABEL: &str =
     "model.test-fixtures.static-box.primitive0.material";
+pub const SAMPLE_SPECULAR_GLOSSINESS_MODEL_ID: &str = "model.test-fixtures.specular-glossiness";
+pub const SAMPLE_SPECULAR_GLOSSINESS_MODEL_URL: &str =
+    "/assets/models/test-fixtures/material-specular-glossiness-13.glb";
+pub const SAMPLE_SPECULAR_GLOSSINESS_MESH_LABEL: &str =
+    "model.test-fixtures.specular-glossiness.primitive0.mesh";
+pub const SAMPLE_SPECULAR_GLOSSINESS_MATERIAL_LABEL: &str =
+    "model.test-fixtures.specular-glossiness.primitive0.material";
 pub const PLAYER_QUATERNIUS_UAL2_MODEL_ID: &str = "model.player.quaternius-ual2";
 pub const PLAYER_QUATERNIUS_UAL2_MODEL_URL: &str =
     "/assets/models/player/quaternius-ual2-standard.glb";
@@ -52,6 +63,9 @@ const IDENTITY_MATRIX: [f32; 16] = [
 pub struct ModelAsset {
     pub nodes: Vec<ModelNode>,
     pub primitives: Vec<ModelPrimitive>,
+    pub images: Vec<ModelImage>,
+    pub textures: Vec<ModelTexture>,
+    pub samplers: Vec<ModelSampler>,
     pub materials: Vec<ModelMaterial>,
     pub animations: Vec<ModelAnimationClip>,
     pub skins: Vec<ModelSkin>,
@@ -87,6 +101,21 @@ impl ModelAsset {
     /// Returns the number of imported skin bindings.
     pub fn skin_count(&self) -> usize {
         self.skins.len()
+    }
+
+    /// Returns the number of imported image records.
+    pub fn image_count(&self) -> usize {
+        self.images.len()
+    }
+
+    /// Returns the number of imported texture records.
+    pub fn texture_count(&self) -> usize {
+        self.textures.len()
+    }
+
+    /// Returns the imported material count.
+    pub fn material_count(&self) -> usize {
+        self.materials.len()
     }
 }
 
@@ -137,14 +166,6 @@ pub struct ModelVertex {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ModelMaterial {
-    pub name: Option<String>,
-    pub base_color_factor: [f32; 4],
-    pub metallic_factor: f32,
-    pub roughness_factor: f32,
-}
-
-#[derive(Clone, Debug, PartialEq)]
 pub struct ModelSkin {
     pub name: Option<String>,
     pub joints: Vec<usize>,
@@ -169,6 +190,21 @@ pub enum ModelAssetError {
     DataUriDecode {
         buffer_index: usize,
         message: String,
+    },
+    UnsupportedImageDataUri {
+        image_index: usize,
+        uri: String,
+    },
+    ImageDataUriDecode {
+        image_index: usize,
+        message: String,
+    },
+    InvalidImageBufferView {
+        image_index: usize,
+        buffer_view_index: usize,
+        buffer_index: usize,
+        actual: usize,
+        expected_end: usize,
     },
     UnsupportedExternalBuffer {
         buffer_index: usize,
@@ -287,6 +323,27 @@ impl fmt::Display for ModelAssetError {
             } => write!(
                 formatter,
                 "glTF buffer {buffer_index} data URI could not be decoded: {message}"
+            ),
+            Self::UnsupportedImageDataUri { image_index, uri } => write!(
+                formatter,
+                "glTF image {image_index} uses unsupported data URI '{uri}'"
+            ),
+            Self::ImageDataUriDecode {
+                image_index,
+                message,
+            } => write!(
+                formatter,
+                "glTF image {image_index} data URI could not be decoded: {message}"
+            ),
+            Self::InvalidImageBufferView {
+                image_index,
+                buffer_view_index,
+                buffer_index,
+                actual,
+                expected_end,
+            } => write!(
+                formatter,
+                "glTF image {image_index} bufferView {buffer_view_index} reads through byte {expected_end} of buffer {buffer_index}, but the buffer has {actual} bytes"
             ),
             Self::UnsupportedExternalBuffer { buffer_index, uri } => write!(
                 formatter,
@@ -438,7 +495,10 @@ pub fn import_gltf_model_from_slice(bytes: &[u8]) -> Result<ModelAsset, ModelAss
     let document = parsed.document;
 
     let nodes = import_nodes(&document);
-    let materials = import_materials(&document);
+    let samplers = import_model_samplers(&document);
+    let images = import_model_images(&document, &buffers)?;
+    let textures = import_model_textures(&document);
+    let materials = import_model_materials(&document);
     let primitives = import_primitives(&document, &buffers)?;
     let animations = import_animations(&document, &buffers)?;
     let skins = import_skins(&document, &buffers)?;
@@ -446,6 +506,9 @@ pub fn import_gltf_model_from_slice(bytes: &[u8]) -> Result<ModelAsset, ModelAss
     Ok(ModelAsset {
         nodes,
         primitives,
+        images,
+        textures,
+        samplers,
         materials,
         animations,
         skins,
@@ -507,23 +570,33 @@ fn import_buffers(
 
 /// Decodes the base64 payload from an embedded glTF data URI buffer.
 fn decode_data_uri_buffer(buffer_index: usize, uri: &str) -> Result<Vec<u8>, ModelAssetError> {
-    let Some((metadata, payload)) = uri.split_once(',') else {
-        return Err(ModelAssetError::UnsupportedDataUri {
+    decode_data_uri_payload(uri).map_err(|error| match error {
+        DataUriPayloadError::Unsupported => ModelAssetError::UnsupportedDataUri {
             buffer_index,
             uri: uri.to_string(),
-        });
+        },
+        DataUriPayloadError::Decode(message) => ModelAssetError::DataUriDecode {
+            buffer_index,
+            message,
+        },
+    })
+}
+
+enum DataUriPayloadError {
+    Unsupported,
+    Decode(String),
+}
+
+/// Decodes a base64 data URI payload into encoded asset bytes.
+fn decode_data_uri_payload(uri: &str) -> Result<Vec<u8>, DataUriPayloadError> {
+    let Some((metadata, payload)) = uri.split_once(',') else {
+        return Err(DataUriPayloadError::Unsupported);
     };
     if !metadata.starts_with("data:") || !metadata.contains(";base64") {
-        return Err(ModelAssetError::UnsupportedDataUri {
-            buffer_index,
-            uri: uri.to_string(),
-        });
+        return Err(DataUriPayloadError::Unsupported);
     }
 
-    base64::decode(payload).map_err(|error| ModelAssetError::DataUriDecode {
-        buffer_index,
-        message: error.to_string(),
-    })
+    base64::decode(payload).map_err(|error| DataUriPayloadError::Decode(error.to_string()))
 }
 
 /// Converts glTF nodes into parent-aware local transform records.
@@ -557,23 +630,6 @@ fn import_nodes(document: &gltf::Document) -> Vec<ModelNode> {
     }
 
     nodes
-}
-
-/// Converts glTF PBR material factors into renderer-neutral material records.
-fn import_materials(document: &gltf::Document) -> Vec<ModelMaterial> {
-    document
-        .materials()
-        .map(|material| {
-            let pbr = material.pbr_metallic_roughness();
-
-            ModelMaterial {
-                name: material.name().map(str::to_owned),
-                base_color_factor: pbr.base_color_factor(),
-                metallic_factor: pbr.metallic_factor(),
-                roughness_factor: pbr.roughness_factor(),
-            }
-        })
-        .collect()
 }
 
 /// Converts glTF skins into joint lists and inverse bind matrices.

@@ -81,7 +81,7 @@ pub struct BrowserGameState {
     static_model_scene_state: Option<ModelSceneState>,
     static_model_animation_time_seconds: f32,
     player_character_scene: Option<PlayerCharacterSceneConfig>,
-    player_character_scene_state: Option<ModelSceneState>,
+    player_character_scene_state: Option<PlayerCharacterSceneState>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -102,16 +102,27 @@ struct StaticModelAnimationConfig {
 
 #[derive(Clone, Debug, PartialEq)]
 struct PlayerCharacterSceneConfig {
-    mesh_label: String,
-    material_label: String,
+    parts: Vec<PlayerCharacterScenePartConfig>,
     scale: f32,
     height_offset: f32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct PlayerCharacterScenePartConfig {
+    mesh_label: String,
+    material_label: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct ModelSceneState {
     root_entity: EntityId,
     mesh_entity: EntityId,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct PlayerCharacterSceneState {
+    root_entity: EntityId,
+    mesh_entities: Vec<EntityId>,
 }
 
 impl BrowserGameState {
@@ -258,15 +269,36 @@ impl BrowserGameState {
         scale: f32,
         height_offset: f32,
     ) -> Result<(), BrowserGameStateError> {
+        self.configure_player_character_scene_parts(
+            vec![(mesh_label.into(), material_label.into())],
+            scale,
+            height_offset,
+        )
+    }
+
+    pub fn configure_player_character_scene_parts(
+        &mut self,
+        parts: Vec<(String, String)>,
+        scale: f32,
+        height_offset: f32,
+    ) -> Result<(), BrowserGameStateError> {
         validate_model_scene_transform(scale, height_offset)?;
+        let parts = parts
+            .into_iter()
+            .map(
+                |(mesh_label, material_label)| PlayerCharacterScenePartConfig {
+                    mesh_label,
+                    material_label,
+                },
+            )
+            .collect();
         self.player_character_scene = Some(PlayerCharacterSceneConfig {
-            mesh_label: mesh_label.into(),
-            material_label: material_label.into(),
+            parts,
             scale,
             height_offset,
         });
         if self.engine.player_rig().is_some() {
-            self.apply_configured_player_character()?;
+            self.replace_configured_player_character()?;
         }
 
         Ok(())
@@ -418,13 +450,16 @@ impl BrowserGameState {
     pub fn player_character_scene_snapshot(
         &self,
     ) -> Result<Option<BrowserPlayerCharacterSceneSnapshot>, BrowserGameStateError> {
-        let Some(state) = self.player_character_scene_state else {
+        let Some(state) = self.player_character_scene_state.as_ref() else {
+            return Ok(None);
+        };
+        let Some(mesh_entity) = state.mesh_entities.first().copied() else {
             return Ok(None);
         };
         let visible = self
             .engine
             .scene()
-            .entity(state.mesh_entity)
+            .entity(mesh_entity)
             .map_err(EngineError::from)?
             .mesh_renderer()
             .map(|renderer| renderer.visible)
@@ -497,10 +532,12 @@ impl BrowserGameState {
         let Some(config) = self.player_character_scene.clone() else {
             return Ok(());
         };
+        if config.parts.is_empty() {
+            return Ok(());
+        }
         let player_position = self.engine.player_position()?;
-        self.player_character_scene_state = Some(self.spawn_model_scene_item(
-            &config.mesh_label,
-            &config.material_label,
+        self.player_character_scene_state = Some(self.spawn_player_character_scene_items(
+            &config.parts,
             Vec3::new(
                 player_position.x,
                 player_position.y + config.height_offset,
@@ -511,6 +548,70 @@ impl BrowserGameState {
             false,
         )?);
         self.sync_player_character_scene()
+    }
+
+    fn spawn_player_character_scene_items(
+        &mut self,
+        parts: &[PlayerCharacterScenePartConfig],
+        position: Vec3,
+        scale: f32,
+        node_transform: ModelNodeTransform,
+        visible: bool,
+    ) -> Result<PlayerCharacterSceneState, BrowserGameStateError> {
+        let root_entity = self.engine.scene_mut().create_entity();
+        self.engine
+            .scene_mut()
+            .set_local_transform(
+                root_entity,
+                LocalTransform {
+                    translation: position,
+                    rotation: Quat::IDENTITY,
+                    scale: Vec3::new(scale, scale, scale),
+                },
+            )
+            .map_err(EngineError::from)?;
+
+        let mut mesh_entities = Vec::with_capacity(parts.len());
+        for part in parts {
+            let mesh = self
+                .engine
+                .scene_mut()
+                .resources_mut()
+                .register_mesh(&part.mesh_label);
+            let material = self
+                .engine
+                .scene_mut()
+                .resources_mut()
+                .register_material(&part.material_label);
+            let mesh_entity = self
+                .engine
+                .scene_mut()
+                .create_child(root_entity)
+                .map_err(EngineError::from)?;
+            {
+                let mut entity_ref = self
+                    .engine
+                    .scene_mut()
+                    .entity_mut(mesh_entity)
+                    .map_err(EngineError::from)?;
+                entity_ref.add_mesh_renderer(MeshRendererComponent {
+                    mesh,
+                    material,
+                    visible,
+                });
+            }
+            self.engine
+                .scene_mut()
+                .set_local_transform(mesh_entity, local_transform_from_model(node_transform))
+                .map_err(EngineError::from)?;
+            mesh_entities.push(mesh_entity);
+        }
+        self.engine.scene_mut().update_world_transforms();
+
+        Ok(PlayerCharacterSceneState {
+            root_entity,
+            mesh_entities,
+        })
     }
 
     fn spawn_model_scene_item(
@@ -581,40 +682,29 @@ impl BrowserGameState {
         self.spawn_configured_static_model()
     }
 
-    fn apply_configured_player_character(&mut self) -> Result<(), BrowserGameStateError> {
-        let Some(state) = self.player_character_scene_state else {
-            return self.spawn_configured_player_character();
-        };
-        let Some(config) = self.player_character_scene.clone() else {
-            return Ok(());
-        };
-
-        let mesh = self
-            .engine
-            .scene_mut()
-            .resources_mut()
-            .register_mesh(&config.mesh_label);
-        let material = self
-            .engine
-            .scene_mut()
-            .resources_mut()
-            .register_material(&config.material_label);
-        {
-            let mut mesh_entity = self
-                .engine
-                .scene_mut()
-                .entity_mut(state.mesh_entity)
-                .map_err(EngineError::from)?;
-            if let Some(renderer) = mesh_entity.mesh_renderer_mut() {
-                renderer.mesh = mesh;
-                renderer.material = material;
-            }
+    fn replace_configured_player_character(&mut self) -> Result<(), BrowserGameStateError> {
+        if let Some(state) = self.player_character_scene_state.take() {
+            self.destroy_player_character_scene(state)?;
         }
 
-        self.sync_player_character_scene()
+        self.spawn_configured_player_character()
     }
 
     fn destroy_model_scene(&mut self, state: ModelSceneState) -> Result<(), BrowserGameStateError> {
+        if self.engine.scene().is_alive(state.root_entity) {
+            self.engine
+                .scene_mut()
+                .destroy_entity(state.root_entity)
+                .map_err(EngineError::from)?;
+        }
+
+        Ok(())
+    }
+
+    fn destroy_player_character_scene(
+        &mut self,
+        state: PlayerCharacterSceneState,
+    ) -> Result<(), BrowserGameStateError> {
         if self.engine.scene().is_alive(state.root_entity) {
             self.engine
                 .scene_mut()
@@ -671,7 +761,7 @@ impl BrowserGameState {
         let Some(config) = self.player_character_scene.clone() else {
             return Ok(());
         };
-        let Some(state) = self.player_character_scene_state else {
+        let Some(state) = self.player_character_scene_state.clone() else {
             return Ok(());
         };
         let rig = self.engine.player_rig().ok_or(EngineError::MissingPlayer)?;
@@ -701,13 +791,15 @@ impl BrowserGameState {
             )
             .map_err(EngineError::from)?;
         {
-            let mut mesh_entity = self
-                .engine
-                .scene_mut()
-                .entity_mut(state.mesh_entity)
-                .map_err(EngineError::from)?;
-            if let Some(renderer) = mesh_entity.mesh_renderer_mut() {
-                renderer.visible = visible;
+            for mesh_entity in state.mesh_entities {
+                let mut entity_ref = self
+                    .engine
+                    .scene_mut()
+                    .entity_mut(mesh_entity)
+                    .map_err(EngineError::from)?;
+                if let Some(renderer) = entity_ref.mesh_renderer_mut() {
+                    renderer.visible = visible;
+                }
             }
         }
         self.engine.scene_mut().update_world_transforms();
@@ -717,7 +809,7 @@ impl BrowserGameState {
 
     fn player_character_follows_player(
         &self,
-        state: ModelSceneState,
+        state: &PlayerCharacterSceneState,
     ) -> Result<bool, BrowserGameStateError> {
         let Some(config) = self.player_character_scene.as_ref() else {
             return Ok(false);

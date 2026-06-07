@@ -15,12 +15,17 @@ use crate::game_state::{BrowserGameInput, BrowserGameState};
 use crate::materials::TERRAIN_MATERIAL_PACKET;
 use crate::model_asset_loader::load_model_asset_bytes;
 use crate::model_assets::{
-    import_gltf_model_from_slice, PLAYER_QUATERNIUS_UAL1_MODEL_ID, PLAYER_QUATERNIUS_UAL1_MODEL_URL,
+    import_gltf_model_from_slice, model_primitive_vertex_floats, ModelAsset,
+    PLAYER_QUATERNIUS_UAL1_MODEL_ID, PLAYER_QUATERNIUS_UAL1_MODEL_URL,
+    SAMPLE_SPECULAR_GLOSSINESS_MATERIAL_LABEL, SAMPLE_SPECULAR_GLOSSINESS_MESH_LABEL,
+    SAMPLE_SPECULAR_GLOSSINESS_MODEL_ID, SAMPLE_SPECULAR_GLOSSINESS_MODEL_URL,
 };
 use crate::model_locomotion::{PlayerCharacterLocomotionTuning, PlayerCharacterModel};
+use crate::model_materials::{ModelMaterial, ModelMaterialWorkflow, ModelTextureInfo};
+use crate::model_render_assets::model_material_packet;
+use crate::model_texture_assets::decode_model_texture;
 use crate::player_character::{
-    player_character_descriptor, PlayerCharacterDescriptor, PlayerCharacterId,
-    PLAYER_CHARACTER_DESCRIPTORS,
+    PlayerCharacterDescriptor, PlayerCharacterId, PLAYER_CHARACTER_DESCRIPTORS,
 };
 use crate::render_packets::build_frame_packet_from_engine_snapshot;
 use crate::render_uniforms::{
@@ -46,7 +51,7 @@ pub struct RustBrowserGame {
     terrain_textures: Option<TerrainTextureHandles>,
     object_handles_by_id: HashMap<String, ResourceHandle>,
     scene_mesh_handles_by_label: HashMap<String, ResourceHandle>,
-    scene_material_packets_by_label: HashMap<String, [f32; MATERIAL_PACKET_FLOATS]>,
+    scene_material_resources_by_label: HashMap<String, SceneMaterialResource>,
     player_characters: Vec<PlayerCharacterSlot>,
     active_player_character_id: PlayerCharacterId,
     model_skinning_runtime: Option<&'static str>,
@@ -115,7 +120,11 @@ struct GpuObject {
 struct PlayerCharacterSlot {
     descriptor: PlayerCharacterDescriptor,
     model: PlayerCharacterModel,
-    mesh_handle: ResourceHandle,
+    mesh_handles: Vec<ResourceHandle>,
+    scene_parts: Vec<(String, String)>,
+    material_count: usize,
+    texture_count: usize,
+    non_fallback_albedo_part_count: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -123,6 +132,14 @@ struct TerrainTextureHandles {
     albedo: ResourceHandle,
     normal: ResourceHandle,
     material: ResourceHandle,
+}
+
+#[derive(Clone, Copy)]
+struct SceneMaterialResource {
+    packet: [f32; MATERIAL_PACKET_FLOATS],
+    albedo_texture: ResourceHandle,
+    normal_texture: ResourceHandle,
+    material_texture: ResourceHandle,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -146,6 +163,8 @@ const IDENTITY_WORLD_MATRIX: [f32; WORLD_MATRIX_FLOATS] = [
 ];
 const PLAYER_CHARACTER_SCENE_SCALE: f32 = 1.0;
 const PLAYER_CHARACTER_HEIGHT_OFFSET: f32 = 0.0;
+const SPECULAR_GLOSSINESS_FIXTURE_SCALE: f32 = 4.0;
+const SPECULAR_GLOSSINESS_FIXTURE_HEIGHT_OFFSET: f32 = 0.08;
 
 #[wasm_bindgen]
 impl RustBrowserGame {
@@ -167,45 +186,99 @@ impl RustBrowserGame {
             import_gltf_model_from_slice(&animation_model_bytes).map_err(js_error)?;
 
         let mut scene_mesh_handles_by_label = HashMap::new();
-        let mut scene_material_packets_by_label = HashMap::new();
+        let mut scene_material_resources_by_label = HashMap::new();
         let mut player_characters = Vec::with_capacity(PLAYER_CHARACTER_DESCRIPTORS.len());
         for descriptor in PLAYER_CHARACTER_DESCRIPTORS {
             let body_model_bytes =
                 load_model_asset_bytes(&asset_loader, descriptor.model_id, descriptor.model_url)
                     .await?;
             let body_model = import_gltf_model_from_slice(&body_model_bytes).map_err(js_error)?;
-            let player_character =
-                PlayerCharacterModel::from_body_and_animation_models(body_model, &animation_model)
-                    .map_err(js_error)?;
-            let player_character_vertices =
-                player_character.current_vertices().map_err(js_error)?;
-            let mesh_handle = renderer.register_mesh(
-                &player_character_vertices,
-                player_character.indices(),
-                MODEL_VERTEX_FLOATS,
-            )?;
+            let player_character = PlayerCharacterModel::from_body_and_animation_models(
+                body_model.clone(),
+                &animation_model,
+            )
+            .map_err(js_error)?;
+            let part_vertices = player_character.current_part_vertices().map_err(js_error)?;
+            let mut model_texture_handles_by_index = HashMap::new();
+            let mut mesh_handles = Vec::with_capacity(player_character.part_count());
+            let mut scene_parts = Vec::with_capacity(player_character.part_count());
+            let mut non_fallback_albedo_part_count = 0;
+            for (part_index, vertices) in part_vertices.iter().enumerate() {
+                let mesh_label = player_character_part_mesh_label(descriptor, part_index);
+                let material_index = player_character.part_material_index(part_index);
+                let material_label =
+                    player_character_part_material_label(descriptor, part_index, material_index);
+                let mesh_handle = renderer.register_mesh(
+                    vertices,
+                    player_character.part_indices(part_index),
+                    MODEL_VERTEX_FLOATS,
+                )?;
+                let material_resource = model_scene_material_resource(
+                    &mut renderer,
+                    &body_model,
+                    material_index,
+                    player_character.part_material_packet(part_index),
+                    &mut model_texture_handles_by_index,
+                )?;
+                if material_resource.albedo_texture != renderer.fallback_albedo {
+                    non_fallback_albedo_part_count += 1;
+                }
 
-            scene_mesh_handles_by_label.insert(descriptor.mesh_label.to_string(), mesh_handle);
-            scene_material_packets_by_label.insert(
-                descriptor.material_label.to_string(),
-                player_character.material_packet(),
-            );
+                scene_mesh_handles_by_label.insert(mesh_label.clone(), mesh_handle);
+                scene_material_resources_by_label.insert(material_label.clone(), material_resource);
+                mesh_handles.push(mesh_handle);
+                scene_parts.push((mesh_label, material_label));
+            }
             player_characters.push(PlayerCharacterSlot {
                 descriptor,
                 model: player_character,
-                mesh_handle,
+                mesh_handles,
+                scene_parts,
+                material_count: body_model.material_count(),
+                texture_count: body_model.texture_count(),
+                non_fallback_albedo_part_count,
             });
         }
+        let specular_glossiness_model_bytes = load_model_asset_bytes(
+            &asset_loader,
+            SAMPLE_SPECULAR_GLOSSINESS_MODEL_ID,
+            SAMPLE_SPECULAR_GLOSSINESS_MODEL_URL,
+        )
+        .await?;
+        let specular_glossiness_model =
+            import_gltf_model_from_slice(&specular_glossiness_model_bytes).map_err(js_error)?;
+        register_static_model_scene_item(
+            &mut renderer,
+            &mut scene_mesh_handles_by_label,
+            &mut scene_material_resources_by_label,
+            &specular_glossiness_model,
+            SAMPLE_SPECULAR_GLOSSINESS_MESH_LABEL,
+            SAMPLE_SPECULAR_GLOSSINESS_MATERIAL_LABEL,
+        )?;
 
         let mut game_state = BrowserGameState::new();
         let active_player_character_id = PlayerCharacterId::Male;
-        let active_player_character = player_character_descriptor(active_player_character_id);
+        let active_player_character = player_characters
+            .iter()
+            .find(|slot| slot.descriptor.id == active_player_character_id)
+            .ok_or_else(|| {
+                js_error(format!(
+                    "Rust browser game cannot resolve initial player character '{active_player_character_id}'."
+                ))
+            })?;
         game_state
-            .configure_player_character_scene(
-                active_player_character.mesh_label,
-                active_player_character.material_label,
+            .configure_player_character_scene_parts(
+                active_player_character.scene_parts.clone(),
                 PLAYER_CHARACTER_SCENE_SCALE,
                 PLAYER_CHARACTER_HEIGHT_OFFSET,
+            )
+            .map_err(js_error)?;
+        game_state
+            .configure_scaled_static_model_scene(
+                SAMPLE_SPECULAR_GLOSSINESS_MESH_LABEL,
+                SAMPLE_SPECULAR_GLOSSINESS_MATERIAL_LABEL,
+                SPECULAR_GLOSSINESS_FIXTURE_SCALE,
+                SPECULAR_GLOSSINESS_FIXTURE_HEIGHT_OFFSET,
             )
             .map_err(js_error)?;
 
@@ -218,7 +291,7 @@ impl RustBrowserGame {
             terrain_textures: None,
             object_handles_by_id: HashMap::new(),
             scene_mesh_handles_by_label,
-            scene_material_packets_by_label,
+            scene_material_resources_by_label,
             player_characters,
             active_player_character_id,
             model_skinning_runtime: Some("rust-cpu"),
@@ -418,6 +491,26 @@ impl RustBrowserGame {
             "playerCharacterLabel",
             JsValue::from_str(player_character.descriptor.label),
         )?;
+        set_js_property(
+            &snapshot,
+            "modelPrimitiveCount",
+            JsValue::from_f64(player_character.model.part_count() as f64),
+        )?;
+        set_js_property(
+            &snapshot,
+            "modelMaterialCount",
+            JsValue::from_f64(player_character.material_count as f64),
+        )?;
+        set_js_property(
+            &snapshot,
+            "modelTextureCount",
+            JsValue::from_f64(player_character.texture_count as f64),
+        )?;
+        set_js_property(
+            &snapshot,
+            "modelNonFallbackAlbedoPartCount",
+            JsValue::from_f64(player_character.non_fallback_albedo_part_count as f64),
+        )?;
         if let Some(character_scene) = self
             .game_state
             .player_character_scene_snapshot()
@@ -579,17 +672,17 @@ impl RustBrowserGame {
 
         for item in scene_mesh_items {
             let mesh_handle = self.scene_mesh_handle(&item.mesh_label)?;
-            let material_packet = self.scene_material_packet(&item.material_label)?;
+            let material = self.scene_material_resource(&item.material_label)?;
             let object_handle =
                 self.object_handle_for_id(&format!("entity:{}", item.entity.to_raw()))?;
 
             mesh_handles.push(handle_to_js(mesh_handle));
             object_handles.push(handle_to_js(object_handle));
-            albedo_texture_handles.push(handle_to_js(self.renderer.fallback_albedo));
-            normal_texture_handles.push(handle_to_js(self.renderer.fallback_normal));
-            material_texture_handles.push(handle_to_js(self.renderer.fallback_material));
+            albedo_texture_handles.push(handle_to_js(material.albedo_texture));
+            normal_texture_handles.push(handle_to_js(material.normal_texture));
+            material_texture_handles.push(handle_to_js(material.material_texture));
             world_matrices.extend_from_slice(&item.world_matrix);
-            material_packets.extend_from_slice(&material_packet);
+            material_packets.extend_from_slice(&material.packet);
         }
 
         self.renderer.render_engine_frame(
@@ -619,8 +712,8 @@ impl RustBrowserGame {
             })
     }
 
-    fn scene_material_packet(&self, label: &str) -> Result<[f32; MATERIAL_PACKET_FLOATS], JsValue> {
-        self.scene_material_packets_by_label
+    fn scene_material_resource(&self, label: &str) -> Result<SceneMaterialResource, JsValue> {
+        self.scene_material_resources_by_label
             .get(label)
             .copied()
             .ok_or_else(|| {
@@ -703,11 +796,11 @@ impl RustBrowserGame {
     }
 
     fn set_player_character(&mut self, character_id: PlayerCharacterId) -> Result<(), JsValue> {
-        let descriptor = self
+        let scene_parts = self
             .player_characters
             .iter()
             .find(|slot| slot.descriptor.id == character_id)
-            .map(|slot| slot.descriptor)
+            .map(|slot| slot.scene_parts.clone())
             .ok_or_else(|| {
                 js_error(format!(
                     "Rust browser game cannot select unavailable player character '{character_id}'."
@@ -715,9 +808,8 @@ impl RustBrowserGame {
             })?;
         self.active_player_character_id = character_id;
         self.game_state
-            .configure_player_character_scene(
-                descriptor.mesh_label,
-                descriptor.material_label,
+            .configure_player_character_scene_parts(
+                scene_parts,
                 PLAYER_CHARACTER_SCENE_SCALE,
                 PLAYER_CHARACTER_HEIGHT_OFFSET,
             )
@@ -740,18 +832,27 @@ impl RustBrowserGame {
 
     fn update_player_character_mesh(&mut self, input: BrowserGameInput) -> Result<(), JsValue> {
         let locomotion_speed_meters_per_second = player_locomotion_speed_meters_per_second(input);
-        let (mesh_handle, vertices) = {
+        let (mesh_handles, part_vertices) = {
             let player_character = self.active_player_character_slot_mut()?;
             (
-                player_character.mesh_handle,
+                player_character.mesh_handles.clone(),
                 player_character
                     .model
-                    .tick_vertices(input.delta_seconds, locomotion_speed_meters_per_second)
+                    .tick_part_vertices(input.delta_seconds, locomotion_speed_meters_per_second)
                     .map_err(js_error)?,
             )
         };
-        self.renderer
-            .update_mesh_vertices(mesh_handle, &vertices, MODEL_VERTEX_FLOATS)
+        if mesh_handles.len() != part_vertices.len() {
+            return Err(js_error(
+                "Rust browser game has mismatched player character mesh and primitive counts.",
+            ));
+        }
+        for (mesh_handle, vertices) in mesh_handles.into_iter().zip(part_vertices.iter()) {
+            self.renderer
+                .update_mesh_vertices(mesh_handle, vertices, MODEL_VERTEX_FLOATS)?;
+        }
+
+        Ok(())
     }
 
     fn update_terrain_stream(&mut self) -> Result<(), JsValue> {
@@ -1788,6 +1889,163 @@ fn player_locomotion_speed_meters_per_second(input: BrowserGameInput) -> f32 {
 
     let speed_multiplier = if input.fast { 3.0 } else { 1.0 };
     PlayerConfig::default().move_speed * speed_multiplier * horizontal_magnitude
+}
+
+fn register_static_model_scene_item(
+    renderer: &mut BrowserWgpuRenderer,
+    scene_mesh_handles_by_label: &mut HashMap<String, ResourceHandle>,
+    scene_material_resources_by_label: &mut HashMap<String, SceneMaterialResource>,
+    model: &ModelAsset,
+    mesh_label: &str,
+    material_label: &str,
+) -> Result<(), JsValue> {
+    let primitive = model.primitives.first().ok_or_else(|| {
+        js_error("Rust WebGPU renderer cannot register a static glTF model without primitives.")
+    })?;
+    let vertices = model_primitive_vertex_floats(primitive);
+    let mesh_handle = renderer.register_mesh(&vertices, &primitive.indices, MODEL_VERTEX_FLOATS)?;
+    let material = primitive
+        .material
+        .and_then(|material_index| model.materials.get(material_index));
+    let packet = model_material_packet(material).map_err(js_error)?;
+    let mut texture_handles_by_index = HashMap::new();
+    let material_resource = model_scene_material_resource(
+        renderer,
+        model,
+        primitive.material,
+        packet,
+        &mut texture_handles_by_index,
+    )?;
+
+    scene_mesh_handles_by_label.insert(mesh_label.to_string(), mesh_handle);
+    scene_material_resources_by_label.insert(material_label.to_string(), material_resource);
+    Ok(())
+}
+
+fn player_character_part_mesh_label(
+    descriptor: PlayerCharacterDescriptor,
+    part_index: usize,
+) -> String {
+    if part_index == 0 {
+        descriptor.mesh_label.to_string()
+    } else {
+        format!("{}.primitive{part_index}.mesh", descriptor.model_id)
+    }
+}
+
+fn player_character_part_material_label(
+    descriptor: PlayerCharacterDescriptor,
+    part_index: usize,
+    material_index: Option<usize>,
+) -> String {
+    if part_index == 0 {
+        descriptor.material_label.to_string()
+    } else if let Some(material_index) = material_index {
+        format!(
+            "{}.primitive{part_index}.material{material_index}",
+            descriptor.model_id
+        )
+    } else {
+        format!("{}.primitive{part_index}.material", descriptor.model_id)
+    }
+}
+
+fn model_scene_material_resource(
+    renderer: &mut BrowserWgpuRenderer,
+    model: &ModelAsset,
+    material_index: Option<usize>,
+    packet: [f32; MATERIAL_PACKET_FLOATS],
+    texture_handles_by_index: &mut HashMap<usize, ResourceHandle>,
+) -> Result<SceneMaterialResource, JsValue> {
+    let material = match material_index {
+        Some(index) => Some(model.materials.get(index).ok_or_else(|| {
+            js_error(format!(
+                "Rust WebGPU renderer cannot resolve glTF material {index}."
+            ))
+        })?),
+        None => None,
+    };
+    let albedo_texture = match material.and_then(model_material_albedo_texture) {
+        Some(texture) => {
+            register_model_texture(renderer, model, texture.texture, texture_handles_by_index)?
+        }
+        None => renderer.fallback_albedo,
+    };
+    let normal_texture = match material.and_then(|material| material.normal_texture) {
+        Some(texture) => {
+            register_model_texture(renderer, model, texture.texture, texture_handles_by_index)?
+        }
+        None => renderer.fallback_normal,
+    };
+    let material_texture = match material.and_then(model_material_workflow_texture) {
+        Some(texture) => {
+            register_model_texture(renderer, model, texture.texture, texture_handles_by_index)?
+        }
+        None if material.is_some_and(model_material_is_specular_glossiness) => {
+            renderer.fallback_albedo
+        }
+        None => renderer.fallback_material,
+    };
+
+    Ok(SceneMaterialResource {
+        packet,
+        albedo_texture,
+        normal_texture,
+        material_texture,
+    })
+}
+
+fn register_model_texture(
+    renderer: &mut BrowserWgpuRenderer,
+    model: &ModelAsset,
+    texture_index: usize,
+    texture_handles_by_index: &mut HashMap<usize, ResourceHandle>,
+) -> Result<ResourceHandle, JsValue> {
+    if let Some(handle) = texture_handles_by_index.get(&texture_index) {
+        return Ok(*handle);
+    }
+
+    let texture = decode_model_texture(model, texture_index).map_err(js_error)?;
+    let handle = renderer.register_texture(
+        texture.width,
+        texture.height,
+        1,
+        TEXTURE_FORMAT_RGBA8_UNORM,
+        &texture.data,
+    )?;
+    texture_handles_by_index.insert(texture_index, handle);
+    Ok(handle)
+}
+
+fn model_material_albedo_texture(material: &ModelMaterial) -> Option<ModelTextureInfo> {
+    match &material.workflow {
+        ModelMaterialWorkflow::MetallicRoughness {
+            base_color_texture, ..
+        } => *base_color_texture,
+        ModelMaterialWorkflow::SpecularGlossiness {
+            diffuse_texture, ..
+        } => *diffuse_texture,
+    }
+}
+
+fn model_material_workflow_texture(material: &ModelMaterial) -> Option<ModelTextureInfo> {
+    match &material.workflow {
+        ModelMaterialWorkflow::MetallicRoughness {
+            metallic_roughness_texture,
+            ..
+        } => *metallic_roughness_texture,
+        ModelMaterialWorkflow::SpecularGlossiness {
+            specular_glossiness_texture,
+            ..
+        } => *specular_glossiness_texture,
+    }
+}
+
+fn model_material_is_specular_glossiness(material: &ModelMaterial) -> bool {
+    matches!(
+        material.workflow,
+        ModelMaterialWorkflow::SpecularGlossiness { .. }
+    )
 }
 
 fn player_animation_tuning_from_js(

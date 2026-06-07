@@ -47,6 +47,20 @@ Downloaded files:
   - Purpose: compact binary rigged/skinned GLB fixture.
   - Asset license: CC-BY-4.0.
 
+- `material-specular-glossiness-13.glb`
+  - Source: glTF Asset Generator positive
+    `Material_SpecularGlossiness_13.gltf`.
+  - URL: https://github.khronos.org/glTF-Asset-Generator/Output/Positive/Material_SpecularGlossiness/Material_SpecularGlossiness_13.gltf
+  - Purpose: compact render fixture for required
+    `KHR_materials_pbrSpecularGlossiness` with diffuse and
+    specular-glossiness textures.
+  - Conversion: embedded the external `.bin`, `BaseColor_X.png`,
+    `Diffuse_Plane.png`, and `SpecularGlossiness_Plane.png` resources into one
+    GLB, and transformed the quad from X/Y into OFG's X/Z ground plane for
+    browser-smoke visibility.
+  - Asset license: generated Khronos glTF Asset Generator output; repository
+    metadata and README are CC-BY-4.0.
+
 License notes were copied from each model's `LICENSE.md` in the Khronos sample
 asset repository on 2026-06-06. Metadata files in the source repository are
 licensed CC-BY-4.0.

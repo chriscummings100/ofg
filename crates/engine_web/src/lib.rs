@@ -6,8 +6,10 @@ mod model_animation;
 mod model_asset_loader;
 mod model_assets;
 mod model_locomotion;
+mod model_materials;
 mod model_render_assets;
 mod model_skinning;
+mod model_texture_assets;
 mod player_character;
 mod render_packets;
 mod render_uniforms;
@@ -30,7 +32,10 @@ pub use game_state::{
     BrowserGameStateError, BrowserPlayerCharacterSceneSnapshot, BrowserSceneMeshItem,
 };
 pub use materials::{
-    build_material_packet, MaterialPacketError, DEFAULT_MATERIAL_PACKET, TERRAIN_MATERIAL_ID,
+    build_material_packet, build_metallic_roughness_material_packet,
+    build_specular_glossiness_material_packet, MaterialPacketError, DEFAULT_MATERIAL_PACKET,
+    MATERIAL_WORKFLOW_METALLIC_ROUGHNESS, MATERIAL_WORKFLOW_SIMPLE,
+    MATERIAL_WORKFLOW_SPECULAR_GLOSSINESS, MATERIAL_WORKFLOW_TERRAIN, TERRAIN_MATERIAL_ID,
     TERRAIN_MATERIAL_PACKET,
 };
 pub use model_animation::{
@@ -41,7 +46,7 @@ pub use model_animation::{
 pub use model_asset_loader::load_model_asset_bytes;
 pub use model_assets::{
     import_gltf_model_from_slice, model_primitive_vertex_floats, ModelAsset, ModelAssetError,
-    ModelMaterial, ModelNode, ModelNodeTransform, ModelPrimitive, ModelSkin, ModelVertex,
+    ModelNode, ModelNodeTransform, ModelPrimitive, ModelSkin, ModelVertex,
     PLAYER_QUATERNIUS_UAL1_MODEL_ID, PLAYER_QUATERNIUS_UAL1_MODEL_URL,
     PLAYER_QUATERNIUS_UAL2_MATERIAL_LABEL, PLAYER_QUATERNIUS_UAL2_MESH_LABEL,
     PLAYER_QUATERNIUS_UAL2_MODEL_ID, PLAYER_QUATERNIUS_UAL2_MODEL_URL,
@@ -53,6 +58,8 @@ pub use model_assets::{
     SAMPLE_ANIMATED_BOX_MODEL_ID, SAMPLE_ANIMATED_BOX_MODEL_URL,
     SAMPLE_RIGGED_SIMPLE_MATERIAL_LABEL, SAMPLE_RIGGED_SIMPLE_MESH_LABEL,
     SAMPLE_RIGGED_SIMPLE_MODEL_ID, SAMPLE_RIGGED_SIMPLE_MODEL_URL,
+    SAMPLE_SPECULAR_GLOSSINESS_MATERIAL_LABEL, SAMPLE_SPECULAR_GLOSSINESS_MESH_LABEL,
+    SAMPLE_SPECULAR_GLOSSINESS_MODEL_ID, SAMPLE_SPECULAR_GLOSSINESS_MODEL_URL,
     SAMPLE_STATIC_BOX_MATERIAL_LABEL, SAMPLE_STATIC_BOX_MESH_LABEL, SAMPLE_STATIC_BOX_MODEL_ID,
     SAMPLE_STATIC_BOX_MODEL_URL,
 };
@@ -61,11 +68,17 @@ pub use model_locomotion::{
     PlayerCharacterLocomotionTuning, PlayerCharacterModel, PlayerCharacterModelError,
     QUATERNIUS_IDLE_CLIP_NAME, QUATERNIUS_RUN_CLIP_NAME, QUATERNIUS_WALK_CLIP_NAME,
 };
+pub use model_materials::{
+    ModelAlphaMode, ModelImage, ModelImageSource, ModelMagFilter, ModelMaterial,
+    ModelMaterialWorkflow, ModelMinFilter, ModelNormalTextureInfo, ModelOcclusionTextureInfo,
+    ModelSampler, ModelTexture, ModelTextureInfo, ModelTextureWrap,
+};
 pub use model_render_assets::{
     first_primitive_node_index, skinned_model_render_assets, ModelRenderAssetError,
     ModelRenderAssets,
 };
 pub use model_skinning::{model_node_world_matrices, skin_joint_matrices, skin_primitive_vertices};
+pub use model_texture_assets::{decode_model_texture, ModelRgbaImage, ModelTextureAssetError};
 pub use player_character::{
     player_character_descriptor, PlayerCharacterDescriptor, PlayerCharacterId,
     PLAYER_CHARACTER_DESCRIPTORS,
@@ -95,5 +108,7 @@ pub use terrain_textures::{
 #[cfg(target_arch = "wasm32")]
 pub use wgpu_renderer::*;
 
+#[cfg(test)]
+mod model_materials_tests;
 #[cfg(test)]
 mod tests;

@@ -1,6 +1,7 @@
 use crate::{
     blend_node_transforms, build_frame_packet_from_engine_snapshot, build_frame_uniform_values,
-    build_material_packet, build_object_uniform_values, horizontal_movement_is_active,
+    build_material_packet, build_metallic_roughness_material_packet, build_object_uniform_values,
+    build_specular_glossiness_material_packet, horizontal_movement_is_active,
     import_gltf_model_from_slice, model_primitive_vertex_floats, skin_joint_matrices,
     skin_primitive_vertices, skinned_model_render_assets, BrowserGameInput, BrowserGameState,
     BrowserGameStateError, BrowserTerrainStream, LocomotionAnimationController,
@@ -10,7 +11,8 @@ use crate::{
     PlayerCharacterLocomotionTuning, PlayerCharacterModel, RenderPacketError, RenderUniformError,
     RendererState, RendererStateError, ResourceHandle, RgbaTextureArrayAsset, TerrainTextureArrays,
     TerrainTextureError, ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS,
-    MATERIAL_PACKET_FLOATS, MODEL_VERTEX_FLOATS, QUATERNIUS_IDLE_CLIP_NAME,
+    MATERIAL_PACKET_FLOATS, MATERIAL_WORKFLOW_METALLIC_ROUGHNESS,
+    MATERIAL_WORKFLOW_SPECULAR_GLOSSINESS, MODEL_VERTEX_FLOATS, QUATERNIUS_IDLE_CLIP_NAME,
     QUATERNIUS_RUN_CLIP_NAME, QUATERNIUS_WALK_CLIP_NAME, REQUIRED_TEXTURE_ARRAY_LAYERS,
     SAMPLE_STATIC_BOX_MATERIAL_LABEL, SAMPLE_STATIC_BOX_MESH_LABEL,
     TERRAIN_ALBEDO_TEXTURE_ARRAY_ID, TERRAIN_MATERIAL_ID, TERRAIN_MATERIAL_PACKET,
@@ -288,6 +290,32 @@ fn material_packets_are_built_in_rust() {
     assert_close(packet[7], 0.4);
     assert_close(packet[8], 1.0);
     assert_close(packet[9], 0.08);
+}
+
+#[test]
+fn metallic_roughness_material_packets_preserve_gltf_factors() {
+    let packet =
+        build_metallic_roughness_material_packet([0.8, 0.7, 0.6, 0.5], 0.25, 0.75, 1.0).unwrap();
+
+    assert_close(packet[0], 0.8);
+    assert_close(packet[3], 0.5);
+    assert_close(packet[4], 0.25);
+    assert_close(packet[5], 0.75);
+    assert_close(packet[8], MATERIAL_WORKFLOW_METALLIC_ROUGHNESS);
+}
+
+#[test]
+fn specular_glossiness_material_packets_preserve_extension_factors() {
+    let packet =
+        build_specular_glossiness_material_packet([0.8, 0.7, 0.6, 0.5], [0.1, 0.2, 0.3], 0.65, 1.0)
+            .unwrap();
+
+    assert_close(packet[0], 0.8);
+    assert_close(packet[3], 0.5);
+    assert_close(packet[4], 0.1);
+    assert_close(packet[6], 0.3);
+    assert_close(packet[7], 0.65);
+    assert_close(packet[8], MATERIAL_WORKFLOW_SPECULAR_GLOSSINESS);
 }
 
 #[test]
@@ -1246,6 +1274,9 @@ fn test_skin_model(nodes: Vec<ModelNode>) -> ModelAsset {
     ModelAsset {
         nodes,
         primitives: Vec::new(),
+        images: Vec::new(),
+        textures: Vec::new(),
+        samplers: Vec::new(),
         materials: Vec::<ModelMaterial>::new(),
         animations: Vec::new(),
         skins: vec![ModelSkin {

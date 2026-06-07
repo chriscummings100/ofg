@@ -49,6 +49,10 @@ declare global {
       getPlayerCharacterVisible: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerCharacterVisible"];
       getPlayerCharacterFollowsPlayer: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerCharacterFollowsPlayer"];
       getDebugPlayerMarkerVisible: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["debugPlayerMarkerVisible"];
+      getModelPrimitiveCount: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelPrimitiveCount"];
+      getModelMaterialCount: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelMaterialCount"];
+      getModelTextureCount: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelTextureCount"];
+      getModelNonFallbackAlbedoPartCount: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelNonFallbackAlbedoPartCount"];
       getModelAnimationRuntime: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationRuntime"];
       getActiveModelAnimationClip: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["activeModelAnimationClip"];
       getNextModelAnimationClip: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["nextModelAnimationClip"];
@@ -123,6 +127,11 @@ export async function startGame(elements: GameElements): Promise<void> {
       game.debugSnapshot().modelAnimationWalkPlaybackScale,
     getModelAnimationRunPlaybackScale: () =>
       game.debugSnapshot().modelAnimationRunPlaybackScale,
+    getModelPrimitiveCount: () => game.debugSnapshot().modelPrimitiveCount,
+    getModelMaterialCount: () => game.debugSnapshot().modelMaterialCount,
+    getModelTextureCount: () => game.debugSnapshot().modelTextureCount,
+    getModelNonFallbackAlbedoPartCount: () =>
+      game.debugSnapshot().modelNonFallbackAlbedoPartCount,
     getModelSkinningRuntime: () => game.debugSnapshot().modelSkinningRuntime,
     getModelSkinningJointCount: () => game.debugSnapshot().modelSkinningJointCount,
     getPlayerPosition: () => game.debugSnapshot().playerPosition,

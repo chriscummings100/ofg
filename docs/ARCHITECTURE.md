@@ -100,9 +100,10 @@ as a browser shell plus generic browser image decoder.
 - `engine_web` owns the Rust/wgpu browser renderer and current GLTF model path:
   WebGPU canvas surface, adapter/device/queue, surface configuration, depth
   texture, shader modules, terrain and static-model pipelines, GLB parsing,
+  model image/texture/sampler/material import, embedded PNG/JPEG decode,
   static model resource registration, non-skinned node animation sampling,
-  skin joint/inverse bind import, CPU skinning for the selected player-character
-  body primitive, male/female player-character descriptor selection, buffers,
+  skin joint/inverse bind import, CPU skinning for all active player-character
+  primitives, male/female player-character descriptor selection, buffers,
   texture arrays, samplers, bind groups, render-pass submission, frame/resource
   counts, and GPU resource pruning.
 - TypeScript collects DOM input, parses URL seed/preset values, starts WASM,
@@ -179,36 +180,44 @@ tests still validate the generated metadata and vertex-layout contract. WGSL is
 the intended shader language for this project because it is browser-native,
 direct, and familiar enough for AI-driven changes.
 
-The first material model is intentionally pre-PBR: mesh vertex color multiplied by
-an albedo factor and optional albedo texture sample, plus specular color and
-specular factor. The shader uses a simple Lambert diffuse plus Blinn-Phong
-specular model. Rust interprets the checked-in terrain texture manifest, requests
-generic browser RGBA texture arrays, validates the returned arrays, and installs
-the GPU texture handles. Rust/wgpu builds compact frame packets from its
-Rust-owned browser game state, owns shader material packets and
-material-to-texture selection, keeps the low-level debug player marker in
-`engine_core` rather than the browser renderer path, validates per-chunk terrain
-draw transforms inside the browser game facade, consumes scene mesh world
-matrices extracted by
-`engine_core`, computes object normal matrices, and packs the WGSL
-camera/object uniform buffers. Static and CPU-skinned model meshes use a
-separate 12-float vertex layout and `modelVertexMain` pipeline entry point
-instead of pretending to be terrain vertices. The current player-character
-prototype loads a shared Quaternius UAL1 animation GLB and male/female
-Quaternius base-character body GLBs, samples `Idle_Loop`, `Walk_Loop`, and
-`Sprint_Loop` in Rust, blends walk-to-sprint from Rust player speed, CPU-skins
-the selected body primitive each frame, updates the active model vertex buffer
-before drawing, and attaches the selected mesh/material to a Rust-owned player
-character scene item that follows the Rust player transform. The checked-in
-male/female bodies are Superhero placeholders until Regular GLBs are available.
-The browser path no longer draws the old yellow marker as the normal debug-fly
-player representation.
+The model material path supports glTF 2.0 core metallic-roughness and the
+archived `KHR_materials_pbrSpecularGlossiness` extension. Rust imports material
+workflow records, decodes embedded model images into one-layer RGBA texture
+arrays, chooses fallback handles for missing maps, and binds model albedo,
+normal, and material textures through the same object bind group shape as
+terrain. The WGSL model path uses a small direct-light PBR approximation with
+glTF metallic-roughness channel semantics: roughness from green and metallic
+from blue. The specular-glossiness path uses diffuse RGB, specular RGB, and
+glossiness alpha. Terrain keeps its separate triplanar material workflow and is
+not reinterpreted as glTF metallic-roughness.
+
+Rust interprets the checked-in terrain texture manifest, requests generic
+browser RGBA texture arrays, validates the returned arrays, and installs the GPU
+texture handles. Rust/wgpu builds compact frame packets from its Rust-owned
+browser game state, owns shader material packets and material-to-texture
+selection, keeps the low-level debug player marker in `engine_core` rather than
+the browser renderer path, validates per-chunk terrain draw transforms inside
+the browser game facade, consumes scene mesh world matrices extracted by
+`engine_core`, computes object normal matrices, and packs the WGSL camera/object
+uniform buffers. Static and CPU-skinned model meshes use a separate 12-float
+vertex layout and `modelVertexMain` pipeline entry point instead of pretending
+to be terrain vertices. The current player-character prototype loads a shared
+Quaternius UAL1 animation GLB and male/female Quaternius base-character body
+GLBs, samples `Idle_Loop`, `Walk_Loop`, and `Sprint_Loop` in Rust, blends
+walk-to-sprint from Rust player speed, CPU-skins every renderable skinned body
+primitive each frame, updates all active model vertex buffers before drawing,
+and attaches one Rust-owned scene mesh item per character primitive to a shared
+player-following root. The checked-in male/female bodies are Superhero
+placeholders until Regular GLBs are available. The browser path no longer draws
+the old yellow marker as the normal debug-fly player representation.
 
 Terrain uses checked-in Poly Haven CC0 materials imported into 16-layer global
 texture arrays. The runtime currently loads albedo, normal, and roughness arrays;
 the WGSL terrain path triplanar-blends albedo and roughness from up to four
 material weights per vertex. Normal maps are loaded as renderer resources but are
-not yet applied to lighting.
+not yet applied to lighting. Imported glTF normal textures are likewise recorded
+and uploaded when present, but tangent-space normal-map lighting is deferred
+until tangents are imported or generated.
 
 The sky is also shader-driven. Rust/wgpu draws a full-screen sky pass before
 terrain and scene mesh geometry, reconstructs world rays from the inverse

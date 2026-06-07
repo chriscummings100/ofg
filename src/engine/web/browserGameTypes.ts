@@ -113,6 +113,10 @@ export type RustBrowserGameDebugSnapshot = {
   readonly playerCharacterVisible?: boolean;
   readonly playerCharacterFollowsPlayer?: boolean;
   readonly debugPlayerMarkerVisible?: boolean;
+  readonly modelPrimitiveCount?: number;
+  readonly modelMaterialCount?: number;
+  readonly modelTextureCount?: number;
+  readonly modelNonFallbackAlbedoPartCount?: number;
   readonly modelAnimationRuntime?: "rust";
   readonly activeModelAnimationClip?: string;
   readonly nextModelAnimationClip?: string;

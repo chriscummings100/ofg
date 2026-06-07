@@ -419,7 +419,11 @@ async function readPlayerCharacterDebug(page) {
       runtime: debug?.getPlayerCharacterRuntime?.() ?? "missing",
       visible: debug?.getPlayerCharacterVisible?.(),
       followsPlayer: debug?.getPlayerCharacterFollowsPlayer?.(),
-      debugMarkerVisible: debug?.getDebugPlayerMarkerVisible?.()
+      debugMarkerVisible: debug?.getDebugPlayerMarkerVisible?.(),
+      primitiveCount: debug?.getModelPrimitiveCount?.() ?? 0,
+      materialCount: debug?.getModelMaterialCount?.() ?? 0,
+      textureCount: debug?.getModelTextureCount?.() ?? 0,
+      nonFallbackAlbedoPartCount: debug?.getModelNonFallbackAlbedoPartCount?.() ?? 0
     };
   });
 }
@@ -575,6 +579,12 @@ function assertPlayerCharacterDebug(character, expectedVisible, expectedId) {
   }
   if (character.debugMarkerVisible !== false) {
     throw new Error(`Expected old debug player marker to stay hidden: ${JSON.stringify(character)}`);
+  }
+  if (character.primitiveCount < 3 || character.materialCount < 3 || character.textureCount < 3) {
+    throw new Error(`Expected multi-primitive textured player character resources: ${JSON.stringify(character)}`);
+  }
+  if (character.nonFallbackAlbedoPartCount < 3) {
+    throw new Error(`Expected real albedo textures for every visible player character part: ${JSON.stringify(character)}`);
   }
 }
 

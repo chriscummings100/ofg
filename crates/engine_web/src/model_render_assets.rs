@@ -4,12 +4,15 @@
 
 use std::fmt;
 
-use crate::materials::{build_material_packet, MaterialPacketError};
+use crate::materials::{
+    build_metallic_roughness_material_packet, build_specular_glossiness_material_packet,
+    MaterialPacketError,
+};
 use crate::model_animation::ModelAnimationClip;
 use crate::model_assets::{
-    model_primitive_vertex_floats, ModelAsset, ModelAssetError, ModelMaterial, ModelNodeTransform,
-    ModelPrimitive,
+    model_primitive_vertex_floats, ModelAsset, ModelAssetError, ModelNodeTransform, ModelPrimitive,
 };
+use crate::model_materials::{ModelMaterial, ModelMaterialWorkflow};
 use crate::model_skinning::{skin_joint_matrices, skin_primitive_vertices};
 use crate::render_uniforms::MATERIAL_PACKET_FLOATS;
 
@@ -86,7 +89,7 @@ pub fn skinned_model_render_assets(
     Ok(ModelRenderAssets {
         vertices: model_primitive_vertex_floats(&skinned_primitive),
         indices: primitive.indices.clone(),
-        material_packet: static_model_material_packet(material)?,
+        material_packet: model_material_packet(material)?,
         mesh_node_index,
         skin_joint_count: model.skins[skin_index].joints.len(),
     })
@@ -108,14 +111,34 @@ pub fn first_primitive_node_index(model: &ModelAsset) -> Result<usize, ModelRend
         })
 }
 
-/// Builds the fallback material packet for the current model pipeline.
-fn static_model_material_packet(
+/// Builds a renderer packet from one imported glTF material workflow.
+pub fn model_material_packet(
     material: Option<&ModelMaterial>,
 ) -> Result<[f32; MATERIAL_PACKET_FLOATS], ModelRenderAssetError> {
-    let albedo = material
-        .map(|material| material.base_color_factor)
-        .unwrap_or([1.0, 1.0, 1.0, 1.0]);
-
-    build_material_packet(albedo, [0.08, 0.08, 0.08], 0.18, 0.0, 1.0)
-        .map_err(ModelRenderAssetError::MaterialPacket)
+    match material.map(|material| &material.workflow) {
+        Some(ModelMaterialWorkflow::MetallicRoughness {
+            base_color_factor,
+            metallic_factor,
+            roughness_factor,
+            ..
+        }) => build_metallic_roughness_material_packet(
+            *base_color_factor,
+            *metallic_factor,
+            *roughness_factor,
+            1.0,
+        ),
+        Some(ModelMaterialWorkflow::SpecularGlossiness {
+            diffuse_factor,
+            specular_factor,
+            glossiness_factor,
+            ..
+        }) => build_specular_glossiness_material_packet(
+            *diffuse_factor,
+            *specular_factor,
+            *glossiness_factor,
+            1.0,
+        ),
+        None => build_metallic_roughness_material_packet([1.0, 1.0, 1.0, 1.0], 1.0, 1.0, 1.0),
+    }
+    .map_err(ModelRenderAssetError::MaterialPacket)
 }

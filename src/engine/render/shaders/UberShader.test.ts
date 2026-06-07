@@ -53,21 +53,32 @@ describe("uber shader build", () => {
     ok(UBER_SHADER_SOURCE.includes("var albedoTexture: texture_2d_array<f32>"));
     ok(UBER_SHADER_SOURCE.includes("var normalTexture: texture_2d_array<f32>"));
     ok(UBER_SHADER_SOURCE.includes("var materialTexture: texture_2d_array<f32>"));
-    ok(UBER_SHADER_SOURCE.includes("fn sampleAlbedo"));
-    ok(UBER_SHADER_SOURCE.includes("fn sampleRoughness"));
     ok(UBER_SHADER_SOURCE.includes("textureSample(albedoTexture, albedoSampler"));
     ok(UBER_SHADER_SOURCE.includes("input.worldNormal"));
-    ok(UBER_SHADER_SOURCE.includes("pow(max(dot(normal, halfDirection), 0.0), shininess)"));
+    ok(UBER_SHADER_SOURCE.includes("fn pbrDirectLight"));
+    ok(UBER_SHADER_SOURCE.includes("fn shadeMetallicRoughness"));
+    ok(UBER_SHADER_SOURCE.includes("fn shadeSpecularGlossiness"));
   });
 
   it("contains the triplanar terrain sampling contract", () => {
-    ok(UBER_SHADER_SOURCE.includes("MATERIAL_FLAG_TRIPLANAR_ALBEDO"));
+    ok(UBER_SHADER_SOURCE.includes("MATERIAL_WORKFLOW_TERRAIN"));
     ok(UBER_SHADER_SOURCE.includes("fn sampleTriplanarTerrainAlbedoLayer"));
+    ok(UBER_SHADER_SOURCE.includes("fn sampleTerrainRoughness"));
     ok(UBER_SHADER_SOURCE.includes("input.materialIndices"));
     ok(UBER_SHADER_SOURCE.includes("input.materialWeights"));
     ok(UBER_SHADER_SOURCE.includes("worldPosition.zy * textureScale"));
     ok(UBER_SHADER_SOURCE.includes("worldPosition.xz * textureScale"));
     ok(UBER_SHADER_SOURCE.includes("worldPosition.xy * textureScale"));
+  });
+
+  it("keeps gltf material channel semantics distinct from terrain", () => {
+    ok(UBER_SHADER_SOURCE.includes("MATERIAL_WORKFLOW_METALLIC_ROUGHNESS"));
+    ok(UBER_SHADER_SOURCE.includes("MATERIAL_WORKFLOW_SPECULAR_GLOSSINESS"));
+    ok(UBER_SHADER_SOURCE.includes("object.specularAndFactor.x * packed.b"));
+    ok(UBER_SHADER_SOURCE.includes("object.specularAndFactor.y * packed.g"));
+    ok(UBER_SHADER_SOURCE.includes("object.specularAndFactor.rgb * packed.rgb"));
+    ok(UBER_SHADER_SOURCE.includes("object.specularAndFactor.w * packed.a"));
+    ok(UBER_SHADER_SOURCE.includes("if (materialWorkflowIs(MATERIAL_WORKFLOW_TERRAIN))"));
   });
 
   it("does not flip lighting normals based on the camera view", () => {
