@@ -21,7 +21,7 @@ The user-visible outcome is that the remote `main` branch contains the completed
 - [x] (2026-06-07 17:38Z) Merged `postprocess` into `main`, resolved conflicts by preserving sky, shadow, and post-process debug/renderer contracts together, regenerated shaders/WASM, and validated with `npm run check:shaders`, `npm run check:wasm`, `npm run test:rust`, `npm run test:ts`, and `npm run smoke`.
 - [x] (2026-06-07 17:59Z) Merged `terrain` into `main`, resolved Rust smoke/test/debug conflicts, regenerated WASM artifacts, fixed browser smoke to wait for rendered multi-LOD terrain before mobile assertions, and validated with `npm run check:shaders`, `npm run check:wasm`, `npm run test:rust`, `npm run test:ts`, `npm run smoke:terrain-seams`, `npm run smoke:terrain-presets`, `cargo run -p ofg_test_harness --bin ofg-render-smoke -- --out artifacts/rust-smoke --scenario lods`, `npm run bench:terrain:rust`, and `npm run smoke:browser`; the Rust half of `npm run smoke` also passed before the browser wait fix.
 - [x] (2026-06-07 18:01Z) Confirmed `shadow-maps` is already included in `main`; `git merge --no-ff shadow-maps` reported "Already up to date." Archived the completed cascading shadow maps ExecPlan and validated the docs-only change with `git diff --check`.
-- [ ] Merge `touch-controls` into `main`, resolve conflicts, regenerate artifacts, validate, and run milestone review.
+- [x] (2026-06-07 18:06Z) Confirmed `touch-controls` is already included in `main`; `git merge --no-ff touch-controls` reported "Already up to date." Archived the completed touch controls ExecPlan and validated the integrated mobile touch path with `npm run test:ts` and `npm run smoke:browser`.
 - [ ] Run final `npm test`, `npm run build`, `npm run smoke:rust`, `npm run smoke:browser`, and `npm run smoke`.
 - [ ] Push final `main`.
 - [ ] Archive this completed ExecPlan under `C:\dev\ofg\docs\archived\` with a note that `main` is the active source of truth.
@@ -50,6 +50,8 @@ The user-visible outcome is that the remote `main` branch contains the completed
   Evidence: local review checked contract, code-quality, legacy, correctness, and validation passes; `docs/TERRAIN_PLAN.md` records stream split-pressure handling and coverage evidence, while `docs/API_CONTRACTS.md` already tracks oversized renderer/facade risk. `crates/terrain_core/src/tests.rs` is now over 1000 lines and should be split by terrain subsystem before further test growth.
 - Observation: `shadow-maps` was already merged into `main` before this integration sequence reached it.
   Evidence: `git merge-base --is-ancestor shadow-maps main` succeeded and `git merge --no-ff shadow-maps` reported "Already up to date."
+- Observation: `touch-controls` was already merged into `main` before this integration sequence reached it.
+  Evidence: `git merge-base --is-ancestor touch-controls main` succeeded and `git merge --no-ff touch-controls` reported "Already up to date."; `npm run smoke:browser` still exercised the mobile touch viewport on the integrated tree.
 
 ## Decision Log
 
@@ -73,6 +75,9 @@ The user-visible outcome is that the remote `main` branch contains the completed
   Date/Author: 2026-06-07 / Codex.
 - Decision: Archive `docs/CASCADING_SHADOW_MAPS_PLAN.md` even though no shadow-map merge commit was needed.
   Rationale: The branch's ExecPlan was complete and repository instructions require completed active plans to move under `docs/archived/` with active source-of-truth notes.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: Archive `docs/TOUCH_CONTROLS_PLAN.md` and mark the old final real-device confirmation checkbox superseded.
+  Rationale: The branch had local and remote mobile-emulation smoke evidence, the user identified this worktree as a completed feature branch, and the integrated browser smoke now verifies visible controls, joystick movement, run animation, and touch camera toggle.
   Date/Author: 2026-06-07 / Codex.
 
 ## Outcomes & Retrospective

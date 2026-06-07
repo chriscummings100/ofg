@@ -1,5 +1,10 @@
 # Add Mobile Touch Controls
 
+Completion note: this ExecPlan was completed on 2026-06-07. The active source
+of truth for the finished behavior is now `docs/API_CONTRACTS.md`,
+`docs/ARCHITECTURE.md`, the browser input/app code, and browser smoke tests.
+This plan is kept only as an archived implementation record.
+
 This ExecPlan is a living document. The sections Progress, Surprises &
 Discoveries, Decision Log, and Outcomes & Retrospective must stay up to date as
 work proceeds.
@@ -128,8 +133,10 @@ polish are future work.
   deployed frame-input module containing `TOUCH_MOVEMENT_RUN_THRESHOLD`.
 - [x] (2026-06-07 14:37Z) Remote Chrome mobile-emulation smoke passed against
   the stable Cloudflare deployment, including full-stick run animation evidence.
-- [ ] Get the user's final mobile-device confirmation for the deployed
-  `5ae6355` follow-up.
+- [x] (2026-06-07 18:02Z) Superseded the final real-device confirmation item
+  during completed-branch integration; the branch had local and remote
+  mobile-emulation smoke evidence, and the user identified this worktree as a
+  completed feature branch ready to merge.
 
 ## Surprises & Discoveries
 
