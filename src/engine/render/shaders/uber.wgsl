@@ -276,14 +276,18 @@ struct SkyVertexOutput {
 
 @vertex
 fn skyVertexMain(@builtin(vertex_index) vertexIndex: u32) -> SkyVertexOutput {
-  let positions = array<vec2<f32>, 3>(
-    vec2<f32>(-1.0, -1.0),
-    vec2<f32>(3.0, -1.0),
-    vec2<f32>(-1.0, 3.0)
-  );
+  var position = vec2<f32>(-1.0, 3.0);
+  switch vertexIndex {
+    case 0u: {
+      position = vec2<f32>(-1.0, -1.0);
+    }
+    case 1u: {
+      position = vec2<f32>(3.0, -1.0);
+    }
+    default: {}
+  }
 
   var output: SkyVertexOutput;
-  let position = positions[vertexIndex];
   output.clipPosition = vec4<f32>(position, 1.0, 1.0);
   output.ndc = position;
   return output;

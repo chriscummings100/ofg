@@ -36,6 +36,10 @@ polish are future work.
   `src/app/game.ts`, `src/engine/input/inputTracker.ts`,
   `src/engine/input/inputTracker.test.ts`, and
   `src/engine/web/browserGameTypes.ts`.
+- [x] (2026-06-06 10:09Z) Refreshed this plan against the current
+  `AGENTS.md`, `PLANS.md`, `docs/ARCHITECTURE.md`, and
+  `docs/API_CONTRACTS.md`. The Rust conversion plan is now archived and
+  historical only.
 - [ ] Add a touch-control DOM overlay that is hidden on desktop and visible for
   coarse pointers or after touch input.
 - [ ] Extend browser input collection so touch movement and touch look feed the
@@ -73,6 +77,17 @@ polish are future work.
   files under `crates/engine_web/src/` and `src/engine/web/`. This plan creation
   does not alter those files.
 
+- Observation: The current source already exposes player position through the
+  debug hook.
+  Evidence: `src/app/game.ts` defines `window.__ofgDebug.getPlayerPosition`,
+  which returns `game.debugSnapshot().playerPosition`.
+
+- Observation: `docs/API_CONTRACTS.md` is now the active ownership and boundary
+  document for this work.
+  Evidence: `AGENTS.md` directs ownership questions to `docs/API_CONTRACTS.md`
+  and `docs/ARCHITECTURE.md`; `docs/archived/RUST_CONVERSION_PLAN.md` starts
+  with an archived note.
+
 ## Decision Log
 
 - Decision: Keep touch controls in TypeScript browser input code.
@@ -100,20 +115,76 @@ polish are future work.
   settings screen.
   Date/Author: 2026-06-06 / Codex
 
+- Decision: Preserve `OFG-API-001` without adding touch-specific fields to
+  `BrowserFrameInput`.
+  Rationale: Touch is a browser input source, not a Rust game API. The stable
+  Rust-facing frame packet already has movement and look fields.
+  Date/Author: 2026-06-06 / Codex
+
+- Decision: Preserve `OFG-API-003` by using debug hooks only for verification.
+  Rationale: Mobile smoke may read `getPlayerPosition()` to prove movement, but
+  TypeScript must not derive player, terrain, renderer, or stream state itself.
+  Date/Author: 2026-06-06 / Codex
+
+- Decision: Preserve `OFG-API-009` by keeping the work limited to DOM input and
+  HUD/control UI.
+  Rationale: Touch controls must not reintroduce TypeScript scene, terrain,
+  renderer, simulation, or world ownership.
+  Date/Author: 2026-06-06 / Codex
+
 ## Outcomes & Retrospective
 
 This plan has not been implemented yet. The expected outcome is a deployed OFG
 build that can be moved and looked around from a mobile browser, while preserving
 desktop keyboard and mouse behavior.
 
-Remaining gaps are all implementation and verification work described below.
+Remaining gaps are all implementation and verification work described below. The
+plan has been refreshed to match the current repo instructions and active API
+contracts.
+
+## Contract and Quality Baseline
+
+This plan must preserve these current contracts from `docs/API_CONTRACTS.md`:
+
+`OFG-API-001: Browser Shell To Rust Browser Game` is active. The supported
+per-frame call remains `game.tick(frame)`, where `frame` is a
+`BrowserFrameInput` object with `movement` and `look` fields. Touch controls may
+change browser-side input collection, but must not add scalar wasm-bindgen frame
+methods, raw wasm calls, or touch-specific Rust API fields. If a new user
+control is needed, add it through the existing `GameCommand` lane.
+
+`OFG-API-003: Debug And Smoke-Test Hooks` is active. Touch-control smoke may use
+`window.__ofgDebug.getPlayerPosition()` and HUD state to verify behavior. Debug
+hooks must remain browser test affordances; they must not compute or mirror
+terrain, renderer, player, or stream state in TypeScript.
+
+`OFG-API-009: Forbidden TypeScript Ownership` is binding. This plan must not
+create a TypeScript scene graph, ECS, terrain generator, terrain manager,
+terrain worker protocol, WebGPU renderer, render packet owner, or simulation
+owner. TypeScript may collect DOM input, update HTML controls, parse URL
+parameters, start WASM, expose debug hooks, and forward typed packets/commands to
+Rust.
+
+The relevant `AGENTS.md` validation gates are `npm test` for logic changes and
+`npm run smoke:browser` for input, camera behavior, HUD behavior, browser
+integration, or rendering-adjacent changes. Terrain seam and preset smoke tests
+are not required for this plan unless the implementation unexpectedly changes
+terrain mesh, material, preset, descriptor, or terrain visual behavior.
+
+After each implementation milestone, run the repo-local `milestone-review` skill
+before marking that milestone complete. Required findings must be fixed, or a
+rejected finding must be recorded in this plan's Decision Log with rationale.
 
 ## Context and Orientation
 
 The repository root is `C:\dev\ofg`. OFG is a browser-native WebGPU game
 prototype. Browser startup, DOM input collection, HUD updates, and calls into the
-Rust runtime live under `src/app` and `src/engine/web`. Rust owns player and
-camera behavior through `crates/engine_core` and `crates/engine_web`.
+Rust runtime live under `src/app` and `src/engine/web`. The current architecture
+says TypeScript is browser shell: DOM input, URL seed/preset parsing, HUD/debug
+UI, WASM startup, generic browser asset loading, and debug hooks. Rust owns
+player/camera state, terrain streaming, texture semantics, GLTF/model logic,
+WebGPU resources, frame construction, and draw submission through
+`crates/engine_core`, `crates/terrain_core`, and `crates/engine_web`.
 
 The active browser game loop is in `src/app/game.ts`. `startGame` creates an
 `InputTracker`, attaches it to the canvas, consumes input once per animation
@@ -196,10 +267,10 @@ green. Add a mobile viewport path in `tools/browser-smoke.mjs` or a separate
 `tools/mobile-touch-smoke.mjs` if that keeps the desktop smoke clearer. The
 mobile smoke should open a small viewport with touch enabled when Playwright
 supports it, wait for playable terrain, drag the joystick region, and verify the
-player position changed through `window.__ofgDebug.getPlayerPosition()` if that
-debug hook exists. If the current debug API does not expose player position, add
-a narrow debug getter in `src/app/game.ts` that reads
-`game.debugSnapshot().playerPosition`.
+player position changed through the existing
+`window.__ofgDebug.getPlayerPosition()` hook. The smoke must still inspect
+screenshots/report JSON when visual behavior changes, as required by
+`OFG-API-003` and `AGENTS.md`.
 
 Milestone 7 validates on the real remote deployment. After tests pass locally,
 build, commit, push, wait for the Cloudflare deployment, then open the remote URL
@@ -212,27 +283,46 @@ Run these commands from `C:\dev\ofg` before editing, to understand the starting
 state:
 
     git -c safe.directory=C:/dev/ofg status --short
+    npm run check:wasm
     npm test
     npm run smoke:browser
 
-Expected result: tests and smoke pass before the touch-control work. If unrelated
-work is already present, do not revert it; either build on it if needed or keep
-the touch-control changes separate.
+Expected result: WASM generated artifacts are current, tests pass, and browser
+smoke passes before the touch-control work. If unrelated work is already
+present, do not revert it; either build on it if needed or keep the
+touch-control changes separate.
 
-After Milestones 1 through 5:
+After each milestone that changes code, run:
 
     npm test
 
 Expected result: TypeScript builds, Rust/WASM artifacts build, and all Mocha
-tests pass including the new touch-control tests.
+tests pass including any new touch-control tests.
 
-After Milestone 6:
+After each milestone that changes input, camera, HUD, browser integration, or
+rendering-adjacent behavior, run:
 
     npm run smoke:browser
 
 Expected result: desktop smoke still passes, screenshots are written under
 `artifacts/browser-smoke/`, the camera toggle is verified, and any new mobile
 touch smoke step verifies player movement from a simulated touch drag.
+
+After each implementation milestone, run the repo-local milestone review:
+
+    Use the repo-local milestone-review skill against the milestone diff and this ExecPlan.
+
+Expected result: required findings are fixed before the milestone is marked
+complete, or rejected findings are recorded in the Decision Log with rationale.
+
+Before final delivery, run:
+
+    npm run check:wasm
+    npm test
+    npm run smoke:browser
+
+Expected result: generated WASM metadata is current, all tests pass, browser
+smoke passes, and relevant screenshot/report artifacts are inspected.
 
 After remote deployment:
 
@@ -243,6 +333,26 @@ the cross-origin isolation headers needed by the WebGPU/WASM app:
 
     Cross-Origin-Embedder-Policy: require-corp
     Cross-Origin-Opener-Policy: same-origin
+
+## Milestone Review
+
+After each milestone:
+
+1. Update this ExecPlan's Progress, Surprises & Discoveries, Decision Log, and
+   Outcomes & Retrospective sections.
+2. Confirm whether `docs/API_CONTRACTS.md`, `docs/ARCHITECTURE.md`, or active
+   feature plans need updates. For this touch-control plan, a contract-doc
+   update should be unnecessary unless the implementation changes
+   `BrowserFrameInput`, `GameCommand`, debug-hook semantics, or TypeScript/Rust
+   ownership.
+3. Run the repo-local `milestone-review` skill against the milestone diff and
+   this ExecPlan.
+4. Apply required review findings before marking the milestone complete. If a
+   finding is rejected, record the rejection and rationale in the Decision Log.
+5. Re-run the relevant validation commands, at minimum `npm test` and, for any
+   input/HUD/browser behavior milestone, `npm run smoke:browser`.
+6. Record commands, screenshots/report paths, review summary, and remaining risk
+   in Progress or Outcomes & Retrospective.
 
 ## Validation and Acceptance
 
@@ -263,7 +373,13 @@ The touch-control work is accepted when all of these are true:
    using the controls.
 9. `npm test` passes.
 10. `npm run smoke:browser` passes.
-11. The deployed Cloudflare build works from an actual WebGPU-capable mobile
+11. `npm run check:wasm` passes unless the implementation did not touch any
+    generated WASM-facing contract or artifact. If skipped, record why.
+12. `OFG-API-001`, `OFG-API-003`, and `OFG-API-009` are preserved, or
+    `docs/API_CONTRACTS.md` is intentionally updated in the same milestone.
+13. Each implementation milestone has a recorded milestone-review result before
+    being marked complete.
+14. The deployed Cloudflare build works from an actual WebGPU-capable mobile
     browser.
 
 ## Idempotence and Recovery
@@ -297,8 +413,12 @@ Suggested DOM shape:
         </div>
       </div>
       <div id="touch-look-zone"></div>
-      <button id="touch-camera-toggle" type="button" aria-label="Toggle camera mode">C</button>
+      <button id="touch-camera-toggle" type="button" aria-label="Toggle camera mode"></button>
     </div>
+
+The camera toggle should use a compact symbol or CSS-drawn icon with an
+`aria-label`, not explanatory visible text. Do not add onboarding copy or visible
+instructions to the game surface.
 
 Suggested joystick defaults:
 
@@ -340,6 +460,8 @@ call `game.tick(frameInput)` once per animation frame.
 
 `src/engine/web/browserGameTypes.ts` should not need touch-specific fields. The
 existing `BrowserFrameInput` movement and look fields are the stable contract.
+Do not change this file for touch controls unless `OFG-API-001` is intentionally
+updated in `docs/API_CONTRACTS.md` in the same milestone.
 
 `src/app/styles.css` should own the touch overlay styling. The controls should
 use stable fixed dimensions, avoid layout shifts, and use `touch-action: none`
