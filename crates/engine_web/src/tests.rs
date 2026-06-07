@@ -6,12 +6,13 @@ use crate::{
     BrowserGameStateError, BrowserTerrainStream, LocomotionAnimationController,
     MaterialPacketError, ModelAnimationChannel, ModelAnimationClip, ModelAnimationInterpolation,
     ModelAnimationOutputs, ModelAnimationTarget, ModelAsset, ModelAssetError, ModelMaterial,
-    ModelNode, ModelNodeTransform, ModelPrimitive, ModelSkin, ModelVertex, PlayerCharacterModel,
-    RenderPacketError, RenderUniformError, RendererState, RendererStateError, ResourceHandle,
-    RgbaTextureArrayAsset, TerrainTextureArrays, TerrainTextureError,
-    ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS, MATERIAL_PACKET_FLOATS,
-    MODEL_VERTEX_FLOATS, QUATERNIUS_IDLE_CLIP_NAME, QUATERNIUS_WALK_CLIP_NAME,
-    REQUIRED_TEXTURE_ARRAY_LAYERS, SAMPLE_STATIC_BOX_MATERIAL_LABEL, SAMPLE_STATIC_BOX_MESH_LABEL,
+    ModelNode, ModelNodeTransform, ModelPrimitive, ModelSkin, ModelVertex,
+    PlayerCharacterLocomotionTuning, PlayerCharacterModel, RenderPacketError, RenderUniformError,
+    RendererState, RendererStateError, ResourceHandle, RgbaTextureArrayAsset, TerrainTextureArrays,
+    TerrainTextureError, ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS,
+    MATERIAL_PACKET_FLOATS, MODEL_VERTEX_FLOATS, QUATERNIUS_IDLE_CLIP_NAME,
+    QUATERNIUS_RUN_CLIP_NAME, QUATERNIUS_WALK_CLIP_NAME, REQUIRED_TEXTURE_ARRAY_LAYERS,
+    SAMPLE_STATIC_BOX_MATERIAL_LABEL, SAMPLE_STATIC_BOX_MESH_LABEL,
     TERRAIN_ALBEDO_TEXTURE_ARRAY_ID, TERRAIN_MATERIAL_ID, TERRAIN_MATERIAL_PACKET,
     TERRAIN_MATERIAL_TEXTURE_ARRAY_ID, TERRAIN_NORMAL_TEXTURE_ARRAY_ID, TERRAIN_VERTEX_FLOATS,
     TEXTURE_FORMAT_RGBA8_UNORM, WORLD_MATRIX_FLOATS,
@@ -24,8 +25,12 @@ const BOX_ANIMATED_GLB: &[u8] =
     include_bytes!("../../../assets/models/test-fixtures/box-animated.glb");
 const RIGGED_SIMPLE_GLB: &[u8] =
     include_bytes!("../../../assets/models/test-fixtures/rigged-simple.glb");
-const QUATERNIUS_UAL2_GLB: &[u8] =
-    include_bytes!("../../../assets/models/player/quaternius-ual2-standard.glb");
+const QUATERNIUS_UAL1_GLB: &[u8] =
+    include_bytes!("../../../assets/models/player/quaternius-ual1-standard.glb");
+const QUATERNIUS_SUPERHERO_MALE_GLB: &[u8] =
+    include_bytes!("../../../assets/models/player/quaternius-superhero-male.glb");
+const QUATERNIUS_SUPERHERO_FEMALE_GLB: &[u8] =
+    include_bytes!("../../../assets/models/player/quaternius-superhero-female.glb");
 const ANIMATED_CUBE_GLTF: &[u8] =
     include_bytes!("../../../assets/models/test-fixtures/animated-cube.gltf");
 const SIMPLE_SKIN_GLTF: &[u8] =
@@ -438,25 +443,42 @@ fn animation_blending_interpolates_node_trs() {
 fn locomotion_controller_crossfades_idle_to_walk_when_movement_starts() {
     let idle = single_translation_clip("idle", 0.0);
     let walk = single_translation_clip("walk", 10.0);
+    let run = single_translation_clip("run", 30.0);
+    let tuning = PlayerCharacterLocomotionTuning {
+        walk_speed_meters_per_second: 1.0,
+        run_speed_meters_per_second: 3.0,
+        idle_playback_scale: 1.0,
+        walk_playback_scale: 1.0,
+        run_playback_scale: 1.0,
+    };
     let base = vec![ModelNodeTransform::default()];
-    let mut controller = LocomotionAnimationController::new(idle, walk, 0.2).unwrap();
+    let mut controller = LocomotionAnimationController::new(idle, walk, run, 0.2, tuning).unwrap();
 
-    let idle_pose = controller.advance_pose(&base, 0.1, false).unwrap();
+    let idle_pose = controller.advance_pose(&base, 0.1, 0.0).unwrap();
     assert_close(idle_pose[0].translation[0], 0.0);
 
-    let blended_pose = controller.advance_pose(&base, 0.1, true).unwrap();
+    let blended_pose = controller.advance_pose(&base, 0.1, 1.0).unwrap();
     let blending = controller.snapshot();
     assert_eq!(blending.active_clip_name, "idle");
     assert_eq!(blending.next_clip_name, Some("walk".to_string()));
     assert_close(blending.blend_weight, 0.5);
+    assert_close(blending.walk_run_blend_weight, 0.0);
     assert_close(blended_pose[0].translation[0], 5.0);
 
-    let walk_pose = controller.advance_pose(&base, 0.1, true).unwrap();
+    let walk_pose = controller.advance_pose(&base, 0.1, 1.0).unwrap();
     let walking = controller.snapshot();
     assert_eq!(walking.active_clip_name, "walk");
     assert_eq!(walking.next_clip_name, None);
     assert_close(walking.blend_weight, 0.0);
+    assert_close(walking.locomotion_speed_meters_per_second, 1.0);
     assert_close(walk_pose[0].translation[0], 10.0);
+
+    let run_pose = controller.advance_pose(&base, 0.1, 3.0).unwrap();
+    let running = controller.snapshot();
+    assert_eq!(running.active_clip_name, "run");
+    assert_eq!(running.next_clip_name, None);
+    assert_close(running.walk_run_blend_weight, 1.0);
+    assert_close(run_pose[0].translation[0], 30.0);
 }
 
 #[test]
@@ -480,38 +502,59 @@ fn gltf_importer_rejects_file_relative_external_buffers() {
 
 #[test]
 fn quaternius_player_asset_imports_skin_and_idle_walk_clips() {
-    let model = import_gltf_model_from_slice(QUATERNIUS_UAL2_GLB).unwrap();
+    let animation_model = import_gltf_model_from_slice(QUATERNIUS_UAL1_GLB).unwrap();
 
-    assert!(model.skin_count() > 0);
-    assert!(model
+    assert!(animation_model
         .animations
         .iter()
         .any(|clip| clip.name.as_deref() == Some(QUATERNIUS_IDLE_CLIP_NAME)));
-    assert!(model
+    assert!(animation_model
         .animations
         .iter()
         .any(|clip| clip.name.as_deref() == Some(QUATERNIUS_WALK_CLIP_NAME)));
+    assert!(animation_model
+        .animations
+        .iter()
+        .any(|clip| clip.name.as_deref() == Some(QUATERNIUS_RUN_CLIP_NAME)));
 
-    let mut character = PlayerCharacterModel::from_model(model).unwrap();
-    let initial_vertices = character.current_vertices().unwrap();
-    assert_eq!(initial_vertices.len() % MODEL_VERTEX_FLOATS as usize, 0);
-    assert!(!character.indices().is_empty());
-    assert!(character.skin_joint_count() >= 60);
-    assert_eq!(
-        character.animation_snapshot().active_clip_name,
-        QUATERNIUS_IDLE_CLIP_NAME
-    );
+    for body_bytes in [
+        QUATERNIUS_SUPERHERO_MALE_GLB,
+        QUATERNIUS_SUPERHERO_FEMALE_GLB,
+    ] {
+        let body_model = import_gltf_model_from_slice(body_bytes).unwrap();
+        assert!(body_model.skin_count() > 0);
 
-    let moving_vertices = character.tick_vertices(0.1, [1.0, 0.0]).unwrap();
-    let moving = character.animation_snapshot();
+        let mut character =
+            PlayerCharacterModel::from_body_and_animation_models(body_model, &animation_model)
+                .unwrap();
+        let initial_vertices = character.current_vertices().unwrap();
+        assert_eq!(initial_vertices.len() % MODEL_VERTEX_FLOATS as usize, 0);
+        assert!(initial_vertices.len() > MODEL_VERTEX_FLOATS as usize * 100);
+        assert!(!character.indices().is_empty());
+        assert!(character.skin_joint_count() >= 60);
+        assert_eq!(
+            character.animation_snapshot().active_clip_name,
+            QUATERNIUS_IDLE_CLIP_NAME
+        );
 
-    assert_eq!(
-        moving.next_clip_name,
-        Some(QUATERNIUS_WALK_CLIP_NAME.to_string())
-    );
-    assert!(moving.blend_weight > 0.0);
-    assert_eq!(moving_vertices.len(), initial_vertices.len());
-    assert_ne!(moving_vertices, initial_vertices);
+        let moving_vertices = character.tick_vertices(0.1, 5.5).unwrap();
+        let moving = character.animation_snapshot();
+
+        assert_eq!(
+            moving.next_clip_name,
+            Some(QUATERNIUS_WALK_CLIP_NAME.to_string())
+        );
+        assert!(moving.blend_weight > 0.0);
+        assert_close(moving.walk_run_blend_weight, 0.0);
+        assert_eq!(moving_vertices.len(), initial_vertices.len());
+        assert_ne!(moving_vertices, initial_vertices);
+
+        let running_vertices = character.tick_vertices(0.2, 16.5).unwrap();
+        let running = character.animation_snapshot();
+        assert_eq!(running.active_clip_name, QUATERNIUS_RUN_CLIP_NAME);
+        assert_close(running.walk_run_blend_weight, 1.0);
+        assert_eq!(running_vertices.len(), initial_vertices.len());
+    }
 }
 
 #[test]

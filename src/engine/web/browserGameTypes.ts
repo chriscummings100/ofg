@@ -5,6 +5,16 @@ import type { EngineWebRendererStatus } from "./engineWebWasm.js";
 
 export type PlayerMode = "firstPerson" | "thirdPerson" | "debugFly";
 
+export type PlayerCharacterId = "male" | "female";
+
+export type PlayerAnimationTuning = {
+  readonly walkSpeedMetersPerSecond: number;
+  readonly runSpeedMetersPerSecond: number;
+  readonly idlePlaybackScale: number;
+  readonly walkPlaybackScale: number;
+  readonly runPlaybackScale: number;
+};
+
 export type BrowserViewport = {
   readonly width: number;
   readonly height: number;
@@ -27,6 +37,9 @@ export type BrowserFrameInput = {
 export type GameCommand =
   | { readonly type: "togglePlayerMode" }
   | { readonly type: "setPlayerMode"; readonly mode: PlayerMode }
+  | { readonly type: "togglePlayerCharacter" }
+  | { readonly type: "setPlayerCharacter"; readonly character: PlayerCharacterId }
+  | ({ readonly type: "setPlayerAnimationTuning" } & PlayerAnimationTuning)
   | {
       readonly type: "setPlayerPosition";
       readonly x: number;
@@ -94,6 +107,8 @@ export type RustBrowserGameDebugSnapshot = {
   readonly rendererStatus: EngineWebRendererStatus;
   readonly terrainWorkerCount: number;
   readonly playerControllerRuntime: "rust";
+  readonly playerCharacterId?: PlayerCharacterId;
+  readonly playerCharacterLabel?: string;
   readonly playerCharacterRuntime?: "rust";
   readonly playerCharacterVisible?: boolean;
   readonly playerCharacterFollowsPlayer?: boolean;
@@ -104,6 +119,14 @@ export type RustBrowserGameDebugSnapshot = {
   readonly modelAnimationTimeSeconds?: number;
   readonly modelAnimationDurationSeconds?: number;
   readonly modelAnimationBlendWeight?: number;
+  readonly modelAnimationWalkRunBlendWeight?: number;
+  readonly modelAnimationPlaybackScale?: number;
+  readonly modelAnimationLocomotionSpeedMetersPerSecond?: number;
+  readonly modelAnimationWalkSpeedMetersPerSecond?: number;
+  readonly modelAnimationRunSpeedMetersPerSecond?: number;
+  readonly modelAnimationIdlePlaybackScale?: number;
+  readonly modelAnimationWalkPlaybackScale?: number;
+  readonly modelAnimationRunPlaybackScale?: number;
   readonly modelSkinningRuntime?: "rust-cpu";
   readonly modelSkinningJointCount?: number;
 };

@@ -36,6 +36,16 @@ describe("RustBrowserGameAdapter", () => {
     }));
     adapter.command({ type: "togglePlayerMode" });
     adapter.command({ type: "setPlayerMode", mode: "firstPerson" });
+    adapter.command({ type: "togglePlayerCharacter" });
+    adapter.command({ type: "setPlayerCharacter", character: "female" });
+    adapter.command({
+      type: "setPlayerAnimationTuning",
+      walkSpeedMetersPerSecond: 5.5,
+      runSpeedMetersPerSecond: 16.5,
+      idlePlaybackScale: 1,
+      walkPlaybackScale: 0.95,
+      runPlaybackScale: 1.1
+    });
     adapter.command({ type: "setPlayerPosition", x: 96, z: 12 });
     adapter.command({ type: "setDebugCamera", x: 1, y: 2, z: 3, yaw: 0.25, pitch: -0.5 });
     const snapshot = adapter.getDebugSnapshot();
@@ -47,17 +57,30 @@ describe("RustBrowserGameAdapter", () => {
     equal(fake.tickCalls[0]?.movement.fast, true);
     equal(fake.commandCalls[1]?.type, "togglePlayerMode");
     equal(fake.commandCalls[2]?.type, "setPlayerMode");
-    equal(fake.commandCalls[3]?.type, "setPlayerPosition");
-    equal(fake.commandCalls[4]?.type, "setDebugCamera");
+    equal(fake.commandCalls[3]?.type, "togglePlayerCharacter");
+    equal(fake.commandCalls[4]?.type, "setPlayerCharacter");
+    equal(fake.commandCalls[5]?.type, "setPlayerAnimationTuning");
+    equal(fake.commandCalls[6]?.type, "setPlayerPosition");
+    equal(fake.commandCalls[7]?.type, "setDebugCamera");
     equal(snapshot.playerMode, "firstPerson");
     equal(snapshot.playerPosition.x, 96);
     equal(snapshot.loadedTerrainChunkKeys[0], "0,0,0");
+    equal(snapshot.playerCharacterId, "female");
+    equal(snapshot.playerCharacterLabel, "Female");
     equal(snapshot.modelAnimationRuntime, "rust");
     equal(snapshot.activeModelAnimationClip, "test-move");
     equal(snapshot.nextModelAnimationClip, "test-walk");
     equal(snapshot.modelAnimationTimeSeconds, 0.25);
     equal(snapshot.modelAnimationDurationSeconds, 2);
     equal(snapshot.modelAnimationBlendWeight, 0.5);
+    equal(snapshot.modelAnimationWalkRunBlendWeight, 1);
+    equal(snapshot.modelAnimationPlaybackScale, 1.1);
+    equal(snapshot.modelAnimationLocomotionSpeedMetersPerSecond, 16.5);
+    equal(snapshot.modelAnimationWalkSpeedMetersPerSecond, 5.5);
+    equal(snapshot.modelAnimationRunSpeedMetersPerSecond, 16.5);
+    equal(snapshot.modelAnimationIdlePlaybackScale, 1);
+    equal(snapshot.modelAnimationWalkPlaybackScale, 0.95);
+    equal(snapshot.modelAnimationRunPlaybackScale, 1.1);
     equal(snapshot.modelSkinningRuntime, "rust-cpu");
     equal(snapshot.modelSkinningJointCount, 2);
     equal(snapshot.playerCharacterRuntime, "rust");
@@ -138,6 +161,8 @@ function fakeBrowserGame(): FakeBrowserGame {
         },
         terrainWorkerCount: 6,
         playerControllerRuntime: "rust",
+        playerCharacterId: "female",
+        playerCharacterLabel: "Female",
         playerCharacterRuntime: "rust",
         playerCharacterVisible: true,
         playerCharacterFollowsPlayer: true,
@@ -148,6 +173,14 @@ function fakeBrowserGame(): FakeBrowserGame {
         modelAnimationTimeSeconds: 0.25,
         modelAnimationDurationSeconds: 2,
         modelAnimationBlendWeight: 0.5,
+        modelAnimationWalkRunBlendWeight: 1,
+        modelAnimationPlaybackScale: 1.1,
+        modelAnimationLocomotionSpeedMetersPerSecond: 16.5,
+        modelAnimationWalkSpeedMetersPerSecond: 5.5,
+        modelAnimationRunSpeedMetersPerSecond: 16.5,
+        modelAnimationIdlePlaybackScale: 1,
+        modelAnimationWalkPlaybackScale: 0.95,
+        modelAnimationRunPlaybackScale: 1.1,
         modelSkinningRuntime: "rust-cpu",
         modelSkinningJointCount: 2
       };

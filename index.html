@@ -8,10 +8,13 @@
     <link rel="stylesheet" href="/src/app/styles.css" />
   </head>
   <body>
-    <canvas id="game-canvas"></canvas>
+    <canvas id="game-canvas" tabindex="0"></canvas>
     <canvas id="terrain-debug-overlay" hidden></canvas>
     <div id="hud" aria-live="polite">
       <span id="camera-mode">FIRST</span>
+      <button id="character-toggle" type="button" aria-label="Toggle player character">
+        Male
+      </button>
       <span id="frame-time">0.0 ms</span>
     </div>
     <script type="module" src="/dist/main.js"></script>

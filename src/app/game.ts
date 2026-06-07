@@ -13,12 +13,15 @@ import {
 } from "../engine/world/terrainDescriptor.js";
 import {
   type BrowserFrameInput,
+  type PlayerAnimationTuning,
+  type PlayerCharacterId,
   type PlayerMode
 } from "../engine/web/browserGameTypes.js";
 
 type GameElements = {
   readonly canvas: HTMLCanvasElement;
   readonly cameraMode: HTMLElement;
+  readonly characterToggle: HTMLButtonElement;
   readonly frameTime: HTMLElement;
 };
 
@@ -40,6 +43,8 @@ declare global {
       getRendererStatus: () => EngineWebRendererStatus;
       getTerrainWorkerCount: () => number;
       getPlayerControllerRuntime: () => "rust";
+      getPlayerCharacterId: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerCharacterId"];
+      getPlayerCharacterLabel: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerCharacterLabel"];
       getPlayerCharacterRuntime: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerCharacterRuntime"];
       getPlayerCharacterVisible: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerCharacterVisible"];
       getPlayerCharacterFollowsPlayer: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerCharacterFollowsPlayer"];
@@ -50,13 +55,24 @@ declare global {
       getModelAnimationTimeSeconds: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationTimeSeconds"];
       getModelAnimationDurationSeconds: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationDurationSeconds"];
       getModelAnimationBlendWeight: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationBlendWeight"];
+      getModelAnimationWalkRunBlendWeight: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationWalkRunBlendWeight"];
+      getModelAnimationPlaybackScale: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationPlaybackScale"];
+      getModelAnimationLocomotionSpeedMetersPerSecond: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationLocomotionSpeedMetersPerSecond"];
+      getModelAnimationWalkSpeedMetersPerSecond: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationWalkSpeedMetersPerSecond"];
+      getModelAnimationRunSpeedMetersPerSecond: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationRunSpeedMetersPerSecond"];
+      getModelAnimationIdlePlaybackScale: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationIdlePlaybackScale"];
+      getModelAnimationWalkPlaybackScale: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationWalkPlaybackScale"];
+      getModelAnimationRunPlaybackScale: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelAnimationRunPlaybackScale"];
       getModelSkinningRuntime: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelSkinningRuntime"];
       getModelSkinningJointCount: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelSkinningJointCount"];
       getPlayerPosition: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerPosition"];
       resetTerrainStreaming: () => void;
       setCameraMode: (mode: PlayerMode) => void;
       setDebugCamera: (x: number, y: number, z: number, yaw: number, pitch: number) => void;
+      setPlayerAnimationTuning: (tuning: Partial<PlayerAnimationTuning>) => void;
+      setPlayerCharacter: (character: PlayerCharacterId) => void;
       setPlayerPosition: (x: number, z: number) => void;
+      togglePlayerCharacter: () => void;
     };
   }
 }
@@ -81,6 +97,8 @@ export async function startGame(elements: GameElements): Promise<void> {
     getRendererStatus: () => game.debugSnapshot().rendererStatus,
     getTerrainWorkerCount: () => game.debugSnapshot().terrainWorkerCount,
     getPlayerControllerRuntime: () => game.debugSnapshot().playerControllerRuntime,
+    getPlayerCharacterId: () => game.debugSnapshot().playerCharacterId,
+    getPlayerCharacterLabel: () => game.debugSnapshot().playerCharacterLabel,
     getPlayerCharacterRuntime: () => game.debugSnapshot().playerCharacterRuntime,
     getPlayerCharacterVisible: () => game.debugSnapshot().playerCharacterVisible,
     getPlayerCharacterFollowsPlayer: () => game.debugSnapshot().playerCharacterFollowsPlayer,
@@ -91,6 +109,20 @@ export async function startGame(elements: GameElements): Promise<void> {
     getModelAnimationTimeSeconds: () => game.debugSnapshot().modelAnimationTimeSeconds,
     getModelAnimationDurationSeconds: () => game.debugSnapshot().modelAnimationDurationSeconds,
     getModelAnimationBlendWeight: () => game.debugSnapshot().modelAnimationBlendWeight,
+    getModelAnimationWalkRunBlendWeight: () => game.debugSnapshot().modelAnimationWalkRunBlendWeight,
+    getModelAnimationPlaybackScale: () => game.debugSnapshot().modelAnimationPlaybackScale,
+    getModelAnimationLocomotionSpeedMetersPerSecond: () =>
+      game.debugSnapshot().modelAnimationLocomotionSpeedMetersPerSecond,
+    getModelAnimationWalkSpeedMetersPerSecond: () =>
+      game.debugSnapshot().modelAnimationWalkSpeedMetersPerSecond,
+    getModelAnimationRunSpeedMetersPerSecond: () =>
+      game.debugSnapshot().modelAnimationRunSpeedMetersPerSecond,
+    getModelAnimationIdlePlaybackScale: () =>
+      game.debugSnapshot().modelAnimationIdlePlaybackScale,
+    getModelAnimationWalkPlaybackScale: () =>
+      game.debugSnapshot().modelAnimationWalkPlaybackScale,
+    getModelAnimationRunPlaybackScale: () =>
+      game.debugSnapshot().modelAnimationRunPlaybackScale,
     getModelSkinningRuntime: () => game.debugSnapshot().modelSkinningRuntime,
     getModelSkinningJointCount: () => game.debugSnapshot().modelSkinningJointCount,
     getPlayerPosition: () => game.debugSnapshot().playerPosition,
@@ -103,11 +135,29 @@ export async function startGame(elements: GameElements): Promise<void> {
     setDebugCamera(x, y, z, yaw, pitch) {
       game.command({ type: "setDebugCamera", x, y, z, yaw, pitch });
     },
+    setPlayerAnimationTuning(tuning) {
+      game.command({
+        type: "setPlayerAnimationTuning",
+        ...playerAnimationTuningFromSnapshot(game.debugSnapshot(), tuning)
+      });
+    },
+    setPlayerCharacter(character) {
+      game.command({ type: "setPlayerCharacter", character: validatePlayerCharacterId(character) });
+    },
     setPlayerPosition(x, z) {
       game.command({ type: "setPlayerPosition", x, z });
+    },
+    togglePlayerCharacter() {
+      game.command({ type: "togglePlayerCharacter" });
     }
   };
 
+  elements.characterToggle.addEventListener("click", () => {
+    game.command({ type: "togglePlayerCharacter" });
+    updateCharacterToggle(elements.characterToggle, game.debugSnapshot());
+    elements.canvas.focus({ preventScroll: true });
+  });
+  updateCharacterToggle(elements.characterToggle, game.debugSnapshot());
   input.attach(elements.canvas);
 
   let lastTimestamp = performance.now();
@@ -130,9 +180,11 @@ export async function startGame(elements: GameElements): Promise<void> {
 
     game.tick(frameInput);
 
-    const playerMode = game.debugSnapshot().playerMode;
+    const debugSnapshot = game.debugSnapshot();
+    const playerMode = debugSnapshot.playerMode;
     elements.cameraMode.textContent = cameraModeLabel(playerMode);
     elements.cameraMode.dataset.mode = playerMode;
+    updateCharacterToggle(elements.characterToggle, debugSnapshot);
     elements.frameTime.textContent = `${(deltaSeconds * 1000).toFixed(1)} ms`;
 
     requestAnimationFrame(frame);
@@ -185,6 +237,54 @@ function validatePlayerMode(mode: string): PlayerMode {
   }
 
   throw new Error(`Unknown player camera mode '${mode}'.`);
+}
+
+function validatePlayerCharacterId(character: string): PlayerCharacterId {
+  if (character === "male" || character === "female") {
+    return character;
+  }
+
+  throw new Error(`Unknown player character '${character}'.`);
+}
+
+function updateCharacterToggle(
+  toggle: HTMLButtonElement,
+  snapshot: ReturnType<RustBrowserGameRuntime["debugSnapshot"]>
+): void {
+  const character = snapshot.playerCharacterId ?? "male";
+  toggle.textContent = snapshot.playerCharacterLabel ?? characterLabel(character);
+  toggle.dataset.character = character;
+}
+
+function playerAnimationTuningFromSnapshot(
+  snapshot: ReturnType<RustBrowserGameRuntime["debugSnapshot"]>,
+  tuning: Partial<PlayerAnimationTuning>
+): PlayerAnimationTuning {
+  return {
+    walkSpeedMetersPerSecond:
+      tuning.walkSpeedMetersPerSecond ??
+      snapshot.modelAnimationWalkSpeedMetersPerSecond ??
+      5.5,
+    runSpeedMetersPerSecond:
+      tuning.runSpeedMetersPerSecond ??
+      snapshot.modelAnimationRunSpeedMetersPerSecond ??
+      16.5,
+    idlePlaybackScale:
+      tuning.idlePlaybackScale ?? snapshot.modelAnimationIdlePlaybackScale ?? 1,
+    walkPlaybackScale:
+      tuning.walkPlaybackScale ?? snapshot.modelAnimationWalkPlaybackScale ?? 1,
+    runPlaybackScale:
+      tuning.runPlaybackScale ?? snapshot.modelAnimationRunPlaybackScale ?? 1
+  };
+}
+
+function characterLabel(character: PlayerCharacterId): string {
+  switch (character) {
+    case "male":
+      return "Male";
+    case "female":
+      return "Female";
+  }
 }
 
 function cameraModeLabel(mode: PlayerMode): string {

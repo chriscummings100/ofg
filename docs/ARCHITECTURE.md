@@ -101,9 +101,10 @@ as a browser shell plus generic browser image decoder.
   WebGPU canvas surface, adapter/device/queue, surface configuration, depth
   texture, shader modules, terrain and static-model pipelines, GLB parsing,
   static model resource registration, non-skinned node animation sampling,
-  skin joint/inverse bind import, CPU skinning for the first sampled rigged
-  pose, buffers, texture arrays, samplers, bind groups, render-pass submission,
-  frame/resource counts, and GPU resource pruning.
+  skin joint/inverse bind import, CPU skinning for the selected player-character
+  body primitive, male/female player-character descriptor selection, buffers,
+  texture arrays, samplers, bind groups, render-pass submission, frame/resource
+  counts, and GPU resource pruning.
 - TypeScript collects DOM input, parses URL seed/preset values, starts WASM,
   exposes debug hooks, decodes Rust-provided generic texture-array URL requests
   into RGBA arrays, and fetches Rust-provided opaque byte asset requests for
@@ -193,12 +194,15 @@ matrices extracted by
 camera/object uniform buffers. Static and CPU-skinned model meshes use a
 separate 12-float vertex layout and `modelVertexMain` pipeline entry point
 instead of pretending to be terrain vertices. The current player-character
-prototype loads a selected Quaternius GLB, samples idle/walk clips in Rust,
-CPU-skins one selected humanoid primitive each frame, updates the existing model
-vertex buffer before drawing, and attaches the model to a Rust-owned player
-character scene item that follows the Rust player transform. The browser path no
-longer draws the old yellow marker as the normal debug-fly player
-representation.
+prototype loads a shared Quaternius UAL1 animation GLB and male/female
+Quaternius base-character body GLBs, samples `Idle_Loop`, `Walk_Loop`, and
+`Sprint_Loop` in Rust, blends walk-to-sprint from Rust player speed, CPU-skins
+the selected body primitive each frame, updates the active model vertex buffer
+before drawing, and attaches the selected mesh/material to a Rust-owned player
+character scene item that follows the Rust player transform. The checked-in
+male/female bodies are Superhero placeholders until Regular GLBs are available.
+The browser path no longer draws the old yellow marker as the normal debug-fly
+player representation.
 
 Terrain uses checked-in Poly Haven CC0 materials imported into 16-layer global
 texture arrays. The runtime currently loads albedo, normal, and roughness arrays;
@@ -221,8 +225,9 @@ direction of the Rust-owned main light.
 - Browser smoke tests cover canvas rendering, input toggles, resize behavior, and
   basic chunk streaming after moving the player across chunk columns. The smoke
   path also verifies the Rust-owned GLTF player character scene item, hidden
-  marker state, animation clock, CPU skinning state, movement-driven walk
-  selection, and release-driven idle transition.
+  marker state, animation clock, CPU skinning state, HUD male/female character
+  toggle, movement-driven walk selection, Shift-driven sprint blend, and
+  release-driven idle transition.
 - Rust/WASM terrain tests cover height/density determinism, density chunk fill,
   mesh buffers, retained stores, stream scheduling, and worker-pool fixtures.
 - Performance tests should be explicit scripts with stable scene seeds, not hidden

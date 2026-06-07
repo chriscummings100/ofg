@@ -29,6 +29,20 @@ pub const PLAYER_QUATERNIUS_UAL2_MODEL_URL: &str =
 pub const PLAYER_QUATERNIUS_UAL2_MESH_LABEL: &str = "model.player.quaternius-ual2.primitive0.mesh";
 pub const PLAYER_QUATERNIUS_UAL2_MATERIAL_LABEL: &str =
     "model.player.quaternius-ual2.primitive0.material";
+pub const PLAYER_QUATERNIUS_UAL1_MODEL_ID: &str = "model.player.quaternius-ual1";
+pub const PLAYER_QUATERNIUS_UAL1_MODEL_URL: &str =
+    "/assets/models/player/quaternius-ual1-standard.glb";
+pub const PLAYER_SUPERHERO_MALE_MODEL_ID: &str = "model.player.superhero-male";
+pub const PLAYER_SUPERHERO_MALE_MODEL_URL: &str =
+    "/assets/models/player/quaternius-superhero-male.glb";
+pub const PLAYER_SUPERHERO_MALE_MESH_LABEL: &str = "model.player.superhero-male.body.mesh";
+pub const PLAYER_SUPERHERO_MALE_MATERIAL_LABEL: &str = "model.player.superhero-male.body.material";
+pub const PLAYER_SUPERHERO_FEMALE_MODEL_ID: &str = "model.player.superhero-female";
+pub const PLAYER_SUPERHERO_FEMALE_MODEL_URL: &str =
+    "/assets/models/player/quaternius-superhero-female.glb";
+pub const PLAYER_SUPERHERO_FEMALE_MESH_LABEL: &str = "model.player.superhero-female.body.mesh";
+pub const PLAYER_SUPERHERO_FEMALE_MATERIAL_LABEL: &str =
+    "model.player.superhero-female.body.material";
 
 const IDENTITY_MATRIX: [f32; 16] = [
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,

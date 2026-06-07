@@ -57,13 +57,39 @@ body {
   text-rendering: geometricPrecision;
 }
 
-#hud span {
+#hud span,
+#hud button {
   min-width: 64px;
   padding: 6px 8px;
   border: 1px solid rgb(242 238 230 / 24%);
   border-radius: 6px;
   background: rgb(20 21 21 / 72%);
+  color: inherit;
+  font: inherit;
   text-align: center;
+}
+
+#hud button {
+  min-width: 74px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+#hud button:hover,
+#hud button:focus-visible {
+  border-color: rgb(242 238 230 / 56%);
+  background: rgb(37 40 38 / 82%);
+  outline: none;
+}
+
+#character-toggle[data-character="male"] {
+  color: #b8dcff;
+  border-color: rgb(139 194 235 / 48%);
+}
+
+#character-toggle[data-character="female"] {
+  color: #ffd2d9;
+  border-color: rgb(235 139 158 / 48%);
 }
 
 #camera-mode[data-mode="debugFly"] {

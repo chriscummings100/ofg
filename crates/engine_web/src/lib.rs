@@ -8,6 +8,7 @@ mod model_assets;
 mod model_locomotion;
 mod model_render_assets;
 mod model_skinning;
+mod player_character;
 mod render_packets;
 mod render_uniforms;
 mod renderer;
@@ -41,8 +42,13 @@ pub use model_asset_loader::load_model_asset_bytes;
 pub use model_assets::{
     import_gltf_model_from_slice, model_primitive_vertex_floats, ModelAsset, ModelAssetError,
     ModelMaterial, ModelNode, ModelNodeTransform, ModelPrimitive, ModelSkin, ModelVertex,
+    PLAYER_QUATERNIUS_UAL1_MODEL_ID, PLAYER_QUATERNIUS_UAL1_MODEL_URL,
     PLAYER_QUATERNIUS_UAL2_MATERIAL_LABEL, PLAYER_QUATERNIUS_UAL2_MESH_LABEL,
     PLAYER_QUATERNIUS_UAL2_MODEL_ID, PLAYER_QUATERNIUS_UAL2_MODEL_URL,
+    PLAYER_SUPERHERO_FEMALE_MATERIAL_LABEL, PLAYER_SUPERHERO_FEMALE_MESH_LABEL,
+    PLAYER_SUPERHERO_FEMALE_MODEL_ID, PLAYER_SUPERHERO_FEMALE_MODEL_URL,
+    PLAYER_SUPERHERO_MALE_MATERIAL_LABEL, PLAYER_SUPERHERO_MALE_MESH_LABEL,
+    PLAYER_SUPERHERO_MALE_MODEL_ID, PLAYER_SUPERHERO_MALE_MODEL_URL,
     SAMPLE_ANIMATED_BOX_MATERIAL_LABEL, SAMPLE_ANIMATED_BOX_MESH_LABEL,
     SAMPLE_ANIMATED_BOX_MODEL_ID, SAMPLE_ANIMATED_BOX_MODEL_URL,
     SAMPLE_RIGGED_SIMPLE_MATERIAL_LABEL, SAMPLE_RIGGED_SIMPLE_MESH_LABEL,
@@ -52,14 +58,18 @@ pub use model_assets::{
 };
 pub use model_locomotion::{
     horizontal_movement_is_active, LocomotionAnimationController, PlayerCharacterAnimationSnapshot,
-    PlayerCharacterModel, PlayerCharacterModelError, QUATERNIUS_IDLE_CLIP_NAME,
-    QUATERNIUS_WALK_CLIP_NAME,
+    PlayerCharacterLocomotionTuning, PlayerCharacterModel, PlayerCharacterModelError,
+    QUATERNIUS_IDLE_CLIP_NAME, QUATERNIUS_RUN_CLIP_NAME, QUATERNIUS_WALK_CLIP_NAME,
 };
 pub use model_render_assets::{
     first_primitive_node_index, skinned_model_render_assets, ModelRenderAssetError,
     ModelRenderAssets,
 };
 pub use model_skinning::{model_node_world_matrices, skin_joint_matrices, skin_primitive_vertices};
+pub use player_character::{
+    player_character_descriptor, PlayerCharacterDescriptor, PlayerCharacterId,
+    PLAYER_CHARACTER_DESCRIPTORS,
+};
 pub use render_packets::{
     build_frame_packet_from_engine_snapshot, RenderPacketError, ENGINE_RENDER_SNAPSHOT_FLOATS,
 };

@@ -15,11 +15,13 @@ use crate::game_state::{BrowserGameInput, BrowserGameState};
 use crate::materials::TERRAIN_MATERIAL_PACKET;
 use crate::model_asset_loader::load_model_asset_bytes;
 use crate::model_assets::{
-    import_gltf_model_from_slice, PLAYER_QUATERNIUS_UAL2_MATERIAL_LABEL,
-    PLAYER_QUATERNIUS_UAL2_MESH_LABEL, PLAYER_QUATERNIUS_UAL2_MODEL_ID,
-    PLAYER_QUATERNIUS_UAL2_MODEL_URL,
+    import_gltf_model_from_slice, PLAYER_QUATERNIUS_UAL1_MODEL_ID, PLAYER_QUATERNIUS_UAL1_MODEL_URL,
 };
-use crate::model_locomotion::PlayerCharacterModel;
+use crate::model_locomotion::{PlayerCharacterLocomotionTuning, PlayerCharacterModel};
+use crate::player_character::{
+    player_character_descriptor, PlayerCharacterDescriptor, PlayerCharacterId,
+    PLAYER_CHARACTER_DESCRIPTORS,
+};
 use crate::render_packets::build_frame_packet_from_engine_snapshot;
 use crate::render_uniforms::{
     build_frame_uniform_values, build_object_uniform_values, FRAME_PACKET_FLOATS,
@@ -29,7 +31,7 @@ use crate::resources::{ResourceHandle, ResourceStore};
 use crate::terrain_stream::{BrowserTerrainStream, BrowserTerrainStreamStatus, TerrainJobStats};
 use crate::terrain_textures::{load_terrain_texture_arrays, TerrainTextureArrays};
 use crate::ENGINE_WEB_VERSION;
-use engine_core::{PlayerMode, Vec3};
+use engine_core::{PlayerConfig, PlayerMode, Vec3};
 use terrain_core::{terrain_chunk_key, TerrainChunkCoord, DEFAULT_TERRAIN_PRESET};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
@@ -45,9 +47,9 @@ pub struct RustBrowserGame {
     object_handles_by_id: HashMap<String, ResourceHandle>,
     scene_mesh_handles_by_label: HashMap<String, ResourceHandle>,
     scene_material_packets_by_label: HashMap<String, [f32; MATERIAL_PACKET_FLOATS]>,
-    player_character: PlayerCharacterModel,
+    player_characters: Vec<PlayerCharacterSlot>,
+    active_player_character_id: PlayerCharacterId,
     model_skinning_runtime: Option<&'static str>,
-    model_skinning_joint_count: usize,
 }
 
 #[derive(Debug)]
@@ -110,6 +112,12 @@ struct GpuObject {
     material_texture: Option<ResourceHandle>,
 }
 
+struct PlayerCharacterSlot {
+    descriptor: PlayerCharacterDescriptor,
+    model: PlayerCharacterModel,
+    mesh_handle: ResourceHandle,
+}
+
 #[derive(Clone, Copy)]
 struct TerrainTextureHandles {
     albedo: ResourceHandle,
@@ -149,43 +157,57 @@ impl RustBrowserGame {
         console_error_panic_hook::set_once();
         let mut renderer = BrowserWgpuRenderer::new(canvas).await?;
         let terrain_texture_arrays = load_terrain_texture_arrays(&asset_loader).await?;
-        let player_model_bytes = load_model_asset_bytes(
+        let animation_model_bytes = load_model_asset_bytes(
             &asset_loader,
-            PLAYER_QUATERNIUS_UAL2_MODEL_ID,
-            PLAYER_QUATERNIUS_UAL2_MODEL_URL,
+            PLAYER_QUATERNIUS_UAL1_MODEL_ID,
+            PLAYER_QUATERNIUS_UAL1_MODEL_URL,
         )
         .await?;
-        let player_model = import_gltf_model_from_slice(&player_model_bytes).map_err(js_error)?;
-        let player_character = PlayerCharacterModel::from_model(player_model).map_err(js_error)?;
-        let player_character_vertices = player_character.current_vertices().map_err(js_error)?;
-        let player_character_mesh = renderer.register_mesh(
-            &player_character_vertices,
-            player_character.indices(),
-            MODEL_VERTEX_FLOATS,
-        )?;
+        let animation_model =
+            import_gltf_model_from_slice(&animation_model_bytes).map_err(js_error)?;
 
         let mut scene_mesh_handles_by_label = HashMap::new();
-        scene_mesh_handles_by_label.insert(
-            PLAYER_QUATERNIUS_UAL2_MESH_LABEL.to_string(),
-            player_character_mesh,
-        );
-
         let mut scene_material_packets_by_label = HashMap::new();
-        scene_material_packets_by_label.insert(
-            PLAYER_QUATERNIUS_UAL2_MATERIAL_LABEL.to_string(),
-            player_character.material_packet(),
-        );
+        let mut player_characters = Vec::with_capacity(PLAYER_CHARACTER_DESCRIPTORS.len());
+        for descriptor in PLAYER_CHARACTER_DESCRIPTORS {
+            let body_model_bytes =
+                load_model_asset_bytes(&asset_loader, descriptor.model_id, descriptor.model_url)
+                    .await?;
+            let body_model = import_gltf_model_from_slice(&body_model_bytes).map_err(js_error)?;
+            let player_character =
+                PlayerCharacterModel::from_body_and_animation_models(body_model, &animation_model)
+                    .map_err(js_error)?;
+            let player_character_vertices =
+                player_character.current_vertices().map_err(js_error)?;
+            let mesh_handle = renderer.register_mesh(
+                &player_character_vertices,
+                player_character.indices(),
+                MODEL_VERTEX_FLOATS,
+            )?;
+
+            scene_mesh_handles_by_label.insert(descriptor.mesh_label.to_string(), mesh_handle);
+            scene_material_packets_by_label.insert(
+                descriptor.material_label.to_string(),
+                player_character.material_packet(),
+            );
+            player_characters.push(PlayerCharacterSlot {
+                descriptor,
+                model: player_character,
+                mesh_handle,
+            });
+        }
 
         let mut game_state = BrowserGameState::new();
+        let active_player_character_id = PlayerCharacterId::Male;
+        let active_player_character = player_character_descriptor(active_player_character_id);
         game_state
             .configure_player_character_scene(
-                PLAYER_QUATERNIUS_UAL2_MESH_LABEL,
-                PLAYER_QUATERNIUS_UAL2_MATERIAL_LABEL,
+                active_player_character.mesh_label,
+                active_player_character.material_label,
                 PLAYER_CHARACTER_SCENE_SCALE,
                 PLAYER_CHARACTER_HEIGHT_OFFSET,
             )
             .map_err(js_error)?;
-        let model_skinning_joint_count = player_character.skin_joint_count();
 
         let mut game = Self {
             game_state,
@@ -197,9 +219,9 @@ impl RustBrowserGame {
             object_handles_by_id: HashMap::new(),
             scene_mesh_handles_by_label,
             scene_material_packets_by_label,
-            player_character,
+            player_characters,
+            active_player_character_id,
             model_skinning_runtime: Some("rust-cpu"),
-            model_skinning_joint_count,
         };
         game.install_terrain_textures(terrain_texture_arrays)?;
 
@@ -255,6 +277,23 @@ impl RustBrowserGame {
                 })?;
                 self.game_state.set_player_mode(mode).map_err(js_error)?;
             }
+            "togglePlayerCharacter" => {
+                self.set_player_character(self.active_player_character_id.toggled())?;
+            }
+            "setPlayerCharacter" => {
+                let character_name =
+                    js_required_string(&command, "character", "command.character")?;
+                let character_id =
+                    PlayerCharacterId::from_js_name(&character_name).ok_or_else(|| {
+                        js_error(format!(
+                            "Rust browser game received unknown player character '{character_name}'."
+                        ))
+                    })?;
+                self.set_player_character(character_id)?;
+            }
+            "setPlayerAnimationTuning" => {
+                self.set_player_animation_tuning(player_animation_tuning_from_js(&command)?)?;
+            }
             "setPlayerPosition" => {
                 let x = js_required_f32(&command, "x", "command.x")?;
                 let z = js_required_f32(&command, "z", "command.z")?;
@@ -289,6 +328,7 @@ impl RustBrowserGame {
     pub fn debug_snapshot(&self) -> Result<JsValue, JsValue> {
         let player_mode = self.game_state.player_mode().map_err(js_error)?;
         let player_position = self.game_state.player_position().map_err(js_error)?;
+        let player_character = self.active_player_character_slot()?;
         let position = js_sys::Object::new();
         set_js_property(&position, "x", JsValue::from_f64(player_position.x as f64))?;
         set_js_property(&position, "y", JsValue::from_f64(player_position.y as f64))?;
@@ -368,6 +408,16 @@ impl RustBrowserGame {
             "playerControllerRuntime",
             JsValue::from_str("rust"),
         )?;
+        set_js_property(
+            &snapshot,
+            "playerCharacterId",
+            JsValue::from_str(player_character.descriptor.id.js_name()),
+        )?;
+        set_js_property(
+            &snapshot,
+            "playerCharacterLabel",
+            JsValue::from_str(player_character.descriptor.label),
+        )?;
         if let Some(character_scene) = self
             .game_state
             .player_character_scene_snapshot()
@@ -394,7 +444,8 @@ impl RustBrowserGame {
                 JsValue::from_bool(character_scene.debug_marker_visible),
             )?;
         }
-        let animation = self.player_character.animation_snapshot();
+        let animation = player_character.model.animation_snapshot();
+        let animation_tuning = player_character.model.locomotion_tuning();
         set_js_property(
             &snapshot,
             "modelAnimationRuntime",
@@ -427,6 +478,46 @@ impl RustBrowserGame {
             "modelAnimationBlendWeight",
             JsValue::from_f64(animation.blend_weight as f64),
         )?;
+        set_js_property(
+            &snapshot,
+            "modelAnimationWalkRunBlendWeight",
+            JsValue::from_f64(animation.walk_run_blend_weight as f64),
+        )?;
+        set_js_property(
+            &snapshot,
+            "modelAnimationPlaybackScale",
+            JsValue::from_f64(animation.playback_scale as f64),
+        )?;
+        set_js_property(
+            &snapshot,
+            "modelAnimationLocomotionSpeedMetersPerSecond",
+            JsValue::from_f64(animation.locomotion_speed_meters_per_second as f64),
+        )?;
+        set_js_property(
+            &snapshot,
+            "modelAnimationWalkSpeedMetersPerSecond",
+            JsValue::from_f64(animation_tuning.walk_speed_meters_per_second as f64),
+        )?;
+        set_js_property(
+            &snapshot,
+            "modelAnimationRunSpeedMetersPerSecond",
+            JsValue::from_f64(animation_tuning.run_speed_meters_per_second as f64),
+        )?;
+        set_js_property(
+            &snapshot,
+            "modelAnimationIdlePlaybackScale",
+            JsValue::from_f64(animation_tuning.idle_playback_scale as f64),
+        )?;
+        set_js_property(
+            &snapshot,
+            "modelAnimationWalkPlaybackScale",
+            JsValue::from_f64(animation_tuning.walk_playback_scale as f64),
+        )?;
+        set_js_property(
+            &snapshot,
+            "modelAnimationRunPlaybackScale",
+            JsValue::from_f64(animation_tuning.run_playback_scale as f64),
+        )?;
         if let Some(runtime) = self.model_skinning_runtime {
             set_js_property(
                 &snapshot,
@@ -436,7 +527,7 @@ impl RustBrowserGame {
             set_js_property(
                 &snapshot,
                 "modelSkinningJointCount",
-                JsValue::from_f64(self.model_skinning_joint_count as f64),
+                JsValue::from_f64(player_character.model.skin_joint_count() as f64),
             )?;
         }
 
@@ -587,12 +678,78 @@ impl RustBrowserGame {
         Ok(())
     }
 
+    fn active_player_character_slot(&self) -> Result<&PlayerCharacterSlot, JsValue> {
+        self.player_characters
+            .iter()
+            .find(|slot| slot.descriptor.id == self.active_player_character_id)
+            .ok_or_else(|| {
+                js_error(format!(
+                    "Rust browser game cannot resolve active player character '{}'.",
+                    self.active_player_character_id
+                ))
+            })
+    }
+
+    fn active_player_character_slot_mut(&mut self) -> Result<&mut PlayerCharacterSlot, JsValue> {
+        let active_player_character_id = self.active_player_character_id;
+        self.player_characters
+            .iter_mut()
+            .find(|slot| slot.descriptor.id == active_player_character_id)
+            .ok_or_else(|| {
+                js_error(format!(
+                    "Rust browser game cannot resolve active player character '{active_player_character_id}'."
+                ))
+            })
+    }
+
+    fn set_player_character(&mut self, character_id: PlayerCharacterId) -> Result<(), JsValue> {
+        let descriptor = self
+            .player_characters
+            .iter()
+            .find(|slot| slot.descriptor.id == character_id)
+            .map(|slot| slot.descriptor)
+            .ok_or_else(|| {
+                js_error(format!(
+                    "Rust browser game cannot select unavailable player character '{character_id}'."
+                ))
+            })?;
+        self.active_player_character_id = character_id;
+        self.game_state
+            .configure_player_character_scene(
+                descriptor.mesh_label,
+                descriptor.material_label,
+                PLAYER_CHARACTER_SCENE_SCALE,
+                PLAYER_CHARACTER_HEIGHT_OFFSET,
+            )
+            .map_err(js_error)
+    }
+
+    fn set_player_animation_tuning(
+        &mut self,
+        tuning: PlayerCharacterLocomotionTuning,
+    ) -> Result<(), JsValue> {
+        for player_character in &mut self.player_characters {
+            player_character
+                .model
+                .set_locomotion_tuning(tuning)
+                .map_err(js_error)?;
+        }
+
+        Ok(())
+    }
+
     fn update_player_character_mesh(&mut self, input: BrowserGameInput) -> Result<(), JsValue> {
-        let vertices = self
-            .player_character
-            .tick_vertices(input.delta_seconds, [input.forward, input.right])
-            .map_err(js_error)?;
-        let mesh_handle = self.scene_mesh_handle(PLAYER_QUATERNIUS_UAL2_MESH_LABEL)?;
+        let locomotion_speed_meters_per_second = player_locomotion_speed_meters_per_second(input);
+        let (mesh_handle, vertices) = {
+            let player_character = self.active_player_character_slot_mut()?;
+            (
+                player_character.mesh_handle,
+                player_character
+                    .model
+                    .tick_vertices(input.delta_seconds, locomotion_speed_meters_per_second)
+                    .map_err(js_error)?,
+            )
+        };
         self.renderer
             .update_mesh_vertices(mesh_handle, &vertices, MODEL_VERTEX_FLOATS)
     }
@@ -1616,6 +1773,52 @@ fn browser_game_input_from_js(frame: &JsValue) -> Result<BrowserGameInput, JsVal
         fast: js_required_bool(&movement, "fast", "frame.movement.fast")?,
         look_delta_x: js_required_f32(&look, "deltaX", "frame.look.deltaX")?,
         look_delta_y: js_required_f32(&look, "deltaY", "frame.look.deltaY")?,
+    })
+}
+
+fn player_locomotion_speed_meters_per_second(input: BrowserGameInput) -> f32 {
+    let horizontal_magnitude = input
+        .forward
+        .mul_add(input.forward, input.right * input.right)
+        .sqrt()
+        .min(1.0);
+    if horizontal_magnitude <= 0.0 {
+        return 0.0;
+    }
+
+    let speed_multiplier = if input.fast { 3.0 } else { 1.0 };
+    PlayerConfig::default().move_speed * speed_multiplier * horizontal_magnitude
+}
+
+fn player_animation_tuning_from_js(
+    command: &JsValue,
+) -> Result<PlayerCharacterLocomotionTuning, JsValue> {
+    Ok(PlayerCharacterLocomotionTuning {
+        walk_speed_meters_per_second: js_required_f32(
+            command,
+            "walkSpeedMetersPerSecond",
+            "command.walkSpeedMetersPerSecond",
+        )?,
+        run_speed_meters_per_second: js_required_f32(
+            command,
+            "runSpeedMetersPerSecond",
+            "command.runSpeedMetersPerSecond",
+        )?,
+        idle_playback_scale: js_required_f32(
+            command,
+            "idlePlaybackScale",
+            "command.idlePlaybackScale",
+        )?,
+        walk_playback_scale: js_required_f32(
+            command,
+            "walkPlaybackScale",
+            "command.walkPlaybackScale",
+        )?,
+        run_playback_scale: js_required_f32(
+            command,
+            "runPlaybackScale",
+            "command.runPlaybackScale",
+        )?,
     })
 }
 

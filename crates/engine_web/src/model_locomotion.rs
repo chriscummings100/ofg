@@ -10,12 +10,13 @@ use crate::model_assets::{
     model_primitive_vertex_floats, ModelAsset, ModelAssetError, ModelMaterial, ModelNodeTransform,
     ModelPrimitive,
 };
-use crate::model_render_assets::{first_primitive_node_index, ModelRenderAssetError};
+use crate::model_render_assets::ModelRenderAssetError;
 use crate::model_skinning::{skin_joint_matrices, skin_primitive_vertices};
 use crate::render_uniforms::MATERIAL_PACKET_FLOATS;
 
-pub const QUATERNIUS_IDLE_CLIP_NAME: &str = "Idle_FoldArms_Loop";
-pub const QUATERNIUS_WALK_CLIP_NAME: &str = "Walk_Carry_Loop";
+pub const QUATERNIUS_IDLE_CLIP_NAME: &str = "Idle_Loop";
+pub const QUATERNIUS_WALK_CLIP_NAME: &str = "Walk_Loop";
+pub const QUATERNIUS_RUN_CLIP_NAME: &str = "Sprint_Loop";
 const DEFAULT_BLEND_DURATION_SECONDS: f32 = 0.18;
 const MOVEMENT_EPSILON: f32 = 0.01;
 
@@ -39,6 +40,30 @@ pub struct PlayerCharacterAnimationSnapshot {
     pub time_seconds: f32,
     pub duration_seconds: f32,
     pub blend_weight: f32,
+    pub walk_run_blend_weight: f32,
+    pub playback_scale: f32,
+    pub locomotion_speed_meters_per_second: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PlayerCharacterLocomotionTuning {
+    pub walk_speed_meters_per_second: f32,
+    pub run_speed_meters_per_second: f32,
+    pub idle_playback_scale: f32,
+    pub walk_playback_scale: f32,
+    pub run_playback_scale: f32,
+}
+
+impl Default for PlayerCharacterLocomotionTuning {
+    fn default() -> Self {
+        Self {
+            walk_speed_meters_per_second: 5.5,
+            run_speed_meters_per_second: 16.5,
+            idle_playback_scale: 1.0,
+            walk_playback_scale: 1.0,
+            run_playback_scale: 1.0,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -46,6 +71,8 @@ pub enum PlayerCharacterModelError {
     MissingAnimationClip { name: String },
     InvalidBlendDuration(f32),
     InvalidDeltaSeconds(f32),
+    InvalidLocomotionSpeed(f32),
+    InvalidLocomotionTuning(&'static str, f32),
     ModelAsset(ModelAssetError),
     MaterialPacket(MaterialPacketError),
     RenderAsset(ModelRenderAssetError),
@@ -55,42 +82,45 @@ pub enum PlayerCharacterModelError {
 pub struct LocomotionAnimationController {
     idle_clip: ModelAnimationClip,
     walk_clip: ModelAnimationClip,
+    run_clip: ModelAnimationClip,
     idle_time_seconds: f32,
     walk_time_seconds: f32,
-    active: LocomotionClip,
-    next: Option<LocomotionClip>,
+    run_time_seconds: f32,
+    active: LocomotionState,
+    next: Option<LocomotionState>,
     blend_elapsed_seconds: f32,
     blend_duration_seconds: f32,
+    tuning: PlayerCharacterLocomotionTuning,
+    last_locomotion_speed_meters_per_second: f32,
+    last_walk_run_blend_weight: f32,
+    last_playback_scale: f32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum LocomotionClip {
+enum LocomotionState {
     Idle,
+    Moving,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum MovementClip {
     Walk,
+    Run,
 }
 
 impl PlayerCharacterModel {
     /// Builds the runtime player character from a skinned GLTF model asset.
     pub fn from_model(model: ModelAsset) -> Result<Self, PlayerCharacterModelError> {
-        let primitive =
-            model
-                .primitives
-                .first()
-                .cloned()
-                .ok_or(PlayerCharacterModelError::RenderAsset(
-                    ModelRenderAssetError::MissingPrimitive,
-                ))?;
-        let mesh_node_index =
-            first_primitive_node_index(&model).map_err(PlayerCharacterModelError::RenderAsset)?;
-        let skin_index =
-            model.nodes[mesh_node_index]
-                .skin
-                .ok_or(PlayerCharacterModelError::RenderAsset(
-                    ModelRenderAssetError::MissingSkinForNode {
-                        node_index: mesh_node_index,
-                    },
-                ))?;
-        let skin_joint_count = model
+        Self::from_body_and_animation_models(model.clone(), &model)
+    }
+
+    /// Builds the runtime player character from a skinned body and animation source model.
+    pub fn from_body_and_animation_models(
+        body_model: ModelAsset,
+        animation_model: &ModelAsset,
+    ) -> Result<Self, PlayerCharacterModelError> {
+        let (primitive, mesh_node_index, skin_index) = largest_skinned_primitive(&body_model)?;
+        let skin_joint_count = body_model
             .skins
             .get(skin_index)
             .ok_or(PlayerCharacterModelError::ModelAsset(
@@ -98,27 +128,30 @@ impl PlayerCharacterModel {
             ))?
             .joints
             .len();
-        let idle_clip = named_animation_clip(&model, QUATERNIUS_IDLE_CLIP_NAME)?;
-        let walk_clip = named_animation_clip(&model, QUATERNIUS_WALK_CLIP_NAME)?;
+        let idle_clip = named_animation_clip(animation_model, QUATERNIUS_IDLE_CLIP_NAME)?;
+        let walk_clip = named_animation_clip(animation_model, QUATERNIUS_WALK_CLIP_NAME)?;
+        let run_clip = named_animation_clip(animation_model, QUATERNIUS_RUN_CLIP_NAME)?;
         let material = primitive
             .material
-            .and_then(|material_index| model.materials.get(material_index));
+            .and_then(|material_index| body_model.materials.get(material_index));
         let material_packet = model_material_packet(material)?;
-        let node_base_transforms = model
+        let node_base_transforms = body_model
             .nodes
             .iter()
             .map(|node| node.local_transform)
             .collect();
 
         Ok(Self {
-            model,
+            model: body_model,
             primitive,
             skin_index,
             node_base_transforms,
             controller: LocomotionAnimationController::new(
                 idle_clip,
                 walk_clip,
+                run_clip,
                 DEFAULT_BLEND_DURATION_SECONDS,
+                PlayerCharacterLocomotionTuning::default(),
             )?,
             material_packet,
             mesh_node_index,
@@ -139,12 +172,13 @@ impl PlayerCharacterModel {
     pub fn tick_vertices(
         &mut self,
         delta_seconds: f32,
-        horizontal_movement: [f32; 2],
+        locomotion_speed_meters_per_second: f32,
     ) -> Result<Vec<f32>, PlayerCharacterModelError> {
-        let moving = horizontal_movement_is_active(horizontal_movement);
-        let pose =
-            self.controller
-                .advance_pose(&self.node_base_transforms, delta_seconds, moving)?;
+        let pose = self.controller.advance_pose(
+            &self.node_base_transforms,
+            delta_seconds,
+            locomotion_speed_meters_per_second,
+        )?;
         self.vertices_for_pose(&pose)
     }
 
@@ -173,6 +207,19 @@ impl PlayerCharacterModel {
         self.controller.snapshot()
     }
 
+    /// Returns the current numeric locomotion tuning.
+    pub fn locomotion_tuning(&self) -> PlayerCharacterLocomotionTuning {
+        self.controller.tuning()
+    }
+
+    /// Replaces numeric locomotion tuning for this character.
+    pub fn set_locomotion_tuning(
+        &mut self,
+        tuning: PlayerCharacterLocomotionTuning,
+    ) -> Result<(), PlayerCharacterModelError> {
+        self.controller.set_tuning(tuning)
+    }
+
     /// CPU-skins one sampled pose into the renderer's model vertex layout.
     fn vertices_for_pose(
         &self,
@@ -192,27 +239,36 @@ impl PlayerCharacterModel {
 }
 
 impl LocomotionAnimationController {
-    /// Creates an idle/walk animation controller with a fixed crossfade time.
+    /// Creates an idle/walk/run animation controller with a fixed crossfade time.
     pub fn new(
         idle_clip: ModelAnimationClip,
         walk_clip: ModelAnimationClip,
+        run_clip: ModelAnimationClip,
         blend_duration_seconds: f32,
+        tuning: PlayerCharacterLocomotionTuning,
     ) -> Result<Self, PlayerCharacterModelError> {
         if !blend_duration_seconds.is_finite() || blend_duration_seconds <= 0.0 {
             return Err(PlayerCharacterModelError::InvalidBlendDuration(
                 blend_duration_seconds,
             ));
         }
+        validate_locomotion_tuning(tuning)?;
 
         Ok(Self {
             idle_clip,
             walk_clip,
+            run_clip,
             idle_time_seconds: 0.0,
             walk_time_seconds: 0.0,
-            active: LocomotionClip::Idle,
+            run_time_seconds: 0.0,
+            active: LocomotionState::Idle,
             next: None,
             blend_elapsed_seconds: 0.0,
             blend_duration_seconds,
+            tuning,
+            last_locomotion_speed_meters_per_second: 0.0,
+            last_walk_run_blend_weight: 0.0,
+            last_playback_scale: tuning.idle_playback_scale,
         })
     }
 
@@ -221,48 +277,73 @@ impl LocomotionAnimationController {
         &self,
         base_transforms: &[ModelNodeTransform],
     ) -> Result<Vec<ModelNodeTransform>, ModelAssetError> {
-        self.sample_pose(self.active, base_transforms)
+        self.sample_state_pose(
+            self.active,
+            base_transforms,
+            self.last_locomotion_speed_meters_per_second,
+        )
     }
 
-    /// Advances clip clocks, updates the target clip, and returns the blended pose.
+    /// Advances clip clocks, updates target locomotion state, and returns the blended pose.
     pub fn advance_pose(
         &mut self,
         base_transforms: &[ModelNodeTransform],
         delta_seconds: f32,
-        moving: bool,
+        locomotion_speed_meters_per_second: f32,
     ) -> Result<Vec<ModelNodeTransform>, PlayerCharacterModelError> {
         if !delta_seconds.is_finite() || delta_seconds < 0.0 {
             return Err(PlayerCharacterModelError::InvalidDeltaSeconds(
                 delta_seconds,
             ));
         }
+        if !locomotion_speed_meters_per_second.is_finite()
+            || locomotion_speed_meters_per_second < 0.0
+        {
+            return Err(PlayerCharacterModelError::InvalidLocomotionSpeed(
+                locomotion_speed_meters_per_second,
+            ));
+        }
 
-        let desired = if moving {
-            LocomotionClip::Walk
+        let desired = if locomotion_speed_meters_per_second > MOVEMENT_EPSILON {
+            LocomotionState::Moving
         } else {
-            LocomotionClip::Idle
+            LocomotionState::Idle
         };
-        if desired != self.target_clip() {
+        if desired != self.target_state() {
             self.next = Some(desired);
             self.blend_elapsed_seconds = 0.0;
         }
 
-        self.idle_time_seconds += delta_seconds;
-        self.walk_time_seconds += delta_seconds;
+        self.last_locomotion_speed_meters_per_second = locomotion_speed_meters_per_second;
+        self.last_walk_run_blend_weight =
+            walk_run_blend_weight(locomotion_speed_meters_per_second, self.tuning);
+        self.last_playback_scale =
+            playback_scale_for_speed(locomotion_speed_meters_per_second, self.tuning);
+        self.idle_time_seconds += delta_seconds * self.tuning.idle_playback_scale;
+        self.walk_time_seconds += delta_seconds * self.tuning.walk_playback_scale;
+        self.run_time_seconds += delta_seconds * self.tuning.run_playback_scale;
 
         let Some(next) = self.next else {
             return self
-                .sample_pose(self.active, base_transforms)
+                .sample_state_pose(
+                    self.active,
+                    base_transforms,
+                    locomotion_speed_meters_per_second,
+                )
                 .map_err(PlayerCharacterModelError::ModelAsset);
         };
 
         self.blend_elapsed_seconds += delta_seconds;
         let blend_weight = self.blend_weight();
         let from_pose = self
-            .sample_pose(self.active, base_transforms)
+            .sample_state_pose(
+                self.active,
+                base_transforms,
+                locomotion_speed_meters_per_second,
+            )
             .map_err(PlayerCharacterModelError::ModelAsset)?;
         let to_pose = self
-            .sample_pose(next, base_transforms)
+            .sample_state_pose(next, base_transforms, locomotion_speed_meters_per_second)
             .map_err(PlayerCharacterModelError::ModelAsset)?;
         if blend_weight >= 1.0 {
             self.active = next;
@@ -277,55 +358,131 @@ impl LocomotionAnimationController {
 
     /// Returns the current animation debug state.
     pub fn snapshot(&self) -> PlayerCharacterAnimationSnapshot {
-        let active_clip = self.clip(self.active);
+        let active_clip =
+            self.state_clip(self.active, self.last_locomotion_speed_meters_per_second);
 
         PlayerCharacterAnimationSnapshot {
             runtime: "rust",
-            active_clip_name: self.clip_name(self.active),
-            next_clip_name: self.next.map(|clip| self.clip_name(clip)),
-            time_seconds: active_clip.wrapped_time(self.clip_time_seconds(self.active)),
+            active_clip_name: self
+                .state_clip_name(self.active, self.last_locomotion_speed_meters_per_second),
+            next_clip_name: self.next.map(|clip| {
+                self.state_clip_name(clip, self.last_locomotion_speed_meters_per_second)
+            }),
+            time_seconds: active_clip.wrapped_time(self.state_clip_time_seconds(
+                self.active,
+                self.last_locomotion_speed_meters_per_second,
+            )),
             duration_seconds: active_clip.duration_seconds,
             blend_weight: self.blend_weight(),
+            walk_run_blend_weight: self.last_walk_run_blend_weight,
+            playback_scale: self.last_playback_scale,
+            locomotion_speed_meters_per_second: self.last_locomotion_speed_meters_per_second,
         }
     }
 
-    /// Returns the active clip, or an in-flight transition target.
-    fn target_clip(&self) -> LocomotionClip {
+    /// Returns the active state, or an in-flight transition target.
+    fn target_state(&self) -> LocomotionState {
         self.next.unwrap_or(self.active)
     }
 
-    /// Samples one controller clip over the base model pose.
-    fn sample_pose(
+    /// Samples one controller state over the base model pose.
+    fn sample_state_pose(
         &self,
-        clip: LocomotionClip,
+        state: LocomotionState,
         base_transforms: &[ModelNodeTransform],
+        locomotion_speed_meters_per_second: f32,
     ) -> Result<Vec<ModelNodeTransform>, ModelAssetError> {
-        self.clip(clip)
-            .sample_transforms(base_transforms, self.clip_time_seconds(clip))
-    }
-
-    /// Returns one of the controller clips.
-    fn clip(&self, clip: LocomotionClip) -> &ModelAnimationClip {
-        match clip {
-            LocomotionClip::Idle => &self.idle_clip,
-            LocomotionClip::Walk => &self.walk_clip,
+        match state {
+            LocomotionState::Idle => self
+                .idle_clip
+                .sample_transforms(base_transforms, self.idle_time_seconds),
+            LocomotionState::Moving => {
+                let walk_pose = self
+                    .walk_clip
+                    .sample_transforms(base_transforms, self.walk_time_seconds)?;
+                let run_pose = self
+                    .run_clip
+                    .sample_transforms(base_transforms, self.run_time_seconds)?;
+                blend_node_transforms(
+                    &walk_pose,
+                    &run_pose,
+                    walk_run_blend_weight(locomotion_speed_meters_per_second, self.tuning),
+                )
+            }
         }
     }
 
-    /// Returns one of the controller clip clocks.
-    fn clip_time_seconds(&self, clip: LocomotionClip) -> f32 {
-        match clip {
-            LocomotionClip::Idle => self.idle_time_seconds,
-            LocomotionClip::Walk => self.walk_time_seconds,
+    /// Returns the dominant debug clip for one controller state.
+    fn state_clip(
+        &self,
+        state: LocomotionState,
+        locomotion_speed_meters_per_second: f32,
+    ) -> &ModelAnimationClip {
+        match state {
+            LocomotionState::Idle => &self.idle_clip,
+            LocomotionState::Moving => {
+                match dominant_movement_clip(locomotion_speed_meters_per_second, self.tuning) {
+                    MovementClip::Walk => &self.walk_clip,
+                    MovementClip::Run => &self.run_clip,
+                }
+            }
         }
     }
 
-    /// Returns a stable debug name for one controller clip.
-    fn clip_name(&self, clip: LocomotionClip) -> String {
-        self.clip(clip).name.clone().unwrap_or_else(|| match clip {
-            LocomotionClip::Idle => "idle".to_string(),
-            LocomotionClip::Walk => "walk".to_string(),
-        })
+    /// Returns the dominant debug clock for one controller state.
+    fn state_clip_time_seconds(
+        &self,
+        state: LocomotionState,
+        locomotion_speed_meters_per_second: f32,
+    ) -> f32 {
+        match state {
+            LocomotionState::Idle => self.idle_time_seconds,
+            LocomotionState::Moving => {
+                match dominant_movement_clip(locomotion_speed_meters_per_second, self.tuning) {
+                    MovementClip::Walk => self.walk_time_seconds,
+                    MovementClip::Run => self.run_time_seconds,
+                }
+            }
+        }
+    }
+
+    /// Returns a stable debug name for one controller state.
+    fn state_clip_name(
+        &self,
+        state: LocomotionState,
+        locomotion_speed_meters_per_second: f32,
+    ) -> String {
+        self.state_clip(state, locomotion_speed_meters_per_second)
+            .name
+            .clone()
+            .unwrap_or_else(|| match state {
+                LocomotionState::Idle => "idle".to_string(),
+                LocomotionState::Moving => {
+                    match dominant_movement_clip(locomotion_speed_meters_per_second, self.tuning) {
+                        MovementClip::Walk => "walk".to_string(),
+                        MovementClip::Run => "run".to_string(),
+                    }
+                }
+            })
+    }
+
+    /// Returns the configured locomotion tuning.
+    pub fn tuning(&self) -> PlayerCharacterLocomotionTuning {
+        self.tuning
+    }
+
+    /// Replaces numeric locomotion tuning after validating all values.
+    pub fn set_tuning(
+        &mut self,
+        tuning: PlayerCharacterLocomotionTuning,
+    ) -> Result<(), PlayerCharacterModelError> {
+        validate_locomotion_tuning(tuning)?;
+        self.tuning = tuning;
+        self.last_walk_run_blend_weight =
+            walk_run_blend_weight(self.last_locomotion_speed_meters_per_second, self.tuning);
+        self.last_playback_scale =
+            playback_scale_for_speed(self.last_locomotion_speed_meters_per_second, self.tuning);
+        Ok(())
     }
 
     /// Returns the normalized crossfade weight.
@@ -356,6 +513,14 @@ impl fmt::Display for PlayerCharacterModelError {
                 formatter,
                 "glTF player animation delta time was invalid: {delta_seconds}"
             ),
+            Self::InvalidLocomotionSpeed(speed) => write!(
+                formatter,
+                "glTF player locomotion speed was invalid: {speed}"
+            ),
+            Self::InvalidLocomotionTuning(field, value) => write!(
+                formatter,
+                "glTF player locomotion tuning field '{field}' was invalid: {value}"
+            ),
             Self::ModelAsset(error) => write!(formatter, "{error}"),
             Self::MaterialPacket(error) => write!(formatter, "{error:?}"),
             Self::RenderAsset(error) => write!(formatter, "{error}"),
@@ -384,6 +549,134 @@ fn named_animation_clip(
         .ok_or_else(|| PlayerCharacterModelError::MissingAnimationClip {
             name: name.to_string(),
         })
+}
+
+/// Selects the largest primitive that is attached to a skinned mesh node.
+fn largest_skinned_primitive(
+    model: &ModelAsset,
+) -> Result<(ModelPrimitive, usize, usize), PlayerCharacterModelError> {
+    if model.primitives.is_empty() {
+        return Err(PlayerCharacterModelError::RenderAsset(
+            ModelRenderAssetError::MissingPrimitive,
+        ));
+    }
+
+    let mut best: Option<(&ModelPrimitive, usize, usize)> = None;
+    for primitive in &model.primitives {
+        let Some((node_index, node)) = model
+            .nodes
+            .iter()
+            .enumerate()
+            .find(|(_, node)| node.mesh == Some(primitive.mesh_index) && node.skin.is_some())
+        else {
+            continue;
+        };
+        let skin_index = node.skin.expect("node skin was checked above");
+        if best.as_ref().map_or(true, |(best_primitive, _, _)| {
+            primitive.vertices.len() > best_primitive.vertices.len()
+        }) {
+            best = Some((primitive, node_index, skin_index));
+        }
+    }
+
+    if let Some((primitive, node_index, skin_index)) = best {
+        return Ok((primitive.clone(), node_index, skin_index));
+    }
+
+    let primitive = model
+        .primitives
+        .first()
+        .ok_or(PlayerCharacterModelError::RenderAsset(
+            ModelRenderAssetError::MissingPrimitive,
+        ))?;
+    let Some(node_index) = model
+        .nodes
+        .iter()
+        .position(|node| node.mesh == Some(primitive.mesh_index))
+    else {
+        return Err(PlayerCharacterModelError::RenderAsset(
+            ModelRenderAssetError::MissingMeshNode {
+                mesh_index: primitive.mesh_index,
+            },
+        ));
+    };
+
+    Err(PlayerCharacterModelError::RenderAsset(
+        ModelRenderAssetError::MissingSkinForNode { node_index },
+    ))
+}
+
+/// Returns the movement blend from walk to run for a controller speed.
+fn walk_run_blend_weight(
+    locomotion_speed_meters_per_second: f32,
+    tuning: PlayerCharacterLocomotionTuning,
+) -> f32 {
+    if locomotion_speed_meters_per_second <= MOVEMENT_EPSILON {
+        return 0.0;
+    }
+
+    let range = tuning.run_speed_meters_per_second - tuning.walk_speed_meters_per_second;
+    ((locomotion_speed_meters_per_second - tuning.walk_speed_meters_per_second) / range)
+        .clamp(0.0, 1.0)
+}
+
+/// Returns the playback scale that best describes the current locomotion speed.
+fn playback_scale_for_speed(
+    locomotion_speed_meters_per_second: f32,
+    tuning: PlayerCharacterLocomotionTuning,
+) -> f32 {
+    if locomotion_speed_meters_per_second <= MOVEMENT_EPSILON {
+        return tuning.idle_playback_scale;
+    }
+
+    let run_weight = walk_run_blend_weight(locomotion_speed_meters_per_second, tuning);
+    tuning.walk_playback_scale * (1.0 - run_weight) + tuning.run_playback_scale * run_weight
+}
+
+/// Returns the dominant named movement clip for debug snapshots.
+fn dominant_movement_clip(
+    locomotion_speed_meters_per_second: f32,
+    tuning: PlayerCharacterLocomotionTuning,
+) -> MovementClip {
+    if walk_run_blend_weight(locomotion_speed_meters_per_second, tuning) >= 0.5 {
+        MovementClip::Run
+    } else {
+        MovementClip::Walk
+    }
+}
+
+/// Validates numeric locomotion tuning before it can affect animation state.
+fn validate_locomotion_tuning(
+    tuning: PlayerCharacterLocomotionTuning,
+) -> Result<(), PlayerCharacterModelError> {
+    let positive_fields = [
+        (
+            "walkSpeedMetersPerSecond",
+            tuning.walk_speed_meters_per_second,
+        ),
+        (
+            "runSpeedMetersPerSecond",
+            tuning.run_speed_meters_per_second,
+        ),
+        ("idlePlaybackScale", tuning.idle_playback_scale),
+        ("walkPlaybackScale", tuning.walk_playback_scale),
+        ("runPlaybackScale", tuning.run_playback_scale),
+    ];
+    for (field, value) in positive_fields {
+        if !value.is_finite() || value <= 0.0 {
+            return Err(PlayerCharacterModelError::InvalidLocomotionTuning(
+                field, value,
+            ));
+        }
+    }
+    if tuning.run_speed_meters_per_second <= tuning.walk_speed_meters_per_second {
+        return Err(PlayerCharacterModelError::InvalidLocomotionTuning(
+            "runSpeedMetersPerSecond",
+            tuning.run_speed_meters_per_second,
+        ));
+    }
+
+    Ok(())
 }
 
 /// Builds the fallback material packet for the current model pipeline.

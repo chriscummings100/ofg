@@ -266,7 +266,7 @@ impl BrowserGameState {
             height_offset,
         });
         if self.engine.player_rig().is_some() {
-            self.replace_configured_player_character()?;
+            self.apply_configured_player_character()?;
         }
 
         Ok(())
@@ -581,12 +581,37 @@ impl BrowserGameState {
         self.spawn_configured_static_model()
     }
 
-    fn replace_configured_player_character(&mut self) -> Result<(), BrowserGameStateError> {
-        if let Some(state) = self.player_character_scene_state.take() {
-            self.destroy_model_scene(state)?;
+    fn apply_configured_player_character(&mut self) -> Result<(), BrowserGameStateError> {
+        let Some(state) = self.player_character_scene_state else {
+            return self.spawn_configured_player_character();
+        };
+        let Some(config) = self.player_character_scene.clone() else {
+            return Ok(());
+        };
+
+        let mesh = self
+            .engine
+            .scene_mut()
+            .resources_mut()
+            .register_mesh(&config.mesh_label);
+        let material = self
+            .engine
+            .scene_mut()
+            .resources_mut()
+            .register_material(&config.material_label);
+        {
+            let mut mesh_entity = self
+                .engine
+                .scene_mut()
+                .entity_mut(state.mesh_entity)
+                .map_err(EngineError::from)?;
+            if let Some(renderer) = mesh_entity.mesh_renderer_mut() {
+                renderer.mesh = mesh;
+                renderer.material = material;
+            }
         }
 
-        self.spawn_configured_player_character()
+        self.sync_player_character_scene()
     }
 
     fn destroy_model_scene(&mut self, state: ModelSceneState) -> Result<(), BrowserGameStateError> {

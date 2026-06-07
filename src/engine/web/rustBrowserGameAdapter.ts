@@ -6,6 +6,7 @@ import {
 import type { BrowserTextureAssetLoader } from "../browser/textureAssetLoader.js";
 import type {
   BrowserFrameInput,
+  PlayerCharacterId,
   PlayerMode,
   RustBrowserGameCommand,
   RustBrowserGameDebugSnapshot,
@@ -80,6 +81,10 @@ export class RustBrowserGameAdapter {
       terrainWorkerCount: snapshot.terrainWorkerCount,
       playerControllerRuntime: snapshot.playerControllerRuntime,
       rendererStatus: snapshot.rendererStatus,
+      playerCharacterId: snapshot.playerCharacterId === undefined
+        ? undefined
+        : validatePlayerCharacterId(snapshot.playerCharacterId),
+      playerCharacterLabel: snapshot.playerCharacterLabel,
       playerCharacterRuntime: snapshot.playerCharacterRuntime,
       playerCharacterVisible: snapshot.playerCharacterVisible,
       playerCharacterFollowsPlayer: snapshot.playerCharacterFollowsPlayer,
@@ -90,6 +95,15 @@ export class RustBrowserGameAdapter {
       modelAnimationTimeSeconds: snapshot.modelAnimationTimeSeconds,
       modelAnimationDurationSeconds: snapshot.modelAnimationDurationSeconds,
       modelAnimationBlendWeight: snapshot.modelAnimationBlendWeight,
+      modelAnimationWalkRunBlendWeight: snapshot.modelAnimationWalkRunBlendWeight,
+      modelAnimationPlaybackScale: snapshot.modelAnimationPlaybackScale,
+      modelAnimationLocomotionSpeedMetersPerSecond:
+        snapshot.modelAnimationLocomotionSpeedMetersPerSecond,
+      modelAnimationWalkSpeedMetersPerSecond: snapshot.modelAnimationWalkSpeedMetersPerSecond,
+      modelAnimationRunSpeedMetersPerSecond: snapshot.modelAnimationRunSpeedMetersPerSecond,
+      modelAnimationIdlePlaybackScale: snapshot.modelAnimationIdlePlaybackScale,
+      modelAnimationWalkPlaybackScale: snapshot.modelAnimationWalkPlaybackScale,
+      modelAnimationRunPlaybackScale: snapshot.modelAnimationRunPlaybackScale,
       modelSkinningRuntime: snapshot.modelSkinningRuntime,
       modelSkinningJointCount: snapshot.modelSkinningJointCount
     };
@@ -111,4 +125,12 @@ function validatePlayerMode(mode: PlayerMode): PlayerMode {
   }
 
   throw new Error(`Rust browser game returned unknown player mode '${mode}'.`);
+}
+
+function validatePlayerCharacterId(character: PlayerCharacterId): PlayerCharacterId {
+  if (character === "male" || character === "female") {
+    return character;
+  }
+
+  throw new Error(`Rust browser game returned unknown player character '${character}'.`);
 }

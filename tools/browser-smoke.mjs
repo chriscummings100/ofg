@@ -83,9 +83,21 @@ async function runBrowserSmoke(url) {
     assertRendererRuntime(rendererRuntime);
     assertPlayerCharacterRendererResources(rendererRuntime, initialTerrain, false);
     const firstPlayerCharacter = await readPlayerCharacterDebug(page);
-    assertPlayerCharacterDebug(firstPlayerCharacter, false);
+    assertPlayerCharacterDebug(firstPlayerCharacter, false, "male");
     const firstModelAnimation = await readModelAnimationDebug(page);
     assertModelAnimationDebug(firstModelAnimation);
+    await page.evaluate(() => window.__ofgDebug?.setPlayerAnimationTuning?.({
+      walkPlaybackScale: 0.95
+    }));
+    await page.waitForFunction(() => {
+      return Math.abs((window.__ofgDebug?.getModelAnimationWalkPlaybackScale?.() ?? 0) - 0.95) < 0.001;
+    }, null, { timeout: 5000 });
+    await page.evaluate(() => window.__ofgDebug?.setPlayerAnimationTuning?.({
+      walkPlaybackScale: 1
+    }));
+    await page.waitForFunction(() => {
+      return Math.abs((window.__ofgDebug?.getModelAnimationWalkPlaybackScale?.() ?? 0) - 1) < 0.001;
+    }, null, { timeout: 5000 });
     await page.waitForTimeout(300);
     const advancedModelAnimation = await readModelAnimationDebug(page);
     assertModelAnimationAdvanced(firstModelAnimation, advancedModelAnimation);
@@ -94,20 +106,20 @@ async function runBrowserSmoke(url) {
     await page.keyboard.down("KeyW");
     await page.waitForFunction(() => {
       const debug = window.__ofgDebug;
-      return debug?.getActiveModelAnimationClip?.() === "Walk_Carry_Loop";
+      return debug?.getActiveModelAnimationClip?.() === "Walk_Loop";
     }, null, { timeout: 5000 });
     const movingModelAnimation = await readModelAnimationDebug(page);
     assertModelAnimationMoving(movingModelAnimation);
     await page.keyboard.up("KeyW");
     await page.waitForFunction(() => {
       const debug = window.__ofgDebug;
-      return debug?.getNextModelAnimationClip?.() === "Idle_FoldArms_Loop";
+      return debug?.getNextModelAnimationClip?.() === "Idle_Loop";
     }, null, { timeout: 5000 });
     const returnedModelAnimation = await readModelAnimationDebug(page);
     assertModelAnimationReturnedToIdle(returnedModelAnimation);
     await page.waitForFunction(() => {
       const debug = window.__ofgDebug;
-      return debug?.getActiveModelAnimationClip?.() === "Idle_FoldArms_Loop" &&
+      return debug?.getActiveModelAnimationClip?.() === "Idle_Loop" &&
         (debug?.getNextModelAnimationClip?.() ?? "") === "" &&
         debug?.getModelAnimationBlendWeight?.() === 0;
     }, null, { timeout: 5000 });
@@ -125,15 +137,27 @@ async function runBrowserSmoke(url) {
     screenshots.push(thirdScreenshot.path);
     assertPixelStats(thirdScreenshot.stats, "third-person", consoleMessages);
     const thirdPlayerCharacter = await readPlayerCharacterDebug(page);
-    assertPlayerCharacterDebug(thirdPlayerCharacter, true);
+    assertPlayerCharacterDebug(thirdPlayerCharacter, true, "male");
     const thirdRendererRuntime = await readRendererRuntime(page);
     assertRendererRuntime(thirdRendererRuntime);
     assertPlayerCharacterRendererResources(thirdRendererRuntime, initialTerrain, true);
 
+    await page.click("#character-toggle");
+    await page.waitForFunction(() => {
+      return window.__ofgDebug?.getPlayerCharacterId?.() === "female" &&
+        document.querySelector("#character-toggle")?.textContent?.trim() === "Female";
+    }, null, { timeout: 5000 });
+    await page.waitForTimeout(250);
+    const femalePlayerCharacter = await readPlayerCharacterDebug(page);
+    assertPlayerCharacterDebug(femalePlayerCharacter, true, "female");
+    const femaleScreenshot = await saveScreenshot(page, "third-person-female.png");
+    screenshots.push(femaleScreenshot.path);
+    assertPixelStats(femaleScreenshot.stats, "third-person-female", consoleMessages);
+
     await page.keyboard.down("KeyW");
     await page.waitForFunction(() => {
       const debug = window.__ofgDebug;
-      return debug?.getActiveModelAnimationClip?.() === "Walk_Carry_Loop";
+      return debug?.getActiveModelAnimationClip?.() === "Walk_Loop";
     }, null, { timeout: 5000 });
     await page.waitForTimeout(250);
     const thirdWalkModelAnimation = await readModelAnimationDebug(page);
@@ -141,6 +165,19 @@ async function runBrowserSmoke(url) {
     const thirdWalkScreenshot = await saveScreenshot(page, "third-person-walk.png");
     screenshots.push(thirdWalkScreenshot.path);
     assertPixelStats(thirdWalkScreenshot.stats, "third-person-walk", consoleMessages);
+    await page.keyboard.down("ShiftLeft");
+    await page.waitForFunction(() => {
+      const debug = window.__ofgDebug;
+      return debug?.getActiveModelAnimationClip?.() === "Sprint_Loop" &&
+        (debug?.getModelAnimationWalkRunBlendWeight?.() ?? 0) > 0.8;
+    }, null, { timeout: 5000 });
+    await page.waitForTimeout(250);
+    const sprintModelAnimation = await readModelAnimationDebug(page);
+    assertModelAnimationRunning(sprintModelAnimation);
+    const sprintScreenshot = await saveScreenshot(page, "third-person-sprint.png");
+    screenshots.push(sprintScreenshot.path);
+    assertPixelStats(sprintScreenshot.stats, "third-person-sprint", consoleMessages);
+    await page.keyboard.up("ShiftLeft");
     await page.keyboard.up("KeyW");
 
     await page.reload({ waitUntil: "load" });
@@ -163,7 +200,7 @@ async function runBrowserSmoke(url) {
     assertRendererRuntime(refreshedRendererRuntime);
     assertPlayerCharacterRendererResources(refreshedRendererRuntime, refreshedTerrain, false);
     const refreshedPlayerCharacter = await readPlayerCharacterDebug(page);
-    assertPlayerCharacterDebug(refreshedPlayerCharacter, false);
+    assertPlayerCharacterDebug(refreshedPlayerCharacter, false, "male");
 
     const beforeResetStreamStatus = await readTerrainStreamStatus(page);
     await page.evaluate(() => window.__ofgDebug?.resetTerrainStreaming());
@@ -192,7 +229,7 @@ async function runBrowserSmoke(url) {
     screenshots.push(flyScreenshot.path);
     assertPixelStats(flyScreenshot.stats, "debug-fly", consoleMessages);
     const flyPlayerCharacter = await readPlayerCharacterDebug(page);
-    assertPlayerCharacterDebug(flyPlayerCharacter, true);
+    assertPlayerCharacterDebug(flyPlayerCharacter, true, "male");
     const flyRendererRuntime = await readRendererRuntime(page);
     assertRendererRuntime(flyRendererRuntime);
     const flyTerrain = await readTerrainDebug(page);
@@ -242,10 +279,12 @@ async function runBrowserSmoke(url) {
       movingModelAnimation,
       returnedModelAnimation,
       settledModelAnimation,
+      sprintModelAnimation,
       thirdWalkModelAnimation,
       modelSkinning,
       firstPlayerCharacter,
       thirdPlayerCharacter,
+      femalePlayerCharacter,
       refreshedPlayerCharacter,
       flyPlayerCharacter,
       terrainStreamRuntime: refreshedTerrainStreamRuntime,
@@ -256,7 +295,9 @@ async function runBrowserSmoke(url) {
       firstPixelStats: firstScreenshot.stats,
       refreshedPixelStats: refreshedScreenshot.stats,
       thirdPixelStats: thirdScreenshot.stats,
+      femalePixelStats: femaleScreenshot.stats,
       thirdWalkPixelStats: thirdWalkScreenshot.stats,
+      thirdSprintPixelStats: sprintScreenshot.stats,
       streamedPixelStats: streamedScreenshot.stats,
       flyPixelStats: flyScreenshot.stats,
       consoleMessages
@@ -341,7 +382,18 @@ async function readModelAnimationDebug(page) {
       nextClip: debug?.getNextModelAnimationClip?.() ?? "",
       timeSeconds: debug?.getModelAnimationTimeSeconds?.() ?? Number.NaN,
       durationSeconds: debug?.getModelAnimationDurationSeconds?.() ?? Number.NaN,
-      blendWeight: debug?.getModelAnimationBlendWeight?.() ?? Number.NaN
+      blendWeight: debug?.getModelAnimationBlendWeight?.() ?? Number.NaN,
+      walkRunBlendWeight: debug?.getModelAnimationWalkRunBlendWeight?.() ?? Number.NaN,
+      playbackScale: debug?.getModelAnimationPlaybackScale?.() ?? Number.NaN,
+      locomotionSpeedMetersPerSecond:
+        debug?.getModelAnimationLocomotionSpeedMetersPerSecond?.() ?? Number.NaN,
+      walkSpeedMetersPerSecond:
+        debug?.getModelAnimationWalkSpeedMetersPerSecond?.() ?? Number.NaN,
+      runSpeedMetersPerSecond:
+        debug?.getModelAnimationRunSpeedMetersPerSecond?.() ?? Number.NaN,
+      idlePlaybackScale: debug?.getModelAnimationIdlePlaybackScale?.() ?? Number.NaN,
+      walkPlaybackScale: debug?.getModelAnimationWalkPlaybackScale?.() ?? Number.NaN,
+      runPlaybackScale: debug?.getModelAnimationRunPlaybackScale?.() ?? Number.NaN
     };
   });
 }
@@ -362,6 +414,8 @@ async function readPlayerCharacterDebug(page) {
     const debug = window.__ofgDebug;
 
     return {
+      id: debug?.getPlayerCharacterId?.() ?? "missing",
+      label: debug?.getPlayerCharacterLabel?.() ?? "missing",
       runtime: debug?.getPlayerCharacterRuntime?.() ?? "missing",
       visible: debug?.getPlayerCharacterVisible?.(),
       followsPlayer: debug?.getPlayerCharacterFollowsPlayer?.(),
@@ -415,6 +469,29 @@ function assertModelAnimationDebug(animation) {
   if (!Number.isFinite(animation.blendWeight) || animation.blendWeight < 0 || animation.blendWeight > 1) {
     throw new Error(`Expected normalized model animation blend weight: ${JSON.stringify(animation)}`);
   }
+  if (!Number.isFinite(animation.walkRunBlendWeight) || animation.walkRunBlendWeight < 0 || animation.walkRunBlendWeight > 1) {
+    throw new Error(`Expected normalized walk/run blend weight: ${JSON.stringify(animation)}`);
+  }
+  if (!Number.isFinite(animation.playbackScale) || animation.playbackScale <= 0) {
+    throw new Error(`Expected positive animation playback scale: ${JSON.stringify(animation)}`);
+  }
+  if (!Number.isFinite(animation.locomotionSpeedMetersPerSecond) || animation.locomotionSpeedMetersPerSecond < 0) {
+    throw new Error(`Expected non-negative locomotion speed: ${JSON.stringify(animation)}`);
+  }
+  if (
+    !Number.isFinite(animation.walkSpeedMetersPerSecond) ||
+    !Number.isFinite(animation.runSpeedMetersPerSecond) ||
+    !Number.isFinite(animation.idlePlaybackScale) ||
+    !Number.isFinite(animation.walkPlaybackScale) ||
+    !Number.isFinite(animation.runPlaybackScale) ||
+    animation.walkSpeedMetersPerSecond <= 0 ||
+    animation.runSpeedMetersPerSecond <= animation.walkSpeedMetersPerSecond ||
+    animation.idlePlaybackScale <= 0 ||
+    animation.walkPlaybackScale <= 0 ||
+    animation.runPlaybackScale <= 0
+  ) {
+    throw new Error(`Expected positive model animation tuning values: ${JSON.stringify(animation)}`);
+  }
 }
 
 function assertModelAnimationAdvanced(before, after) {
@@ -432,14 +509,17 @@ function assertModelAnimationAdvanced(before, after) {
 
 function assertModelAnimationMoving(animation) {
   assertModelAnimationDebug(animation);
-  if (animation.activeClip !== "Walk_Carry_Loop") {
+  if (animation.activeClip !== "Walk_Loop") {
     throw new Error(`Expected movement to select the walk clip: ${JSON.stringify(animation)}`);
+  }
+  if (animation.walkRunBlendWeight !== 0) {
+    throw new Error(`Expected normal movement to use walk-only blend: ${JSON.stringify(animation)}`);
   }
 }
 
 function assertModelAnimationReturnedToIdle(animation) {
   assertModelAnimationDebug(animation);
-  if (animation.nextClip !== "Idle_FoldArms_Loop") {
+  if (animation.nextClip !== "Idle_Loop") {
     throw new Error(`Expected released movement to select the idle clip: ${JSON.stringify(animation)}`);
   }
 }
@@ -447,11 +527,24 @@ function assertModelAnimationReturnedToIdle(animation) {
 function assertModelAnimationIdle(animation) {
   assertModelAnimationDebug(animation);
   if (
-    animation.activeClip !== "Idle_FoldArms_Loop" ||
+    animation.activeClip !== "Idle_Loop" ||
     animation.nextClip !== "" ||
     animation.blendWeight !== 0
   ) {
     throw new Error(`Expected model animation to settle on idle: ${JSON.stringify(animation)}`);
+  }
+}
+
+function assertModelAnimationRunning(animation) {
+  assertModelAnimationDebug(animation);
+  if (animation.activeClip !== "Sprint_Loop") {
+    throw new Error(`Expected fast movement to select the sprint clip: ${JSON.stringify(animation)}`);
+  }
+  if (animation.walkRunBlendWeight < 0.8) {
+    throw new Error(`Expected fast movement to use high walk/run blend: ${JSON.stringify(animation)}`);
+  }
+  if (animation.locomotionSpeedMetersPerSecond < 15) {
+    throw new Error(`Expected fast movement speed to track the player controller: ${JSON.stringify(animation)}`);
   }
 }
 
@@ -464,7 +557,13 @@ function assertModelSkinningDebug(skinning) {
   }
 }
 
-function assertPlayerCharacterDebug(character, expectedVisible) {
+function assertPlayerCharacterDebug(character, expectedVisible, expectedId) {
+  if (character.id !== expectedId) {
+    throw new Error(`Unexpected player character ID: ${JSON.stringify({ character, expectedId })}`);
+  }
+  if (typeof character.label !== "string" || character.label.length === 0) {
+    throw new Error(`Expected player character label: ${JSON.stringify(character)}`);
+  }
   if (character.runtime !== "rust") {
     throw new Error(`Expected Rust player character scene runtime, saw '${character.runtime}'.`);
   }
@@ -536,7 +635,7 @@ function assertPlayerCharacterRendererResources(runtime, terrainDebug, expectedV
   }
 
   const terrainDrawCount = terrainDebug.renderChunkKeys.length;
-  const expectedMeshCount = terrainDrawCount + 1; // terrain chunks plus imported player character mesh.
+  const expectedMeshCount = terrainDrawCount + 2; // terrain chunks plus male/female character meshes.
   const expectedDrawCount = terrainDrawCount + (expectedVisible ? 1 : 0);
   if (status.meshCount < expectedMeshCount) {
     throw new Error(`Expected imported player character mesh resource: ${JSON.stringify({ status, terrainDrawCount })}`);

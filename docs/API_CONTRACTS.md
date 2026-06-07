@@ -83,6 +83,11 @@ smoke tests. Current commands are:
 
     { type: "togglePlayerMode" }
     { type: "setPlayerMode", mode: "firstPerson" | "thirdPerson" | "debugFly" }
+    { type: "togglePlayerCharacter" }
+    { type: "setPlayerCharacter", character: "male" | "female" }
+    { type: "setPlayerAnimationTuning", walkSpeedMetersPerSecond,
+      runSpeedMetersPerSecond, idlePlaybackScale, walkPlaybackScale,
+      runPlaybackScale }
     { type: "setPlayerPosition", x, y?, z }
     { type: "setDebugCamera", x, y, z, yaw, pitch }
     { type: "resetStreaming" }
@@ -167,6 +172,9 @@ Current hook categories:
 - Terrain keys and stream status from Rust `debugSnapshot()`.
 - Terrain preset and seed from Rust `debugSnapshot()`.
 - Renderer status from Rust `debugSnapshot()`.
+- Player character ID/label, visibility, follow-state, animation clip,
+  walk/run blend, playback scale, locomotion speed, numeric animation tuning,
+  and CPU-skinning state from Rust `debugSnapshot()`.
 - Runtime ownership sentinel strings such as `"rust"` and `"rust-wgpu"`.
 - Debug commands that call `game.command(...)`.
 
@@ -323,14 +331,34 @@ Rust, registers model mesh/material resources, attaches model nodes to the Rust
 scene, renders them through Rust/wgpu, samples non-skinned node animation clips
 for translation, rotation, and scale, imports skin joints/inverse bind matrices,
 CPU-skins rigged model vertices, updates a same-size model vertex buffer every
-frame, and selects/blends idle and walk clips from Rust horizontal movement
-input. The current live player asset is a selected Quaternius Universal
-Animation Library 2 GLB using `Idle_FoldArms_Loop` and `Walk_Carry_Loop`. It is
-attached to a Rust-owned player character scene item that follows the Rust
-player transform, stays hidden in first-person, and replaces the old yellow
-debug marker as the browser debug-fly player representation. GPU skinning,
-multi-primitive character assembly, and retargeting the separate Quaternius
-base-character GLB remain future milestones under the same boundary.
+frame, and selects/blends idle, walk, and sprint clips from Rust horizontal
+movement speed. The current live player character path uses a shared Quaternius
+Universal Animation Library 1 GLB for `Idle_Loop`, `Walk_Loop`, and
+`Sprint_Loop`, plus separate male/female Quaternius base-character body GLBs.
+The current checked-in bodies are Superhero male/female placeholders because the
+free Standard download available to this repo does not include Regular
+male/female full-body GLBs.
+
+The active character is selected through the Rust command lane with stable
+browser IDs:
+
+    export type PlayerCharacterId = "male" | "female";
+    { type: "togglePlayerCharacter" }
+    { type: "setPlayerCharacter", character: PlayerCharacterId }
+    { type: "setPlayerAnimationTuning", walkSpeedMetersPerSecond,
+      runSpeedMetersPerSecond, idlePlaybackScale, walkPlaybackScale,
+      runPlaybackScale }
+
+The selected body is attached to a Rust-owned player character scene item that
+follows the Rust player transform, stays hidden in first-person, and replaces
+the old yellow debug marker as the browser debug-fly player representation.
+Rust debug snapshots expose the selected character ID/label, active/next clip,
+crossfade weight, walk/run blend weight, numeric playback scale, locomotion
+speed, numeric tuning values, and CPU-skinning joint count for HUD/debug/smoke
+tests. GPU skinning,
+multi-primitive character assembly, clothing/material texture support,
+automatic foot-contact extraction, inverse kinematics, and full animation-tuning
+UI remain future milestones under the same boundary.
 
 The intended runtime format is checked-in GLB for model and animation assets.
 Rust owns GLTF parsing, model resource registration, scene node/entity creation,
@@ -358,7 +386,8 @@ Contract rules:
   materials, or skeletons.
 - TypeScript must not create per-model or per-entity render calls.
 - Rust debug snapshots may expose active model, player-character visibility,
-  clip, blend, and skinning state for HUD and smoke tests.
+  character ID/label, clip, blend, walk/run blend, playback scale, locomotion
+  speed, numeric tuning values, and skinning state for HUD and smoke tests.
 - Static model meshes, skinned model meshes, and animation data should use
   explicit Rust-owned contracts rather than overloading the terrain vertex
   layout.
