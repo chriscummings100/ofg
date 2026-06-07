@@ -1,6 +1,7 @@
 // Browser integration smoke for OFG. It validates that the browser shell can
 // load engine_web.wasm, initialize WebGPU, render nonblank frames, forward a
-// keyboard command, survive reload, and expose only black-box debug sentinels.
+// keyboard command, survive reload, verify mobile touch controls, and expose
+// only black-box debug sentinels.
 
 import { createServer } from "node:net";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -9,6 +10,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { PNG } from "pngjs";
+import { runMobileTouchSmoke } from "./browser-smoke-mobile-touch.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const preferredPort = Number.parseInt(process.env.OFG_SMOKE_PORT ?? "5174", 10);
@@ -122,13 +124,34 @@ async function runBrowserSmoke(url) {
     const reloadedImage = await saveScreenshot(page, "browser-reloaded.png");
     assertPixelStats(reloadedImage.pixelStats, "browser reload", consoleMessages);
 
+    const mobileTouch = await runMobileTouchSmoke({
+      browser,
+      url,
+      assertResponseHeaders,
+      waitForBrowserFrame,
+      assertNoBrowserFailures,
+      readHud,
+      assertHud,
+      readDebugContract,
+      assertDebugContract,
+      saveScreenshot,
+      assertPixelStats
+    });
+
     return {
       kind: "browser-integration-smoke",
       url,
       artifactDir: reportPath(artifactDir),
       browserPath,
       headed,
-      images: [firstImage, cascadeDebugImage, visibilityDebugImage, toggledImage, reloadedImage],
+      images: [
+        firstImage,
+        cascadeDebugImage,
+        visibilityDebugImage,
+        toggledImage,
+        reloadedImage,
+        mobileTouch.image
+      ],
       firstHud,
       toggledHud,
       reloadedHud,
@@ -138,6 +161,7 @@ async function runBrowserSmoke(url) {
       depthDebug,
       toggledDebug,
       reloadedDebug,
+      mobileTouch,
       consoleMessages
     };
   } finally {

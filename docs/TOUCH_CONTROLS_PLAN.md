@@ -16,8 +16,9 @@ it.
 OFG should be playable enough from a mobile browser to walk around the terrain on
 the remotely deployed build. A user opening the Cloudflare deployment on a
 WebGPU-capable phone or tablet should see unobtrusive touch controls, use the
-left thumb to move the first-person player, use the right thumb to look around,
-and tap a small control to toggle between first-person and debug fly mode.
+left thumb to move the player, use the right thumb to look around, and tap a
+small control to cycle the same player modes as the desktop `C` / `F1` shortcut:
+first-person, third-person, and debug fly.
 
 This work must preserve the current Rust ownership boundary. Rust already owns
 player movement and camera behavior through `engine_web.wasm`. TypeScript should
@@ -25,7 +26,7 @@ only collect browser touch input and translate it into the existing
 `BrowserFrameInput` object passed to Rust each frame.
 
 The first successful version is intentionally small: virtual movement stick,
-right-side look drag, camera toggle button, tests, and smoke coverage. More
+right-side rotation stick, camera toggle button, tests, and smoke coverage. More
 advanced mobile UI, jump/crouch, gestures, inventory controls, and mobile HUD
 polish are future work.
 
@@ -40,17 +41,95 @@ polish are future work.
   `AGENTS.md`, `PLANS.md`, `docs/ARCHITECTURE.md`, and
   `docs/API_CONTRACTS.md`. The Rust conversion plan is now archived and
   historical only.
-- [ ] Add a touch-control DOM overlay that is hidden on desktop and visible for
-  coarse pointers or after touch input.
-- [ ] Extend browser input collection so touch movement and touch look feed the
-  existing `BrowserFrameInput` shape.
-- [ ] Add unit tests for joystick movement, look drag, pointer release, pointer
-  cancel, and keyboard/touch combination behavior.
-- [ ] Add or extend browser smoke coverage for a mobile viewport touch-control
-  path.
-- [ ] Validate locally with `npm test` and `npm run smoke:browser`.
-- [ ] Deploy and verify on the Cloudflare remote URL from an actual
-  WebGPU-capable mobile device.
+- [x] (2026-06-07 12:17Z) Refreshed this plan against the current
+  `C:\dev\ofg-touch-controls` worktree. The plan now accounts for the clean
+  worktree, the existing character toggle HUD button, and the current
+  `firstPerson -> thirdPerson -> debugFly -> firstPerson` player-mode cycle.
+- [x] (2026-06-07 12:27Z) Updated local run guidance for this worktree to avoid
+  dev-server port collisions with other active worktrees.
+- [x] (2026-06-07 13:01Z) Merged updated `origin/main`, reread `PLANS.md`, and
+  added the new coverage completion gate to this ExecPlan.
+- [x] (2026-06-07 13:01Z) Split mobile touch browser-smoke helpers into
+  `tools/browser-smoke-mobile-touch.mjs` after local milestone review flagged
+  `tools/browser-smoke.mjs` crossing the 600-line split-pressure threshold.
+- [x] (2026-06-07 13:18Z) Added the touch-control DOM overlay in `index.html`
+  and CSS in `src/app/styles.css`. The overlay provides a left joystick,
+  right look zone, and compact camera-toggle button, with stable fixed
+  dimensions and `touch-action: none`.
+- [x] (2026-06-07 13:18Z) Extended `src/engine/input/inputTracker.ts` so touch
+  joystick movement and right-side look drags are collected as browser input
+  and merged into the existing `BrowserFrameInput` shape through
+  `src/app/frameInput.ts`.
+- [x] (2026-06-07 13:18Z) Added focused TypeScript tests for joystick movement,
+  pointer release, document pointer cancel, lost pointer capture, look-delta
+  accumulation/clearing, keyboard plus touch behavior, and frame-input
+  clamping.
+- [x] (2026-06-07 13:18Z) Extended browser smoke coverage with a mobile touch
+  path in `tools/browser-smoke-mobile-touch.mjs`, imported by
+  `tools/browser-smoke.mjs`.
+- [x] (2026-06-07 13:18Z) Validated locally with `npm run check:wasm`,
+  `npm test`, `npm run coverage:rust`, and
+  `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser`. Browser smoke artifacts
+  were written to
+  `artifacts/browser-smoke/2026-06-07T13-09-33-897Z/`.
+- [x] (2026-06-07 13:18Z) Ran the repo-local `milestone-review` workflow
+  locally across contract, code-quality, legacy, correctness, and validation
+  passes. No required findings remained; no API contract doc update was needed.
+- [x] (2026-06-07 13:21Z) Committed the local implementation as `04bd40e` and
+  pushed branch `touch-controls` to `origin`.
+- [x] (2026-06-07 13:32Z) Fast-forwarded `main` to `a8fe94a` from the
+  `C:\dev\ofg` worktree and pushed `origin/main`, allowing the stable
+  Cloudflare deployment to pick up the touch-controls commit.
+- [x] (2026-06-07 13:37Z) Verified the stable Cloudflare URL serves the
+  touch-control HTML and passes remote Chrome mobile-emulation smoke with
+  WebGPU, visible controls, touch joystick movement, and touch camera toggle.
+- [x] (2026-06-07 13:42Z) Received real WebGPU-capable mobile-device feedback:
+  the deployed build definitely works, but lateral strafe direction is inverted
+  and the invisible right-side look drag should become a second stick for
+  rotation.
+- [x] (2026-06-07 13:47Z) Fixed lateral browser input mapping so the observed
+  strafe direction matches the user's mobile expectation.
+- [x] (2026-06-07 13:47Z) Replaced the invisible right-side look drag with a
+  visible lower-right rotation stick whose held position produces continuous
+  touch-look deltas.
+- [x] (2026-06-07 13:48Z) Revalidated the local follow-up with `npm run
+  test:ts`, `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser`, `npm test`,
+  `npm run check:wasm`, and `npm run coverage:rust`.
+- [x] (2026-06-07 13:50Z) Committed the follow-up as `a133398`, pushed
+  `origin/touch-controls`, fast-forwarded `main`, and pushed `origin/main`.
+- [x] (2026-06-07 14:08Z) Superseded the pending `a133398` final deployment
+  check when newer real-device feedback arrived: the left stick felt like it
+  always moved at high speed while the animation stayed in the non-run state.
+- [x] (2026-06-07 14:12Z) Added touch movement magnitude tracking and mapped
+  the left stick's outer range to the existing `movement.fast` path, matching
+  the keyboard Shift/run behavior without adding touch-specific Rust fields.
+- [x] (2026-06-07 14:13Z) Extended mobile browser smoke to assert full-stick
+  touch movement drives run-range locomotion animation through existing
+  black-box debug hooks.
+- [x] (2026-06-07 14:13Z) Revalidated the run-threshold follow-up with
+  `npm run test:ts` and an initial
+  `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser`.
+- [x] (2026-06-07 14:20Z) Fixed a milestone-review correctness finding by
+  ignoring non-finite touch movement magnitude values before they can set
+  `movement.fast`.
+- [x] (2026-06-07 14:21Z) Revalidated the final run-threshold follow-up with
+  `npm run test:ts`, `npm test`,
+  `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser`,
+  `npm run check:wasm`, `npm run coverage:rust`, and `git diff --check`.
+  Browser smoke artifacts were written to
+  `artifacts/browser-smoke/2026-06-07T14-19-53-895Z/`.
+- [x] (2026-06-07 14:22Z) Ran the repo-local milestone-review workflow locally
+  across contract, code-quality, legacy, correctness, and validation passes.
+  The one required finding was fixed and no required findings remain.
+- [x] (2026-06-07 14:27Z) Committed the run-threshold follow-up as `5ae6355`,
+  pushed `origin/touch-controls`, and fast-forwarded `origin/main` with
+  `git push origin touch-controls:main`.
+- [x] (2026-06-07 14:31Z) Verified the stable Cloudflare URL serves the updated
+  deployed frame-input module containing `TOUCH_MOVEMENT_RUN_THRESHOLD`.
+- [x] (2026-06-07 14:37Z) Remote Chrome mobile-emulation smoke passed against
+  the stable Cloudflare deployment, including full-stick run animation evidence.
+- [ ] Get the user's final mobile-device confirmation for the deployed
+  `5ae6355` follow-up.
 
 ## Surprises & Discoveries
 
@@ -71,11 +150,29 @@ polish are future work.
   Evidence: `index.html` contains `#game-canvas`, `#terrain-debug-overlay`, and
   `#hud`; `src/app/styles.css` sets the canvas to `100vw` by `100vh`.
 
-- Observation: There are unrelated uncommitted engine/WebGPU changes in the
-  working tree at the time this plan was created.
-  Evidence: `git -c safe.directory=C:/dev/ofg status --short` listed modified
-  files under `crates/engine_web/src/` and `src/engine/web/`. This plan creation
-  does not alter those files.
+- Observation: The touch-controls worktree is clean before implementation.
+  Evidence: `git -c safe.directory=C:/dev/ofg-touch-controls status --short`
+  produced no output on 2026-06-07 12:17Z.
+
+- Observation: The current player-mode toggle cycle includes third-person.
+  Evidence: `crates/engine_core/src/engine.rs` toggles
+  `FirstPerson -> ThirdPerson -> DebugFly -> FirstPerson`; `src/app/game.ts`
+  labels those modes as `FIRST`, `THIRD`, and `FLY`; and
+  `tools/browser-smoke.mjs` verifies `KeyC` changes the HUD from `FIRST` to
+  `THIRD`.
+
+- Observation: The HUD now has a character toggle button in addition to camera
+  mode and frame time.
+  Evidence: `index.html` contains `#character-toggle`, `src/main.ts` requires
+  it before calling `startGame`, and `src/app/game.ts` wires it to
+  `game.command({ type: "togglePlayerCharacter" })`.
+
+- Observation: This worktree should not use the default dev-server ports while
+  other OFG worktrees are active.
+  Evidence: `tools/dev-server.mjs` reads `PORT` and defaults to `5173`;
+  `tools/browser-smoke.mjs` reads `OFG_SMOKE_PORT` and defaults to `5174`.
+  For this worktree, use `PORT=5183` for manual dev runs and
+  `OFG_SMOKE_PORT=5184` for browser smoke unless those are also occupied.
 
 - Observation: The current source already exposes player position through the
   debug hook.
@@ -87,6 +184,112 @@ polish are future work.
   Evidence: `AGENTS.md` directs ownership questions to `docs/API_CONTRACTS.md`
   and `docs/ARCHITECTURE.md`; `docs/archived/RUST_CONVERSION_PLAN.md` starts
   with an archived note.
+
+- Observation: The updated `PLANS.md` requires a coverage completion gate for
+  implementation ExecPlans.
+  Evidence: after merging `origin/main` on 2026-06-07, `PLANS.md` says an
+  implementation plan is not complete until modified implementation files pass
+  the default coverage attention gate, currently about 90% line coverage, or
+  the plan records an explicit exception with rationale.
+
+- Observation: The current repo coverage command is Rust-focused, while this
+  plan changes TypeScript browser/input implementation files and browser smoke
+  tooling.
+  Evidence: `AGENTS.md` defines `npm run coverage:rust` as the command for
+  Rust API coverage and says its default output reports implementation files
+  below 90% line coverage, excluding tests, smoke/benchmark harnesses, and Rust
+  export glue. This touch-control implementation does not modify Rust
+  implementation files.
+
+- Observation: The mobile browser smoke path now proves local touch movement
+  reaches Rust-owned player state.
+  Evidence: `artifacts/browser-smoke/2026-06-07T13-09-33-897Z/report.json`
+  records `mobileTouch.touchControls.display` as `block`,
+  `mobileTouch.touchControls.visibility` as `visible`, movement from
+  `{x: 0, z: 0}` to approximately `{x: 0.393, z: 0.619}`, and
+  `movementDistance` as `0.7328200837689752`.
+
+- Observation: The updated coverage gate passed for this TypeScript/browser
+  slice.
+  Evidence: `npm run coverage:rust` completed on 2026-06-07 and reported
+  `files below 90% line coverage ... none`; this plan changes no Rust
+  implementation files.
+
+- Observation: The stable Cloudflare URL is reachable and has the required
+  cross-origin isolation headers, and after `main` was pushed it served the
+  touch-control HTML.
+  Evidence: on 2026-06-07 13:21Z, `curl.exe -I
+  https://ofg.chriscummings1024.workers.dev/` returned `200 OK`,
+  `cross-origin-embedder-policy: require-corp`, and
+  `cross-origin-opener-policy: same-origin`. The fetched HTML from the same URL,
+  and from `?touch-controls=04bd40e` at 13:23Z, did not include
+  `#touch-controls`. After fast-forwarding and pushing `main`, a no-cache fetch
+  at 13:32Z returned HTML containing `#touch-controls`.
+
+- Observation: Remote Chrome mobile-emulation smoke passed against the stable
+  Cloudflare deployment.
+  Evidence: the smoke report at
+  `artifacts/remote-browser-smoke/2026-06-07T13-37-17-644Z/report.json`
+  recorded COOP `same-origin`, COEP `require-corp`, `crossOriginIsolated:
+  true`, `SharedArrayBuffer` available, `navigator.gpu` available, Rust/wgpu
+  renderer configured, touch controls visible, movement distance
+  `0.3666575458997926`, and touch camera toggle changing the HUD from `FIRST`
+  to `THIRD`.
+
+- Observation: Real mobile hardware verified that the deployment loads and is
+  playable, but surfaced two control issues that local emulation did not settle.
+  Evidence: on 2026-06-07, the user reported "Definitely works" and then noted
+  strafe left/right are reversed and the right-side rotation control should be a
+  second stick.
+
+- Observation: The second-stick follow-up keeps all changed non-generated files
+  below the local split-pressure threshold.
+  Evidence: `src/engine/input/inputTracker.ts` is 377 lines,
+  `tools/browser-smoke-mobile-touch.mjs` is 286 lines, and
+  `src/app/styles.css` is 271 lines after the follow-up.
+
+- Observation: The second-stick follow-up has been pushed to GitHub, but the
+  stable Cloudflare Worker had not updated by the latest poll.
+  Evidence: `git ls-remote origin refs/heads/main refs/heads/touch-controls`
+  returned `a1333986ad13092bc1b1b50bd1b4a2032b3a06e7` for both refs. Repeated
+  no-cache requests to
+  `https://ofg.chriscummings1024.workers.dev/?deploy-check=a133398-*` through
+  2026-06-07 13:58Z still returned HTML containing `#touch-look-zone` without
+  the new `#touch-look-base` child.
+
+- Observation: Rust player travel speed is currently digital at the movement
+  contract boundary: any nonzero horizontal intent is normalized before applying
+  normal or fast speed.
+  Evidence: `crates/engine_core/src/engine.rs` normalizes planar movement before
+  scaling by `player.config.move_speed * speed_multiplier(player.intent)`.
+
+- Observation: The Rust model animation already reads the same `fast` flag used
+  by keyboard Shift when deriving walk/run locomotion speed.
+  Evidence: `crates/engine_web/src/wgpu_renderer.rs`
+  `player_locomotion_speed_meters_per_second` multiplies
+  `PlayerConfig::default().move_speed` by `3.0` when `input.fast` is true, then
+  uses that value to tick player-character animation.
+
+- Observation: Local mobile browser smoke now proves full-stick touch movement
+  reaches the run animation lane.
+  Evidence: `artifacts/browser-smoke/2026-06-07T14-19-53-895Z/report.json`
+  records `mobileTouch.animationAfterMove.locomotionSpeedMetersPerSecond` as
+  `16.5`, `walkRunBlendWeight` as `1`, `runSpeedMetersPerSecond` as `16.5`,
+  and `movementDistance` as `2.470874991147219`.
+
+- Observation: The stable Cloudflare deployment now serves the run-threshold
+  frame-input module.
+  Evidence: a no-cache fetch of
+  `https://ofg.chriscummings1024.workers.dev/dist/app/frameInput.js?deploy-check=5ae6355-1`
+  contained both `TOUCH_MOVEMENT_RUN_THRESHOLD` and `isTouchMovementFast`.
+
+- Observation: The first remote smoke attempt timed out waiting for a WebGPU
+  frame, but the deployed app was healthy on a diagnostic retry and the full
+  remote smoke passed with a longer initial frame wait.
+  Evidence: the diagnostic load returned `200`, COOP `same-origin`, COEP
+  `require-corp`, `navigator.gpu` available, `crossOriginIsolated` true, and a
+  Rust/wgpu renderer status with `frameDrawCount: 1`. The follow-up remote smoke
+  wrote `artifacts/remote-browser-smoke/2026-06-07T14-36-37-489Z/report.json`.
 
 ## Decision Log
 
@@ -132,15 +335,99 @@ polish are future work.
   renderer, simulation, or world ownership.
   Date/Author: 2026-06-06 / Codex
 
+- Decision: Use alternate local ports for this worktree during touch-control
+  implementation.
+  Rationale: Other active worktrees may already be using the repo defaults
+  `5173` and `5174`. Running manual dev with `PORT=5183` and browser smoke with
+  `OFG_SMOKE_PORT=5184` avoids unnecessary local conflicts while preserving the
+  existing scripts.
+  Date/Author: 2026-06-07 / Codex
+
+- Decision: Treat `npm run coverage:rust` as the required coverage command for
+  this plan, and record a TypeScript coverage exception.
+  Rationale: The default repository coverage attention report is currently
+  Rust-only. This implementation modifies TypeScript input/app files and browser
+  smoke tooling, with focused unit tests and browser smoke covering the changed
+  behavior. Because no Rust implementation files are modified, the coverage gate
+  is satisfied when `npm run coverage:rust` runs and does not list changed Rust
+  implementation files. TypeScript line-coverage tooling should be added by a
+  separate testing-plan milestone rather than invented inside this touch-control
+  slice.
+  Date/Author: 2026-06-07 / Codex
+
+- Decision: Keep the mobile touch smoke scenario in a separate tool module.
+  Rationale: The local milestone review flagged `tools/browser-smoke.mjs` above
+  the 600-line split-pressure threshold. Moving the mobile scenario to
+  `tools/browser-smoke-mobile-touch.mjs` keeps the desktop smoke script compact
+  and gives touch-specific browser automation a clear owner.
+  Date/Author: 2026-06-07 / Codex
+
+- Decision: Convert the right-side look drag into a visible analog rotation
+  stick.
+  Rationale: Real-device feedback showed that an invisible drag region is not
+  the desired mobile control. A visible second stick gives users a discoverable,
+  continuous rotation control while still mapping to the existing
+  `BrowserFrameInput.look` fields.
+  Date/Author: 2026-06-07 / Codex
+
+- Decision: Invert browser lateral intent before forwarding it to Rust.
+  Rationale: The Rust engine's `right` axis remains unchanged, but the current
+  browser-visible player/camera behavior made left/right strafe feel reversed
+  on mobile hardware. Normalizing this at the browser frame-input boundary fixes
+  keyboard and touch consistently without changing Rust ownership or packet
+  shape.
+  Date/Author: 2026-06-07 / Codex
+
+- Decision: Treat the left stick's outer range as the same fast intent as
+  holding keyboard Shift.
+  Rationale: The existing Rust frame packet and animation path already define a
+  digital normal-vs-fast movement contract. Tracking browser-local touch
+  movement magnitude lets partial stick movement stay in the normal walk lane
+  while full-stick movement enters the run lane, without adding analog-speed or
+  touch-specific fields to Rust.
+  Date/Author: 2026-06-07 / Codex
+
+- Decision: Do not change `docs/API_CONTRACTS.md` for this slice.
+  Rationale: The implementation preserves `BrowserFrameInput` and `GameCommand`
+  as the Rust-facing contracts. Touch-specific state remains browser-local in
+  `InputTracker` and `buildBrowserFrameInput`, and smoke verification uses
+  existing black-box debug hooks.
+  Date/Author: 2026-06-07 / Codex
+
 ## Outcomes & Retrospective
 
-This plan has not been implemented yet. The expected outcome is a deployed OFG
-build that can be moved and looked around from a mobile browser, while preserving
-desktop keyboard and mouse behavior.
+The local implementation is complete. OFG now has a touch overlay with a
+movement joystick, right-side look area, and camera-mode toggle button. Touch
+input is translated into the existing movement/look frame packet that Rust
+already owns, so the player/camera ownership boundary stayed intact.
 
-Remaining gaps are all implementation and verification work described below. The
-plan has been refreshed to match the current repo instructions and active API
-contracts.
+Local verification passed after merging updated `origin/main`: `npm run
+check:wasm`, `npm test`, `npm run coverage:rust`, and
+`$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser`. The mobile smoke report
+shows visible controls, Rust-owned player movement from a synthetic touch
+joystick drag, a nonblank mobile screenshot, and a touch camera toggle changing
+the HUD from `FIRST` to `THIRD`.
+
+The remaining gap is the final deployment milestone: commit, push, wait for the
+Cloudflare deployment, then verify the remote URL on an actual WebGPU-capable
+mobile device. Local Chrome mobile emulation is evidence for the implementation,
+but it is not a substitute for the real-device acceptance item.
+
+The implementation commit has been pushed to both `origin/touch-controls` and
+`origin/main`. The stable Cloudflare URL now serves the touch-control HTML and
+passed an automated remote Chrome mobile-emulation smoke check. A real
+WebGPU-capable mobile-device check confirmed the build loads and works, then
+surfaced two follow-up requirements: fix inverted strafe direction and provide a
+visible second stick for rotation. Those follow-up fixes are implemented and
+validated locally, committed as `a133398`, and pushed to `origin/main`. The
+user then provided one more real-device finding: the left stick felt like it was
+moving the player quickly while animation stayed in the non-run state. The
+current follow-up tracks left-stick magnitude in browser input, maps the outer
+stick range to the existing Shift/run `movement.fast` path, and extends mobile
+browser smoke so full-stick touch movement must report run-range animation.
+
+The remaining acceptance item is final real-device confirmation on the deployed
+`5ae6355` follow-up.
 
 ## Contract and Quality Baseline
 
@@ -167,9 +454,20 @@ Rust.
 
 The relevant `AGENTS.md` validation gates are `npm test` for logic changes and
 `npm run smoke:browser` for input, camera behavior, HUD behavior, browser
-integration, or rendering-adjacent changes. Terrain seam and preset smoke tests
-are not required for this plan unless the implementation unexpectedly changes
-terrain mesh, material, preset, descriptor, or terrain visual behavior.
+integration, or rendering-adjacent changes. In this worktree, run browser smoke
+as `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser` unless that port is
+occupied. Terrain seam and preset smoke tests are not required for this plan
+unless the implementation unexpectedly changes terrain mesh, material, preset,
+descriptor, or terrain visual behavior.
+
+The updated `PLANS.md` coverage completion gate also applies. Run
+`npm run coverage:rust` before final delivery. Expected result: the command
+completes or, if `cargo-llvm-cov` is unavailable, prints setup guidance without
+mutating build output as documented in `AGENTS.md`. If it completes, the default
+filtered output must not list any changed Rust implementation file. This plan
+changes no Rust implementation files; changed TypeScript implementation files
+are covered by focused TypeScript unit tests and browser smoke until the repo
+adds a TypeScript coverage lane.
 
 After each implementation milestone, run the repo-local `milestone-review` skill
 before marking that milestone complete. Required findings must be fixed, or a
@@ -177,18 +475,21 @@ rejected finding must be recorded in this plan's Decision Log with rationale.
 
 ## Context and Orientation
 
-The repository root is `C:\dev\ofg`. OFG is a browser-native WebGPU game
-prototype. Browser startup, DOM input collection, HUD updates, and calls into the
-Rust runtime live under `src/app` and `src/engine/web`. The current architecture
-says TypeScript is browser shell: DOM input, URL seed/preset parsing, HUD/debug
-UI, WASM startup, generic browser asset loading, and debug hooks. Rust owns
-player/camera state, terrain streaming, texture semantics, GLTF/model logic,
-WebGPU resources, frame construction, and draw submission through
-`crates/engine_core`, `crates/terrain_core`, and `crates/engine_web`.
+The repository root for this worktree is `C:\dev\ofg-touch-controls`. OFG is a
+browser-native WebGPU game prototype. Browser startup, DOM input collection, HUD
+updates, and calls into the Rust runtime live under `src/app` and
+`src/engine/web`. The current architecture says TypeScript is browser shell: DOM
+input, URL seed/preset parsing, HUD/debug UI, WASM startup, generic browser
+asset loading, and debug hooks. Rust owns player/camera state, terrain
+streaming, texture semantics, GLTF/model logic, WebGPU resources, frame
+construction, and draw submission through `crates/engine_core`,
+`crates/terrain_core`, and `crates/engine_web`.
 
 The active browser game loop is in `src/app/game.ts`. `startGame` creates an
 `InputTracker`, attaches it to the canvas, consumes input once per animation
 frame, builds a `BrowserFrameInput`, and calls `game.tick(frameInput)`.
+`src/main.ts` currently queries the canvas, camera-mode label, character-toggle
+button, and frame-time label before calling `startGame`.
 
 `BrowserFrameInput` is defined in `src/engine/web/browserGameTypes.ts`:
 
@@ -203,20 +504,25 @@ frame, builds a `BrowserFrameInput`, and calls `game.tick(frameInput)`.
 The Rust side already understands those fields. The current app maps keyboard
 keys to movement axes in `src/app/game.ts`: `W/S` map to forward/back,
 `D/A` map to right/left, `Space/ControlLeft` map to up/down in debug fly, and
-`ShiftLeft/ShiftRight` map to fast movement. Mouse look comes from
+`ShiftLeft/ShiftRight` map to fast movement. `C` and `F1` send
+`game.command({ type: "togglePlayerMode" })`, which currently cycles
+`FIRST -> THIRD -> FLY -> FIRST`. Mouse look comes from
 `InputTracker.consumeFrameSnapshot()` and only accumulates while the canvas has
 pointer lock.
 
 The current visual shell is minimal. `index.html` contains the game canvas, a
-terrain debug overlay canvas, and a small HUD. `src/app/styles.css` makes the
-game canvas fill the viewport and prevents body scrolling with `overflow:
-hidden`.
+terrain debug overlay canvas, and a small HUD with `#camera-mode`,
+`#character-toggle`, and `#frame-time`. `src/app/styles.css` makes the game
+canvas fill the viewport and prevents body scrolling with `overflow: hidden`.
 
 The browser smoke script is `tools/browser-smoke.mjs`. It builds the app,
 launches Chrome or Edge with WebGPU flags, opens a local dev server, verifies
 the page renders non-blank frames, toggles camera mode with keyboard input, and
 uses debug hooks to verify terrain streaming. This script should remain passing
-after touch controls are added.
+after touch controls are added. In this worktree, run browser smoke with
+`OFG_SMOKE_PORT=5184` so its temporary dev server starts away from other active
+worktrees. If port `5184` is occupied, choose the next free nearby port and
+record the actual port in Progress.
 
 ## Plan of Work
 
@@ -226,8 +532,10 @@ element after the HUD. It should contain a left joystick zone with a base and
 thumb element, a right look zone that can be visually subtle or transparent, and
 a camera-toggle button. Update `src/app/styles.css` with stable dimensions,
 `touch-action: none`, `user-select: none`, and media queries that show controls
-on coarse pointers while keeping them hidden on desktop. The overlay must not
-cover the HUD and must not cause layout shifts.
+on coarse pointers while keeping them hidden on desktop. Do not wire gameplay in
+this milestone; the visible controls are allowed to be inert until the input
+tracking milestone. The overlay must not cover the HUD, character-toggle button,
+or debug overlay and must not cause layout shifts.
 
 Milestone 2 adds pointer-event tracking. Prefer extending
 `src/engine/input/inputTracker.ts` with touch-control state if the resulting file
@@ -243,16 +551,23 @@ stores an origin point from `pointerdown`, computes an offset on each
 `pointermove`, clamps it to a fixed radius, applies a dead zone, and exposes
 normalized `forward` and `right` axes in the range `[-1, 1]`. Positive Y screen
 movement should become negative forward, so dragging upward moves the player
-forward. The right look zone accumulates pixel deltas from pointer moves into
-`lookDeltaX` and `lookDeltaY`, then clears those deltas when the frame snapshot
-is consumed.
+forward. The right look zone is a visible rotation stick: it computes normalized
+held axes from the fixed right-zone center, keeps those axes active until the
+pointer ends, and `src/app/frameInput.ts` converts them into per-frame look
+deltas. Pointer-lock mouse deltas remain frame-local and still clear when the
+frame snapshot is consumed.
 
 Milestone 4 merges touch input into the existing frame input. Update
-`src/app/game.ts` so `readFrameInput` combines keyboard axes and touch axes with
-clamping. For example, keyboard `W` plus joystick forward should still produce
-at most `1`, not `2`. The look input should add pointer-lock mouse deltas and
-touch look deltas. The camera toggle button should call the same command as
-`KeyC` / `F1`: `game.command({ type: "togglePlayerMode" })`.
+`src/main.ts` to query the touch-control elements added in Milestone 1 and pass
+them to `startGame`. Update `src/app/game.ts` so `readFrameInput` combines
+keyboard axes and touch axes with clamping. For example, keyboard `W` plus
+joystick forward should still produce at most `1`, not `2`. The look input
+should add pointer-lock mouse deltas and touch look deltas. The camera toggle
+button should follow the existing character-toggle button pattern in
+`startGame`: call `game.command({ type: "togglePlayerMode" })`, update visible
+state on the next frame, and return focus to the canvas without scrolling. The
+first tap from the default HUD state should change `FIRST` to `THIRD`, matching
+the current desktop smoke expectation.
 
 Milestone 5 adds focused tests. Extend `src/engine/input/inputTracker.test.ts`
 or add a new nearby test file for touch behavior. The fake element harness
@@ -279,13 +594,13 @@ scroll prevention, and desktop behavior.
 
 ## Concrete Steps
 
-Run these commands from `C:\dev\ofg` before editing, to understand the starting
-state:
+Run these commands from `C:\dev\ofg-touch-controls` before editing, to
+understand the starting state:
 
-    git -c safe.directory=C:/dev/ofg status --short
+    git -c safe.directory=C:/dev/ofg-touch-controls status --short
     npm run check:wasm
     npm test
-    npm run smoke:browser
+    $env:OFG_SMOKE_PORT='5184'; npm run smoke:browser
 
 Expected result: WASM generated artifacts are current, tests pass, and browser
 smoke passes before the touch-control work. If unrelated work is already
@@ -302,7 +617,7 @@ tests pass including any new touch-control tests.
 After each milestone that changes input, camera, HUD, browser integration, or
 rendering-adjacent behavior, run:
 
-    npm run smoke:browser
+    $env:OFG_SMOKE_PORT='5184'; npm run smoke:browser
 
 Expected result: desktop smoke still passes, screenshots are written under
 `artifacts/browser-smoke/`, the camera toggle is verified, and any new mobile
@@ -319,10 +634,13 @@ Before final delivery, run:
 
     npm run check:wasm
     npm test
-    npm run smoke:browser
+    npm run coverage:rust
+    $env:OFG_SMOKE_PORT='5184'; npm run smoke:browser
 
-Expected result: generated WASM metadata is current, all tests pass, browser
-smoke passes, and relevant screenshot/report artifacts are inspected.
+Expected result: generated WASM metadata is current, all tests pass, Rust
+coverage either passes its default attention gate without listing changed Rust
+implementation files or prints documented missing-tool guidance, browser smoke
+passes, and relevant screenshot/report artifacts are inspected.
 
 After remote deployment:
 
@@ -350,9 +668,69 @@ After each milestone:
 4. Apply required review findings before marking the milestone complete. If a
    finding is rejected, record the rejection and rationale in the Decision Log.
 5. Re-run the relevant validation commands, at minimum `npm test` and, for any
-   input/HUD/browser behavior milestone, `npm run smoke:browser`.
+   input/HUD/browser behavior milestone,
+   `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser`.
 6. Record commands, screenshots/report paths, review summary, and remaining risk
    in Progress or Outcomes & Retrospective.
+
+Review result for the local implementation milestone on 2026-06-07:
+
+    Scope: touch-control DOM/CSS, browser input collection, frame-packet merge,
+    TypeScript tests, mobile browser smoke helper, generated WASM artifacts, and
+    this ExecPlan.
+
+    Reviewers: contract, code quality, legacy, correctness, validation. The
+    review was performed locally because the available sub-agent tool policy
+    permits spawning only when the user explicitly requests sub-agents.
+
+    Required findings fixed: one earlier split-pressure finding for
+    `tools/browser-smoke.mjs` was fixed by moving the mobile scenario to
+    `tools/browser-smoke-mobile-touch.mjs`. Current line counts are 473 for
+    `tools/browser-smoke.mjs` and 275 for
+    `tools/browser-smoke-mobile-touch.mjs`.
+
+    Follow-ups recorded: actual Cloudflare mobile-device verification remains
+    pending in Progress and Acceptance. Remote Chrome mobile-emulation smoke has
+    since passed against the stable Cloudflare URL.
+
+    Rejected findings: none.
+
+    Validation rerun: `npm run check:wasm`, `npm test`, `npm run
+    coverage:rust`, `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser`, and
+    `git diff --check`.
+
+    Remaining risk: local Chrome mobile emulation and in-app browser visual
+    inspection do not prove behavior on an actual phone/tablet or deployed
+    Cloudflare headers.
+
+Review result for the run-threshold follow-up milestone on 2026-06-07:
+
+    Scope: browser-local touch movement magnitude tracking, frame-input
+    fast/run threshold, focused TypeScript tests, mobile browser smoke run
+    animation assertion, and this ExecPlan update.
+
+    Reviewers: contract, code quality, legacy, correctness, validation. The
+    review was performed locally because the available sub-agent tool policy
+    permits spawning only when the user explicitly requests sub-agents.
+
+    Required findings fixed: the correctness pass found that non-finite
+    `touchMovementMagnitude` values could set `movement.fast` through the
+    exported frame builder. `src/app/frameInput.ts` now requires a finite
+    magnitude before entering the touch fast lane, with a regression test in
+    `src/app/frameInput.test.ts`.
+
+    Follow-ups recorded: final deployed Cloudflare verification and actual
+    mobile-device confirmation remain pending in Progress and Acceptance.
+
+    Rejected findings: none.
+
+    Validation rerun: `npm run test:ts`, `npm test`,
+    `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser`,
+    `npm run check:wasm`, `npm run coverage:rust`, and `git diff --check`.
+
+    Remaining risk: local Chrome mobile emulation cannot prove the final feel on
+    the actual phone/tablet; the user will verify after the pushed deployment
+    updates.
 
 ## Validation and Acceptance
 
@@ -365,21 +743,36 @@ The touch-control work is accepted when all of these are true:
 3. Dragging the left joystick upward moves the first-person player forward over
    terrain.
 4. Dragging the left joystick left or right strafes the player.
-5. Releasing or canceling the joystick pointer immediately stops touch movement.
-6. Dragging the right look area changes the camera yaw/pitch through the
+5. Partial left-stick movement stays in the normal walk lane, while full-stick
+   movement sets the same fast/run intent as holding keyboard Shift and updates
+   the locomotion animation blend.
+6. Releasing or canceling the joystick pointer immediately stops touch movement.
+7. Dragging the right look area changes the camera yaw/pitch through the
    existing Rust frame input.
-7. The camera toggle button switches the HUD between `FIRST` and `FLY`.
-8. The page does not scroll, zoom, select text, or open context menus while
+8. The right-side rotation control is a visible second stick, not an invisible
+   touch-only region. Holding it away from center continuously rotates yaw/pitch
+   through the existing Rust frame input.
+9. The camera toggle button uses the same player-mode cycle as `C` / `F1`;
+   from a fresh load the HUD changes from `FIRST` to `THIRD`, then to `FLY`,
+   then back to `FIRST` on subsequent taps.
+10. The page does not scroll, zoom, select text, or open context menus while
    using the controls.
-9. `npm test` passes.
-10. `npm run smoke:browser` passes.
-11. `npm run check:wasm` passes unless the implementation did not touch any
+11. `npm test` passes.
+12. `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser` passes, or the same
+    command passes with another recorded non-default free port.
+13. `npm run check:wasm` passes unless the implementation did not touch any
     generated WASM-facing contract or artifact. If skipped, record why.
-12. `OFG-API-001`, `OFG-API-003`, and `OFG-API-009` are preserved, or
+14. `npm run coverage:rust` runs before completion. If `cargo-llvm-cov` is
+    installed, the default filtered output does not list changed Rust
+    implementation files; if the coverage tool is missing, the command prints
+    documented setup guidance and this plan records the limitation. The
+    TypeScript coverage exception in the Decision Log remains in force until a
+    TypeScript coverage lane exists.
+15. `OFG-API-001`, `OFG-API-003`, and `OFG-API-009` are preserved, or
     `docs/API_CONTRACTS.md` is intentionally updated in the same milestone.
-13. Each implementation milestone has a recorded milestone-review result before
+16. Each implementation milestone has a recorded milestone-review result before
     being marked complete.
-14. The deployed Cloudflare build works from an actual WebGPU-capable mobile
+17. The deployed Cloudflare build works from an actual WebGPU-capable mobile
     browser.
 
 ## Idempotence and Recovery
@@ -412,13 +805,155 @@ Suggested DOM shape:
           <div id="touch-move-thumb"></div>
         </div>
       </div>
-      <div id="touch-look-zone"></div>
+      <div id="touch-look-zone">
+        <div id="touch-look-base">
+          <div id="touch-look-thumb"></div>
+        </div>
+      </div>
       <button id="touch-camera-toggle" type="button" aria-label="Toggle camera mode"></button>
     </div>
 
 The camera toggle should use a compact symbol or CSS-drawn icon with an
 `aria-label`, not explanatory visible text. Do not add onboarding copy or visible
 instructions to the game surface.
+
+Validation evidence from 2026-06-07:
+
+    npm run check:wasm
+    Result: passed.
+
+    npm test
+    Result: passed. Rust workspace tests passed, and TypeScript reported
+    73 passing Mocha tests including the new touch-control tests.
+
+    npm run coverage:rust
+    Result: passed. Rust coverage totals were 13280/15455 lines (85.9%)
+    overall, and the default filtered attention report listed no files below
+    90% line coverage.
+
+    $env:OFG_SMOKE_PORT='5184'; npm run smoke:browser
+    Result: passed. Artifacts:
+    artifacts/browser-smoke/2026-06-07T13-09-33-897Z/
+    Mobile touch report evidence: controls visible, movementDistance
+    0.7328200837689752, and touch camera toggle HUD FIRST -> THIRD.
+
+    In-app browser visual check on PORT=5183
+    Result: terrain rendered with HUD top-left, camera toggle top-right, and
+    joystick bottom-left without covering the HUD.
+
+    git push origin touch-controls
+    Result: passed. Branch `touch-controls` advanced from `62a0b78` to
+    `04bd40e`.
+
+    curl.exe -I https://ofg.chriscummings1024.workers.dev/
+    Result: `200 OK` with `cross-origin-embedder-policy: require-corp` and
+    `cross-origin-opener-policy: same-origin`, but fetched HTML still lacked
+    `#touch-controls`.
+
+    git merge --ff-only origin/touch-controls
+    git push origin main
+    Result: passed from the `C:\dev\ofg` main worktree. `origin/main` advanced
+    from `fe86913` to `a8fe94a`.
+
+    curl.exe -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" \
+      "https://ofg.chriscummings1024.workers.dev/?deploy-check=a8fe94a-nocache"
+    Result: passed. The fetched HTML included `#touch-controls`.
+
+    Remote Chrome mobile-emulation smoke against
+    https://ofg.chriscummings1024.workers.dev/?remote-smoke=a8fe94a
+    Result: passed. Report:
+    artifacts/remote-browser-smoke/2026-06-07T13-37-17-644Z/report.json
+    Screenshot:
+    artifacts/remote-browser-smoke/2026-06-07T13-37-17-644Z/remote-mobile-touch.png
+    Evidence: COOP/COEP present, WebGPU frame rendered, touch controls visible,
+    movementDistance 0.3666575458997926, camera HUD FIRST -> THIRD.
+
+    Real mobile-device check
+    Result: partial pass with follow-up findings. The user reported the deployed
+    build definitely works, then identified reversed left/right strafe behavior
+    and requested a second stick for rotation.
+
+    npm run test:ts
+    Result after follow-up: passed with 76 Mocha tests.
+
+    $env:OFG_SMOKE_PORT='5184'; npm run smoke:browser
+    Result after follow-up: passed. Artifacts:
+    artifacts/browser-smoke/2026-06-07T13-46-55-614Z/
+    Evidence: mobile screenshot shows both movement and rotation sticks; report
+    records `lookZone` size, movementDistance 0.8250000773170706, and camera
+    HUD FIRST -> THIRD.
+
+    npm test
+    Result after follow-up: passed.
+
+    npm run check:wasm
+    Result after follow-up: passed.
+
+    npm run coverage:rust
+    Result after follow-up: passed. Default filtered attention report again
+    listed no files below 90% line coverage.
+
+    git push origin touch-controls
+    git merge --ff-only origin/touch-controls
+    git push origin main
+    Result after follow-up: passed. Both `origin/touch-controls` and
+    `origin/main` now point at `a133398`.
+
+    Cloudflare deployment poll for a133398
+    Result: pending. No-cache fetches through 2026-06-07 13:58Z still returned
+    the previous deployed HTML without `#touch-look-base`.
+
+    Real mobile-device run-animation feedback
+    Result: follow-up required. The user reported the left stick felt like it
+    always moved the character at high speed while animation did not change,
+    and suggested treating slow movement like normal walk and high movement like
+    holding Shift to run.
+
+    npm run test:ts
+    Result after run-threshold follow-up: passed with 80 Mocha tests.
+
+    npm test
+    Result after run-threshold follow-up: passed. Rust workspace tests passed,
+    and TypeScript reported 80 passing Mocha tests.
+
+    $env:OFG_SMOKE_PORT='5184'; npm run smoke:browser
+    Result after run-threshold follow-up: passed. Artifacts:
+    artifacts/browser-smoke/2026-06-07T14-19-53-895Z/
+    Evidence: mobile smoke report records
+    `animationAfterMove.locomotionSpeedMetersPerSecond` 16.5,
+    `walkRunBlendWeight` 1, `runSpeedMetersPerSecond` 16.5, movementDistance
+    2.470874991147219, and camera HUD FIRST -> THIRD.
+
+    npm run check:wasm
+    Result after run-threshold follow-up: passed.
+
+    npm run coverage:rust
+    Result after run-threshold follow-up: passed. Default filtered attention
+    report listed no files below 90% line coverage.
+
+    git diff --check
+    Result after run-threshold follow-up: passed.
+
+    git push origin touch-controls
+    git push origin touch-controls:main
+    Result after run-threshold follow-up: passed. Both `origin/touch-controls`
+    and `origin/main` advanced to `5ae6355`.
+
+    Cloudflare deployment poll for 5ae6355
+    Result: passed. A no-cache fetch of
+    `https://ofg.chriscummings1024.workers.dev/dist/app/frameInput.js?deploy-check=5ae6355-1`
+    included `TOUCH_MOVEMENT_RUN_THRESHOLD` and `isTouchMovementFast`.
+
+    Remote Chrome mobile-emulation smoke against
+    https://ofg.chriscummings1024.workers.dev/?remote-smoke=5ae6355-final
+    Result: passed. Report:
+    artifacts/remote-browser-smoke/2026-06-07T14-36-37-489Z/report.json
+    Screenshot:
+    artifacts/remote-browser-smoke/2026-06-07T14-36-37-489Z/remote-mobile-touch.png
+    Evidence: COOP/COEP present, WebGPU frame rendered, touch controls visible,
+    `animationAfterMove.locomotionSpeedMetersPerSecond` 16.5,
+    `walkRunBlendWeight` 1, `runSpeedMetersPerSecond` 16.5, movementDistance
+    2.1992850085454, and camera HUD FIRST -> THIRD.
 
 Suggested joystick defaults:
 
@@ -429,12 +964,13 @@ Suggested joystick defaults:
 
 Suggested touch look defaults:
 
-    touchLookSensitivity: 1.0 initially
-    deltaX: currentPointerX - previousPointerX
-    deltaY: currentPointerY - previousPointerY
+    rotation stick radius: 54 CSS pixels
+    rotation stick deadZone: 0.12
+    touch look speed: 900 CSS pixels per second at full deflection
 
 If touch look feels too slow or too fast on real hardware, adjust the
-sensitivity constant in the TypeScript input layer rather than Rust player code.
+look-stick speed constant in the TypeScript frame-input layer rather than Rust
+player code.
 
 ## Interfaces and Dependencies
 
@@ -443,20 +979,32 @@ both pointer-lock mouse look and touch-control intent. One acceptable final
 shape is:
 
     export type InputSnapshot = {
-      readonly lookDeltaX: number;
-      readonly lookDeltaY: number;
+      readonly mouseDeltaX: number;
+      readonly mouseDeltaY: number;
+      readonly touchLookDeltaX: number;
+      readonly touchLookDeltaY: number;
+      readonly touchLookStickX: number;
+      readonly touchLookStickY: number;
       readonly touchMovementForward: number;
       readonly touchMovementRight: number;
-      readonly touchTogglePlayerMode: boolean;
+      readonly touchMovementMagnitude: number;
     };
 
-If preserving the existing `mouseDeltaX` / `mouseDeltaY` names makes the change
-smaller, keep them and add touch-specific fields, but `src/app/game.ts` must be
-the only place that combines them into `BrowserFrameInput`.
+This keeps the existing `mouseDeltaX` / `mouseDeltaY` names and adds
+touch-specific fields, but `src/app/game.ts` must be the only place that
+combines them into `BrowserFrameInput`. `touchMovementMagnitude` remains
+browser-local and only decides whether the existing Rust-facing `movement.fast`
+flag should be true for full-stick mobile movement. The touch camera button can
+be wired directly in `src/app/game.ts`, like the existing `#character-toggle`
+button, instead of being represented as per-frame input.
 
 `src/app/game.ts` should remain the bridge from browser input to Rust game
 commands. It should not duplicate player movement rules. It should continue to
 call `game.tick(frameInput)` once per animation frame.
+
+`src/main.ts` should continue to fail fast if required root DOM elements are
+missing. Add touch-control element queries there only when those elements are
+added to `index.html`.
 
 `src/engine/web/browserGameTypes.ts` should not need touch-specific fields. The
 existing `BrowserFrameInput` movement and look fields are the stable contract.
@@ -467,5 +1015,30 @@ updated in `docs/API_CONTRACTS.md` in the same milestone.
 use stable fixed dimensions, avoid layout shifts, and use `touch-action: none`
 on touch-interactive regions.
 
-`tools/browser-smoke.mjs` may gain a mobile touch path, but the existing desktop
-smoke behavior and screenshots must remain intact.
+`tools/browser-smoke.mjs` imports the mobile touch scenario from
+`tools/browser-smoke-mobile-touch.mjs`; the existing desktop smoke behavior and
+screenshots must remain intact.
+
+For manual browser checks in this worktree, start the dev server with a
+non-default port:
+
+    $env:PORT='5183'; npm run dev
+
+Then open `http://127.0.0.1:5183/`. If that port is occupied, choose another
+nearby free port and record it in Progress.
+
+## Revision Note
+
+2026-06-07: Refreshed this ExecPlan for the `C:\dev\ofg-touch-controls`
+worktree. The refresh updated stale repository paths, recorded the clean
+starting state, aligned camera-toggle expectations with the current
+first-person/third-person/debug-fly cycle, and accounted for the existing
+character-toggle HUD button.
+
+2026-06-07: Added worktree-specific port guidance: use `PORT=5183` for manual
+dev server runs and `OFG_SMOKE_PORT=5184` for browser smoke unless either port
+is occupied.
+
+2026-06-07: Merged updated `origin/main`, incorporated the new `PLANS.md`
+coverage completion gate, and recorded the TypeScript coverage exception for
+this browser/input slice.
