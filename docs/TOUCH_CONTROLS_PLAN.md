@@ -121,9 +121,15 @@ polish are future work.
 - [x] (2026-06-07 14:22Z) Ran the repo-local milestone-review workflow locally
   across contract, code-quality, legacy, correctness, and validation passes.
   The one required finding was fixed and no required findings remain.
-- [ ] Commit, push `touch-controls`, fast-forward and push `main`, verify the
-  stable Cloudflare URL has deployed the latest follow-up, run remote smoke, and
-  get the user's final mobile-device confirmation.
+- [x] (2026-06-07 14:27Z) Committed the run-threshold follow-up as `5ae6355`,
+  pushed `origin/touch-controls`, and fast-forwarded `origin/main` with
+  `git push origin touch-controls:main`.
+- [x] (2026-06-07 14:31Z) Verified the stable Cloudflare URL serves the updated
+  deployed frame-input module containing `TOUCH_MOVEMENT_RUN_THRESHOLD`.
+- [x] (2026-06-07 14:37Z) Remote Chrome mobile-emulation smoke passed against
+  the stable Cloudflare deployment, including full-stick run animation evidence.
+- [ ] Get the user's final mobile-device confirmation for the deployed
+  `5ae6355` follow-up.
 
 ## Surprises & Discoveries
 
@@ -271,6 +277,20 @@ polish are future work.
   `16.5`, `walkRunBlendWeight` as `1`, `runSpeedMetersPerSecond` as `16.5`,
   and `movementDistance` as `2.470874991147219`.
 
+- Observation: The stable Cloudflare deployment now serves the run-threshold
+  frame-input module.
+  Evidence: a no-cache fetch of
+  `https://ofg.chriscummings1024.workers.dev/dist/app/frameInput.js?deploy-check=5ae6355-1`
+  contained both `TOUCH_MOVEMENT_RUN_THRESHOLD` and `isTouchMovementFast`.
+
+- Observation: The first remote smoke attempt timed out waiting for a WebGPU
+  frame, but the deployed app was healthy on a diagnostic retry and the full
+  remote smoke passed with a longer initial frame wait.
+  Evidence: the diagnostic load returned `200`, COOP `same-origin`, COEP
+  `require-corp`, `navigator.gpu` available, `crossOriginIsolated` true, and a
+  Rust/wgpu renderer status with `frameDrawCount: 1`. The follow-up remote smoke
+  wrote `artifacts/remote-browser-smoke/2026-06-07T14-36-37-489Z/report.json`.
+
 ## Decision Log
 
 - Decision: Keep touch controls in TypeScript browser input code.
@@ -406,9 +426,8 @@ current follow-up tracks left-stick magnitude in browser input, maps the outer
 stick range to the existing Shift/run `movement.fast` path, and extends mobile
 browser smoke so full-stick touch movement must report run-range animation.
 
-The remaining acceptance item is committing and pushing this follow-up, waiting
-for or triggering the Cloudflare deployment, then repeating remote smoke and
-final real-device confirmation.
+The remaining acceptance item is final real-device confirmation on the deployed
+`5ae6355` follow-up.
 
 ## Contract and Quality Baseline
 
@@ -914,6 +933,27 @@ Validation evidence from 2026-06-07:
 
     git diff --check
     Result after run-threshold follow-up: passed.
+
+    git push origin touch-controls
+    git push origin touch-controls:main
+    Result after run-threshold follow-up: passed. Both `origin/touch-controls`
+    and `origin/main` advanced to `5ae6355`.
+
+    Cloudflare deployment poll for 5ae6355
+    Result: passed. A no-cache fetch of
+    `https://ofg.chriscummings1024.workers.dev/dist/app/frameInput.js?deploy-check=5ae6355-1`
+    included `TOUCH_MOVEMENT_RUN_THRESHOLD` and `isTouchMovementFast`.
+
+    Remote Chrome mobile-emulation smoke against
+    https://ofg.chriscummings1024.workers.dev/?remote-smoke=5ae6355-final
+    Result: passed. Report:
+    artifacts/remote-browser-smoke/2026-06-07T14-36-37-489Z/report.json
+    Screenshot:
+    artifacts/remote-browser-smoke/2026-06-07T14-36-37-489Z/remote-mobile-touch.png
+    Evidence: COOP/COEP present, WebGPU frame rendered, touch controls visible,
+    `animationAfterMove.locomotionSpeedMetersPerSecond` 16.5,
+    `walkRunBlendWeight` 1, `runSpeedMetersPerSecond` 16.5, movementDistance
+    2.1992850085454, and camera HUD FIRST -> THIRD.
 
 Suggested joystick defaults:
 
