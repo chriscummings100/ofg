@@ -95,8 +95,13 @@ polish are future work.
 - [x] (2026-06-07 13:48Z) Revalidated the local follow-up with `npm run
   test:ts`, `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser`, `npm test`,
   `npm run check:wasm`, and `npm run coverage:rust`.
-- [ ] Deploy the second-stick/strafe-fix follow-up to `main`, verify the stable
-  Cloudflare URL, and get the user's final mobile-device confirmation.
+- [x] (2026-06-07 13:50Z) Committed the follow-up as `a133398`, pushed
+  `origin/touch-controls`, fast-forwarded `main`, and pushed `origin/main`.
+- [ ] Verify the stable Cloudflare URL has deployed `a133398`, run remote
+  smoke, and get the user's final mobile-device confirmation. Latest check:
+  repeated no-cache fetches through 2026-06-07 13:58Z still returned the older
+  deployed HTML without `#touch-look-base`, even though GitHub refs for
+  `main` and `touch-controls` both point to `a133398`.
 
 ## Surprises & Discoveries
 
@@ -214,6 +219,15 @@ polish are future work.
   Evidence: `src/engine/input/inputTracker.ts` is 377 lines,
   `tools/browser-smoke-mobile-touch.mjs` is 286 lines, and
   `src/app/styles.css` is 271 lines after the follow-up.
+
+- Observation: The second-stick follow-up has been pushed to GitHub, but the
+  stable Cloudflare Worker had not updated by the latest poll.
+  Evidence: `git ls-remote origin refs/heads/main refs/heads/touch-controls`
+  returned `a1333986ad13092bc1b1b50bd1b4a2032b3a06e7` for both refs. Repeated
+  no-cache requests to
+  `https://ofg.chriscummings1024.workers.dev/?deploy-check=a133398-*` through
+  2026-06-07 13:58Z still returned HTML containing `#touch-look-zone` without
+  the new `#touch-look-base` child.
 
 ## Decision Log
 
@@ -334,8 +348,9 @@ passed an automated remote Chrome mobile-emulation smoke check. A real
 WebGPU-capable mobile-device check confirmed the build loads and works, then
 surfaced two follow-up requirements: fix inverted strafe direction and provide a
 visible second stick for rotation. Those follow-up fixes are implemented and
-validated locally; the remaining acceptance item is deployment plus final
-real-device confirmation of the follow-up.
+validated locally, committed as `a133398`, and pushed to `origin/main`. The
+remaining acceptance item is waiting for or triggering the Cloudflare deployment
+for `a133398`, then repeating remote smoke and final real-device confirmation.
 
 ## Contract and Quality Baseline
 
@@ -762,6 +777,16 @@ Validation evidence from 2026-06-07:
     npm run coverage:rust
     Result after follow-up: passed. Default filtered attention report again
     listed no files below 90% line coverage.
+
+    git push origin touch-controls
+    git merge --ff-only origin/touch-controls
+    git push origin main
+    Result after follow-up: passed. Both `origin/touch-controls` and
+    `origin/main` now point at `a133398`.
+
+    Cloudflare deployment poll for a133398
+    Result: pending. No-cache fetches through 2026-06-07 13:58Z still returned
+    the previous deployed HTML without `#touch-look-base`.
 
 Suggested joystick defaults:
 
