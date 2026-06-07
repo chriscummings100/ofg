@@ -582,6 +582,7 @@ fn decode_data_uri_buffer(buffer_index: usize, uri: &str) -> Result<Vec<u8>, Mod
     })
 }
 
+#[derive(Debug)]
 enum DataUriPayloadError {
     Unsupported,
     Decode(String),
@@ -904,4 +905,374 @@ fn ensure_finite_vec4(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn model_asset_count_helpers_sum_imported_parts() {
+        let asset = ModelAsset {
+            nodes: vec![ModelNode {
+                name: Some("root".to_string()),
+                parent: None,
+                children: vec![1],
+                mesh: Some(0),
+                skin: Some(0),
+                local_transform: ModelNodeTransform::default(),
+            }],
+            primitives: vec![sample_primitive(0, 2, 3), sample_primitive(1, 3, 6)],
+            images: Vec::new(),
+            textures: Vec::new(),
+            samplers: Vec::new(),
+            materials: Vec::new(),
+            animations: Vec::new(),
+            skins: vec![ModelSkin {
+                name: Some("skin".to_string()),
+                joints: vec![0],
+                inverse_bind_matrices: vec![IDENTITY_MATRIX],
+            }],
+        };
+
+        assert_eq!(asset.primitive_count(), 2);
+        assert_eq!(asset.vertex_count(), 5);
+        assert_eq!(asset.index_count(), 9);
+        assert_eq!(asset.animation_count(), 0);
+        assert_eq!(asset.skin_count(), 1);
+        assert_eq!(asset.image_count(), 0);
+        assert_eq!(asset.texture_count(), 0);
+        assert_eq!(asset.material_count(), 0);
+    }
+
+    #[test]
+    fn primitive_vertex_packing_matches_static_model_layout() {
+        let primitive = ModelPrimitive {
+            mesh_index: 0,
+            mesh_name: Some("mesh".to_string()),
+            material: None,
+            vertices: vec![ModelVertex {
+                position: [1.0, 2.0, 3.0],
+                normal: [0.0, 1.0, 0.0],
+                texcoord0: [0.25, 0.75],
+                color0: [1.0, 0.5, 0.25, 1.0],
+                joints0: [4, 3, 2, 1],
+                weights0: [0.4, 0.3, 0.2, 0.1],
+            }],
+            indices: vec![0, 0, 0],
+        };
+
+        let floats = model_primitive_vertex_floats(&primitive);
+
+        assert_eq!(floats.len(), MODEL_VERTEX_FLOATS as usize);
+        assert_eq!(&floats[0..3], &[1.0, 2.0, 3.0]);
+        assert_eq!(&floats[3..6], &[0.0, 1.0, 0.0]);
+        assert_eq!(&floats[6..8], &[0.25, 0.75]);
+        assert_eq!(&floats[8..12], &[1.0, 0.5, 0.25, 1.0]);
+    }
+
+    #[test]
+    fn data_uri_payload_decoder_accepts_base64_and_rejects_other_payloads() {
+        assert_eq!(
+            decode_data_uri_payload("data:application/octet-stream;base64,AQID").unwrap(),
+            vec![1, 2, 3]
+        );
+        assert!(matches!(
+            decode_data_uri_payload("application/octet-stream;base64,AQID"),
+            Err(DataUriPayloadError::Unsupported)
+        ));
+        assert!(matches!(
+            decode_data_uri_payload("data:application/octet-stream,AQID"),
+            Err(DataUriPayloadError::Unsupported)
+        ));
+        assert!(matches!(
+            decode_data_uri_payload("data:application/octet-stream;base64,%%%"),
+            Err(DataUriPayloadError::Decode(_))
+        ));
+        assert!(matches!(
+            decode_data_uri_buffer(4, "data:application/octet-stream,AQID"),
+            Err(ModelAssetError::UnsupportedDataUri {
+                buffer_index: 4,
+                ..
+            })
+        ));
+        assert!(matches!(
+            decode_data_uri_buffer(5, "data:application/octet-stream;base64,%%%"),
+            Err(ModelAssetError::DataUriDecode {
+                buffer_index: 5,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn private_model_import_validators_report_shape_and_float_errors() {
+        assert_eq!(ensure_attribute_len(2, "NORMAL", 3, 3), Ok(()));
+        assert_eq!(
+            ensure_attribute_len(2, "NORMAL", 2, 3),
+            Err(ModelAssetError::InvalidAttributeLength {
+                mesh_index: 2,
+                attribute: "NORMAL",
+                actual: 2,
+                expected: 3
+            })
+        );
+        assert_eq!(ensure_finite_vec2(1, "TEXCOORD_0", &[[0.0, 1.0]]), Ok(()));
+        assert_eq!(
+            ensure_finite_vec3(1, "POSITION", &[[0.0, 1.0, 2.0]]),
+            Ok(())
+        );
+        assert_eq!(
+            ensure_finite_vec4(1, "COLOR_0", &[[0.0, f32::NAN, 1.0, 1.0]]),
+            Err(ModelAssetError::InvalidFloatData {
+                mesh_index: 1,
+                attribute: "COLOR_0"
+            })
+        );
+        assert_eq!(
+            flatten_gltf_matrix([
+                [1.0, 2.0, 3.0, 4.0],
+                [5.0, 6.0, 7.0, 8.0],
+                [9.0, 10.0, 11.0, 12.0],
+                [13.0, 14.0, 15.0, 16.0],
+            ]),
+            [
+                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
+                16.0
+            ]
+        );
+    }
+
+    #[test]
+    fn model_asset_errors_format_stable_browser_diagnostics() {
+        let cases = [
+            (
+                ModelAssetError::GltfParse("bad".to_string()),
+                "Failed to parse glTF",
+            ),
+            (
+                ModelAssetError::MissingBinaryBuffer { buffer_index: 1 },
+                "GLB binary chunk",
+            ),
+            (
+                ModelAssetError::InvalidBufferLength {
+                    buffer_index: 1,
+                    actual: 2,
+                    expected: 3,
+                },
+                "expected at least 3",
+            ),
+            (
+                ModelAssetError::UnsupportedDataUri {
+                    buffer_index: 1,
+                    uri: "data:text/plain,abc".to_string(),
+                },
+                "unsupported data URI",
+            ),
+            (
+                ModelAssetError::DataUriDecode {
+                    buffer_index: 1,
+                    message: "decode".to_string(),
+                },
+                "could not be decoded",
+            ),
+            (
+                ModelAssetError::UnsupportedImageDataUri {
+                    image_index: 2,
+                    uri: "data:text/plain,abc".to_string(),
+                },
+                "glTF image 2 uses unsupported data URI",
+            ),
+            (
+                ModelAssetError::ImageDataUriDecode {
+                    image_index: 2,
+                    message: "decode".to_string(),
+                },
+                "glTF image 2 data URI could not be decoded",
+            ),
+            (
+                ModelAssetError::InvalidImageBufferView {
+                    image_index: 2,
+                    buffer_view_index: 3,
+                    buffer_index: 4,
+                    actual: 5,
+                    expected_end: 6,
+                },
+                "reads through byte 6",
+            ),
+            (
+                ModelAssetError::UnsupportedExternalBuffer {
+                    buffer_index: 1,
+                    uri: "external.bin".to_string(),
+                },
+                "external URI",
+            ),
+            (
+                ModelAssetError::UnsupportedPrimitiveMode {
+                    mesh_index: 7,
+                    mode: "Lines".to_string(),
+                },
+                "only triangles",
+            ),
+            (
+                ModelAssetError::MissingPositions { mesh_index: 7 },
+                "missing POSITION",
+            ),
+            (
+                ModelAssetError::InvalidAttributeLength {
+                    mesh_index: 7,
+                    attribute: "NORMAL",
+                    actual: 2,
+                    expected: 3,
+                },
+                "attribute NORMAL has 2 values",
+            ),
+            (
+                ModelAssetError::InvalidTriangleIndexCount {
+                    mesh_index: 7,
+                    index_count: 2,
+                },
+                "expected a multiple of 3",
+            ),
+            (
+                ModelAssetError::InvalidFloatData {
+                    mesh_index: 7,
+                    attribute: "POSITION",
+                },
+                "contains non-finite data",
+            ),
+            (
+                ModelAssetError::MissingAnimationInput {
+                    animation_index: 1,
+                    channel_index: 2,
+                },
+                "missing input keyframe times",
+            ),
+            (
+                ModelAssetError::MissingAnimationOutput {
+                    animation_index: 1,
+                    channel_index: 2,
+                },
+                "missing output values",
+            ),
+            (
+                ModelAssetError::UnsupportedAnimationInterpolation {
+                    animation_index: 1,
+                    channel_index: 2,
+                    interpolation: "CubicSpline".to_string(),
+                },
+                "unsupported interpolation",
+            ),
+            (
+                ModelAssetError::UnsupportedAnimationTarget {
+                    animation_index: 1,
+                    channel_index: 2,
+                    target: "weights".to_string(),
+                },
+                "targets unsupported property",
+            ),
+            (
+                ModelAssetError::InvalidAnimationKeyframes {
+                    animation_index: 1,
+                    channel_index: 2,
+                    input_count: 3,
+                    output_count: 4,
+                },
+                "has 3 input times and 4 output values",
+            ),
+            (
+                ModelAssetError::InvalidAnimationData {
+                    animation_index: 1,
+                    channel_index: 2,
+                    attribute: "rotation output",
+                },
+                "contains invalid rotation output data",
+            ),
+            (
+                ModelAssetError::InvalidAnimationTargetNode { node_index: 9 },
+                "targets missing model node",
+            ),
+            (
+                ModelAssetError::InvalidAnimationBlendTransformCount {
+                    from_count: 2,
+                    to_count: 3,
+                },
+                "received 2 source transforms and 3 target transforms",
+            ),
+            (ModelAssetError::InvalidAnimationTime, "time was not finite"),
+            (
+                ModelAssetError::InvalidSkinIndex { skin_index: 1 },
+                "glTF skin 1 does not exist",
+            ),
+            (
+                ModelAssetError::InvalidSkinJoint {
+                    skin_index: 1,
+                    joint_index: 2,
+                    node_index: 3,
+                },
+                "references missing node 3",
+            ),
+            (
+                ModelAssetError::InvalidSkinInverseBindCount {
+                    skin_index: 1,
+                    joint_count: 2,
+                    inverse_bind_count: 3,
+                },
+                "2 joints and 3 inverse bind matrices",
+            ),
+            (
+                ModelAssetError::InvalidSkinData {
+                    skin_index: 1,
+                    attribute: "inverse bind matrix",
+                },
+                "contains invalid inverse bind matrix data",
+            ),
+            (
+                ModelAssetError::InvalidSkinVertexJoint {
+                    mesh_index: 1,
+                    vertex_index: 2,
+                    joint_index: 3,
+                },
+                "vertex 2 references missing skin joint 3",
+            ),
+            (
+                ModelAssetError::InvalidSkinNodeTransformCount {
+                    node_count: 2,
+                    transform_count: 3,
+                },
+                "received 3 node transforms for 2 model nodes",
+            ),
+        ];
+
+        for (error, expected_fragment) in cases {
+            assert!(
+                error.to_string().contains(expected_fragment),
+                "expected '{error}' to contain '{expected_fragment}'"
+            );
+        }
+    }
+
+    fn sample_primitive(
+        mesh_index: usize,
+        vertex_count: usize,
+        index_count: usize,
+    ) -> ModelPrimitive {
+        ModelPrimitive {
+            mesh_index,
+            mesh_name: Some(format!("mesh-{mesh_index}")),
+            material: None,
+            vertices: vec![
+                ModelVertex {
+                    position: [0.0, 0.0, 0.0],
+                    normal: [0.0, 1.0, 0.0],
+                    texcoord0: [0.0, 0.0],
+                    color0: [1.0, 1.0, 1.0, 1.0],
+                    joints0: [0, 0, 0, 0],
+                    weights0: [0.0, 0.0, 0.0, 0.0],
+                };
+                vertex_count
+            ],
+            indices: vec![0; index_count],
+        }
+    }
 }

@@ -1,5 +1,4 @@
 mod config;
-mod facade;
 mod game_state;
 mod materials;
 mod model_animation;
@@ -26,7 +25,6 @@ pub use config::{
     RendererConfig, RendererConfigError, MODEL_VERTEX_FLOATS, REQUIRED_TEXTURE_ARRAY_LAYERS,
     TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
 };
-pub use facade::*;
 pub use game_state::{
     player_mode_code, player_mode_from_code, BrowserGameInput, BrowserGameState,
     BrowserGameStateError, BrowserPlayerCharacterSceneSnapshot, BrowserSceneMeshItem,

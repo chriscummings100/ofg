@@ -38,11 +38,12 @@ src/engine/browser
   animation semantics.
 
 src/engine/world
-  Terrain descriptor/config types, 3D terrain chunk key helpers, Rust/WASM
-  terrain artifact test adapters, and the terrain mesh data/stride contract.
-  Runtime terrain generation, meshing, streaming, worker semantics, material
-  packing, terrain material manifests, terrain edits, and density dependency
-  generation are Rust-owned.
+  Terrain descriptor/config types and 3D terrain chunk key helpers for browser
+  URL parsing, debug snapshot typing, and small shell tests. Runtime terrain
+  generation, meshing, streaming, worker semantics, material packing, terrain
+  material manifests, terrain edits, density dependency generation, standalone
+  terrain WASM adapters, and terrain mesh data/stride contracts are Rust-owned
+  or tested through Rust.
 
 src/engine/math
   Small vector and matrix primitives.
@@ -67,7 +68,8 @@ src/engine/render/shaders
   shader contract tests, and the Rust renderer includes the shared WGSL source.
 
 src/generated
-  Deterministically generated TypeScript artifacts used by runtime code.
+  Deterministically generated TypeScript artifacts used by runtime code,
+  currently shader source modules and engine-web WASM metadata.
 ```
 
 ## Runtime Ownership
@@ -94,9 +96,10 @@ as a browser shell plus generic browser image decoder.
 - `terrain_core` owns terrain height/density sampling, generated chunk mesh
   emission, stream scheduling, density storage, worker-pool request-state tests,
   and the tested legacy terrain mesh packet store. The playable browser path now
-  reaches it through `engine_web` as a Rust library; the standalone
-  `terrain_core.wasm` artifact remains for tests, benchmarks, and compatibility
-  fixtures, not runtime TypeScript terrain ownership.
+  reaches it through `engine_web` as a Rust library. The standalone
+  `terrain_core.wasm` artifact remains for export-contract checks and the
+  current terrain benchmark script, not runtime or test TypeScript terrain
+  ownership.
 - `engine_web` owns the Rust/wgpu browser renderer and current GLTF model path:
   WebGPU canvas surface, adapter/device/queue, surface configuration, depth
   texture, shader modules, terrain and static-model pipelines, GLB parsing,
@@ -227,17 +230,21 @@ direction of the Rust-owned main light.
 ## Testing Direction
 
 - Unit tests cover deterministic math, Rust player/camera behavior, render data,
-  terrain data contracts, Rust/WASM terrain adapters, and Rust-owned browser
+  terrain data contracts, Rust terrain facade behavior, and Rust-owned browser
   terrain stream behavior.
 - Shader tests verify generated shader metadata and the renderer vertex layout
   contract.
-- Browser smoke tests cover canvas rendering, input toggles, resize behavior, and
-  basic chunk streaming after moving the player across chunk columns. The smoke
-  path also verifies the Rust-owned GLTF player character scene item, hidden
-  marker state, animation clock, CPU skinning state, HUD male/female character
-  toggle, movement-driven walk selection, Shift-driven sprint blend, and
-  release-driven idle transition.
-- Rust/WASM terrain tests cover height/density determinism, density chunk fill,
-  mesh buffers, retained stores, stream scheduling, and worker-pool fixtures.
+- Browser smoke tests cover browser integration only: WebGPU canvas rendering,
+  wasm-bindgen loading, browser asset fetch/decode, HUD state, reload behavior,
+  browser isolation headers, DOM input forwarding, Rust runtime sentinel strings,
+  and Rust/wgpu renderer status.
+- Rust terrain tests cover height/density determinism, density chunk fill, mesh
+  buffers, retained stores, stream scheduling, and worker-pool fixtures. The
+  removed TypeScript `terrain_core.wasm` adapters must not be recreated for
+  test coverage.
+- Rust offscreen image smoke in `crates/ofg_test_harness` creates native `wgpu`
+  render targets, ticks Rust terrain streaming, renders terrain/sky PNGs, writes
+  `artifacts/rust-smoke/<run-id>/report.json`, and owns terrain preset and
+  seam/corner image smoke.
 - Performance tests should be explicit scripts with stable scene seeds, not hidden
   assertions inside regular unit tests.

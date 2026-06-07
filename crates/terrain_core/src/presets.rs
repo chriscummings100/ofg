@@ -170,3 +170,28 @@ pub(crate) fn terrain_preset_index(preset: u32) -> u32 {
 pub(crate) fn terrain_preset(preset: u32) -> TerrainPresetDefinition {
     TERRAIN_PRESETS[terrain_preset_index(preset) as usize]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn terrain_preset_index_accepts_known_presets_and_defaults_unknown_values() {
+        assert_eq!(terrain_preset_index(0), 0);
+        assert_eq!(terrain_preset_index(1), 1);
+        assert_eq!(terrain_preset_index(2), 2);
+        assert_eq!(terrain_preset_index(3), 3);
+        assert_eq!(terrain_preset_index(999), DEFAULT_TERRAIN_PRESET);
+    }
+
+    #[test]
+    fn terrain_preset_returns_default_definition_for_unknown_values() {
+        let default = terrain_preset(DEFAULT_TERRAIN_PRESET);
+        let unknown = terrain_preset(999);
+
+        assert_eq!(unknown.base_height, default.base_height);
+        assert_eq!(unknown.height_scale, default.height_scale);
+        assert_eq!(unknown.detail_amplitude, default.detail_amplitude);
+        assert_eq!(unknown.warp.amplitude, default.warp.amplitude);
+    }
+}

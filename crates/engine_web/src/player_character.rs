@@ -88,3 +88,55 @@ pub fn player_character_descriptor(id: PlayerCharacterId) -> PlayerCharacterDesc
         .copied()
         .expect("player character ID must have a descriptor")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn player_character_ids_round_trip_browser_names_and_display() {
+        assert_eq!(PlayerCharacterId::Male.js_name(), "male");
+        assert_eq!(PlayerCharacterId::Female.js_name(), "female");
+        assert_eq!(
+            PlayerCharacterId::from_js_name("male"),
+            Some(PlayerCharacterId::Male)
+        );
+        assert_eq!(
+            PlayerCharacterId::from_js_name("female"),
+            Some(PlayerCharacterId::Female)
+        );
+        assert_eq!(PlayerCharacterId::from_js_name("wizard"), None);
+        assert_eq!(PlayerCharacterId::Male.to_string(), "male");
+        assert_eq!(PlayerCharacterId::Female.to_string(), "female");
+    }
+
+    #[test]
+    fn player_character_toggle_switches_between_known_characters() {
+        assert_eq!(PlayerCharacterId::Male.toggled(), PlayerCharacterId::Female);
+        assert_eq!(PlayerCharacterId::Female.toggled(), PlayerCharacterId::Male);
+    }
+
+    #[test]
+    fn player_character_descriptors_keep_browser_ids_and_asset_labels_stable() {
+        assert_eq!(PLAYER_CHARACTER_DESCRIPTORS.len(), 2);
+
+        let male = player_character_descriptor(PlayerCharacterId::Male);
+        assert_eq!(male.id, PlayerCharacterId::Male);
+        assert_eq!(male.label, "Male");
+        assert_eq!(male.model_id, PLAYER_SUPERHERO_MALE_MODEL_ID);
+        assert_eq!(male.model_url, PLAYER_SUPERHERO_MALE_MODEL_URL);
+        assert_eq!(male.mesh_label, PLAYER_SUPERHERO_MALE_MESH_LABEL);
+        assert_eq!(male.material_label, PLAYER_SUPERHERO_MALE_MATERIAL_LABEL);
+
+        let female = player_character_descriptor(PlayerCharacterId::Female);
+        assert_eq!(female.id, PlayerCharacterId::Female);
+        assert_eq!(female.label, "Female");
+        assert_eq!(female.model_id, PLAYER_SUPERHERO_FEMALE_MODEL_ID);
+        assert_eq!(female.model_url, PLAYER_SUPERHERO_FEMALE_MODEL_URL);
+        assert_eq!(female.mesh_label, PLAYER_SUPERHERO_FEMALE_MESH_LABEL);
+        assert_eq!(
+            female.material_label,
+            PLAYER_SUPERHERO_FEMALE_MATERIAL_LABEL
+        );
+    }
+}

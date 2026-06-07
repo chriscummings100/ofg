@@ -5,3 +5,4 @@ import { fileURLToPath } from "node:url";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 rmSync(resolve(root, "dist"), { recursive: true, force: true });
+rmSync(resolve(root, "dist-test"), { recursive: true, force: true });

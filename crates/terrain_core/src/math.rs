@@ -48,3 +48,55 @@ pub(crate) fn smoothstep(edge0: f64, edge1: f64, value: f64) -> f64 {
     let t = clamp((value - edge0) / (edge1 - edge0), 0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_vec3_returns_zero_for_zero_length_vectors() {
+        let normalized = normalize_vec3(Vec3 {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        });
+
+        assert_eq!(normalized.x, 0.0);
+        assert_eq!(normalized.y, 0.0);
+        assert_eq!(normalized.z, 0.0);
+    }
+
+    #[test]
+    fn clamps_vec3_to_chunk_bounds_per_axis() {
+        let clamped = clamp_vec3_to_bounds(
+            Vec3 {
+                x: -5.0,
+                y: 3.0,
+                z: 99.0,
+            },
+            TerrainChunkBounds {
+                min: Vec3 {
+                    x: 0.0,
+                    y: 1.0,
+                    z: 2.0,
+                },
+                max: Vec3 {
+                    x: 10.0,
+                    y: 11.0,
+                    z: 12.0,
+                },
+            },
+        );
+
+        assert_eq!(clamped.x, 0.0);
+        assert_eq!(clamped.y, 3.0);
+        assert_eq!(clamped.z, 12.0);
+    }
+
+    #[test]
+    fn smoothstep_clamps_outside_edges_and_eases_inside() {
+        assert_eq!(smoothstep(10.0, 20.0, 5.0), 0.0);
+        assert_eq!(smoothstep(10.0, 20.0, 25.0), 1.0);
+        assert_eq!(smoothstep(10.0, 20.0, 15.0), 0.5);
+    }
+}

@@ -469,3 +469,356 @@ fn js_error(error: impl std::fmt::Display) -> wasm_bindgen::JsValue {
 
     js_sys::Error::new(&error.to_string()).unchecked_into()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builds_texture_array_requests_from_manifest_paths() {
+        let requests = terrain_texture_array_requests_from_manifest_json(&manifest_json())
+            .expect("manifest should be valid");
+
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[0].id, TERRAIN_ALBEDO_TEXTURE_ARRAY_ID);
+        assert_eq!(requests[1].id, TERRAIN_NORMAL_TEXTURE_ARRAY_ID);
+        assert_eq!(requests[2].id, TERRAIN_MATERIAL_TEXTURE_ARRAY_ID);
+        assert_eq!(
+            requests[0].urls.len(),
+            REQUIRED_TEXTURE_ARRAY_LAYERS as usize
+        );
+        assert_eq!(requests[0].urls[0], "/textures/albedo-0.png");
+        assert_eq!(requests[1].urls[1], "/textures/normal-1.png");
+        assert_eq!(requests[2].urls[2], "/textures/roughness-2.png");
+    }
+
+    #[test]
+    fn rejects_invalid_manifests_and_missing_map_paths() {
+        assert!(matches!(
+            terrain_texture_array_requests_from_manifest_json("{"),
+            Err(TerrainTextureError::InvalidManifest(_))
+        ));
+        assert_eq!(
+            terrain_texture_array_requests_from_manifest_json(&manifest_json_with_layers(2)),
+            Err(TerrainTextureError::InvalidLayerCount {
+                actual: 2,
+                expected: REQUIRED_TEXTURE_ARRAY_LAYERS,
+            })
+        );
+        assert_eq!(
+            terrain_texture_array_requests_from_manifest_json(&manifest_json_with_missing_path(
+                3, "normal"
+            )),
+            Err(TerrainTextureError::MissingTexturePath {
+                material_index: 3,
+                map: "normal",
+            })
+        );
+    }
+
+    #[test]
+    fn accepts_complete_browser_texture_array_assets() {
+        let arrays = TerrainTextureArrays::from_assets(vec![
+            texture_asset(
+                TERRAIN_MATERIAL_TEXTURE_ARRAY_ID,
+                2,
+                2,
+                REQUIRED_TEXTURE_ARRAY_LAYERS,
+            ),
+            texture_asset(
+                TERRAIN_ALBEDO_TEXTURE_ARRAY_ID,
+                2,
+                2,
+                REQUIRED_TEXTURE_ARRAY_LAYERS,
+            ),
+            texture_asset(
+                TERRAIN_NORMAL_TEXTURE_ARRAY_ID,
+                2,
+                2,
+                REQUIRED_TEXTURE_ARRAY_LAYERS,
+            ),
+        ])
+        .expect("assets should be valid");
+
+        assert_eq!(arrays.width, 2);
+        assert_eq!(arrays.height, 2);
+        assert_eq!(arrays.layers, REQUIRED_TEXTURE_ARRAY_LAYERS);
+        assert_eq!(arrays.format_code, TEXTURE_FORMAT_RGBA8_UNORM);
+        assert_eq!(arrays.albedo.id, TERRAIN_ALBEDO_TEXTURE_ARRAY_ID);
+        assert_eq!(arrays.normal.id, TERRAIN_NORMAL_TEXTURE_ARRAY_ID);
+        assert_eq!(arrays.material.id, TERRAIN_MATERIAL_TEXTURE_ARRAY_ID);
+    }
+
+    #[test]
+    fn rejects_unknown_duplicate_and_missing_texture_arrays() {
+        assert_eq!(
+            TerrainTextureArrays::from_assets(vec![
+                texture_asset("terrain.unknown", 1, 1, REQUIRED_TEXTURE_ARRAY_LAYERS),
+                texture_asset(
+                    TERRAIN_ALBEDO_TEXTURE_ARRAY_ID,
+                    1,
+                    1,
+                    REQUIRED_TEXTURE_ARRAY_LAYERS
+                ),
+                texture_asset(
+                    TERRAIN_NORMAL_TEXTURE_ARRAY_ID,
+                    1,
+                    1,
+                    REQUIRED_TEXTURE_ARRAY_LAYERS
+                ),
+            ]),
+            Err(TerrainTextureError::UnknownTextureArray(
+                "terrain.unknown".into()
+            ))
+        );
+        assert_eq!(
+            TerrainTextureArrays::from_assets(vec![
+                texture_asset(
+                    TERRAIN_ALBEDO_TEXTURE_ARRAY_ID,
+                    1,
+                    1,
+                    REQUIRED_TEXTURE_ARRAY_LAYERS
+                ),
+                texture_asset(
+                    TERRAIN_ALBEDO_TEXTURE_ARRAY_ID,
+                    1,
+                    1,
+                    REQUIRED_TEXTURE_ARRAY_LAYERS
+                ),
+                texture_asset(
+                    TERRAIN_NORMAL_TEXTURE_ARRAY_ID,
+                    1,
+                    1,
+                    REQUIRED_TEXTURE_ARRAY_LAYERS
+                ),
+                texture_asset(
+                    TERRAIN_MATERIAL_TEXTURE_ARRAY_ID,
+                    1,
+                    1,
+                    REQUIRED_TEXTURE_ARRAY_LAYERS
+                ),
+            ]),
+            Err(TerrainTextureError::DuplicateTextureArray(
+                TERRAIN_ALBEDO_TEXTURE_ARRAY_ID.into()
+            ))
+        );
+        assert_eq!(
+            TerrainTextureArrays::from_assets(vec![
+                texture_asset(
+                    TERRAIN_ALBEDO_TEXTURE_ARRAY_ID,
+                    1,
+                    1,
+                    REQUIRED_TEXTURE_ARRAY_LAYERS
+                ),
+                texture_asset(
+                    TERRAIN_NORMAL_TEXTURE_ARRAY_ID,
+                    1,
+                    1,
+                    REQUIRED_TEXTURE_ARRAY_LAYERS
+                ),
+            ]),
+            Err(TerrainTextureError::MissingTextureArray(
+                TERRAIN_MATERIAL_TEXTURE_ARRAY_ID
+            ))
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_texture_array_shapes_and_data_lengths() {
+        assert_eq!(
+            TerrainTextureArrays::from_assets(vec![
+                texture_asset(
+                    TERRAIN_ALBEDO_TEXTURE_ARRAY_ID,
+                    2,
+                    2,
+                    REQUIRED_TEXTURE_ARRAY_LAYERS
+                ),
+                texture_asset(
+                    TERRAIN_NORMAL_TEXTURE_ARRAY_ID,
+                    1,
+                    2,
+                    REQUIRED_TEXTURE_ARRAY_LAYERS
+                ),
+                texture_asset(
+                    TERRAIN_MATERIAL_TEXTURE_ARRAY_ID,
+                    2,
+                    2,
+                    REQUIRED_TEXTURE_ARRAY_LAYERS
+                ),
+            ]),
+            Err(TerrainTextureError::TextureShapeMismatch {
+                id: TERRAIN_NORMAL_TEXTURE_ARRAY_ID.into(),
+                width: 1,
+                height: 2,
+                layers: REQUIRED_TEXTURE_ARRAY_LAYERS,
+                expected_width: 2,
+                expected_height: 2,
+                expected_layers: REQUIRED_TEXTURE_ARRAY_LAYERS,
+            })
+        );
+
+        let mut invalid = texture_asset(
+            TERRAIN_ALBEDO_TEXTURE_ARRAY_ID,
+            2,
+            2,
+            REQUIRED_TEXTURE_ARRAY_LAYERS,
+        );
+        invalid.data.pop();
+        assert_eq!(
+            TerrainTextureArrays::from_assets(vec![
+                invalid,
+                texture_asset(
+                    TERRAIN_NORMAL_TEXTURE_ARRAY_ID,
+                    2,
+                    2,
+                    REQUIRED_TEXTURE_ARRAY_LAYERS
+                ),
+                texture_asset(
+                    TERRAIN_MATERIAL_TEXTURE_ARRAY_ID,
+                    2,
+                    2,
+                    REQUIRED_TEXTURE_ARRAY_LAYERS
+                ),
+            ]),
+            Err(TerrainTextureError::InvalidTextureDataLength {
+                id: TERRAIN_ALBEDO_TEXTURE_ARRAY_ID.into(),
+                actual: (2 * 2 * REQUIRED_TEXTURE_ARRAY_LAYERS * 4 - 1) as usize,
+                expected: (2 * 2 * REQUIRED_TEXTURE_ARRAY_LAYERS * 4) as usize,
+            })
+        );
+
+        assert_eq!(
+            TerrainTextureArrays::from_assets(vec![
+                texture_asset(
+                    TERRAIN_ALBEDO_TEXTURE_ARRAY_ID,
+                    1,
+                    1,
+                    REQUIRED_TEXTURE_ARRAY_LAYERS - 1
+                ),
+                texture_asset(
+                    TERRAIN_NORMAL_TEXTURE_ARRAY_ID,
+                    1,
+                    1,
+                    REQUIRED_TEXTURE_ARRAY_LAYERS
+                ),
+                texture_asset(
+                    TERRAIN_MATERIAL_TEXTURE_ARRAY_ID,
+                    1,
+                    1,
+                    REQUIRED_TEXTURE_ARRAY_LAYERS
+                ),
+            ]),
+            Err(TerrainTextureError::InvalidTextureDataLength {
+                id: TERRAIN_ALBEDO_TEXTURE_ARRAY_ID.into(),
+                actual: ((REQUIRED_TEXTURE_ARRAY_LAYERS - 1) * 4) as usize,
+                expected: ((REQUIRED_TEXTURE_ARRAY_LAYERS - 1) * 4) as usize,
+            })
+        );
+    }
+
+    #[test]
+    fn formats_texture_errors_for_browser_diagnostics() {
+        assert_eq!(
+            TerrainTextureError::InvalidManifest("bad json".into()).to_string(),
+            "invalid terrain texture manifest: bad json"
+        );
+        assert_eq!(
+            TerrainTextureError::InvalidLayerCount {
+                actual: 1,
+                expected: 16,
+            }
+            .to_string(),
+            "terrain texture manifest has 1 material layers; expected 16"
+        );
+        assert_eq!(
+            TerrainTextureError::MissingTexturePath {
+                material_index: 2,
+                map: "albedo",
+            }
+            .to_string(),
+            "terrain texture manifest material 2 is missing a albedo map path"
+        );
+        assert_eq!(
+            TerrainTextureError::UnknownTextureArray("x".into()).to_string(),
+            "browser returned unknown texture array 'x'"
+        );
+        assert_eq!(
+            TerrainTextureError::DuplicateTextureArray("x".into()).to_string(),
+            "browser returned duplicate texture array 'x'"
+        );
+        assert_eq!(
+            TerrainTextureError::MissingTextureArray("x").to_string(),
+            "browser did not return texture array 'x'"
+        );
+        assert_eq!(
+            TerrainTextureError::TextureShapeMismatch {
+                id: "x".into(),
+                width: 1,
+                height: 2,
+                layers: 3,
+                expected_width: 4,
+                expected_height: 5,
+                expected_layers: 6,
+            }
+            .to_string(),
+            "texture array 'x' has shape 1x2x3; expected 4x5x6"
+        );
+        assert_eq!(
+            TerrainTextureError::InvalidTextureDataLength {
+                id: "x".into(),
+                actual: 7,
+                expected: 8,
+            }
+            .to_string(),
+            "texture array 'x' has 7 bytes; expected 8"
+        );
+    }
+
+    fn texture_asset(id: &str, width: u32, height: u32, layers: u32) -> RgbaTextureArrayAsset {
+        RgbaTextureArrayAsset {
+            id: id.to_string(),
+            width,
+            height,
+            layers,
+            data: vec![0; (width * height * layers * 4) as usize],
+        }
+    }
+
+    fn manifest_json() -> String {
+        manifest_json_with_layers(REQUIRED_TEXTURE_ARRAY_LAYERS as usize)
+    }
+
+    fn manifest_json_with_layers(layers: usize) -> String {
+        let materials = (0..layers)
+            .map(|index| material_json(index, None))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!(r#"{{"materials":[{materials}]}}"#)
+    }
+
+    fn manifest_json_with_missing_path(index_to_clear: usize, map_to_clear: &str) -> String {
+        let materials = (0..REQUIRED_TEXTURE_ARRAY_LAYERS as usize)
+            .map(|index| material_json(index, (index == index_to_clear).then_some(map_to_clear)))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!(r#"{{"materials":[{materials}]}}"#)
+    }
+
+    fn material_json(index: usize, missing_map: Option<&str>) -> String {
+        let albedo = map_path(index, "albedo", missing_map);
+        let normal = map_path(index, "normal", missing_map);
+        let roughness = map_path(index, "roughness", missing_map);
+
+        format!(
+            r#"{{"maps":{{"albedo":{{"path":"{albedo}"}},"normal":{{"path":"{normal}"}},"roughness":{{"path":"{roughness}"}}}}}}"#
+        )
+    }
+
+    fn map_path(index: usize, map: &str, missing_map: Option<&str>) -> String {
+        if missing_map == Some(map) {
+            String::new()
+        } else {
+            format!("textures/{map}-{index}.png")
+        }
+    }
+}

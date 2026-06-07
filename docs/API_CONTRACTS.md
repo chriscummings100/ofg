@@ -27,9 +27,9 @@ decisions.
 | OFG-API-001 | Browser shell to Rust browser game | Active | `src/engine/web/browserGameTypes.ts`, `src/engine/web/engineWebWasm.ts`, `crates/engine_web/src/wgpu_renderer.rs` |
 | OFG-API-002 | Rust browser game to browser asset loader | Active | `src/engine/browser/textureAssetLoader.ts`, `crates/engine_web/src/terrain_textures.rs` |
 | OFG-API-003 | Debug and smoke-test hooks | Active | `src/app/game.ts`, `src/engine/web/browserGameTypes.ts`, `tools/browser-smoke.mjs` |
-| OFG-API-004 | Terrain vertex and material layout | Active | `crates/terrain_core/src/constants.rs`, `crates/engine_web/src/config.rs`, `src/engine/world/terrainMesh.ts`, `crates/engine_web/src/wgpu_renderer.rs` |
-| OFG-API-005 | Terrain presets and world descriptor codes | Active | `src/engine/world/terrainDescriptor.ts`, `src/engine/web/rustBrowserGameRuntime.ts`, `src/engine/world/terrainCoreWasm.ts`, `crates/terrain_core/src/presets.rs` |
-| OFG-API-006 | Standalone `terrain_core.wasm` TypeScript adapters | Fixture | `src/engine/world/terrainCoreWasm.ts` and related tests |
+| OFG-API-004 | Terrain vertex and material layout | Active | `crates/terrain_core/src/constants.rs`, `crates/engine_web/src/config.rs`, `crates/engine_web/src/wgpu_renderer.rs`, `src/engine/render/shaders/UberShader.test.ts` |
+| OFG-API-005 | Terrain presets and world descriptor codes | Active | `src/engine/world/terrainDescriptor.ts`, `src/engine/web/rustBrowserGameRuntime.ts`, `crates/terrain_core/src/presets.rs` |
+| OFG-API-006 | Standalone `terrain_core.wasm` artifact | Fixture | `tools/build-terrain-wasm.mjs`, `crates/terrain_core/src/facade.rs` |
 | OFG-API-007 | Raw linked WASM exports in `engine_web` | Unsupported | `assets/wasm/engine_web/engine_web.d.ts`, `crates/*/src/facade.rs` |
 | OFG-API-008 | Future game lifecycle and tuning surface | Future | This document until real behavior exists |
 | OFG-API-009 | Forbidden TypeScript ownership | Forbidden | This document and `docs/ARCHITECTURE.md` |
@@ -164,8 +164,10 @@ Contract rules:
 ## OFG-API-003: Debug And Smoke-Test Hooks
 
 `window.__ofgDebug` is a browser-only debug and test contract. It is not game
-simulation ownership, but smoke tests and terrain verification scripts depend on
-it.
+simulation ownership. Browser smoke uses it only for black-box integration
+signals such as runtime ownership strings, renderer status, HUD/input effects,
+and reload health. Terrain image verification belongs in Rust offscreen smoke,
+not browser debug-hook terrain clients.
 
 Current hook categories:
 
@@ -205,8 +207,9 @@ Renderable terrain mesh vertices are 19 `f32` values per vertex:
 | material layer indices | 4 | 4 |
 | material weights | 4 | 5 |
 
-Current duplicated constants live in TypeScript, `terrain_core`, `engine_web`,
-and the WebGPU vertex-buffer layout. Reviewers must treat this as a fragile
+Current duplicated constants live in `terrain_core`, `engine_web`, and the
+WebGPU vertex-buffer layout. Shader contract tests still validate that the WGSL
+locations match the renderer layout. Reviewers must treat this as a fragile
 contract until it is generated from one source.
 
 Contract rules:
@@ -227,8 +230,7 @@ Browser URLs and TypeScript descriptors use string preset IDs:
     rockyHighland
 
 WASM/Rust commands use numeric codes. Current mappings are duplicated in the
-browser runtime, terrain WASM fixture adapter, Rust terrain presets, and Rust
-debug snapshot conversion.
+browser runtime, Rust terrain presets, and Rust debug snapshot conversion.
 
 Contract rules:
 
@@ -236,26 +238,41 @@ Contract rules:
 - Prefer generating a small preset metadata artifact before adding more presets.
 - `rollingHills` is the current default terrain preset.
 
-## OFG-API-006: Standalone Terrain WASM Fixture Adapters
+## OFG-API-006: Standalone Terrain WASM Artifact
 
-The `terrain_core.wasm` TypeScript adapters in `src/engine/world` are fixture
-and compatibility surfaces for tests, benchmarks, and generated artifact
-validation. They are not the playable terrain runtime.
+The previous `terrain_core.wasm` TypeScript adapters in `src/engine/world` have
+been removed. TypeScript tests no longer instantiate `terrain_core.wasm`, read
+terrain WASM memory buffers, call terrain density/mesh/scheduler exports, or
+validate generated TypeScript metadata for the standalone terrain artifact.
+
+The standalone `assets/wasm/terrain_core.wasm` artifact still exists as an
+export-contract fixture while the native Rust test and smoke system is being
+completed. It is not the playable terrain runtime. `tools/build-terrain-wasm.mjs`
+builds the artifact and validates the expected raw export names directly from
+the WASM module; it no longer writes a generated TypeScript metadata module.
+Terrain performance benchmarking now uses `npm run bench:terrain:rust`, which
+calls `terrain_core` from Rust and writes JSON under `artifacts/terrain-bench/`.
 
 Contract rules:
 
-- Runtime app code must not load or call `terrain_core.wasm` directly.
-- Fixture-looking files should keep top-of-file comments that say they are not
-  playable runtime terrain ownership.
-- Do not use fixture adapters as justification to rebuild TypeScript terrain
-  scheduling, meshing, density storage, or worker protocols.
+- Runtime app code and TypeScript tests must not load or call
+  `terrain_core.wasm` directly.
+- Do not recreate TypeScript adapters for terrain density sampling, chunk
+  filling, stream scheduling, density storage, mesh generation, or raw terrain
+  WASM memory buffers.
+- Do not use the standalone artifact or raw export list as
+  justification to rebuild TypeScript terrain scheduling, meshing, density
+  storage, or worker protocols.
 
 ## OFG-API-007: Raw Linked WASM Exports In Engine Web
 
-`assets/wasm/engine_web/engine_web.d.ts` currently lists raw `ofg_engine_web_*`,
-`ofg_terrain_core_*`, and `ofg_engine_*` exports in `InitOutput` because linked
-Rust crates still contain `#[no_mangle]` facades. These exports are visible in
-generated output but are not a supported browser runtime API.
+The old raw `ofg_engine_web_*` exports have been removed from
+`crates/engine_web`, and `tools/build-engine-web-wasm.mjs` fails if
+wasm-bindgen glue reintroduces that prefix. `assets/wasm/engine_web/engine_web.d.ts`
+may still list raw `ofg_terrain_core_*`, `ofg_engine_*`, or other linked
+`ofg_*` exports in `InitOutput` because linked Rust fixture crates still contain
+`#[no_mangle]` facades. These linked exports are visible in generated output but
+are not a supported browser runtime API.
 
 Supported browser code must rely on `src/generated/web/engineWebWasm.ts`, which
 recognizes only:
@@ -265,6 +282,8 @@ recognizes only:
 Contract rules:
 
 - Do not call raw `ofg_*` exports from playable TypeScript.
+- Do not restore `ofg_engine_web_*` exports; add behavior through
+  `RustBrowserGame` commands, frame input, or debug snapshots instead.
 - If a milestone touches Rust crate facades, generated wasm exports, or build
   scripts, review whether the raw exports can be feature-gated or split into
   standalone fixture crates.
@@ -287,12 +306,17 @@ tests, and validation exist.
 Contract rules:
 
 - Do not add placeholder public methods that are not exercised.
+- Browser smoke may read sentinel strings, renderer status, camera mode, and
+  opaque terrain chunk-key counts, but must not compute terrain state.
+- Terrain seam, preset, material, mesh, and visual verification should run
+  through Rust tests or `npm run smoke:rust`.
 - Future lifecycle methods must define ownership of Rust resources, browser
   handles, saves, and repeated start/stop behavior before implementation.
 
 ## OFG-API-009: Forbidden TypeScript Ownership
 
-The following TypeScript ownership must not be reintroduced:
+The following TypeScript ownership must not be reintroduced in runtime code,
+tests, or test helpers:
 
 - Scene graph or ECS.
 - Terrain generator, density sampler, terrain manager, or terrain edit owner.
@@ -415,12 +439,11 @@ These are known contract risks for milestone reviewers:
 - Raw linked `ofg_*` exports leak through `engine_web.d.ts`.
 - The wasm-bindgen facade object protocol is manually typed because generated
   d.ts uses `any`.
-- Terrain vertex layout constants are duplicated across TypeScript, Rust, and
-  shader-facing renderer code.
+- Terrain vertex layout constants are duplicated across Rust and shader-facing
+  renderer code.
 - Terrain preset maps are duplicated across TypeScript and Rust.
 - Runtime debug names still include worker terminology even though the playable
   terrain stream is Rust-owned and currently synchronous.
-- Some standalone WASM fixture adapters look like runtime modules by filename.
 - `crates/engine_web/src/wgpu_renderer.rs` is still over the maximum preferred
   file size, `crates/engine_web/src/model_assets.rs` is over the split-pressure
   threshold, and `crates/terrain_core/src/facade.rs` is also oversized. Continue

@@ -14,29 +14,6 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
-  readonly ofg_engine_web_version: () => number;
-  readonly ofg_engine_web_required_texture_array_layers: () => number;
-  readonly ofg_engine_web_reset: () => void;
-  readonly ofg_engine_web_configure: (a: number, b: number, c: number) => number;
-  readonly ofg_engine_web_configured: () => number;
-  readonly ofg_engine_web_resize: (a: number, b: number) => number;
-  readonly ofg_engine_web_canvas_width: () => number;
-  readonly ofg_engine_web_canvas_height: () => number;
-  readonly ofg_engine_web_max_texture_array_layers: () => number;
-  readonly ofg_engine_web_register_mesh: (a: number, b: number, c: number) => bigint;
-  readonly ofg_engine_web_destroy_mesh: (a: bigint) => number;
-  readonly ofg_engine_web_register_texture: (a: number, b: number, c: number, d: number) => bigint;
-  readonly ofg_engine_web_destroy_texture: (a: bigint) => number;
-  readonly ofg_engine_web_register_object: () => bigint;
-  readonly ofg_engine_web_destroy_object: (a: bigint) => number;
-  readonly ofg_engine_web_begin_frame: (a: number, b: number) => number;
-  readonly ofg_engine_web_note_draw: (a: bigint, b: bigint) => number;
-  readonly ofg_engine_web_mesh_count: () => number;
-  readonly ofg_engine_web_texture_count: () => number;
-  readonly ofg_engine_web_object_count: () => number;
-  readonly ofg_engine_web_frame_index: () => bigint;
-  readonly ofg_engine_web_frame_draw_count: () => number;
-  readonly ofg_engine_web_last_error_code: () => number;
   readonly __wbg_rustbrowsergame_free: (a: number, b: number) => void;
   readonly rustbrowsergame_create: (a: number, b: number) => number;
   readonly rustbrowsergame_resize: (a: number, b: number, c: number) => void;

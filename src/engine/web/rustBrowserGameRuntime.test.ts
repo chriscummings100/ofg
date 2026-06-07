@@ -2,10 +2,18 @@ import { deepEqual, equal } from "node:assert/strict";
 import type { BrowserFrameInput, RustBrowserGameCommand } from "./browserGameTypes.js";
 import {
   RustBrowserGameRuntime,
+  terrainPresetToWasmCode,
   type RustBrowserGameRenderer
 } from "./rustBrowserGameRuntime.js";
 
 describe("RustBrowserGameRuntime", () => {
+  it("maps browser terrain preset ids to Rust reset-game preset codes", () => {
+    equal(terrainPresetToWasmCode("seed"), 0);
+    equal(terrainPresetToWasmCode("rollingHills"), 1);
+    equal(terrainPresetToWasmCode("mountainValley"), 2);
+    equal(terrainPresetToWasmCode("rockyHighland"), 3);
+  });
+
   it("delegates frame input, commands, and snapshots to Rust", () => {
     const renderer = fakeRenderer();
     const runtime = new RustBrowserGameRuntime({ renderer });

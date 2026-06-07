@@ -137,3 +137,57 @@ impl<T> Default for ResourceStore<T> {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resource_handles_round_trip_raw_values_and_invalid_sentinel() {
+        let handle = ResourceHandle::new(7, 3);
+
+        assert_eq!(handle.slot(), 7);
+        assert_eq!(handle.generation(), 3);
+        assert_eq!(ResourceHandle::from_raw(handle.raw()), Some(handle));
+        assert_eq!(ResourceHandle::from_raw(ResourceHandle::INVALID_RAW), None);
+        assert_eq!(ResourceHandle::INVALID.raw(), ResourceHandle::INVALID_RAW);
+    }
+
+    #[test]
+    fn resource_store_reuses_slots_with_new_generations() {
+        let mut store = ResourceStore::new();
+        let first = store.insert("first");
+        let second = store.insert("second");
+
+        assert_eq!(store.len(), 2);
+        assert!(store.contains(first));
+        assert_eq!(store.get(second), Some(&"second"));
+
+        assert_eq!(store.remove(first), Ok("first"));
+        assert_eq!(store.len(), 1);
+        assert!(!store.contains(first));
+        assert_eq!(store.remove(first), Err(ResourceStoreError::StaleHandle));
+
+        let reused = store.insert("third");
+        assert_eq!(reused.slot(), first.slot());
+        assert_ne!(reused.generation(), first.generation());
+        assert_eq!(store.get(reused), Some(&"third"));
+        *store.get_mut(reused).expect("reused handle should be live") = "mutated";
+        assert_eq!(store.get(reused), Some(&"mutated"));
+    }
+
+    #[test]
+    fn resource_store_rejects_unknown_and_stale_handles() {
+        let mut store = ResourceStore::new();
+        let handle = store.insert(10);
+        let unknown = ResourceHandle::new(99, 0);
+        let stale = ResourceHandle::new(handle.slot(), handle.generation() + 1);
+
+        assert_eq!(store.get(unknown), None);
+        assert_eq!(store.remove(unknown), Err(ResourceStoreError::StaleHandle));
+        assert_eq!(store.get(stale), None);
+        assert_eq!(store.remove(stale), Err(ResourceStoreError::StaleHandle));
+        assert_eq!(store.remove(handle), Ok(10));
+        assert_eq!(store.remove(handle), Err(ResourceStoreError::StaleHandle));
+    }
+}

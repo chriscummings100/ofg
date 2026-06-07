@@ -783,3 +783,233 @@ fn model_material_packet(
     }
     .map_err(PlayerCharacterModelError::MaterialPacket)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model_animation::{
+        ModelAnimationChannel, ModelAnimationInterpolation, ModelAnimationOutputs,
+        ModelAnimationTarget,
+    };
+
+    #[test]
+    fn locomotion_controller_rejects_invalid_blend_duration_delta_speed_and_tuning() {
+        let idle = translation_clip(Some("idle"), 0.0);
+        let walk = translation_clip(Some("walk"), 10.0);
+        let run = translation_clip(Some("run"), 30.0);
+        let tuning = PlayerCharacterLocomotionTuning::default();
+
+        assert_eq!(
+            LocomotionAnimationController::new(
+                idle.clone(),
+                walk.clone(),
+                run.clone(),
+                0.0,
+                tuning
+            ),
+            Err(PlayerCharacterModelError::InvalidBlendDuration(0.0))
+        );
+        assert!(matches!(
+            LocomotionAnimationController::new(
+                idle.clone(),
+                walk.clone(),
+                run.clone(),
+                f32::NAN,
+                tuning
+            ),
+            Err(PlayerCharacterModelError::InvalidBlendDuration(value)) if value.is_nan()
+        ));
+
+        let mut invalid_tuning = tuning;
+        invalid_tuning.walk_speed_meters_per_second = 0.0;
+        assert_eq!(
+            validate_locomotion_tuning(invalid_tuning),
+            Err(PlayerCharacterModelError::InvalidLocomotionTuning(
+                "walkSpeedMetersPerSecond",
+                0.0
+            ))
+        );
+        invalid_tuning = tuning;
+        invalid_tuning.run_speed_meters_per_second = tuning.walk_speed_meters_per_second;
+        assert_eq!(
+            validate_locomotion_tuning(invalid_tuning),
+            Err(PlayerCharacterModelError::InvalidLocomotionTuning(
+                "runSpeedMetersPerSecond",
+                tuning.walk_speed_meters_per_second
+            ))
+        );
+
+        let mut controller =
+            LocomotionAnimationController::new(idle, walk, run, 0.2, tuning).unwrap();
+        let base = vec![ModelNodeTransform::default()];
+        assert_eq!(
+            controller.advance_pose(&base, -0.1, 0.0),
+            Err(PlayerCharacterModelError::InvalidDeltaSeconds(-0.1))
+        );
+        assert_eq!(
+            controller.advance_pose(&base, 0.1, -1.0),
+            Err(PlayerCharacterModelError::InvalidLocomotionSpeed(-1.0))
+        );
+        assert!(matches!(
+            controller.advance_pose(&base, f32::NAN, 0.0),
+            Err(PlayerCharacterModelError::InvalidDeltaSeconds(value)) if value.is_nan()
+        ));
+        assert!(matches!(
+            controller.advance_pose(&base, 0.1, f32::INFINITY),
+            Err(PlayerCharacterModelError::InvalidLocomotionSpeed(value)) if value.is_infinite()
+        ));
+    }
+
+    #[test]
+    fn locomotion_controller_reports_fallback_clip_names_for_unnamed_clips() {
+        let tuning = PlayerCharacterLocomotionTuning {
+            walk_speed_meters_per_second: 1.0,
+            run_speed_meters_per_second: 3.0,
+            idle_playback_scale: 1.0,
+            walk_playback_scale: 1.0,
+            run_playback_scale: 1.0,
+        };
+        let mut controller = LocomotionAnimationController::new(
+            translation_clip(None, 0.0),
+            translation_clip(None, 10.0),
+            translation_clip(None, 30.0),
+            0.2,
+            tuning,
+        )
+        .unwrap();
+        let base = vec![ModelNodeTransform::default()];
+
+        assert_eq!(controller.snapshot().active_clip_name, "idle");
+
+        controller.advance_pose(&base, 0.1, 1.0).unwrap();
+        let walking = controller.snapshot();
+        assert_eq!(walking.active_clip_name, "idle");
+        assert_eq!(walking.next_clip_name, Some("walk".to_string()));
+
+        controller.advance_pose(&base, 0.2, 3.0).unwrap();
+        let running = controller.snapshot();
+        assert_eq!(running.active_clip_name, "run");
+        assert_eq!(running.next_clip_name, None);
+    }
+
+    #[test]
+    fn locomotion_tuning_recomputes_debug_blend_and_playback_state() {
+        let mut controller = LocomotionAnimationController::new(
+            translation_clip(Some("idle"), 0.0),
+            translation_clip(Some("walk"), 10.0),
+            translation_clip(Some("run"), 30.0),
+            0.2,
+            PlayerCharacterLocomotionTuning::default(),
+        )
+        .unwrap();
+        let base = vec![ModelNodeTransform::default()];
+        controller.advance_pose(&base, 0.2, 5.5).unwrap();
+
+        let tuning = PlayerCharacterLocomotionTuning {
+            walk_speed_meters_per_second: 2.0,
+            run_speed_meters_per_second: 6.0,
+            idle_playback_scale: 0.5,
+            walk_playback_scale: 1.25,
+            run_playback_scale: 2.0,
+        };
+        controller.set_tuning(tuning).unwrap();
+        let snapshot = controller.snapshot();
+
+        assert_eq!(controller.tuning(), tuning);
+        assert_eq!(snapshot.active_clip_name, "run");
+        assert!((snapshot.walk_run_blend_weight - 0.875).abs() < f32::EPSILON);
+        assert!((snapshot.playback_scale - 1.90625).abs() < f32::EPSILON);
+        assert_eq!(
+            controller.set_tuning(PlayerCharacterLocomotionTuning {
+                run_playback_scale: 0.0,
+                ..tuning
+            }),
+            Err(PlayerCharacterModelError::InvalidLocomotionTuning(
+                "runPlaybackScale",
+                0.0
+            ))
+        );
+    }
+
+    #[test]
+    fn locomotion_errors_format_stable_browser_diagnostics() {
+        let cases = [
+            (
+                PlayerCharacterModelError::MissingAnimationClip {
+                    name: "Walk".to_string(),
+                },
+                "missing animation clip 'Walk'",
+            ),
+            (
+                PlayerCharacterModelError::InvalidBlendDuration(0.0),
+                "blend duration was invalid",
+            ),
+            (
+                PlayerCharacterModelError::InvalidDeltaSeconds(-1.0),
+                "delta time was invalid",
+            ),
+            (
+                PlayerCharacterModelError::InvalidLocomotionSpeed(-1.0),
+                "locomotion speed was invalid",
+            ),
+            (
+                PlayerCharacterModelError::InvalidLocomotionTuning("walk", 0.0),
+                "tuning field 'walk' was invalid",
+            ),
+            (
+                PlayerCharacterModelError::ModelAsset(ModelAssetError::InvalidAnimationTime),
+                "time was not finite",
+            ),
+            (
+                PlayerCharacterModelError::MaterialPacket(MaterialPacketError::InvalidValue),
+                "InvalidValue",
+            ),
+            (
+                PlayerCharacterModelError::RenderAsset(ModelRenderAssetError::MissingPrimitive),
+                "no renderable primitives",
+            ),
+        ];
+
+        for (error, expected_fragment) in cases {
+            assert!(
+                error.to_string().contains(expected_fragment),
+                "expected '{error}' to contain '{expected_fragment}'"
+            );
+        }
+    }
+
+    #[test]
+    fn movement_blend_and_playback_helpers_clamp_to_idle_walk_and_run() {
+        let tuning = PlayerCharacterLocomotionTuning {
+            walk_speed_meters_per_second: 2.0,
+            run_speed_meters_per_second: 6.0,
+            idle_playback_scale: 0.5,
+            walk_playback_scale: 1.25,
+            run_playback_scale: 2.0,
+        };
+
+        assert_eq!(walk_run_blend_weight(0.0, tuning), 0.0);
+        assert_eq!(walk_run_blend_weight(2.0, tuning), 0.0);
+        assert_eq!(walk_run_blend_weight(4.0, tuning), 0.5);
+        assert_eq!(walk_run_blend_weight(10.0, tuning), 1.0);
+        assert_eq!(playback_scale_for_speed(0.0, tuning), 0.5);
+        assert_eq!(playback_scale_for_speed(2.0, tuning), 1.25);
+        assert_eq!(playback_scale_for_speed(6.0, tuning), 2.0);
+        assert_eq!(dominant_movement_clip(3.9, tuning), MovementClip::Walk);
+        assert_eq!(dominant_movement_clip(4.0, tuning), MovementClip::Run);
+    }
+
+    fn translation_clip(name: Option<&str>, x: f32) -> ModelAnimationClip {
+        ModelAnimationClip {
+            name: name.map(str::to_string),
+            duration_seconds: 1.0,
+            channels: vec![ModelAnimationChannel {
+                target_node: 0,
+                target: ModelAnimationTarget::Translation,
+                interpolation: ModelAnimationInterpolation::Linear,
+                inputs: vec![0.0, 1.0],
+                outputs: ModelAnimationOutputs::Translations(vec![[x, 0.0, 0.0], [x, 0.0, 0.0]]),
+            }],
+        }
+    }
+}

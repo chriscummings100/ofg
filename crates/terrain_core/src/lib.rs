@@ -1,3 +1,5 @@
+#[cfg(feature = "benchmark")]
+pub mod benchmark;
 mod chunk;
 mod constants;
 mod density;
@@ -37,6 +39,16 @@ pub use stream::{
     TerrainStreamConfig, TerrainStreamError, TerrainStreamJob, TerrainStreamScheduler,
     TerrainStreamStatus,
 };
+
+#[cfg(test)]
+pub(crate) static TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+pub(crate) fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+    TEST_MUTEX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 #[cfg(test)]
 mod tests;

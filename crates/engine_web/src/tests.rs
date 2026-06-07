@@ -556,16 +556,49 @@ fn quaternius_player_asset_imports_skin_and_idle_walk_clips() {
             PlayerCharacterModel::from_body_and_animation_models(body_model, &animation_model)
                 .unwrap();
         let initial_vertices = character.current_vertices().unwrap();
+        let initial_part_vertices = character.current_part_vertices().unwrap();
         assert_eq!(initial_vertices.len() % MODEL_VERTEX_FLOATS as usize, 0);
         assert!(initial_vertices.len() > MODEL_VERTEX_FLOATS as usize * 100);
+        assert_eq!(initial_part_vertices.len(), character.part_count());
+        assert!(initial_part_vertices
+            .iter()
+            .all(|vertices| vertices.len() % MODEL_VERTEX_FLOATS as usize == 0));
         assert!(!character.indices().is_empty());
+        assert_eq!(character.part_indices(0), character.indices());
+        assert!(character
+            .material_packet()
+            .iter()
+            .all(|value| value.is_finite()));
+        assert_eq!(
+            character.part_material_packet(0),
+            character.material_packet()
+        );
+        assert!(character.part_material_index(0).is_some());
+        assert_eq!(
+            character.part_mesh_node_index(0),
+            character.mesh_node_index()
+        );
         assert!(character.skin_joint_count() >= 60);
+        let tuning = character.locomotion_tuning();
+        assert_eq!(tuning, PlayerCharacterLocomotionTuning::default());
+        assert_eq!(character.set_locomotion_tuning(tuning), Ok(()));
+        assert!(matches!(
+            character.set_locomotion_tuning(PlayerCharacterLocomotionTuning {
+                walk_speed_meters_per_second: f32::NAN,
+                ..tuning
+            }),
+            Err(crate::PlayerCharacterModelError::InvalidLocomotionTuning(
+                "walkSpeedMetersPerSecond",
+                value
+            )) if value.is_nan()
+        ));
         assert_eq!(
             character.animation_snapshot().active_clip_name,
             QUATERNIUS_IDLE_CLIP_NAME
         );
 
         let moving_vertices = character.tick_vertices(0.1, 5.5).unwrap();
+        let moving_part_vertices = character.tick_part_vertices(0.0, 5.5).unwrap();
         let moving = character.animation_snapshot();
 
         assert_eq!(
@@ -575,6 +608,7 @@ fn quaternius_player_asset_imports_skin_and_idle_walk_clips() {
         assert!(moving.blend_weight > 0.0);
         assert_close(moving.walk_run_blend_weight, 0.0);
         assert_eq!(moving_vertices.len(), initial_vertices.len());
+        assert_eq!(moving_part_vertices.len(), initial_part_vertices.len());
         assert_ne!(moving_vertices, initial_vertices);
 
         let running_vertices = character.tick_vertices(0.2, 16.5).unwrap();

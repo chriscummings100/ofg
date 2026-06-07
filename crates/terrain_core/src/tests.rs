@@ -1,11 +1,5 @@
 use crate::*;
 
-static TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn test_lock() -> std::sync::MutexGuard<'static, ()> {
-    TEST_MUTEX.lock().expect("terrain core test lock poisoned")
-}
-
 fn density_store_contains(
     seed: u32,
     preset: u32,
@@ -26,6 +20,50 @@ fn exported_version_is_stable() {
     let _lock = test_lock();
     assert_eq!(ofg_terrain_core_version(), 1);
     assert_eq!(ofg_terrain_core_preset_count(), 4);
+    assert_eq!(ofg_density_chunk_sample_count(), 33 * 33 * 33);
+    assert!(ofg_density_chunk_store_max_entries() >= 8);
+}
+
+#[test]
+fn facade_exposes_stable_buffer_capacities_and_pointers() {
+    let _lock = test_lock();
+
+    assert_eq!(
+        ofg_stream_vertical_offset_buffer_capacity() as usize,
+        STREAM_VERTICAL_OFFSET_BUFFER_CAPACITY
+    );
+    assert_eq!(
+        ofg_stream_job_buffer_capacity() as usize,
+        STREAM_JOB_BUFFER_CAPACITY
+    );
+    assert_eq!(
+        ofg_stream_coord_buffer_capacity() as usize,
+        STREAM_COORD_BUFFER_CAPACITY
+    );
+    assert_eq!(
+        ofg_terrain_mesh_packet_coord_buffer_capacity() as usize,
+        MESH_PACKET_COORD_BUFFER_CAPACITY
+    );
+    assert_eq!(
+        ofg_worker_pool_max_workers() as usize,
+        TERRAIN_WORKER_POOL_MAX_WORKERS
+    );
+
+    assert!(!ofg_stream_vertical_offset_buffer_ptr().is_null());
+    assert!(!ofg_stream_job_kind_buffer_ptr().is_null());
+    assert!(!ofg_stream_job_lod_buffer_ptr().is_null());
+    assert!(!ofg_stream_job_generation_buffer_ptr().is_null());
+    assert!(!ofg_stream_job_x_buffer_ptr().is_null());
+    assert!(!ofg_stream_job_y_buffer_ptr().is_null());
+    assert!(!ofg_stream_job_z_buffer_ptr().is_null());
+    assert!(!ofg_stream_coord_x_buffer_ptr().is_null());
+    assert!(!ofg_stream_coord_y_buffer_ptr().is_null());
+    assert!(!ofg_stream_coord_z_buffer_ptr().is_null());
+    assert!(!ofg_terrain_mesh_packet_lod_buffer_ptr().is_null());
+    assert!(!ofg_terrain_mesh_packet_x_buffer_ptr().is_null());
+    assert!(!ofg_terrain_mesh_packet_y_buffer_ptr().is_null());
+    assert!(!ofg_terrain_mesh_packet_z_buffer_ptr().is_null());
+    assert!(!ofg_density_chunk_buffer_ptr().is_null());
 }
 
 #[test]
@@ -57,6 +95,55 @@ fn density_crosses_zero_near_surface() {
 
     assert!(below <= 0.0);
     assert!(above > 0.0);
+}
+
+#[test]
+fn macro_base_elevation_matches_surface_band_for_every_preset() {
+    let _lock = test_lock();
+
+    for preset in 0..ofg_terrain_core_preset_count() {
+        let macro_elevation = ofg_macro_base_elevation_at(0x0F6, preset, 42.25, -17.5);
+        let refined_height = ofg_height_at(0x0F6, preset, 42.25, -17.5);
+
+        assert!(macro_elevation.is_finite());
+        assert!(macro_elevation > SURFACE_SEARCH_MIN_Y);
+        assert!(macro_elevation < SURFACE_SEARCH_MAX_Y);
+        assert!((macro_elevation - refined_height).abs() < 64.0);
+    }
+}
+
+#[test]
+fn height_and_density_samples_are_finite_for_every_preset() {
+    let _lock = test_lock();
+    let points = [
+        (0.0, 0.0),
+        (12.5, -20.25),
+        (-47.75, 31.5),
+        (96.125, -64.875),
+    ];
+    let mut preset_heights = Vec::new();
+
+    for preset in 0..ofg_terrain_core_preset_count() {
+        for (x, z) in points {
+            let first_height = ofg_height_at(0x0F6, preset, x, z);
+            let second_height = ofg_height_at(0x0F6, preset, x, z);
+            let density_at_surface = ofg_density_at(0x0F6, preset, x, first_height, z);
+            let density_below = ofg_density_at(0x0F6, preset, x, first_height - 4.0, z);
+            let density_above = ofg_density_at(0x0F6, preset, x, first_height + 4.0, z);
+
+            assert!(first_height.is_finite());
+            assert_eq!(first_height.to_bits(), second_height.to_bits());
+            assert!(density_at_surface.is_finite());
+            assert!(density_at_surface.abs() < 0.05);
+            assert!(density_below < density_above);
+        }
+
+        preset_heights.push(ofg_height_at(0x0F6, preset, 64.0, -96.0));
+    }
+
+    preset_heights.sort_by(|a, b| a.total_cmp(b));
+    preset_heights.dedup_by(|a, b| (*a - *b).abs() < 0.001);
+    assert!(preset_heights.len() > 1);
 }
 
 #[test]
@@ -93,6 +180,41 @@ fn fills_density_chunk_buffer_in_terrain_chunk_order() {
 }
 
 #[test]
+fn fills_density_chunks_deterministically_with_finite_samples() {
+    let _lock = test_lock();
+    ofg_fill_density_chunk(0x0F6, 3, -1, 0, 2, 1.0);
+    let first = unsafe {
+        std::slice::from_raw_parts(
+            ofg_density_chunk_buffer_ptr(),
+            ofg_density_chunk_sample_count() as usize,
+        )
+    }
+    .to_vec();
+
+    ofg_fill_density_chunk(0x0F6, 3, -1, 0, 2, 1.0);
+    let second = unsafe {
+        std::slice::from_raw_parts(
+            ofg_density_chunk_buffer_ptr(),
+            ofg_density_chunk_sample_count() as usize,
+        )
+    };
+
+    assert_eq!(first.len(), TERRAIN_CHUNK_SAMPLE_COUNT);
+    assert_eq!(first[0].to_bits(), second[0].to_bits());
+    assert_eq!(
+        first[first.len() - 1].to_bits(),
+        second[second.len() - 1].to_bits()
+    );
+
+    let mut finite_samples = 0;
+    for index in (0..first.len()).step_by(1024) {
+        assert!(first[index].is_finite());
+        finite_samples += 1;
+    }
+    assert!(finite_samples > 20);
+}
+
+#[test]
 fn builds_renderable_chunk_mesh_buffers() {
     let _lock = test_lock();
     ofg_reset_density_chunk_store();
@@ -113,6 +235,29 @@ fn builds_renderable_chunk_mesh_buffers() {
     for index in indices {
         assert!((*index as usize) < vertex_count);
     }
+
+    for vertex in vertices.chunks_exact(FLOATS_PER_VERTEX) {
+        let material_weight_sum: f32 = vertex
+            [MATERIAL_WEIGHTS_VERTEX_OFFSET..MATERIAL_WEIGHTS_VERTEX_OFFSET + 4]
+            .iter()
+            .sum();
+
+        assert!((material_weight_sum - 1.0).abs() <= 0.00001);
+    }
+}
+
+#[test]
+fn build_chunk_mesh_facade_clears_buffers_on_invalid_cell_size() {
+    let _lock = test_lock();
+    ofg_reset_density_chunk_store();
+    assert!(ofg_build_chunk_mesh(0x0F6, 1, 0, 0, 0, 1.0) > 0);
+    assert!(ofg_mesh_vertex_buffer_len() > 0);
+    assert!(ofg_mesh_index_buffer_len() > 0);
+
+    assert_eq!(ofg_build_chunk_mesh(0x0F6, 1, 0, 0, 0, 0.0), 0);
+
+    assert_eq!(ofg_mesh_vertex_buffer_len(), 0);
+    assert_eq!(ofg_mesh_index_buffer_len(), 0);
 }
 
 #[test]
@@ -260,6 +405,11 @@ fn terrain_mesh_packet_store_rejects_invalid_meshes() {
     let _lock = test_lock();
     ofg_reset_terrain_mesh_packet_store();
 
+    assert_eq!(ofg_prepare_terrain_mesh_packet_input(0, 3), 0);
+    assert_eq!(
+        ofg_prepare_terrain_mesh_packet_input(FLOATS_PER_VERTEX as u32, 0),
+        0
+    );
     assert_eq!(ofg_prepare_terrain_mesh_packet_input(1, 3), 0);
     assert_eq!(
         ofg_prepare_terrain_mesh_packet_input(FLOATS_PER_VERTEX as u32, 2),
@@ -277,6 +427,8 @@ fn terrain_mesh_packet_store_rejects_invalid_meshes() {
 
     assert_eq!(ofg_store_terrain_mesh_packet_buffer(0, 0, 0, 0), 0);
     assert_eq!(ofg_terrain_mesh_packet_store_entry_count(), 0);
+    assert_eq!(ofg_store_terrain_mesh_packet_buffer(0, 0, 0, u32::MAX), 0);
+    assert_eq!(ofg_load_terrain_mesh_packet_buffer(0, 0, 0, 0), 0);
 }
 
 #[test]
@@ -337,6 +489,58 @@ fn prunes_stored_density_chunks_to_window() {
     );
     assert!(density_store_contains(0x0F6, 1, coord(0, 0, 0), 1.0));
     assert!(!density_store_contains(0x0F6, 1, coord(4, 0, 0), 1.0));
+}
+
+#[test]
+fn density_store_facade_rejects_invalid_cell_sizes_and_counts_evictions() {
+    let _lock = test_lock();
+    ofg_reset_density_chunk_store();
+
+    assert_eq!(ofg_store_density_chunk_buffer(0x0F6, 1, 0, 0, 0, 0.0), 0);
+    assert_eq!(
+        ofg_retain_density_chunk_store_window(0x0F6, 1, 0, 0, 0, 1, 1, 1, -1.0),
+        0
+    );
+    assert_eq!(
+        ofg_prepare_density_chunk_window(0x0F6, 1, 0, 0, 0, 1, 1, 1, 0.0),
+        0
+    );
+    assert_eq!(ofg_density_chunk_store_entry_count(), 0);
+
+    ofg_fill_density_chunk(0x0F6, 1, -2, -2, -2, 1.0);
+    assert_eq!(ofg_store_density_chunk_buffer(0x0F6, 1, -2, -2, -2, 1.0), 1);
+    ofg_fill_density_chunk(0x0F6, 1, 2, 2, 2, 1.0);
+    assert_eq!(ofg_store_density_chunk_buffer(0x0F6, 1, 2, 2, 2, 1.0), 1);
+    assert_eq!(ofg_density_chunk_store_entry_count(), 2);
+
+    assert_eq!(
+        ofg_retain_density_chunk_store_window(0x0F6, 1, 1, 1, 1, -3, -3, -3, 1.0),
+        1
+    );
+    assert!(density_store_contains(0x0F6, 1, coord(-2, -2, -2), 1.0));
+    assert!(!density_store_contains(0x0F6, 1, coord(2, 2, 2), 1.0));
+    assert_eq!(ofg_density_chunk_store_eviction_count(), 1.0);
+}
+
+#[test]
+fn density_store_facade_evicts_oldest_chunks_when_capacity_is_exceeded() {
+    let _lock = test_lock();
+    ofg_reset_density_chunk_store();
+    ofg_fill_density_chunk(0x0F6, 1, 0, 0, 0, 1.0);
+
+    for x in 0..=ofg_density_chunk_store_max_entries() {
+        assert_eq!(
+            ofg_store_density_chunk_buffer(0x0F6, 1, x as i32, 0, 0, 1.0),
+            1
+        );
+    }
+
+    assert_eq!(
+        ofg_density_chunk_store_entry_count(),
+        ofg_density_chunk_store_max_entries()
+    );
+    assert_eq!(ofg_density_chunk_store_eviction_count(), 1.0);
+    assert!(!density_store_contains(0x0F6, 1, coord(0, 0, 0), 1.0));
 }
 
 #[test]
@@ -661,6 +865,70 @@ fn stream_scheduler_facade_ticks_and_completes_jobs_through_buffers() {
 }
 
 #[test]
+fn stream_scheduler_facade_rejects_invalid_config_and_stale_results() {
+    let _lock = test_lock();
+    let offsets =
+        unsafe { std::slice::from_raw_parts_mut(ofg_stream_vertical_offset_buffer_ptr(), 1) };
+    offsets[0] = 0;
+
+    assert_eq!(ofg_stream_configure(0, 1, 2), 1);
+    assert_eq!(ofg_stream_status_max_in_flight_jobs(), 2);
+    assert_eq!(ofg_stream_configure(0, 1, 0), 0);
+    assert_eq!(ofg_stream_status_max_in_flight_jobs(), 2);
+    assert_eq!(
+        ofg_stream_configure(0, 1, ofg_stream_job_buffer_capacity() + 1),
+        0
+    );
+    assert_eq!(
+        ofg_stream_configure(0, ofg_stream_vertical_offset_buffer_capacity() + 1, 1),
+        0
+    );
+    assert_eq!(ofg_stream_configure(-1, 1, 1), 0);
+
+    ofg_stream_sync_center(0, 0, 0);
+    assert_eq!(ofg_stream_status_desired_lod0_count(), 1);
+    assert_eq!(ofg_stream_status_desired_density_count(), 8);
+    assert_eq!(ofg_stream_status_missing_density_count(), 8);
+    assert_eq!(ofg_stream_status_missing_lod0_count(), 0);
+
+    let job_count = ofg_stream_tick();
+    assert_eq!(job_count, 2);
+    assert_eq!(ofg_stream_status_in_flight_density_count(), 2);
+    let generations =
+        unsafe { std::slice::from_raw_parts(ofg_stream_job_generation_buffer_ptr(), 1) };
+    let xs = unsafe { std::slice::from_raw_parts(ofg_stream_job_x_buffer_ptr(), 1) };
+    let ys = unsafe { std::slice::from_raw_parts(ofg_stream_job_y_buffer_ptr(), 1) };
+    let zs = unsafe { std::slice::from_raw_parts(ofg_stream_job_z_buffer_ptr(), 1) };
+    let stale_generation = generations[0];
+    let stale_coord = (xs[0], ys[0], zs[0]);
+
+    ofg_stream_reset(0, 0, 0);
+    assert!(ofg_stream_generation() > stale_generation);
+    assert_eq!(
+        ofg_stream_complete_density(
+            stale_generation,
+            stale_coord.0,
+            stale_coord.1,
+            stale_coord.2
+        ),
+        0
+    );
+    assert_eq!(
+        ofg_stream_fail_density(f64::NAN, stale_coord.0, stale_coord.1, stale_coord.2),
+        0
+    );
+    assert_eq!(ofg_stream_complete_lod0(f64::INFINITY, 0, 0, 0, 0), 0);
+    assert_eq!(ofg_stream_fail_lod0(f64::NEG_INFINITY, 0, 0, 0), 0);
+
+    ofg_stream_invalidate_all();
+    assert_eq!(ofg_stream_status_desired_lod0_count(), 0);
+    assert_eq!(ofg_stream_status_desired_density_count(), 0);
+    assert_eq!(ofg_stream_status_density_ready_count(), 0);
+    assert_eq!(ofg_stream_status_lod0_ready_count(), 0);
+    assert_eq!(ofg_stream_status_lod0_empty_count(), 0);
+}
+
+#[test]
 fn worker_pool_assigns_slots_and_rejects_work_when_full() {
     let mut pool = TerrainWorkerPool::default();
     pool.configure(2)
@@ -758,6 +1026,34 @@ fn worker_pool_facade_records_task_metadata() {
         ofg_worker_pool_finish_task(stale_request_id, 0, 0, 7.0, 4, 0, -1),
         0
     );
+}
+
+#[test]
+fn worker_pool_facade_rejects_invalid_inputs_and_failed_tasks() {
+    let _lock = test_lock();
+
+    assert_eq!(ofg_worker_pool_configure(0), 0);
+    assert_eq!(
+        ofg_worker_pool_configure(ofg_worker_pool_max_workers() + 1),
+        0
+    );
+    assert_eq!(ofg_worker_pool_configure(1), 1);
+    assert_eq!(ofg_worker_pool_worker_count(), 1);
+
+    assert_eq!(ofg_worker_pool_begin_task(99, 0, 1.0, 0, 0, 0), 0);
+    assert_eq!(ofg_worker_pool_begin_task(0, 0, f64::NAN, 0, 0, 0), 0);
+    assert_eq!(ofg_worker_pool_begin_task(0, u32::MAX, 1.0, 0, 0, 0), 0);
+    assert_eq!(ofg_worker_pool_in_flight_count(), 0);
+
+    assert_eq!(ofg_worker_pool_begin_task(0, 0, 1.0, 0, 0, 0), 1);
+    let request_id = ofg_worker_pool_task_request_id();
+    assert_eq!(ofg_worker_pool_in_flight_count(), 1);
+    assert_eq!(ofg_worker_pool_fail_task(request_id), 1);
+    assert_eq!(ofg_worker_pool_fail_task(request_id), 0);
+    assert_eq!(ofg_worker_pool_in_flight_count(), 0);
+
+    assert_eq!(ofg_worker_pool_finish_task(0, 99, 0, 1.0, 0, 0, 0), 2);
+    assert_eq!(ofg_worker_pool_finish_task(0, 0, 0, f64::NAN, 0, 0, 0), 2);
 }
 
 fn test_stream_scheduler(

@@ -82,23 +82,47 @@ npm run build:shaders
 npm run check:shaders
 npm run build:wasm
 npm run check:wasm
-npm run bench:terrain:wasm
+npm run bench:terrain:rust
+npm run coverage:rust
+npm run test:rust
+npm run test:ts
 npm test
+npm run smoke:rust
 npm run smoke:browser
+npm run smoke
 npm run smoke:terrain-seams
 npm run smoke:terrain-presets
 npm run dev
 ```
 
-Use `npm test` for logic changes. Use `npm run smoke:browser` whenever rendering,
-input, camera behavior, HUD behavior, or browser integration changes.
-Use `npm run smoke:terrain-seams` for terrain seam, mesh, material, or Dual
-Contouring changes. Use `npm run smoke:terrain-presets` for preset, descriptor,
-biome/material classification, or terrain visual changes.
+Use `npm test` for logic changes; it runs Rust workspace tests and the separated
+TypeScript test lane. Use `npm run test:rust` for Rust-only logic changes and
+`npm run test:ts` for browser shell or TypeScript utility changes. Use
+`npm run smoke:rust` for Rust-owned terrain/render image smoke. Use
+`npm run smoke:browser` for browser integration changes: browser boot, WebGPU
+canvas setup, wasm-bindgen loading, browser asset fetch/decode, HUD, page
+reload, and DOM input forwarding. Use `npm run smoke` to run both Rust image
+smoke and browser integration smoke. Use `npm run smoke:terrain-seams` for
+terrain seam, mesh, material, or Dual Contouring changes; it now runs Rust
+offscreen image smoke. Use `npm run smoke:terrain-presets` for preset,
+descriptor, biome/material classification, or terrain visual changes; it now
+runs Rust offscreen image smoke.
+Use `npm run bench:terrain:rust` for performance-sensitive terrain density,
+mesh, store, or streaming changes. It runs a Rust benchmark and writes JSON
+under `artifacts/terrain-bench/`; TypeScript must not benchmark terrain WASM
+directly. Use `npm run coverage:rust` when extending Rust API tests or auditing API
+coverage. Coverage is advisory until thresholds are documented; if
+`cargo-llvm-cov` is missing, the command prints setup guidance without
+installing tools or mutating build output. By default, the console and
+`artifacts/coverage/rust/summary.json` / `summary.pretty.json` show only
+implementation files below 90% line coverage, excluding tests, the
+smoke/benchmark harness, and Rust export glue such as `lib.rs` and `facade.rs`;
+use `npm run coverage:rust -- --full` for the full cargo summary.
 
 `npm run smoke:browser` launches installed Chrome/Edge through Playwright Core,
-saves screenshots in `artifacts/browser-smoke/`, samples pixels, and verifies the
-`FIRST -> FLY` camera toggle.
+saves screenshots in `artifacts/browser-smoke/`, samples pixels, verifies
+COOP/COEP browser isolation, validates Rust runtime sentinel strings, reloads,
+and verifies one `C` camera-toggle input path.
 
 ## Agent Workflow
 
@@ -106,10 +130,10 @@ saves screenshots in `artifacts/browser-smoke/`, samples pixels, and verifies th
 2. Make the smallest coherent change.
 3. Run `npm test` for logic changes.
 4. Run `npm run build` when build output or generated artifacts may be affected.
-5. Run `npm run smoke:browser` for visual, browser, input, camera, HUD, worker,
-   or rendering changes.
-6. Run terrain seam/preset smoke tests for terrain mesh, material, preset, or
-   terrain visual changes.
+5. Run `npm run smoke:rust` for terrain mesh, material, preset, terrain visual,
+   or Rust-owned render image changes.
+6. Run `npm run smoke:browser` for browser, input, HUD, wasm loading, browser
+   asset loading, reload, or WebGPU canvas integration changes.
 7. Summarize what changed, what was verified, and any remaining risk.
 
 Prefer behavior-focused test names such as `grounds first-person player on sampled
@@ -125,9 +149,20 @@ terrain` or `rejects stale worker completions after reset`.
 - Saves screenshots under `artifacts/browser-smoke/`.
 - Reads HUD state and samples screenshot pixels to catch blank or solid frames.
 - Reloads the page and fails on black or blank refresh frames.
-- Presses `C` and verifies the camera mode changes from `FIRST` to `FLY`.
-- Moves the player across terrain chunk columns through debug hooks and verifies
-  chunk streaming.
+- Presses `C` and verifies the camera mode changes from `FIRST` to `THIRD`.
+- Verifies browser-only integration signals: COOP/COEP headers,
+  `crossOriginIsolated`, `SharedArrayBuffer`, Rust runtime sentinel strings, and
+  Rust/wgpu renderer status.
+
+`npm run smoke:rust`:
+
+- Runs `ofg-render-smoke` from `crates/ofg_test_harness`.
+- Creates native `wgpu` offscreen textures without a browser.
+- Ticks the Rust terrain stream, renders terrain/sky images, writes PNGs under
+  `artifacts/rust-smoke/`, writes `report.json`, and samples pixels to catch
+  blank or solid frames.
+- Owns terrain preset and seam/corner image smoke through
+  `npm run smoke:terrain-presets` and `npm run smoke:terrain-seams`.
 
 Useful environment variables:
 
@@ -178,11 +213,11 @@ src/engine/browser
   arrays without interpreting terrain manifests.
 
 src/engine/world
-  Browser-side terrain descriptor/config types, 3D chunk coordinate/key helpers,
-  Rust/WASM terrain artifact test adapters, and the terrain mesh data/stride
-  contract. Compiled TypeScript no longer owns terrain generation, noise, Dual
+  Browser-side terrain descriptor/config types and 3D chunk coordinate/key
+  helpers. Compiled TypeScript no longer owns terrain generation, noise, Dual
   Contouring, terrain streaming policy, terrain workers, terrain edits, material
-  manifests, density transfer between WASM instances, or a terrain manager.
+  manifests, density transfer between WASM instances, terrain mesh data/stride
+  contracts, standalone terrain WASM adapters, or a terrain manager.
 
 src/engine/render
   Shader metadata tests. The playable browser path no longer has terrain texture
@@ -198,7 +233,7 @@ src/engine/render/shaders
 
 src/generated
   Deterministic generated TypeScript artifacts, currently shader source modules
-  and Rust/WASM terrain, engine, and engine-web artifact metadata.
+  and engine-web artifact metadata.
 
 crates/engine_core
   Browser-free Rust engine core. It owns player/camera logic, a small
@@ -212,7 +247,9 @@ crates/terrain_core
   sampling, density chunk filling, chunk mesh generation, stream scheduling,
   density storage, worker-pool state tests, and the tested legacy terrain mesh
   packet store. The playable browser app reaches it through `engine_web` as a
-  Rust library, not through runtime TypeScript `terrain_core.wasm` calls.
+  Rust library, not through runtime or test TypeScript `terrain_core.wasm`
+  calls. The standalone WASM artifact remains only for export-contract checks
+  and the current benchmark script.
 
 crates/engine_web
   Browser-facing Rust game/render bridge built to wasm32-unknown-unknown. It
@@ -267,13 +304,14 @@ Current test areas include:
   and fixture-only terrain render packet stores.
 - Shader boundary: generated shader source artifact metadata and vertex layout
   contract.
-- World terrain: 3D terrain chunk keys, Rust-owned chunk streaming, and
-  Rust/WASM terrain core sampling/mesh/store/stream fixtures.
+- World terrain: 3D terrain chunk keys, Rust-owned chunk streaming, and Rust
+  terrain core sampling/mesh/store/stream fixtures.
 - Gameplay/input: Rust browser game/player facade and input tracker.
-- Browser smoke: actual Chrome/Edge WebGPU render, screenshots, pixel checks, HUD
-  camera toggle verification, and a basic player-position chunk streaming check.
-- Terrain smoke: seam/corner camera views and preset-specific captures for
-  terrain mesh/material/preset regressions.
+- Browser smoke: actual Chrome/Edge WebGPU render, screenshots, pixel checks,
+  browser isolation, reload, Rust runtime sentinels, and one HUD camera-toggle
+  input path.
+- Rust terrain smoke: native `wgpu` offscreen PNG captures for terrain
+  boot/preset/seam image regressions, with reports under `artifacts/rust-smoke/`.
 
 When adding behavior, add tests near the behavior first or in the same change.
 Prefer behavior names such as `rejects stale worker completions after reset`.

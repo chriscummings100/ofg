@@ -1,0 +1,283 @@
+// Report and pixel-stat helpers for native Rust image smoke artifacts.
+
+use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
+
+use serde::Serialize;
+
+use super::error::{harness_error, HarnessResult};
+use super::renderer::{HEIGHT, WIDTH};
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmokeReport {
+    pub kind: &'static str,
+    pub artifact_dir: String,
+    pub renderer: RendererReport,
+    pub images: Vec<ImageReport>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RendererReport {
+    pub backend: String,
+    pub device_type: String,
+    pub name: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageReport {
+    pub name: String,
+    pub path: String,
+    pub width: u32,
+    pub height: u32,
+    pub pixel_stats: PixelStats,
+    pub debug: ScenarioDebug,
+}
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PixelStats {
+    pub sampled_pixels: u32,
+    pub opaque_pixels: u32,
+    pub unique_color_buckets: usize,
+    pub dominant_color_ratio: f32,
+    pub mean_color: MeanColor,
+}
+
+#[derive(Clone, Copy, Serialize)]
+pub struct MeanColor {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScenarioDebug {
+    pub terrain_seed: u32,
+    pub terrain_preset: &'static str,
+    pub terrain_preset_code: u32,
+    pub center: [f32; 3],
+    pub camera_eye: [f32; 3],
+    pub camera_target: [f32; 3],
+    pub rendered_chunk_count: usize,
+    pub loaded_chunk_count: usize,
+    pub vertex_count: usize,
+    pub index_count: usize,
+    pub rendered_chunk_keys: Vec<String>,
+}
+
+/// Computes pixel statistics for a rendered RGBA image.
+pub fn analyze_pixels(pixels: &[u8]) -> PixelStats {
+    let mut buckets = HashMap::<(u8, u8, u8), u32>::new();
+    let mut sampled_pixels = 0;
+    let mut opaque_pixels = 0;
+    let mut sum_r = 0_u64;
+    let mut sum_g = 0_u64;
+    let mut sum_b = 0_u64;
+
+    for y in (0..HEIGHT).step_by(4) {
+        for x in (0..WIDTH).step_by(4) {
+            let offset = ((y * WIDTH + x) * 4) as usize;
+            let r = pixels[offset];
+            let g = pixels[offset + 1];
+            let b = pixels[offset + 2];
+            let a = pixels[offset + 3];
+            *buckets.entry((r >> 4, g >> 4, b >> 4)).or_insert(0) += 1;
+            sampled_pixels += 1;
+            if a > 0 {
+                opaque_pixels += 1;
+            }
+            sum_r += u64::from(r);
+            sum_g += u64::from(g);
+            sum_b += u64::from(b);
+        }
+    }
+
+    let dominant_bucket_count = buckets.values().copied().max().unwrap_or(0);
+    PixelStats {
+        sampled_pixels,
+        opaque_pixels,
+        unique_color_buckets: buckets.len(),
+        dominant_color_ratio: dominant_bucket_count as f32 / sampled_pixels as f32,
+        mean_color: MeanColor {
+            r: sum_r as f32 / sampled_pixels as f32,
+            g: sum_g as f32 / sampled_pixels as f32,
+            b: sum_b as f32 / sampled_pixels as f32,
+        },
+    }
+}
+
+/// Fails when a rendered image looks blank, transparent, or solid.
+pub fn assert_pixel_stats(stats: PixelStats, label: &str) -> HarnessResult<()> {
+    if stats.opaque_pixels < stats.sampled_pixels * 99 / 100 {
+        return Err(harness_error(format!(
+            "{label} image is not mostly opaque: opaque={} sampled={}.",
+            stats.opaque_pixels, stats.sampled_pixels
+        )));
+    }
+    if stats.unique_color_buckets < 8 {
+        return Err(harness_error(format!(
+            "{label} image has too little color variation: {} buckets.",
+            stats.unique_color_buckets
+        )));
+    }
+    if stats.dominant_color_ratio > 0.92 {
+        return Err(harness_error(format!(
+            "{label} image looks like a solid fill: dominant ratio {}.",
+            stats.dominant_color_ratio
+        )));
+    }
+
+    Ok(())
+}
+
+/// Returns an absolute, forward-slash-normalized path string for reports.
+pub fn path_string(path: &Path) -> HarnessResult<String> {
+    let absolute = fs::canonicalize(path)?;
+    let mut text = absolute.to_string_lossy().to_string();
+    if let Some(stripped) = text.strip_prefix(r"\\?\") {
+        text = stripped.to_string();
+    }
+    Ok(text.replace('\\', "/"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn analyze_pixels_samples_rgba_images_and_buckets_colors() {
+        let mut pixels = vec![0_u8; (WIDTH * HEIGHT * 4) as usize];
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let offset = ((y * WIDTH + x) * 4) as usize;
+                pixels[offset] = (x % 251) as u8;
+                pixels[offset + 1] = (y % 241) as u8;
+                pixels[offset + 2] = ((x + y) % 239) as u8;
+                pixels[offset + 3] = 255;
+            }
+        }
+
+        let stats = analyze_pixels(&pixels);
+
+        assert_eq!(stats.sampled_pixels, (WIDTH / 4) * (HEIGHT / 4));
+        assert_eq!(stats.opaque_pixels, stats.sampled_pixels);
+        assert!(stats.unique_color_buckets > 8);
+        assert!(stats.dominant_color_ratio < 0.92);
+        assert!(stats.mean_color.r > 0.0);
+        assert!(stats.mean_color.g > 0.0);
+        assert!(stats.mean_color.b > 0.0);
+        assert!(assert_pixel_stats(stats, "varied").is_ok());
+    }
+
+    #[test]
+    fn assert_pixel_stats_rejects_transparent_flat_or_solid_images() {
+        let mostly_transparent = PixelStats {
+            sampled_pixels: 100,
+            opaque_pixels: 98,
+            unique_color_buckets: 16,
+            dominant_color_ratio: 0.25,
+            mean_color: MeanColor {
+                r: 1.0,
+                g: 2.0,
+                b: 3.0,
+            },
+        };
+        assert!(assert_pixel_stats(mostly_transparent, "transparent").is_err());
+
+        let low_variation = PixelStats {
+            sampled_pixels: 100,
+            opaque_pixels: 100,
+            unique_color_buckets: 7,
+            dominant_color_ratio: 0.25,
+            mean_color: MeanColor {
+                r: 1.0,
+                g: 2.0,
+                b: 3.0,
+            },
+        };
+        assert!(assert_pixel_stats(low_variation, "flat").is_err());
+
+        let solid_fill = PixelStats {
+            sampled_pixels: 100,
+            opaque_pixels: 100,
+            unique_color_buckets: 16,
+            dominant_color_ratio: 0.93,
+            mean_color: MeanColor {
+                r: 1.0,
+                g: 2.0,
+                b: 3.0,
+            },
+        };
+        assert!(assert_pixel_stats(solid_fill, "solid").is_err());
+    }
+
+    #[test]
+    fn smoke_report_serializes_with_camel_case_fields() {
+        let report = SmokeReport {
+            kind: "rust-offscreen-render",
+            artifact_dir: "artifacts/rust-smoke/run-test".to_string(),
+            renderer: RendererReport {
+                backend: "test".to_string(),
+                device_type: "cpu".to_string(),
+                name: "renderer".to_string(),
+                width: WIDTH,
+                height: HEIGHT,
+            },
+            images: vec![ImageReport {
+                name: "boot-frame".to_string(),
+                path: "artifacts/rust-smoke/run-test/boot-frame.png".to_string(),
+                width: WIDTH,
+                height: HEIGHT,
+                pixel_stats: PixelStats {
+                    sampled_pixels: 1,
+                    opaque_pixels: 1,
+                    unique_color_buckets: 1,
+                    dominant_color_ratio: 1.0,
+                    mean_color: MeanColor {
+                        r: 1.0,
+                        g: 2.0,
+                        b: 3.0,
+                    },
+                },
+                debug: ScenarioDebug {
+                    terrain_seed: 246,
+                    terrain_preset: "rollingHills",
+                    terrain_preset_code: 1,
+                    center: [0.0, 1.0, 2.0],
+                    camera_eye: [3.0, 4.0, 5.0],
+                    camera_target: [6.0, 7.0, 8.0],
+                    rendered_chunk_count: 1,
+                    loaded_chunk_count: 2,
+                    vertex_count: 3,
+                    index_count: 6,
+                    rendered_chunk_keys: vec!["0,0,0".to_string()],
+                },
+            }],
+        };
+
+        let value = serde_json::to_value(report).expect("report should serialize");
+
+        assert_eq!(value["kind"], "rust-offscreen-render");
+        assert!(value["artifactDir"].is_string());
+        assert!(value["renderer"]["deviceType"].is_string());
+        assert!(value["images"][0]["pixelStats"]["sampledPixels"].is_number());
+        assert_eq!(value["images"][0]["debug"]["terrainPreset"], "rollingHills");
+    }
+
+    #[test]
+    fn path_string_returns_absolute_forward_slash_paths() {
+        let path =
+            path_string(Path::new("Cargo.toml")).expect("workspace file should canonicalize");
+
+        assert!(path.contains('/'));
+        assert!(path.ends_with("Cargo.toml"));
+        assert!(!path.contains("\\"));
+    }
+}

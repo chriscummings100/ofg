@@ -99,3 +99,69 @@ pub fn build_specular_glossiness_material_packet(
         texture_scale,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builds_metallic_roughness_material_packets() {
+        let packet = build_metallic_roughness_material_packet([0.1, 0.2, 0.3, 0.4], 0.5, 0.6, 2.0)
+            .expect("material packet should be valid");
+
+        assert_eq!(packet[0..4], [0.1, 0.2, 0.3, 0.4]);
+        assert_eq!(packet[4..7], [0.5, 0.6, 0.0]);
+        assert_eq!(packet[7], 0.0);
+        assert_eq!(packet[8], MATERIAL_WORKFLOW_METALLIC_ROUGHNESS);
+        assert_eq!(packet[9], 2.0);
+    }
+
+    #[test]
+    fn builds_specular_glossiness_material_packets() {
+        let packet = build_specular_glossiness_material_packet(
+            [0.9, 0.8, 0.7, 0.6],
+            [0.5, 0.4, 0.3],
+            0.2,
+            1.5,
+        )
+        .expect("material packet should be valid");
+
+        assert_eq!(packet[0..4], [0.9, 0.8, 0.7, 0.6]);
+        assert_eq!(packet[4..7], [0.5, 0.4, 0.3]);
+        assert_eq!(packet[7], 0.2);
+        assert_eq!(packet[8], MATERIAL_WORKFLOW_SPECULAR_GLOSSINESS);
+        assert_eq!(packet[9], 1.5);
+    }
+
+    #[test]
+    fn rejects_invalid_material_packet_values() {
+        assert_eq!(
+            build_material_packet(
+                [1.0, f32::NAN, 1.0, 1.0],
+                [1.0, 1.0, 1.0],
+                0.0,
+                MATERIAL_WORKFLOW_SIMPLE,
+                1.0,
+            ),
+            Err(MaterialPacketError::InvalidValue)
+        );
+        assert_eq!(
+            build_material_packet(
+                [1.0, 1.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0],
+                0.0,
+                MATERIAL_WORKFLOW_SIMPLE,
+                0.0,
+            ),
+            Err(MaterialPacketError::InvalidTextureScale)
+        );
+        assert_eq!(
+            MaterialPacketError::InvalidValue.to_string(),
+            "invalid Rust WebGPU material value"
+        );
+        assert_eq!(
+            MaterialPacketError::InvalidTextureScale.to_string(),
+            "invalid Rust WebGPU material texture scale"
+        );
+    }
+}

@@ -1,3 +1,7 @@
+// Browser integration smoke for OFG. It validates that the browser shell can
+// load engine_web.wasm, initialize WebGPU, render nonblank frames, forward a
+// keyboard command, survive reload, and expose only black-box debug sentinels.
+
 import { createServer } from "node:net";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -23,15 +27,16 @@ try {
   const result = await runBrowserSmoke(`http://127.0.0.1:${port}/`);
   writeFileSync(resolve(artifactDir, "report.json"), `${JSON.stringify(result, null, 2)}\n`);
 
-  console.log("Browser smoke passed.");
+  console.log("Browser integration smoke passed.");
   console.log(`Artifacts: ${artifactDir}`);
-  for (const screenshot of result.screenshots) {
-    console.log(`Screenshot: ${screenshot}`);
+  for (const image of result.images) {
+    console.log(`Screenshot: ${image.path}`);
   }
 } finally {
   server.kill();
 }
 
+/// Runs the browser-only integration smoke scenario.
 async function runBrowserSmoke(url) {
   const browserPath = findBrowserPath();
   const browser = await chromium.launch({
@@ -43,8 +48,6 @@ async function runBrowserSmoke(url) {
       "--disable-gpu-sandbox"
     ]
   });
-
-  const screenshots = [];
   const consoleMessages = [];
 
   try {
@@ -59,247 +62,53 @@ async function runBrowserSmoke(url) {
       consoleMessages.push(`pageerror: ${error.message}`);
     });
 
-    await page.goto(url, { waitUntil: "load" });
-    await waitForPlayableTerrain(page);
-    await page.waitForTimeout(250);
+    const response = await page.goto(url, { waitUntil: "load" });
+    assertResponseHeaders(response);
+    await waitForBrowserFrame(page);
     assertNoBrowserFailures(consoleMessages);
 
     const firstHud = await readHud(page);
     assertHud(firstHud, "FIRST", consoleMessages);
-    const firstScreenshot = await saveScreenshot(page, "first-person.png");
-    screenshots.push(firstScreenshot.path);
-    assertPixelStats(firstScreenshot.stats, "first-person", consoleMessages);
-    const initialTerrain = await readTerrainDebug(page);
-    assertTerrainDebug(initialTerrain, "initial terrain");
-    const playerControllerRuntime = await readPlayerControllerRuntime(page);
-    assertPlayerControllerRuntime(playerControllerRuntime);
-    const renderPacketRuntime = await readRenderPacketRuntime(page);
-    assertRenderPacketRuntime(renderPacketRuntime);
-    const terrainStreamRuntime = await readTerrainStreamRuntime(page);
-    assertTerrainStreamRuntime(terrainStreamRuntime);
-    const terrainRenderPacketRuntime = await readTerrainRenderPacketRuntime(page);
-    assertTerrainRenderPacketRuntime(terrainRenderPacketRuntime);
-    const rendererRuntime = await readRendererRuntime(page);
-    assertRendererRuntime(rendererRuntime);
-    assertPlayerCharacterRendererResources(rendererRuntime, initialTerrain, false);
-    const firstPlayerCharacter = await readPlayerCharacterDebug(page);
-    assertPlayerCharacterDebug(firstPlayerCharacter, false, "male");
-    const firstModelAnimation = await readModelAnimationDebug(page);
-    assertModelAnimationDebug(firstModelAnimation);
-    await page.evaluate(() => window.__ofgDebug?.setPlayerAnimationTuning?.({
-      walkPlaybackScale: 0.95
-    }));
-    await page.waitForFunction(() => {
-      return Math.abs((window.__ofgDebug?.getModelAnimationWalkPlaybackScale?.() ?? 0) - 0.95) < 0.001;
-    }, null, { timeout: 5000 });
-    await page.evaluate(() => window.__ofgDebug?.setPlayerAnimationTuning?.({
-      walkPlaybackScale: 1
-    }));
-    await page.waitForFunction(() => {
-      return Math.abs((window.__ofgDebug?.getModelAnimationWalkPlaybackScale?.() ?? 0) - 1) < 0.001;
-    }, null, { timeout: 5000 });
-    await page.waitForTimeout(300);
-    const advancedModelAnimation = await readModelAnimationDebug(page);
-    assertModelAnimationAdvanced(firstModelAnimation, advancedModelAnimation);
-    const modelSkinning = await readModelSkinningDebug(page);
-    assertModelSkinningDebug(modelSkinning);
-    await page.keyboard.down("KeyW");
-    await page.waitForFunction(() => {
-      const debug = window.__ofgDebug;
-      return debug?.getActiveModelAnimationClip?.() === "Walk_Loop";
-    }, null, { timeout: 5000 });
-    const movingModelAnimation = await readModelAnimationDebug(page);
-    assertModelAnimationMoving(movingModelAnimation);
-    await page.keyboard.up("KeyW");
-    await page.waitForFunction(() => {
-      const debug = window.__ofgDebug;
-      return debug?.getNextModelAnimationClip?.() === "Idle_Loop";
-    }, null, { timeout: 5000 });
-    const returnedModelAnimation = await readModelAnimationDebug(page);
-    assertModelAnimationReturnedToIdle(returnedModelAnimation);
-    await page.waitForFunction(() => {
-      const debug = window.__ofgDebug;
-      return debug?.getActiveModelAnimationClip?.() === "Idle_Loop" &&
-        (debug?.getNextModelAnimationClip?.() ?? "") === "" &&
-        debug?.getModelAnimationBlendWeight?.() === 0;
-    }, null, { timeout: 5000 });
-    const settledModelAnimation = await readModelAnimationDebug(page);
-    assertModelAnimationIdle(settledModelAnimation);
+    const firstDebug = await readDebugContract(page);
+    assertDebugContract(firstDebug);
+    const firstImage = await saveScreenshot(page, "browser-first-person.png");
+    assertPixelStats(firstImage.pixelStats, "browser first-person", consoleMessages);
 
     await page.keyboard.press("KeyC");
     await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "THIRD");
-    await page.waitForTimeout(250);
+    await waitForBrowserFrame(page);
     assertNoBrowserFailures(consoleMessages);
+    const toggledHud = await readHud(page);
+    assertHud(toggledHud, "THIRD", consoleMessages);
+    const toggledDebug = await readDebugContract(page);
+    assertDebugContract(toggledDebug);
+    const toggledImage = await saveScreenshot(page, "browser-camera-toggle.png");
+    assertPixelStats(toggledImage.pixelStats, "browser camera toggle", consoleMessages);
 
-    const thirdHud = await readHud(page);
-    assertHud(thirdHud, "THIRD", consoleMessages);
-    const thirdScreenshot = await saveScreenshot(page, "third-person.png");
-    screenshots.push(thirdScreenshot.path);
-    assertPixelStats(thirdScreenshot.stats, "third-person", consoleMessages);
-    const thirdPlayerCharacter = await readPlayerCharacterDebug(page);
-    assertPlayerCharacterDebug(thirdPlayerCharacter, true, "male");
-    const thirdRendererRuntime = await readRendererRuntime(page);
-    assertRendererRuntime(thirdRendererRuntime);
-    assertPlayerCharacterRendererResources(thirdRendererRuntime, initialTerrain, true);
-
-    await page.click("#character-toggle");
-    await page.waitForFunction(() => {
-      return window.__ofgDebug?.getPlayerCharacterId?.() === "female" &&
-        document.querySelector("#character-toggle")?.textContent?.trim() === "Female";
-    }, null, { timeout: 5000 });
-    await page.waitForTimeout(250);
-    const femalePlayerCharacter = await readPlayerCharacterDebug(page);
-    assertPlayerCharacterDebug(femalePlayerCharacter, true, "female");
-    const femaleScreenshot = await saveScreenshot(page, "third-person-female.png");
-    screenshots.push(femaleScreenshot.path);
-    assertPixelStats(femaleScreenshot.stats, "third-person-female", consoleMessages);
-
-    await page.keyboard.down("KeyW");
-    await page.waitForFunction(() => {
-      const debug = window.__ofgDebug;
-      return debug?.getActiveModelAnimationClip?.() === "Walk_Loop";
-    }, null, { timeout: 5000 });
-    await page.waitForTimeout(250);
-    const thirdWalkModelAnimation = await readModelAnimationDebug(page);
-    assertModelAnimationMoving(thirdWalkModelAnimation);
-    const thirdWalkScreenshot = await saveScreenshot(page, "third-person-walk.png");
-    screenshots.push(thirdWalkScreenshot.path);
-    assertPixelStats(thirdWalkScreenshot.stats, "third-person-walk", consoleMessages);
-    await page.keyboard.down("ShiftLeft");
-    await page.waitForFunction(() => {
-      const debug = window.__ofgDebug;
-      return debug?.getActiveModelAnimationClip?.() === "Sprint_Loop" &&
-        (debug?.getModelAnimationWalkRunBlendWeight?.() ?? 0) > 0.8;
-    }, null, { timeout: 5000 });
-    await page.waitForTimeout(250);
-    const sprintModelAnimation = await readModelAnimationDebug(page);
-    assertModelAnimationRunning(sprintModelAnimation);
-    const sprintScreenshot = await saveScreenshot(page, "third-person-sprint.png");
-    screenshots.push(sprintScreenshot.path);
-    assertPixelStats(sprintScreenshot.stats, "third-person-sprint", consoleMessages);
-    await page.keyboard.up("ShiftLeft");
-    await page.keyboard.up("KeyW");
-
-    await page.reload({ waitUntil: "load" });
-    await waitForPlayableTerrain(page);
-    await page.waitForTimeout(250);
+    const reloadResponse = await page.reload({ waitUntil: "load" });
+    assertResponseHeaders(reloadResponse);
+    await waitForBrowserFrame(page);
     assertNoBrowserFailures(consoleMessages);
-
-    const refreshedHud = await readHud(page);
-    assertHud(refreshedHud, "FIRST", consoleMessages);
-    const refreshedScreenshot = await saveScreenshot(page, "refreshed-first-person.png");
-    screenshots.push(refreshedScreenshot.path);
-    assertPixelStats(refreshedScreenshot.stats, "refreshed-first-person", consoleMessages);
-    const refreshedTerrain = await readTerrainDebug(page);
-    assertTerrainDebug(refreshedTerrain, "refreshed terrain");
-    const refreshedTerrainStreamRuntime = await readTerrainStreamRuntime(page);
-    assertTerrainStreamRuntime(refreshedTerrainStreamRuntime);
-    const refreshedTerrainRenderPacketRuntime = await readTerrainRenderPacketRuntime(page);
-    assertTerrainRenderPacketRuntime(refreshedTerrainRenderPacketRuntime);
-    const refreshedRendererRuntime = await readRendererRuntime(page);
-    assertRendererRuntime(refreshedRendererRuntime);
-    assertPlayerCharacterRendererResources(refreshedRendererRuntime, refreshedTerrain, false);
-    const refreshedPlayerCharacter = await readPlayerCharacterDebug(page);
-    assertPlayerCharacterDebug(refreshedPlayerCharacter, false, "male");
-
-    const beforeResetStreamStatus = await readTerrainStreamStatus(page);
-    await page.evaluate(() => window.__ofgDebug?.resetTerrainStreaming());
-    await page.waitForFunction((previousGeneration) => {
-      const debug = window.__ofgDebug;
-      const status = debug?.getTerrainStreamStatus();
-      return debug !== undefined &&
-        status !== undefined &&
-        status.generation > previousGeneration &&
-        status.pending === false &&
-        debug.getTerrainChunkKeys().length > 0;
-    }, beforeResetStreamStatus.generation, { timeout: 10000 });
-    const resetTerrain = await readTerrainDebug(page);
-    assertTerrainDebug(resetTerrain, "reset terrain");
-
-    await page.keyboard.press("KeyC");
-    await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "THIRD");
-    await page.keyboard.press("KeyC");
-    await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "FLY");
-    await page.waitForTimeout(250);
-    assertNoBrowserFailures(consoleMessages);
-
-    const flyHud = await readHud(page);
-    assertHud(flyHud, "FLY", consoleMessages);
-    const flyScreenshot = await saveScreenshot(page, "debug-fly.png");
-    screenshots.push(flyScreenshot.path);
-    assertPixelStats(flyScreenshot.stats, "debug-fly", consoleMessages);
-    const flyPlayerCharacter = await readPlayerCharacterDebug(page);
-    assertPlayerCharacterDebug(flyPlayerCharacter, true, "male");
-    const flyRendererRuntime = await readRendererRuntime(page);
-    assertRendererRuntime(flyRendererRuntime);
-    const flyTerrain = await readTerrainDebug(page);
-    assertTerrainDebug(flyTerrain, "debug fly terrain");
-    assertPlayerCharacterRendererResources(flyRendererRuntime, flyTerrain, true);
-
-    await page.keyboard.press("KeyC");
-    await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "FIRST");
-
-    await page.evaluate(() => window.__ofgDebug?.setPlayerPosition(96, 0));
-    await page.waitForFunction(() => window.__ofgDebug
-      ?.getLoadedTerrainChunkKeys()
-      .includes("3,0,0"));
-    await page.waitForFunction(() => {
-      const debug = window.__ofgDebug;
-      return debug !== undefined &&
-        debug.getTerrainChunkKeys().length > 0 &&
-        debug.getTerrainStreamStatus().pending === false;
-    }, null, { timeout: 10000 });
-    await page.waitForTimeout(250);
-    assertNoBrowserFailures(consoleMessages);
-
-    const streamedTerrain = await readTerrainDebug(page);
-    assertTerrainDebug(streamedTerrain, "streamed terrain");
-    assertTerrainStreamed(initialTerrain, streamedTerrain);
-    const streamedScreenshot = await saveScreenshot(page, "streamed-first-person.png");
-    screenshots.push(streamedScreenshot.path);
-    assertPixelStats(streamedScreenshot.stats, "streamed-first-person", consoleMessages);
+    const reloadedHud = await readHud(page);
+    assertHud(reloadedHud, "FIRST", consoleMessages);
+    const reloadedDebug = await readDebugContract(page);
+    assertDebugContract(reloadedDebug);
+    const reloadedImage = await saveScreenshot(page, "browser-reloaded.png");
+    assertPixelStats(reloadedImage.pixelStats, "browser reload", consoleMessages);
 
     return {
+      kind: "browser-integration-smoke",
       url,
+      artifactDir: reportPath(artifactDir),
       browserPath,
       headed,
-      screenshots,
+      images: [firstImage, toggledImage, reloadedImage],
       firstHud,
-      refreshedHud,
-      thirdHud,
-      flyHud,
-      playerControllerRuntime,
-      renderPacketRuntime,
-      terrainRenderPacketRuntime,
-      refreshedTerrainRenderPacketRuntime,
-      rendererRuntime,
-      refreshedRendererRuntime,
-      firstModelAnimation,
-      advancedModelAnimation,
-      movingModelAnimation,
-      returnedModelAnimation,
-      settledModelAnimation,
-      sprintModelAnimation,
-      thirdWalkModelAnimation,
-      modelSkinning,
-      firstPlayerCharacter,
-      thirdPlayerCharacter,
-      femalePlayerCharacter,
-      refreshedPlayerCharacter,
-      flyPlayerCharacter,
-      terrainStreamRuntime: refreshedTerrainStreamRuntime,
-      initialTerrain,
-      refreshedTerrain,
-      resetTerrain,
-      streamedTerrain,
-      firstPixelStats: firstScreenshot.stats,
-      refreshedPixelStats: refreshedScreenshot.stats,
-      thirdPixelStats: thirdScreenshot.stats,
-      femalePixelStats: femaleScreenshot.stats,
-      thirdWalkPixelStats: thirdWalkScreenshot.stats,
-      thirdSprintPixelStats: sprintScreenshot.stats,
-      streamedPixelStats: streamedScreenshot.stats,
-      flyPixelStats: flyScreenshot.stats,
+      toggledHud,
+      reloadedHud,
+      firstDebug,
+      toggledDebug,
+      reloadedDebug,
       consoleMessages
     };
   } finally {
@@ -307,49 +116,50 @@ async function runBrowserSmoke(url) {
   }
 }
 
-async function waitForPlayableTerrain(page) {
+/// Waits until the browser shell has rendered a Rust/wgpu frame.
+async function waitForBrowserFrame(page) {
   await page.waitForSelector("#camera-mode");
   await page.waitForFunction(() => {
-    const mode = document.querySelector("#camera-mode")?.textContent;
     const frameTime = document.querySelector("#frame-time")?.textContent;
-    return mode === "WEBGPU" || (mode === "FIRST" && frameTime !== "0.0 ms");
+    const status = window.__ofgDebug?.getRendererStatus?.();
+    return window.__ofgDebug !== undefined &&
+      frameTime !== undefined &&
+      frameTime !== "0.0 ms" &&
+      status !== undefined &&
+      status.configured === true &&
+      status.frameDrawCount > 0;
   }, null, { timeout: 10000 });
-  await page.waitForFunction(() => {
-    const debug = window.__ofgDebug;
-    return debug !== undefined &&
-      debug.getTerrainChunkKeys().length > 0 &&
-      debug.getTerrainStreamStatus().pending === false;
-  }, null, { timeout: 10000 });
+  await page.waitForTimeout(250);
 }
 
+/// Reads browser HUD values relevant to shell integration.
 async function readHud(page) {
   return page.evaluate(() => ({
     cameraMode: document.querySelector("#camera-mode")?.textContent ?? "",
     frameTime: document.querySelector("#frame-time")?.textContent ?? "",
     hasWebGpu: navigator.gpu !== undefined,
+    crossOriginIsolated: globalThis.crossOriginIsolated === true,
+    sharedArrayBufferAvailable: typeof SharedArrayBuffer !== "undefined",
     canvasWidth: document.querySelector("canvas")?.width ?? 0,
     canvasHeight: document.querySelector("canvas")?.height ?? 0
   }));
 }
 
-async function readPlayerControllerRuntime(page) {
-  return page.evaluate(() => window.__ofgDebug?.getPlayerControllerRuntime?.() ?? "missing");
-}
-
-async function readRenderPacketRuntime(page) {
-  return page.evaluate(() => window.__ofgDebug?.getRenderPacketRuntime?.() ?? "missing");
-}
-
-async function readTerrainRenderPacketRuntime(page) {
-  return page.evaluate(() => window.__ofgDebug?.getTerrainRenderPacketRuntime?.() ?? "missing");
-}
-
-async function readRendererRuntime(page) {
+/// Reads black-box Rust runtime sentinels from the debug API.
+async function readDebugContract(page) {
   return page.evaluate(() => {
     const debug = window.__ofgDebug;
     const status = debug?.getRendererStatus?.();
 
     return {
+      hasDebug: debug !== undefined,
+      apiKeys: debug === undefined ? [] : Object.keys(debug).sort(),
+      playerControllerRuntime: debug?.getPlayerControllerRuntime?.() ?? "missing",
+      renderPacketRuntime: debug?.getRenderPacketRuntime?.() ?? "missing",
+      terrainStreamerRuntime: debug?.getTerrainStreamerRuntime?.() ?? "missing",
+      terrainStreamSchedulerRuntime: debug?.getTerrainStreamSchedulerRuntime?.() ?? "missing",
+      terrainDensityStoreRuntime: debug?.getTerrainDensityStoreRuntime?.() ?? "missing",
+      terrainRenderPacketRuntime: debug?.getTerrainRenderPacketRuntime?.() ?? "missing",
       rendererRuntime: debug?.getRendererRuntime?.() ?? "missing",
       rendererStatus: status === undefined
         ? undefined
@@ -359,343 +169,34 @@ async function readRendererRuntime(page) {
             configured: status.configured,
             canvasWidth: status.canvasWidth,
             canvasHeight: status.canvasHeight,
-            maxTextureArrayLayers: status.maxTextureArrayLayers,
-            requiredTextureArrayLayers: status.requiredTextureArrayLayers,
             meshCount: status.meshCount,
             textureCount: status.textureCount,
             objectCount: status.objectCount,
             frameIndex: status.frameIndex.toString(),
             frameDrawCount: status.frameDrawCount,
-            lastErrorCode: status.lastErrorCode
+            requiredTextureArrayLayers: status.requiredTextureArrayLayers,
+            maxTextureArrayLayers: status.maxTextureArrayLayers
           }
     };
   });
 }
 
-async function readModelAnimationDebug(page) {
-  return page.evaluate(() => {
-    const debug = window.__ofgDebug;
-
-    return {
-      runtime: debug?.getModelAnimationRuntime?.() ?? "missing",
-      activeClip: debug?.getActiveModelAnimationClip?.() ?? "",
-      nextClip: debug?.getNextModelAnimationClip?.() ?? "",
-      timeSeconds: debug?.getModelAnimationTimeSeconds?.() ?? Number.NaN,
-      durationSeconds: debug?.getModelAnimationDurationSeconds?.() ?? Number.NaN,
-      blendWeight: debug?.getModelAnimationBlendWeight?.() ?? Number.NaN,
-      walkRunBlendWeight: debug?.getModelAnimationWalkRunBlendWeight?.() ?? Number.NaN,
-      playbackScale: debug?.getModelAnimationPlaybackScale?.() ?? Number.NaN,
-      locomotionSpeedMetersPerSecond:
-        debug?.getModelAnimationLocomotionSpeedMetersPerSecond?.() ?? Number.NaN,
-      walkSpeedMetersPerSecond:
-        debug?.getModelAnimationWalkSpeedMetersPerSecond?.() ?? Number.NaN,
-      runSpeedMetersPerSecond:
-        debug?.getModelAnimationRunSpeedMetersPerSecond?.() ?? Number.NaN,
-      idlePlaybackScale: debug?.getModelAnimationIdlePlaybackScale?.() ?? Number.NaN,
-      walkPlaybackScale: debug?.getModelAnimationWalkPlaybackScale?.() ?? Number.NaN,
-      runPlaybackScale: debug?.getModelAnimationRunPlaybackScale?.() ?? Number.NaN
-    };
-  });
-}
-
-async function readModelSkinningDebug(page) {
-  return page.evaluate(() => {
-    const debug = window.__ofgDebug;
-
-    return {
-      runtime: debug?.getModelSkinningRuntime?.() ?? "missing",
-      jointCount: debug?.getModelSkinningJointCount?.() ?? Number.NaN
-    };
-  });
-}
-
-async function readPlayerCharacterDebug(page) {
-  return page.evaluate(() => {
-    const debug = window.__ofgDebug;
-
-    return {
-      id: debug?.getPlayerCharacterId?.() ?? "missing",
-      label: debug?.getPlayerCharacterLabel?.() ?? "missing",
-      runtime: debug?.getPlayerCharacterRuntime?.() ?? "missing",
-      visible: debug?.getPlayerCharacterVisible?.(),
-      followsPlayer: debug?.getPlayerCharacterFollowsPlayer?.(),
-      debugMarkerVisible: debug?.getDebugPlayerMarkerVisible?.(),
-      primitiveCount: debug?.getModelPrimitiveCount?.() ?? 0,
-      materialCount: debug?.getModelMaterialCount?.() ?? 0,
-      textureCount: debug?.getModelTextureCount?.() ?? 0,
-      nonFallbackAlbedoPartCount: debug?.getModelNonFallbackAlbedoPartCount?.() ?? 0
-    };
-  });
-}
-
-async function readTerrainStreamRuntime(page) {
-  return page.evaluate(() => {
-    return {
-      streamerRuntime: window.__ofgDebug?.getTerrainStreamerRuntime?.() ?? "missing",
-      schedulerRuntime: window.__ofgDebug?.getTerrainStreamSchedulerRuntime?.() ?? "missing",
-      densityStoreRuntime: window.__ofgDebug?.getTerrainDensityStoreRuntime?.() ?? "missing",
-      workerPoolRuntime: window.__ofgDebug?.getTerrainWorkerPoolRuntime?.() ?? "missing",
-      crossOriginIsolated: globalThis.crossOriginIsolated === true,
-      sharedArrayBufferAvailable: typeof SharedArrayBuffer !== "undefined",
-      workerCount: window.__ofgDebug?.getTerrainWorkerCount?.() ?? 0
-    };
-  });
-}
-
-async function readTerrainDebug(page) {
-  return page.evaluate(() => ({
-    hasDebug: window.__ofgDebug !== undefined,
-    loadedChunkKeys: window.__ofgDebug?.getLoadedTerrainChunkKeys() ?? [],
-    renderChunkKeys: window.__ofgDebug?.getTerrainChunkKeys() ?? []
-  }));
-}
-
-async function readTerrainStreamStatus(page) {
-  return page.evaluate(() => window.__ofgDebug?.getTerrainStreamStatus() ?? {
-    generation: -1,
-    pending: true
-  });
-}
-
-function assertModelAnimationDebug(animation) {
-  if (animation.runtime !== "rust") {
-    throw new Error(`Expected Rust model animation runtime, saw '${animation.runtime}'.`);
+/// Validates dev-server headers required for wasm threads and WebGPU assets.
+function assertResponseHeaders(response) {
+  if (response === null) {
+    throw new Error("Browser smoke did not receive a page response.");
   }
-  if (!Number.isFinite(animation.timeSeconds) || animation.timeSeconds < 0) {
-    throw new Error(`Expected finite model animation time: ${JSON.stringify(animation)}`);
+
+  const headers = response.headers();
+  if (headers["cross-origin-opener-policy"] !== "same-origin") {
+    throw new Error(`Missing COOP header: ${JSON.stringify(headers)}`);
   }
-  if (!Number.isFinite(animation.durationSeconds) || animation.durationSeconds <= 0) {
-    throw new Error(`Expected positive model animation duration: ${JSON.stringify(animation)}`);
-  }
-  if (typeof animation.activeClip !== "string") {
-    throw new Error(`Expected model animation clip name: ${JSON.stringify(animation)}`);
-  }
-  if (!Number.isFinite(animation.blendWeight) || animation.blendWeight < 0 || animation.blendWeight > 1) {
-    throw new Error(`Expected normalized model animation blend weight: ${JSON.stringify(animation)}`);
-  }
-  if (!Number.isFinite(animation.walkRunBlendWeight) || animation.walkRunBlendWeight < 0 || animation.walkRunBlendWeight > 1) {
-    throw new Error(`Expected normalized walk/run blend weight: ${JSON.stringify(animation)}`);
-  }
-  if (!Number.isFinite(animation.playbackScale) || animation.playbackScale <= 0) {
-    throw new Error(`Expected positive animation playback scale: ${JSON.stringify(animation)}`);
-  }
-  if (!Number.isFinite(animation.locomotionSpeedMetersPerSecond) || animation.locomotionSpeedMetersPerSecond < 0) {
-    throw new Error(`Expected non-negative locomotion speed: ${JSON.stringify(animation)}`);
-  }
-  if (
-    !Number.isFinite(animation.walkSpeedMetersPerSecond) ||
-    !Number.isFinite(animation.runSpeedMetersPerSecond) ||
-    !Number.isFinite(animation.idlePlaybackScale) ||
-    !Number.isFinite(animation.walkPlaybackScale) ||
-    !Number.isFinite(animation.runPlaybackScale) ||
-    animation.walkSpeedMetersPerSecond <= 0 ||
-    animation.runSpeedMetersPerSecond <= animation.walkSpeedMetersPerSecond ||
-    animation.idlePlaybackScale <= 0 ||
-    animation.walkPlaybackScale <= 0 ||
-    animation.runPlaybackScale <= 0
-  ) {
-    throw new Error(`Expected positive model animation tuning values: ${JSON.stringify(animation)}`);
+  if (headers["cross-origin-embedder-policy"] !== "require-corp") {
+    throw new Error(`Missing COEP header: ${JSON.stringify(headers)}`);
   }
 }
 
-function assertModelAnimationAdvanced(before, after) {
-  assertModelAnimationDebug(after);
-  if (after.durationSeconds !== before.durationSeconds) {
-    throw new Error(`Model animation duration changed unexpectedly: ${JSON.stringify({ before, after })}`);
-  }
-  const advancedWithoutWrap = after.timeSeconds > before.timeSeconds;
-  const advancedWithWrap = before.timeSeconds > before.durationSeconds * 0.8 &&
-    after.timeSeconds < before.durationSeconds * 0.2;
-  if (!advancedWithoutWrap && !advancedWithWrap) {
-    throw new Error(`Expected model animation time to advance: ${JSON.stringify({ before, after })}`);
-  }
-}
-
-function assertModelAnimationMoving(animation) {
-  assertModelAnimationDebug(animation);
-  if (animation.activeClip !== "Walk_Loop") {
-    throw new Error(`Expected movement to select the walk clip: ${JSON.stringify(animation)}`);
-  }
-  if (animation.walkRunBlendWeight !== 0) {
-    throw new Error(`Expected normal movement to use walk-only blend: ${JSON.stringify(animation)}`);
-  }
-}
-
-function assertModelAnimationReturnedToIdle(animation) {
-  assertModelAnimationDebug(animation);
-  if (animation.nextClip !== "Idle_Loop") {
-    throw new Error(`Expected released movement to select the idle clip: ${JSON.stringify(animation)}`);
-  }
-}
-
-function assertModelAnimationIdle(animation) {
-  assertModelAnimationDebug(animation);
-  if (
-    animation.activeClip !== "Idle_Loop" ||
-    animation.nextClip !== "" ||
-    animation.blendWeight !== 0
-  ) {
-    throw new Error(`Expected model animation to settle on idle: ${JSON.stringify(animation)}`);
-  }
-}
-
-function assertModelAnimationRunning(animation) {
-  assertModelAnimationDebug(animation);
-  if (animation.activeClip !== "Sprint_Loop") {
-    throw new Error(`Expected fast movement to select the sprint clip: ${JSON.stringify(animation)}`);
-  }
-  if (animation.walkRunBlendWeight < 0.8) {
-    throw new Error(`Expected fast movement to use high walk/run blend: ${JSON.stringify(animation)}`);
-  }
-  if (animation.locomotionSpeedMetersPerSecond < 15) {
-    throw new Error(`Expected fast movement speed to track the player controller: ${JSON.stringify(animation)}`);
-  }
-}
-
-function assertModelSkinningDebug(skinning) {
-  if (skinning.runtime !== "rust-cpu") {
-    throw new Error(`Expected Rust CPU model skinning runtime, saw '${skinning.runtime}'.`);
-  }
-  if (!Number.isFinite(skinning.jointCount) || skinning.jointCount <= 0) {
-    throw new Error(`Expected positive model skinning joint count: ${JSON.stringify(skinning)}`);
-  }
-}
-
-function assertPlayerCharacterDebug(character, expectedVisible, expectedId) {
-  if (character.id !== expectedId) {
-    throw new Error(`Unexpected player character ID: ${JSON.stringify({ character, expectedId })}`);
-  }
-  if (typeof character.label !== "string" || character.label.length === 0) {
-    throw new Error(`Expected player character label: ${JSON.stringify(character)}`);
-  }
-  if (character.runtime !== "rust") {
-    throw new Error(`Expected Rust player character scene runtime, saw '${character.runtime}'.`);
-  }
-  if (character.visible !== expectedVisible) {
-    throw new Error(`Unexpected player character visibility: ${JSON.stringify({ character, expectedVisible })}`);
-  }
-  if (character.followsPlayer !== true) {
-    throw new Error(`Expected player character to follow the Rust player transform: ${JSON.stringify(character)}`);
-  }
-  if (character.debugMarkerVisible !== false) {
-    throw new Error(`Expected old debug player marker to stay hidden: ${JSON.stringify(character)}`);
-  }
-  if (character.primitiveCount < 3 || character.materialCount < 3 || character.textureCount < 3) {
-    throw new Error(`Expected multi-primitive textured player character resources: ${JSON.stringify(character)}`);
-  }
-  if (character.nonFallbackAlbedoPartCount < 3) {
-    throw new Error(`Expected real albedo textures for every visible player character part: ${JSON.stringify(character)}`);
-  }
-}
-
-function assertPlayerControllerRuntime(runtime) {
-  if (runtime !== "rust") {
-    throw new Error(`Expected Rust player controller runtime, saw '${runtime}'.`);
-  }
-}
-
-function assertRenderPacketRuntime(runtime) {
-  if (runtime !== "rust") {
-    throw new Error(`Expected Rust render packet runtime, saw '${runtime}'.`);
-  }
-}
-
-function assertTerrainRenderPacketRuntime(runtime) {
-  if (runtime !== "rust") {
-    throw new Error(`Expected Rust terrain render packet runtime, saw '${runtime}'.`);
-  }
-}
-
-function assertRendererRuntime(runtime) {
-  if (runtime.rendererRuntime !== "rust-wgpu") {
-    throw new Error(`Expected Rust/wgpu renderer, saw '${runtime.rendererRuntime}'.`);
-  }
-
-  const status = runtime.rendererStatus;
-  if (status === undefined) {
-    throw new Error(`Rust/wgpu renderer status is unavailable: ${JSON.stringify(runtime)}`);
-  }
-
-  if (!status.configured || status.version !== 1 || status.runtime !== "rust-wgpu") {
-    throw new Error(`Rust/wgpu renderer is not configured: ${JSON.stringify(runtime)}`);
-  }
-
-  if (
-    status.canvasWidth <= 0 ||
-    status.canvasHeight <= 0 ||
-    status.maxTextureArrayLayers < status.requiredTextureArrayLayers ||
-    status.requiredTextureArrayLayers !== 16
-  ) {
-    throw new Error(`Rust/wgpu renderer reported invalid limits: ${JSON.stringify(runtime)}`);
-  }
-
-  if (status.meshCount <= 0 || status.textureCount < 3 || status.objectCount <= 0) {
-    throw new Error(`Rust/wgpu renderer did not track live resources: ${JSON.stringify(runtime)}`);
-  }
-
-  if (Number.parseInt(status.frameIndex, 10) <= 0 || status.frameDrawCount <= 0) {
-    throw new Error(`Rust/wgpu renderer did not track frame draws: ${JSON.stringify(runtime)}`);
-  }
-}
-
-function assertPlayerCharacterRendererResources(runtime, terrainDebug, expectedVisible) {
-  const status = runtime.rendererStatus;
-  if (status === undefined) {
-    throw new Error(`Rust/wgpu renderer status is unavailable: ${JSON.stringify(runtime)}`);
-  }
-
-  const terrainDrawCount = terrainDebug.renderChunkKeys.length;
-  const expectedMeshCount = terrainDrawCount + 2; // terrain chunks plus male/female character meshes.
-  const expectedDrawCount = terrainDrawCount + (expectedVisible ? 1 : 0);
-  if (status.meshCount < expectedMeshCount) {
-    throw new Error(`Expected imported player character mesh resource: ${JSON.stringify({ status, terrainDrawCount })}`);
-  }
-  if (status.objectCount < expectedDrawCount || status.frameDrawCount < expectedDrawCount) {
-    throw new Error(`Expected imported player character draw state: ${JSON.stringify({ status, terrainDrawCount, expectedVisible })}`);
-  }
-}
-
-function assertTerrainStreamRuntime(runtime) {
-  if (runtime.streamerRuntime !== "rust") {
-    throw new Error(`Expected Rust terrain streamer, saw '${runtime.streamerRuntime}'.`);
-  }
-
-  if (runtime.schedulerRuntime !== "rust") {
-    throw new Error(`Expected Rust terrain stream scheduler, saw '${runtime.schedulerRuntime}'.`);
-  }
-
-  if (runtime.densityStoreRuntime !== "rust") {
-    throw new Error(`Expected Rust terrain density store, saw '${runtime.densityStoreRuntime}'.`);
-  }
-
-  if (runtime.workerPoolRuntime !== "rust") {
-    throw new Error(`Expected Rust terrain worker pool, saw '${runtime.workerPoolRuntime}'.`);
-  }
-
-  if (runtime.workerCount <= 0) {
-    throw new Error(`Expected terrain workers to be active: ${JSON.stringify(runtime)}`);
-  }
-
-  if (!runtime.crossOriginIsolated) {
-    throw new Error(`Expected browser smoke page to be cross-origin isolated: ${JSON.stringify(runtime)}`);
-  }
-
-  if (!runtime.sharedArrayBufferAvailable) {
-    throw new Error(`Expected SharedArrayBuffer to be available: ${JSON.stringify(runtime)}`);
-  }
-}
-
-function assertNoBrowserFailures(consoleMessages) {
-  const failures = consoleMessages.filter((message) =>
-    message.startsWith("pageerror:") ||
-    message.startsWith("error:") ||
-    message.includes("Rust engine rejected")
-  );
-  if (failures.length > 0) {
-    throw new Error(`Browser reported runtime failures: ${JSON.stringify(failures)}`);
-  }
-}
-
+/// Validates HUD state after a browser-rendered frame.
 function assertHud(hud, expectedMode, consoleMessages) {
   if (hud.cameraMode !== expectedMode) {
     throw new Error(
@@ -703,69 +204,82 @@ function assertHud(hud, expectedMode, consoleMessages) {
       `HUD=${JSON.stringify(hud)} console=${JSON.stringify(consoleMessages)}`
     );
   }
-
   if (!hud.hasWebGpu) {
     throw new Error("Browser smoke requires WebGPU, but navigator.gpu is unavailable.");
   }
-
+  if (!hud.crossOriginIsolated || !hud.sharedArrayBufferAvailable) {
+    throw new Error(`Browser shell is not cross-origin isolated: ${JSON.stringify(hud)}`);
+  }
   if (hud.canvasWidth <= 0 || hud.canvasHeight <= 0) {
     throw new Error(`Canvas has invalid dimensions: ${hud.canvasWidth}x${hud.canvasHeight}`);
   }
 }
 
-function assertTerrainDebug(debug, label) {
+/// Validates that debug hooks are black-box integration hooks only.
+function assertDebugContract(debug) {
   if (!debug.hasDebug) {
-    throw new Error(`${label} debug API is unavailable.`);
+    throw new Error("Debug API is unavailable.");
   }
 
-  if (debug.loadedChunkKeys.length === 0) {
-    throw new Error(`${label} has no loaded terrain chunks: ${JSON.stringify(debug)}`);
+  const expectedRustSentinels = {
+    playerControllerRuntime: "rust",
+    renderPacketRuntime: "rust",
+    terrainStreamerRuntime: "rust",
+    terrainStreamSchedulerRuntime: "rust",
+    terrainDensityStoreRuntime: "rust",
+    terrainRenderPacketRuntime: "rust",
+    rendererRuntime: "rust-wgpu"
+  };
+  for (const [key, expected] of Object.entries(expectedRustSentinels)) {
+    if (debug[key] !== expected) {
+      throw new Error(`Expected ${key}=${expected}, saw ${debug[key]}: ${JSON.stringify(debug)}`);
+    }
   }
 
-  if (debug.renderChunkKeys.length === 0) {
-    throw new Error(`${label} has no rendered terrain chunks: ${JSON.stringify(debug)}`);
+  const forbiddenDebugNames = [
+    "terrainCoreWasm",
+    "DensityChunkBuffer",
+    "MeshBuffer",
+    "RawTerrain",
+    "TerrainGenerator"
+  ];
+  const forbiddenMatches = debug.apiKeys.filter((key) =>
+    forbiddenDebugNames.some((forbidden) => key.includes(forbidden))
+  );
+  if (forbiddenMatches.length > 0) {
+    throw new Error(`Debug API exposes terrain internals: ${forbiddenMatches.join(", ")}`);
   }
 
-  if (debug.renderChunkKeys.length > debug.loadedChunkKeys.length) {
-    throw new Error(
-      `${label} rendered more terrain chunks than were loaded: ${JSON.stringify(debug)}`
-    );
-  }
-
-  const loadedChunkKeys = new Set(debug.loadedChunkKeys);
-  const strayRenderChunkKeys = debug.renderChunkKeys.filter((key) => !loadedChunkKeys.has(key));
-  if (strayRenderChunkKeys.length > 0) {
-    throw new Error(
-      `${label} rendered terrain chunks outside the loaded window: ` +
-      `${JSON.stringify({ strayRenderChunkKeys, debug })}`
-    );
+  const status = debug.rendererStatus;
+  if (
+    status === undefined ||
+    !status.configured ||
+    status.runtime !== "rust-wgpu" ||
+    status.frameDrawCount <= 0 ||
+    status.meshCount <= 0 ||
+    status.textureCount <= 0 ||
+    status.objectCount <= 0 ||
+    status.requiredTextureArrayLayers !== 16 ||
+    status.maxTextureArrayLayers < status.requiredTextureArrayLayers
+  ) {
+    throw new Error(`Renderer status is not a valid Rust/wgpu frame: ${JSON.stringify(debug)}`);
   }
 }
 
-function assertTerrainStreamed(initialTerrain, streamedTerrain) {
-  if (initialTerrain.loadedChunkKeys.join("|") === streamedTerrain.loadedChunkKeys.join("|")) {
-    throw new Error(
-      `Terrain chunk keys did not change after moving player: ` +
-      `${JSON.stringify({ initialTerrain, streamedTerrain })}`
-    );
-  }
-
-  if (!streamedTerrain.loadedChunkKeys.includes("3,0,0")) {
-    throw new Error(
-      `Terrain did not stream the expected destination chunk: ${JSON.stringify(streamedTerrain)}`
-    );
-  }
-}
-
+/// Saves a browser screenshot and computes pixel statistics for it.
 async function saveScreenshot(page, fileName) {
   const path = resolve(artifactDir, fileName);
   const buffer = await page.screenshot({ path, fullPage: false });
   return {
-    path,
-    stats: analyzePng(buffer)
+    name: fileName.replace(/\.png$/, ""),
+    path: reportPath(path),
+    width: page.viewportSize()?.width ?? 0,
+    height: page.viewportSize()?.height ?? 0,
+    pixelStats: analyzePng(buffer)
   };
 }
 
+/// Computes screenshot pixel statistics.
 function analyzePng(buffer) {
   const png = PNG.sync.read(buffer);
   const buckets = new Map();
@@ -792,7 +306,6 @@ function analyzePng(buffer) {
       if (a > 0) {
         opaquePixels += 1;
       }
-
       sumR += r;
       sumG += g;
       sumB += b;
@@ -815,6 +328,7 @@ function analyzePng(buffer) {
   };
 }
 
+/// Fails when a screenshot looks blank, transparent, or solid.
 function assertPixelStats(stats, label, consoleMessages = []) {
   if (stats.opaquePixels < stats.sampledPixels * 0.99) {
     throw new Error(
@@ -822,14 +336,12 @@ function assertPixelStats(stats, label, consoleMessages = []) {
       `console=${JSON.stringify(consoleMessages)}`
     );
   }
-
   if (stats.uniqueColorBuckets < 8) {
     throw new Error(
       `${label} screenshot has too little color variation: ${JSON.stringify(stats)} ` +
       `console=${JSON.stringify(consoleMessages)}`
     );
   }
-
   if (stats.dominantColorRatio > 0.9) {
     throw new Error(
       `${label} screenshot looks like a solid fill: ${JSON.stringify(stats)} ` +
@@ -838,6 +350,24 @@ function assertPixelStats(stats, label, consoleMessages = []) {
   }
 }
 
+/// Fails if the browser reported runtime errors.
+function assertNoBrowserFailures(consoleMessages) {
+  const failures = consoleMessages.filter((message) =>
+    message.startsWith("pageerror:") ||
+    message.startsWith("error:") ||
+    message.includes("Rust engine rejected")
+  );
+  if (failures.length > 0) {
+    throw new Error(`Browser reported runtime failures: ${JSON.stringify(failures)}`);
+  }
+}
+
+/// Normalizes a path for JSON reports and console output.
+function reportPath(path) {
+  return path.replace(/\\/g, "/");
+}
+
+/// Finds an installed Chromium-based browser executable.
 function findBrowserPath() {
   const candidates = [
     process.env.OFG_BROWSER_PATH,
@@ -857,6 +387,7 @@ function findBrowserPath() {
   return match;
 }
 
+/// Starts the local static dev server.
 function startDevServer(port) {
   const child = spawn(process.execPath, ["tools/dev-server.mjs"], {
     cwd: root,
@@ -875,6 +406,7 @@ function startDevServer(port) {
   return child;
 }
 
+/// Waits for the local dev server to answer HTTP requests.
 async function waitForHttp(url) {
   const deadline = Date.now() + 10000;
   let lastError;
@@ -895,6 +427,7 @@ async function waitForHttp(url) {
   throw new Error(`Timed out waiting for ${url}: ${lastError}`);
 }
 
+/// Finds an available local port starting at the preferred port.
 async function findAvailablePort(start) {
   for (let port = start; port < start + 100; port += 1) {
     if (await canListen(port)) {
@@ -905,6 +438,7 @@ async function findAvailablePort(start) {
   throw new Error(`No available port found starting at ${start}.`);
 }
 
+/// Returns whether a local TCP port can be bound.
 function canListen(port) {
   return new Promise((resolveCanListen) => {
     const server = createServer();
@@ -916,6 +450,7 @@ function canListen(port) {
   });
 }
 
+/// Resolves after the requested delay.
 function sleep(ms) {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 }

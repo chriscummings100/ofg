@@ -1,4 +1,6 @@
 import { equal, ok } from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
   UBER_SHADER_METADATA,
   UBER_SHADER_SOURCE
@@ -20,6 +22,16 @@ describe("uber shader build", () => {
 
   it("records a deterministic source hash", () => {
     ok(/^sha256-[0-9a-f]{64}$/.test(UBER_SHADER_METADATA.sourceHash));
+  });
+
+  it("recomputes the generated source hash from the WGSL source", () => {
+    const source = readFileSync(UBER_SHADER_METADATA.sourcePath, "utf8")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n");
+    const sourceHash = `sha256-${createHash("sha256").update(source, "utf8").digest("hex")}`;
+
+    equal(UBER_SHADER_METADATA.sourceHash, sourceHash);
+    equal(UBER_SHADER_SOURCE, source);
   });
 
   it("matches the renderer vertex layout contract", () => {

@@ -88,7 +88,7 @@ Supported:
   density stores, stream scheduling, and worker-pool behavior.
 - Runtime terrain streaming now lives inside `engine_web.wasm`, which composes
   `terrain_core` as a Rust library to build renderable terrain chunk meshes. The
-  generated `terrain_core.wasm` artifact remains for tests, benchmarks, and
+  generated `terrain_core.wasm` artifact remains for export-contract
   compatibility fixtures. The compiled TypeScript terrain generator/noise
   reference has been deleted; Rust is now the browser terrain source of truth.
 - Runtime streaming treats density chunks as a retained lowest-detail streaming
@@ -108,10 +108,10 @@ Supported:
   `engine_web`; future threading work should add Rust-managed wasm threads or
   another Rust-owned job system without reintroducing TypeScript terrain payload
   schemas.
-- A release-WASM benchmark, `npm run bench:terrain:wasm`, reports density
+- A native Rust benchmark, `npm run bench:terrain:rust`, reports density
   fill-only, density fill-plus-copy, retained density-window preparation, and
   chunk mesh-build-plus-copy milliseconds and writes JSON under
-  `artifacts/terrain-wasm-bench/`.
+  `artifacts/terrain-bench/`.
 - `crates/terrain_core` now has a first tested Rust-owned terrain stream
   scheduler core for desired density sets, LOD0 render sets, density-apron
   dependencies, priority, in-flight work, reset generations, stale completions,
@@ -494,7 +494,7 @@ Progress notes:
 | Date | Status | Notes |
 |---|---|---|
 | 2026-05-31 | Initial implementation complete | Added tested ridged fractal, domain warp, and cellular noise helpers; wired `seed`, `rollingHills`, `mountainValley`, and `rockyHighland` presets into `TerrainGenerator`; made `rollingHills` the default. Added `?terrainPreset=` app selection and `npm run smoke:terrain-presets` to capture every preset. `npm test`, `npm run smoke:terrain-presets`, and browser smoke pass. Visual tuning remains iterative. |
-| 2026-06-02 | Promoted to Rust | Deleted the compiled TypeScript noise helpers. The live macro landform helpers and presets now live in `crates/terrain_core`; `npm run smoke:terrain-presets` remains the browser preset validation path. |
+| 2026-06-02 | Promoted to Rust | Deleted the compiled TypeScript noise helpers. The live macro landform helpers and presets now live in `crates/terrain_core`; as of 2026-06-07, `npm run smoke:terrain-presets` runs the Rust offscreen image harness instead of browser preset validation. |
 
 ## Milestone 3: Debug Terrain Lab
 
@@ -583,7 +583,7 @@ Progress notes:
 | 2026-05-31 | In progress | Added `analyzeDualContouringCellVertex()` diagnostics with QEF/centroid error, fallback reasons, and arbitrary-bounds Hermite extraction for debug overlays. `qefError` overlay is now captured by terrain debug smoke. Runtime meshing still uses centroid placement via `TerrainChunkStreamer`; per-chunk neighbor-aware meshing remains next. |
 | 2026-05-31 | In progress | Added `meshChunkDualContouringWithNeighbors()` with deterministic edge ownership and vertex compaction. Tests prove a two-chunk flat-plane seam is emitted by exactly one per-chunk mesh and sums to the stitched mesh topology. Runtime migration to per-chunk neighbor-aware rendering was still pending at this point. |
 | 2026-05-31 | In progress | Migrated `TerrainChunkStreamer` to render per-chunk neighbor-aware meshes using a positive 1-cell apron instead of one stitched render window. The streamer keeps render chunks inside the loaded density window, skips all-air/all-solid chunks before apron sampling, and browser smoke now validates per-chunk render ownership. |
-| 2026-05-31 | In progress | Added `npm run smoke:terrain-seams`, which uses deterministic debug camera placement to capture x-seam, z-seam, and chunk-corner grazing views. The smoke verifies render coverage on both sides of the target seams and checks screenshots for valid rendered output. |
+| 2026-05-31 | In progress | Added `npm run smoke:terrain-seams`, which originally used browser debug camera placement to capture x-seam, z-seam, and chunk-corner grazing views. As of 2026-06-07, the command runs the Rust offscreen image harness and verifies render coverage on both sides of the target seams without browser terrain clients. |
 
 ## Milestone 5: Biome Solver
 
@@ -909,7 +909,7 @@ Tests:
   should validate deterministic Rust samples, chunks, meshes, stores, and
   scheduler behavior.
 - `npm run check:wasm` verifies generated WASM metadata and asset freshness.
-- `npm run bench:terrain:wasm` records release WASM density chunk timing.
+- `npm run bench:terrain:rust` records Rust terrain density, store, and mesh timing.
 - `cargo test -p terrain_core` validates Rust-side deterministic terrain logic.
 - WASM tests instantiate the generated artifact and validate density, height,
   chunk, mesh, retained-store, scheduler, and worker-pool fixtures.
@@ -967,13 +967,17 @@ Every terrain milestone should preserve these checks:
 - `cargo test -p terrain_core` when Rust terrain code changes
 - `npm run check:shaders` when shader artifacts change
 - `npm run check:wasm` when Rust/WASM terrain artifacts change
-- `npm run smoke:browser` for visual, camera, render, streaming, material, or
-  browser integration changes
+- `npm run smoke:rust` for terrain visual, camera framing, Rust render,
+  streaming, material, seam, preset, or chunk-boundary image changes
+- `npm run smoke:browser` for browser integration changes such as wasm loading,
+  WebGPU canvas setup, browser asset fetch/decode, HUD, reload, and input
+  forwarding
 - `npm run smoke:terrain-seams` for Dual Contouring seam, topology, material
-  seam, or chunk-boundary changes
+  seam, or chunk-boundary changes; this runs Rust offscreen image smoke
 - `npm run smoke:terrain-presets` for terrain preset, descriptor, biome,
-  material-classification, or terrain visual changes
-- `npm run bench:terrain:wasm` with before/after reports for performance-sensitive
+  material-classification, or terrain visual changes; this runs Rust offscreen
+  image smoke
+- `npm run bench:terrain:rust` with before/after reports for performance-sensitive
   density, meshing, streaming, or render-upload changes
 - `git diff --check`
 

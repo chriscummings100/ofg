@@ -24,6 +24,7 @@ const dtsPath = `${outDir}/${crateName}.d.ts`;
 const tempOutDir = `target/wasm-bindgen/${crateName}`;
 const wasmBindgenCommand = process.env.WASM_BINDGEN ?? "wasm-bindgen";
 const expectedExports = ["RustBrowserGame"];
+const forbiddenExportPrefixes = ["ofg_engine_web_"];
 
 const build = spawnSync(
   "cargo",
@@ -77,6 +78,17 @@ const missingExports = expectedExports.filter(
 );
 if (missingExports.length > 0) {
   console.error(`Engine Web wasm-bindgen glue is missing exports: ${missingExports.join(", ")}`);
+  process.exitCode = 1;
+  process.exit();
+}
+
+const forbiddenExports = forbiddenExportPrefixes.filter(
+  (prefix) => moduleText.includes(prefix) || dtsText.includes(prefix)
+);
+if (forbiddenExports.length > 0) {
+  console.error(
+    `Engine Web wasm-bindgen glue contains unsupported raw exports: ${forbiddenExports.join(", ")}`
+  );
   process.exitCode = 1;
   process.exit();
 }

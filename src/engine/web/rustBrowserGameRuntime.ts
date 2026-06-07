@@ -64,6 +64,6 @@ export async function createRustBrowserGameRuntime(
   });
 }
 
-function terrainPresetToWasmCode(preset: TerrainPresetId): number {
+export function terrainPresetToWasmCode(preset: TerrainPresetId): number {
   return TERRAIN_PRESET_CODES[preset];
 }

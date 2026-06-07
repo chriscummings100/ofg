@@ -1,4 +1,5 @@
 import { equal, ok } from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { ENGINE_WEB_WASM_METADATA } from "../../generated/web/engineWebWasm.js";
 import {
@@ -23,6 +24,16 @@ describe("engine web WASM", () => {
     const exports = ENGINE_WEB_WASM_METADATA.exports as readonly string[];
     ok(exports.includes("RustBrowserGame"));
     equal(exports.includes("RustBrowserGameStatus"), false);
+  });
+
+  it("recomputes generated wasm-bindgen artifact hashes from current files", () => {
+    const wasmHash = hashFile(ENGINE_WEB_WASM_METADATA.wasmPath);
+    const moduleHash = hashFile(ENGINE_WEB_WASM_METADATA.modulePath);
+    const dtsHash = hashFile(ENGINE_WEB_WASM_METADATA.dtsPath);
+
+    equal(ENGINE_WEB_WASM_METADATA.wasmHash, wasmHash);
+    equal(ENGINE_WEB_WASM_METADATA.moduleHash, moduleHash);
+    equal(ENGINE_WEB_WASM_METADATA.dtsHash, dtsHash);
   });
 
   it("emits wasm-bindgen glue for the Rust/wgpu renderer facade", () => {
@@ -143,6 +154,10 @@ function fakeModule(
 }
 
 const fakeCreateAssetLoaders: unknown[] = [];
+
+function hashFile(path: string): string {
+  return `sha256-${createHash("sha256").update(readFileSync(path)).digest("hex")}`;
+}
 
 function fakeBrowserGame(): EngineWebBrowserGame {
   return {

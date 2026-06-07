@@ -161,3 +161,80 @@ impl<T> Default for ResourceArena<T> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    #[test]
+    fn resource_ids_preserve_index_generation_clone_equality_and_hash() {
+        let id = MeshId::new(7, 3);
+        let cloned = id.clone();
+
+        assert_eq!(id.index(), 7);
+        assert_eq!(id.generation(), 3);
+        assert_eq!(id, cloned);
+        assert_eq!(hash_id(id), hash_id(cloned));
+        assert_ne!(id, MeshId::new(7, 4));
+    }
+
+    #[test]
+    fn scene_resources_register_and_lookup_typed_meshes_and_materials() {
+        let mut resources = SceneResources::new();
+        let mesh = resources.register_mesh(DEBUG_PLAYER_MARKER_MESH_LABEL);
+        let material = resources.register_material(DEBUG_PLAYER_MARKER_MATERIAL_LABEL);
+
+        assert_eq!(resources.mesh_count(), 1);
+        assert_eq!(resources.material_count(), 1);
+        assert_eq!(
+            resources.mesh(mesh),
+            Some(&MeshResource {
+                label: DEBUG_PLAYER_MARKER_MESH_LABEL.to_string()
+            })
+        );
+        assert_eq!(
+            resources.material(material),
+            Some(&MaterialResource {
+                label: DEBUG_PLAYER_MARKER_MATERIAL_LABEL.to_string()
+            })
+        );
+        assert_eq!(resources.mesh(MeshId::new(mesh.index() + 1, 0)), None);
+        assert_eq!(
+            resources.material(MaterialId::new(material.index(), 99)),
+            None
+        );
+    }
+
+    #[test]
+    fn resource_arena_reuses_private_free_slots_with_existing_generation() {
+        let mut arena = ResourceArena {
+            slots: vec![ResourceSlot {
+                generation: 4,
+                value: None,
+            }],
+            free_indices: vec![0],
+            len: 0,
+        };
+
+        let id = arena.insert(MeshResource {
+            label: "reused".into(),
+        });
+
+        assert_eq!(id.index(), 0);
+        assert_eq!(id.generation(), 4);
+        assert_eq!(arena.len(), 1);
+        assert_eq!(
+            arena.get(id).map(|resource| resource.label.as_str()),
+            Some("reused")
+        );
+        assert_eq!(arena.get(MeshId::new(0, 3)), None);
+    }
+
+    fn hash_id<T>(id: ResourceId<T>) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        id.hash(&mut hasher);
+        hasher.finish()
+    }
+}
