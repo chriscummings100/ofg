@@ -171,12 +171,49 @@ body {
 
 #touch-look-zone {
   position: absolute;
-  top: max(84px, calc(env(safe-area-inset-top) + 72px));
-  right: 0;
-  bottom: 0;
-  left: max(210px, 50%);
+  right: max(20px, calc(env(safe-area-inset-right) + 18px));
+  bottom: max(22px, calc(env(safe-area-inset-bottom) + 20px));
+  width: 168px;
+  height: 168px;
   pointer-events: auto;
   touch-action: none;
+}
+
+#touch-look-base {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 118px;
+  height: 118px;
+  border: 1px solid rgb(198 240 255 / 28%);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, rgb(198 240 255 / 14%) 0 18%, transparent 19%),
+    rgb(20 21 21 / 46%);
+  box-shadow:
+    inset 0 0 0 10px rgb(198 240 255 / 4%),
+    0 12px 30px rgb(0 0 0 / 30%);
+  transform: translate(-50%, -50%);
+}
+
+#touch-look-thumb {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 58px;
+  height: 58px;
+  border: 1px solid rgb(198 240 255 / 48%);
+  border-radius: 50%;
+  background: rgb(198 240 255 / 20%);
+  box-shadow: 0 8px 18px rgb(0 0 0 / 24%);
+  transform: translate(-50%, -50%);
+}
+
+#touch-controls[data-touch-look="active"] #touch-look-base {
+  border-color: rgb(198 240 255 / 58%);
+  background:
+    radial-gradient(circle at 50% 50%, rgb(198 240 255 / 24%) 0 18%, transparent 19%),
+    rgb(20 21 21 / 58%);
 }
 
 #touch-camera-toggle {

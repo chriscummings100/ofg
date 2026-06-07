@@ -167,6 +167,8 @@ describe("InputTracker", () => {
     equal(nextSnapshot.mouseDeltaY, 0);
     equal(nextSnapshot.touchLookDeltaX, 0);
     equal(nextSnapshot.touchLookDeltaY, 0);
+    equal(nextSnapshot.touchLookStickX, 0);
+    equal(nextSnapshot.touchLookStickY, 0);
   });
 
   it("clicking the target requests pointer lock", () => {
@@ -292,32 +294,52 @@ describe("InputTracker", () => {
     equal(snapshot.touchMovementRight, 0);
   });
 
-  it("accumulates touch look deltas and clears them after frame consumption", () => {
+  it("normalizes the rotation stick and keeps it active after frame consumption", () => {
     const { input, touchControls } = createHarness({ withTouchControls: true });
 
     touchControls.lookZone.dispatch("pointerdown", pointerEvent({
       pointerId: 12,
-      clientX: 250,
-      clientY: 240
+      clientX: 84,
+      clientY: 84
     }));
     touchControls.lookZone.dispatch("pointermove", pointerEvent({
       pointerId: 12,
-      clientX: 265,
-      clientY: 230
-    }));
-    touchControls.lookZone.dispatch("pointermove", pointerEvent({
-      pointerId: 12,
-      clientX: 267,
-      clientY: 235
+      clientX: 138,
+      clientY: 30
     }));
 
     const snapshot = input.consumeFrameSnapshot();
     const nextSnapshot = input.consumeFrameSnapshot();
 
-    equal(snapshot.touchLookDeltaX, 17);
-    equal(snapshot.touchLookDeltaY, -5);
-    equal(nextSnapshot.touchLookDeltaX, 0);
-    equal(nextSnapshot.touchLookDeltaY, 0);
+    equal(snapshot.touchLookStickX > 0.69 && snapshot.touchLookStickX < 0.72, true);
+    equal(snapshot.touchLookStickY < -0.69 && snapshot.touchLookStickY > -0.72, true);
+    equal(nextSnapshot.touchLookStickX > 0.69 && nextSnapshot.touchLookStickX < 0.72, true);
+    equal(nextSnapshot.touchLookStickY < -0.69 && nextSnapshot.touchLookStickY > -0.72, true);
+    equal(touchControls.root.dataset.touchLook, "active");
+    equal(touchControls.lookZone.capturedPointers[0], 12);
+  });
+
+  it("clears rotation stick movement on pointer release", () => {
+    const { input, touchControls } = createHarness({ withTouchControls: true });
+
+    touchControls.lookZone.dispatch("pointerdown", pointerEvent({
+      pointerId: 14,
+      clientX: 84,
+      clientY: 84
+    }));
+    touchControls.lookZone.dispatch("pointermove", pointerEvent({
+      pointerId: 14,
+      clientX: 138,
+      clientY: 84
+    }));
+    touchControls.lookZone.dispatch("pointerup", pointerEvent({ pointerId: 14 }));
+
+    const snapshot = input.consumeFrameSnapshot();
+
+    equal(snapshot.touchLookStickX, 0);
+    equal(snapshot.touchLookStickY, 0);
+    equal(touchControls.root.dataset.touchLook, undefined);
+    equal(touchControls.lookThumb.style.transform, "");
   });
 
   it("keeps keyboard state while touch movement is active", () => {
@@ -352,6 +374,8 @@ function createHarness(options: { readonly withTouchControls?: boolean } = {}): 
     readonly moveBase: FakeElement;
     readonly moveThumb: FakeElement;
     readonly lookZone: FakeElement;
+    readonly lookBase: FakeElement;
+    readonly lookThumb: FakeElement;
   };
 } {
   const input = new InputTracker();
@@ -362,7 +386,9 @@ function createHarness(options: { readonly withTouchControls?: boolean } = {}): 
     moveZone: new FakeElement(),
     moveBase: new FakeElement(),
     moveThumb: new FakeElement(),
-    lookZone: new FakeElement()
+    lookZone: new FakeElement(),
+    lookBase: new FakeElement(),
+    lookThumb: new FakeElement()
   };
   const controls = options.withTouchControls
     ? {
@@ -370,7 +396,9 @@ function createHarness(options: { readonly withTouchControls?: boolean } = {}): 
         moveZone: touchControls.moveZone as unknown as HTMLElement,
         moveBase: touchControls.moveBase as unknown as HTMLElement,
         moveThumb: touchControls.moveThumb as unknown as HTMLElement,
-        lookZone: touchControls.lookZone as unknown as HTMLElement
+        lookZone: touchControls.lookZone as unknown as HTMLElement,
+        lookBase: touchControls.lookBase as unknown as HTMLElement,
+        lookThumb: touchControls.lookThumb as unknown as HTMLElement
       }
     : undefined;
   input.attach(target as unknown as HTMLElement, document as unknown as Document, controls);

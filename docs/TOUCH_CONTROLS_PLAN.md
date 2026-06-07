@@ -26,7 +26,7 @@ only collect browser touch input and translate it into the existing
 `BrowserFrameInput` object passed to Rust each frame.
 
 The first successful version is intentionally small: virtual movement stick,
-right-side look drag, camera toggle button, tests, and smoke coverage. More
+right-side rotation stick, camera toggle button, tests, and smoke coverage. More
 advanced mobile UI, jump/crouch, gestures, inventory controls, and mobile HUD
 polish are future work.
 
@@ -83,8 +83,20 @@ polish are future work.
 - [x] (2026-06-07 13:37Z) Verified the stable Cloudflare URL serves the
   touch-control HTML and passes remote Chrome mobile-emulation smoke with
   WebGPU, visible controls, touch joystick movement, and touch camera toggle.
-- [ ] Verify on the Cloudflare remote URL from an actual WebGPU-capable mobile
-  device. The user has offered to perform this final real-device check.
+- [x] (2026-06-07 13:42Z) Received real WebGPU-capable mobile-device feedback:
+  the deployed build definitely works, but lateral strafe direction is inverted
+  and the invisible right-side look drag should become a second stick for
+  rotation.
+- [x] (2026-06-07 13:47Z) Fixed lateral browser input mapping so the observed
+  strafe direction matches the user's mobile expectation.
+- [x] (2026-06-07 13:47Z) Replaced the invisible right-side look drag with a
+  visible lower-right rotation stick whose held position produces continuous
+  touch-look deltas.
+- [x] (2026-06-07 13:48Z) Revalidated the local follow-up with `npm run
+  test:ts`, `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser`, `npm test`,
+  `npm run check:wasm`, and `npm run coverage:rust`.
+- [ ] Deploy the second-stick/strafe-fix follow-up to `main`, verify the stable
+  Cloudflare URL, and get the user's final mobile-device confirmation.
 
 ## Surprises & Discoveries
 
@@ -191,6 +203,18 @@ polish are future work.
   `0.3666575458997926`, and touch camera toggle changing the HUD from `FIRST`
   to `THIRD`.
 
+- Observation: Real mobile hardware verified that the deployment loads and is
+  playable, but surfaced two control issues that local emulation did not settle.
+  Evidence: on 2026-06-07, the user reported "Definitely works" and then noted
+  strafe left/right are reversed and the right-side rotation control should be a
+  second stick.
+
+- Observation: The second-stick follow-up keeps all changed non-generated files
+  below the local split-pressure threshold.
+  Evidence: `src/engine/input/inputTracker.ts` is 377 lines,
+  `tools/browser-smoke-mobile-touch.mjs` is 286 lines, and
+  `src/app/styles.css` is 271 lines after the follow-up.
+
 ## Decision Log
 
 - Decision: Keep touch controls in TypeScript browser input code.
@@ -262,6 +286,22 @@ polish are future work.
   and gives touch-specific browser automation a clear owner.
   Date/Author: 2026-06-07 / Codex
 
+- Decision: Convert the right-side look drag into a visible analog rotation
+  stick.
+  Rationale: Real-device feedback showed that an invisible drag region is not
+  the desired mobile control. A visible second stick gives users a discoverable,
+  continuous rotation control while still mapping to the existing
+  `BrowserFrameInput.look` fields.
+  Date/Author: 2026-06-07 / Codex
+
+- Decision: Invert browser lateral intent before forwarding it to Rust.
+  Rationale: The Rust engine's `right` axis remains unchanged, but the current
+  browser-visible player/camera behavior made left/right strafe feel reversed
+  on mobile hardware. Normalizing this at the browser frame-input boundary fixes
+  keyboard and touch consistently without changing Rust ownership or packet
+  shape.
+  Date/Author: 2026-06-07 / Codex
+
 - Decision: Do not change `docs/API_CONTRACTS.md` for this slice.
   Rationale: The implementation preserves `BrowserFrameInput` and `GameCommand`
   as the Rust-facing contracts. Touch-specific state remains browser-local in
@@ -290,9 +330,12 @@ but it is not a substitute for the real-device acceptance item.
 
 The implementation commit has been pushed to both `origin/touch-controls` and
 `origin/main`. The stable Cloudflare URL now serves the touch-control HTML and
-passed an automated remote Chrome mobile-emulation smoke check. The only
-remaining acceptance item is the user's actual WebGPU-capable mobile-device
-verification.
+passed an automated remote Chrome mobile-emulation smoke check. A real
+WebGPU-capable mobile-device check confirmed the build loads and works, then
+surfaced two follow-up requirements: fix inverted strafe direction and provide a
+visible second stick for rotation. Those follow-up fixes are implemented and
+validated locally; the remaining acceptance item is deployment plus final
+real-device confirmation of the follow-up.
 
 ## Contract and Quality Baseline
 
@@ -580,27 +623,30 @@ The touch-control work is accepted when all of these are true:
 5. Releasing or canceling the joystick pointer immediately stops touch movement.
 6. Dragging the right look area changes the camera yaw/pitch through the
    existing Rust frame input.
-7. The camera toggle button uses the same player-mode cycle as `C` / `F1`;
+7. The right-side rotation control is a visible second stick, not an invisible
+   touch-only region. Holding it away from center continuously rotates yaw/pitch
+   through the existing Rust frame input.
+8. The camera toggle button uses the same player-mode cycle as `C` / `F1`;
    from a fresh load the HUD changes from `FIRST` to `THIRD`, then to `FLY`,
    then back to `FIRST` on subsequent taps.
-8. The page does not scroll, zoom, select text, or open context menus while
+9. The page does not scroll, zoom, select text, or open context menus while
    using the controls.
-9. `npm test` passes.
-10. `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser` passes, or the same
+10. `npm test` passes.
+11. `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser` passes, or the same
     command passes with another recorded non-default free port.
-11. `npm run check:wasm` passes unless the implementation did not touch any
+12. `npm run check:wasm` passes unless the implementation did not touch any
     generated WASM-facing contract or artifact. If skipped, record why.
-12. `npm run coverage:rust` runs before completion. If `cargo-llvm-cov` is
+13. `npm run coverage:rust` runs before completion. If `cargo-llvm-cov` is
     installed, the default filtered output does not list changed Rust
     implementation files; if the coverage tool is missing, the command prints
     documented setup guidance and this plan records the limitation. The
     TypeScript coverage exception in the Decision Log remains in force until a
     TypeScript coverage lane exists.
-13. `OFG-API-001`, `OFG-API-003`, and `OFG-API-009` are preserved, or
+14. `OFG-API-001`, `OFG-API-003`, and `OFG-API-009` are preserved, or
     `docs/API_CONTRACTS.md` is intentionally updated in the same milestone.
-14. Each implementation milestone has a recorded milestone-review result before
+15. Each implementation milestone has a recorded milestone-review result before
     being marked complete.
-15. The deployed Cloudflare build works from an actual WebGPU-capable mobile
+16. The deployed Cloudflare build works from an actual WebGPU-capable mobile
     browser.
 
 ## Idempotence and Recovery
@@ -691,6 +737,31 @@ Validation evidence from 2026-06-07:
     artifacts/remote-browser-smoke/2026-06-07T13-37-17-644Z/remote-mobile-touch.png
     Evidence: COOP/COEP present, WebGPU frame rendered, touch controls visible,
     movementDistance 0.3666575458997926, camera HUD FIRST -> THIRD.
+
+    Real mobile-device check
+    Result: partial pass with follow-up findings. The user reported the deployed
+    build definitely works, then identified reversed left/right strafe behavior
+    and requested a second stick for rotation.
+
+    npm run test:ts
+    Result after follow-up: passed with 76 Mocha tests.
+
+    $env:OFG_SMOKE_PORT='5184'; npm run smoke:browser
+    Result after follow-up: passed. Artifacts:
+    artifacts/browser-smoke/2026-06-07T13-46-55-614Z/
+    Evidence: mobile screenshot shows both movement and rotation sticks; report
+    records `lookZone` size, movementDistance 0.8250000773170706, and camera
+    HUD FIRST -> THIRD.
+
+    npm test
+    Result after follow-up: passed.
+
+    npm run check:wasm
+    Result after follow-up: passed.
+
+    npm run coverage:rust
+    Result after follow-up: passed. Default filtered attention report again
+    listed no files below 90% line coverage.
 
 Suggested joystick defaults:
 

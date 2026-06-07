@@ -30,6 +30,8 @@ function readTouchControls(): GameTouchControlElements | null {
   const moveBase = document.querySelector<HTMLElement>("#touch-move-base");
   const moveThumb = document.querySelector<HTMLElement>("#touch-move-thumb");
   const lookZone = document.querySelector<HTMLElement>("#touch-look-zone");
+  const lookBase = document.querySelector<HTMLElement>("#touch-look-base");
+  const lookThumb = document.querySelector<HTMLElement>("#touch-look-thumb");
   const cameraToggle = document.querySelector<HTMLButtonElement>("#touch-camera-toggle");
 
   if (
@@ -38,6 +40,8 @@ function readTouchControls(): GameTouchControlElements | null {
     moveBase === null ||
     moveThumb === null ||
     lookZone === null ||
+    lookBase === null ||
+    lookThumb === null ||
     cameraToggle === null
   ) {
     return null;
@@ -49,6 +53,8 @@ function readTouchControls(): GameTouchControlElements | null {
     moveBase,
     moveThumb,
     lookZone,
+    lookBase,
+    lookThumb,
     cameraToggle
   };
 }

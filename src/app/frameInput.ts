@@ -13,23 +13,33 @@ export type BrowserFrameInputSources = {
   readonly mouseDeltaY: number;
   readonly touchLookDeltaX: number;
   readonly touchLookDeltaY: number;
+  readonly touchLookStickX: number;
+  readonly touchLookStickY: number;
   readonly touchMovementForward: number;
   readonly touchMovementRight: number;
 };
 
+const TOUCH_LOOK_STICK_PIXELS_PER_SECOND = 900;
+
 /// Builds one Rust-facing frame input from browser keyboard, mouse, and touch sources.
 export function buildBrowserFrameInput(sources: BrowserFrameInputSources): BrowserFrameInput {
+  const lookStickScale = TOUCH_LOOK_STICK_PIXELS_PER_SECOND * sources.deltaSeconds;
+
   return {
     deltaSeconds: sources.deltaSeconds,
     movement: {
       forward: clampFrameAxis(sources.keyboardForward + sources.touchMovementForward),
-      right: clampFrameAxis(sources.keyboardRight + sources.touchMovementRight),
+      right: -clampFrameAxis(sources.keyboardRight + sources.touchMovementRight),
       up: clampFrameAxis(sources.keyboardUp),
       fast: sources.fast
     },
     look: {
-      deltaX: sources.mouseDeltaX + sources.touchLookDeltaX,
-      deltaY: sources.mouseDeltaY + sources.touchLookDeltaY
+      deltaX: sources.mouseDeltaX +
+        sources.touchLookDeltaX +
+        sources.touchLookStickX * lookStickScale,
+      deltaY: sources.mouseDeltaY +
+        sources.touchLookDeltaY +
+        sources.touchLookStickY * lookStickScale
     }
   };
 }

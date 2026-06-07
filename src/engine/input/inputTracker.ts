@@ -7,6 +7,8 @@ export type TouchControlElements = {
   readonly moveBase: HTMLElement;
   readonly moveThumb: HTMLElement;
   readonly lookZone: HTMLElement;
+  readonly lookBase: HTMLElement;
+  readonly lookThumb: HTMLElement;
 };
 
 export type InputSnapshot = {
@@ -14,6 +16,8 @@ export type InputSnapshot = {
   readonly mouseDeltaY: number;
   readonly touchLookDeltaX: number;
   readonly touchLookDeltaY: number;
+  readonly touchLookStickX: number;
+  readonly touchLookStickY: number;
   readonly touchMovementForward: number;
   readonly touchMovementRight: number;
 };
@@ -33,12 +37,13 @@ export class InputTracker {
   private mouseDeltaY = 0;
   private touchLookDeltaX = 0;
   private touchLookDeltaY = 0;
+  private touchLookStickX = 0;
+  private touchLookStickY = 0;
   private touchMovementForward = 0;
   private touchMovementRight = 0;
   private touchMovePointerId: number | undefined;
   private touchMoveOrigin: PointerPoint | undefined;
   private touchLookPointerId: number | undefined;
-  private touchLookPrevious: PointerPoint | undefined;
   private touchControls: TouchControlElements | undefined;
 
   /// Attaches keyboard, pointer-lock mouse, and optional touch-control listeners.
@@ -104,6 +109,8 @@ export class InputTracker {
       mouseDeltaY: this.mouseDeltaY,
       touchLookDeltaX: this.touchLookDeltaX,
       touchLookDeltaY: this.touchLookDeltaY,
+      touchLookStickX: this.touchLookStickX,
+      touchLookStickY: this.touchLookStickY,
       touchMovementForward: this.touchMovementForward,
       touchMovementRight: this.touchMovementRight
     };
@@ -176,7 +183,7 @@ export class InputTracker {
     this.updateTouchMoveVisuals(offset);
   }
 
-  /// Starts accumulating camera-look deltas from the right-side touch region.
+  /// Starts the camera rotation stick from the right-side touch region.
   private beginTouchLook(event: PointerEvent): void {
     if (this.touchLookPointerId !== undefined || isNonPrimaryButton(event)) {
       return;
@@ -184,21 +191,32 @@ export class InputTracker {
 
     markHandled(event);
     this.touchLookPointerId = event.pointerId;
-    this.touchLookPrevious = pointerPoint(event);
+    this.touchLookStickX = 0;
+    this.touchLookStickY = 0;
     trySetPointerCapture(event.currentTarget, event.pointerId);
+    this.updateTouchLook(event);
   }
 
-  /// Accumulates touch-look deltas until the next frame snapshot consumes them.
+  /// Updates the active camera rotation stick axes from a pointer location.
   private updateTouchLook(event: PointerEvent): void {
-    if (event.pointerId !== this.touchLookPointerId || this.touchLookPrevious === undefined) {
+    if (event.pointerId !== this.touchLookPointerId || this.touchControls === undefined) {
       return;
     }
 
     markHandled(event);
-    const current = pointerPoint(event);
-    this.touchLookDeltaX += current.x - this.touchLookPrevious.x;
-    this.touchLookDeltaY += current.y - this.touchLookPrevious.y;
-    this.touchLookPrevious = current;
+    const zoneRect = this.touchControls.lookZone.getBoundingClientRect();
+    const origin = {
+      x: zoneRect.left + zoneRect.width / 2,
+      y: zoneRect.top + zoneRect.height / 2
+    };
+    const offset = clampOffset({
+      x: event.clientX - origin.x,
+      y: event.clientY - origin.y
+    }, TOUCH_JOYSTICK_RADIUS_PIXELS);
+    const axes = lookAxesFromOffset(offset);
+    this.touchLookStickX = axes.x;
+    this.touchLookStickY = axes.y;
+    this.updateTouchLookVisuals(offset);
   }
 
   /// Clears a movement or look pointer after release, cancel, or capture loss.
@@ -215,7 +233,9 @@ export class InputTracker {
     if (event.pointerId === this.touchLookPointerId) {
       markHandled(event);
       this.touchLookPointerId = undefined;
-      this.touchLookPrevious = undefined;
+      this.touchLookStickX = 0;
+      this.touchLookStickY = 0;
+      this.resetTouchLookVisuals();
     }
   }
 
@@ -244,6 +264,27 @@ export class InputTracker {
     this.touchControls.moveBase.style.removeProperty("top");
     this.touchControls.moveThumb.style.removeProperty("transform");
   }
+
+  /// Moves the rotation stick thumb to match the active pointer.
+  private updateTouchLookVisuals(offset: PointerPoint): void {
+    if (this.touchControls === undefined) {
+      return;
+    }
+
+    this.touchControls.root.dataset.touchLook = "active";
+    this.touchControls.lookThumb.style.transform =
+      `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px))`;
+  }
+
+  /// Resets rotation stick visuals to the CSS-defined idle position.
+  private resetTouchLookVisuals(): void {
+    if (this.touchControls === undefined) {
+      return;
+    }
+
+    delete this.touchControls.root.dataset.touchLook;
+    this.touchControls.lookThumb.style.removeProperty("transform");
+  }
 }
 
 /// Converts a clamped joystick offset into normalized movement axes.
@@ -261,6 +302,24 @@ function joystickAxesFromOffset(offset: PointerPoint): { readonly forward: numbe
   return {
     forward: clampAxis(rawForward * scale),
     right: clampAxis(rawRight * scale)
+  };
+}
+
+/// Converts a clamped rotation-stick offset into normalized look axes.
+function lookAxesFromOffset(offset: PointerPoint): { readonly x: number; readonly y: number } {
+  const rawX = offset.x / TOUCH_JOYSTICK_RADIUS_PIXELS;
+  const rawY = offset.y / TOUCH_JOYSTICK_RADIUS_PIXELS;
+  const magnitude = Math.hypot(rawX, rawY);
+
+  if (magnitude <= TOUCH_JOYSTICK_DEAD_ZONE) {
+    return { x: 0, y: 0 };
+  }
+
+  const scaledMagnitude = (magnitude - TOUCH_JOYSTICK_DEAD_ZONE) / (1 - TOUCH_JOYSTICK_DEAD_ZONE);
+  const scale = scaledMagnitude / magnitude;
+  return {
+    x: clampAxis(rawX * scale),
+    y: clampAxis(rawY * scale)
   };
 }
 

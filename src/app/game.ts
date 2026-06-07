@@ -331,6 +331,8 @@ function readFrameInput(
     mouseDeltaY: snapshot.mouseDeltaY,
     touchLookDeltaX: snapshot.touchLookDeltaX,
     touchLookDeltaY: snapshot.touchLookDeltaY,
+    touchLookStickX: snapshot.touchLookStickX,
+    touchLookStickY: snapshot.touchLookStickY,
     touchMovementForward: snapshot.touchMovementForward,
     touchMovementRight: snapshot.touchMovementRight
   });

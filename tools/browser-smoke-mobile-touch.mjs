@@ -62,6 +62,7 @@ export async function runMobileTouchSmoke(options) {
     assertPlayerMoved(playerBeforeMove, playerAfterMove);
 
     await dragMobileLook(page);
+    await waitForBrowserFrame(page);
     await page.locator("#touch-camera-toggle").tap();
     await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "THIRD");
     await waitForBrowserFrame(page);
@@ -90,13 +91,15 @@ async function readTouchControlState(page) {
   return page.evaluate(() => {
     const root = document.querySelector("#touch-controls");
     const moveZone = document.querySelector("#touch-move-zone");
+    const lookZone = document.querySelector("#touch-look-zone");
     const cameraToggle = document.querySelector("#touch-camera-toggle");
-    if (root === null || moveZone === null || cameraToggle === null) {
+    if (root === null || moveZone === null || lookZone === null || cameraToggle === null) {
       return { exists: false };
     }
 
     const rootStyle = getComputedStyle(root);
     const moveRect = moveZone.getBoundingClientRect();
+    const lookRect = lookZone.getBoundingClientRect();
     const toggleRect = cameraToggle.getBoundingClientRect();
     return {
       exists: true,
@@ -108,6 +111,12 @@ async function readTouchControlState(page) {
         top: moveRect.top,
         width: moveRect.width,
         height: moveRect.height
+      },
+      lookZone: {
+        left: lookRect.left,
+        top: lookRect.top,
+        width: lookRect.width,
+        height: lookRect.height
       },
       cameraToggle: {
         left: toggleRect.left,
@@ -143,6 +152,8 @@ function assertTouchControlsVisible(touchControls, consoleMessages) {
     touchControls.opacity <= 0 ||
     touchControls.moveZone.width <= 0 ||
     touchControls.moveZone.height <= 0 ||
+    touchControls.lookZone.width <= 0 ||
+    touchControls.lookZone.height <= 0 ||
     touchControls.cameraToggle.width <= 0 ||
     touchControls.cameraToggle.height <= 0
   ) {

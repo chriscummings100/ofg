@@ -13,16 +13,38 @@ describe("buildBrowserFrameInput", () => {
       mouseDeltaY: 0,
       touchLookDeltaX: 0,
       touchLookDeltaY: 0,
+      touchLookStickX: 0,
+      touchLookStickY: 0,
       touchMovementForward: 1,
       touchMovementRight: -1
     });
 
     deepEqual(frame.movement, {
       forward: 1,
-      right: -1,
+      right: 1,
       up: 0,
       fast: false
     });
+  });
+
+  it("inverts lateral browser input to match current player strafe behavior", () => {
+    const frame = buildBrowserFrameInput({
+      deltaSeconds: 0.016,
+      keyboardForward: 0,
+      keyboardRight: 1,
+      keyboardUp: 0,
+      fast: false,
+      mouseDeltaX: 0,
+      mouseDeltaY: 0,
+      touchLookDeltaX: 0,
+      touchLookDeltaY: 0,
+      touchLookStickX: 0,
+      touchLookStickY: 0,
+      touchMovementForward: 0,
+      touchMovementRight: 0
+    });
+
+    equal(frame.movement.right, -1);
   });
 
   it("adds pointer-lock mouse look and touch-look deltas", () => {
@@ -36,6 +58,8 @@ describe("buildBrowserFrameInput", () => {
       mouseDeltaY: -2,
       touchLookDeltaX: 6,
       touchLookDeltaY: 3,
+      touchLookStickX: 0,
+      touchLookStickY: 0,
       touchMovementForward: 0,
       touchMovementRight: 0
     });
@@ -44,6 +68,27 @@ describe("buildBrowserFrameInput", () => {
     equal(frame.look.deltaY, 1);
     equal(frame.movement.up, 1);
     equal(frame.movement.fast, true);
+  });
+
+  it("converts normalized touch look stick axes into frame look deltas", () => {
+    const frame = buildBrowserFrameInput({
+      deltaSeconds: 0.5,
+      keyboardForward: 0,
+      keyboardRight: 0,
+      keyboardUp: 0,
+      fast: false,
+      mouseDeltaX: 0,
+      mouseDeltaY: 0,
+      touchLookDeltaX: 0,
+      touchLookDeltaY: 0,
+      touchLookStickX: 1,
+      touchLookStickY: -0.5,
+      touchMovementForward: 0,
+      touchMovementRight: 0
+    });
+
+    equal(frame.look.deltaX, 450);
+    equal(frame.look.deltaY, -225);
   });
 
   it("converts non-finite movement axes to zero before Rust receives them", () => {
