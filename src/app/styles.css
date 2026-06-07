@@ -106,3 +106,129 @@ body {
   color: #b7e7a2;
   border-color: rgb(183 231 162 / 48%);
 }
+
+#touch-controls {
+  position: fixed;
+  inset: 0;
+  display: none;
+  pointer-events: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.touch-input #touch-controls {
+  display: block;
+}
+
+#touch-move-zone {
+  position: absolute;
+  left: max(20px, calc(env(safe-area-inset-left) + 18px));
+  bottom: max(22px, calc(env(safe-area-inset-bottom) + 20px));
+  width: 168px;
+  height: 168px;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+#touch-move-base {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 118px;
+  height: 118px;
+  border: 1px solid rgb(242 238 230 / 28%);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, rgb(242 238 230 / 16%) 0 18%, transparent 19%),
+    rgb(20 21 21 / 46%);
+  box-shadow:
+    inset 0 0 0 10px rgb(242 238 230 / 4%),
+    0 12px 30px rgb(0 0 0 / 30%);
+  transform: translate(-50%, -50%);
+}
+
+#touch-move-thumb {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 58px;
+  height: 58px;
+  border: 1px solid rgb(244 210 141 / 48%);
+  border-radius: 50%;
+  background: rgb(244 210 141 / 22%);
+  box-shadow: 0 8px 18px rgb(0 0 0 / 24%);
+  transform: translate(-50%, -50%);
+}
+
+#touch-controls[data-touch-move="active"] #touch-move-base {
+  border-color: rgb(244 210 141 / 54%);
+  background:
+    radial-gradient(circle at 50% 50%, rgb(244 210 141 / 24%) 0 18%, transparent 19%),
+    rgb(20 21 21 / 58%);
+}
+
+#touch-look-zone {
+  position: absolute;
+  top: max(84px, calc(env(safe-area-inset-top) + 72px));
+  right: 0;
+  bottom: 0;
+  left: max(210px, 50%);
+  pointer-events: auto;
+  touch-action: none;
+}
+
+#touch-camera-toggle {
+  position: absolute;
+  top: max(92px, calc(env(safe-area-inset-top) + 80px));
+  right: max(22px, calc(env(safe-area-inset-right) + 20px));
+  width: 62px;
+  height: 62px;
+  padding: 0;
+  border: 1px solid rgb(198 240 255 / 42%);
+  border-radius: 50%;
+  background: rgb(20 21 21 / 58%);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 28%);
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+#touch-camera-toggle::before,
+#touch-camera-toggle::after {
+  position: absolute;
+  content: "";
+  pointer-events: none;
+}
+
+#touch-camera-toggle::before {
+  left: 17px;
+  top: 22px;
+  width: 28px;
+  height: 18px;
+  border: 2px solid #c6f0ff;
+  border-radius: 5px;
+}
+
+#touch-camera-toggle::after {
+  left: 26px;
+  top: 26px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #f4d28d;
+  border-radius: 50%;
+}
+
+#touch-camera-toggle:hover,
+#touch-camera-toggle:focus-visible {
+  border-color: rgb(198 240 255 / 68%);
+  background: rgb(37 40 38 / 74%);
+  outline: none;
+}
+
+@media (any-pointer: coarse), (pointer: coarse) {
+  #touch-controls {
+    display: block;
+  }
+}

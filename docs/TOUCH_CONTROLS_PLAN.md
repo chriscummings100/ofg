@@ -16,8 +16,9 @@ it.
 OFG should be playable enough from a mobile browser to walk around the terrain on
 the remotely deployed build. A user opening the Cloudflare deployment on a
 WebGPU-capable phone or tablet should see unobtrusive touch controls, use the
-left thumb to move the first-person player, use the right thumb to look around,
-and tap a small control to toggle between first-person and debug fly mode.
+left thumb to move the player, use the right thumb to look around, and tap a
+small control to cycle the same player modes as the desktop `C` / `F1` shortcut:
+first-person, third-person, and debug fly.
 
 This work must preserve the current Rust ownership boundary. Rust already owns
 player movement and camera behavior through `engine_web.wasm`. TypeScript should
@@ -40,15 +41,40 @@ polish are future work.
   `AGENTS.md`, `PLANS.md`, `docs/ARCHITECTURE.md`, and
   `docs/API_CONTRACTS.md`. The Rust conversion plan is now archived and
   historical only.
-- [ ] Add a touch-control DOM overlay that is hidden on desktop and visible for
-  coarse pointers or after touch input.
-- [ ] Extend browser input collection so touch movement and touch look feed the
-  existing `BrowserFrameInput` shape.
-- [ ] Add unit tests for joystick movement, look drag, pointer release, pointer
-  cancel, and keyboard/touch combination behavior.
-- [ ] Add or extend browser smoke coverage for a mobile viewport touch-control
-  path.
-- [ ] Validate locally with `npm test` and `npm run smoke:browser`.
+- [x] (2026-06-07 12:17Z) Refreshed this plan against the current
+  `C:\dev\ofg-touch-controls` worktree. The plan now accounts for the clean
+  worktree, the existing character toggle HUD button, and the current
+  `firstPerson -> thirdPerson -> debugFly -> firstPerson` player-mode cycle.
+- [x] (2026-06-07 12:27Z) Updated local run guidance for this worktree to avoid
+  dev-server port collisions with other active worktrees.
+- [x] (2026-06-07 13:01Z) Merged updated `origin/main`, reread `PLANS.md`, and
+  added the new coverage completion gate to this ExecPlan.
+- [x] (2026-06-07 13:01Z) Split mobile touch browser-smoke helpers into
+  `tools/browser-smoke-mobile-touch.mjs` after local milestone review flagged
+  `tools/browser-smoke.mjs` crossing the 600-line split-pressure threshold.
+- [x] (2026-06-07 13:18Z) Added the touch-control DOM overlay in `index.html`
+  and CSS in `src/app/styles.css`. The overlay provides a left joystick,
+  right look zone, and compact camera-toggle button, with stable fixed
+  dimensions and `touch-action: none`.
+- [x] (2026-06-07 13:18Z) Extended `src/engine/input/inputTracker.ts` so touch
+  joystick movement and right-side look drags are collected as browser input
+  and merged into the existing `BrowserFrameInput` shape through
+  `src/app/frameInput.ts`.
+- [x] (2026-06-07 13:18Z) Added focused TypeScript tests for joystick movement,
+  pointer release, document pointer cancel, lost pointer capture, look-delta
+  accumulation/clearing, keyboard plus touch behavior, and frame-input
+  clamping.
+- [x] (2026-06-07 13:18Z) Extended browser smoke coverage with a mobile touch
+  path in `tools/browser-smoke-mobile-touch.mjs`, imported by
+  `tools/browser-smoke.mjs`.
+- [x] (2026-06-07 13:18Z) Validated locally with `npm run check:wasm`,
+  `npm test`, `npm run coverage:rust`, and
+  `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser`. Browser smoke artifacts
+  were written to
+  `artifacts/browser-smoke/2026-06-07T13-09-33-897Z/`.
+- [x] (2026-06-07 13:18Z) Ran the repo-local `milestone-review` workflow
+  locally across contract, code-quality, legacy, correctness, and validation
+  passes. No required findings remained; no API contract doc update was needed.
 - [ ] Deploy and verify on the Cloudflare remote URL from an actual
   WebGPU-capable mobile device.
 
@@ -71,11 +97,29 @@ polish are future work.
   Evidence: `index.html` contains `#game-canvas`, `#terrain-debug-overlay`, and
   `#hud`; `src/app/styles.css` sets the canvas to `100vw` by `100vh`.
 
-- Observation: There are unrelated uncommitted engine/WebGPU changes in the
-  working tree at the time this plan was created.
-  Evidence: `git -c safe.directory=C:/dev/ofg status --short` listed modified
-  files under `crates/engine_web/src/` and `src/engine/web/`. This plan creation
-  does not alter those files.
+- Observation: The touch-controls worktree is clean before implementation.
+  Evidence: `git -c safe.directory=C:/dev/ofg-touch-controls status --short`
+  produced no output on 2026-06-07 12:17Z.
+
+- Observation: The current player-mode toggle cycle includes third-person.
+  Evidence: `crates/engine_core/src/engine.rs` toggles
+  `FirstPerson -> ThirdPerson -> DebugFly -> FirstPerson`; `src/app/game.ts`
+  labels those modes as `FIRST`, `THIRD`, and `FLY`; and
+  `tools/browser-smoke.mjs` verifies `KeyC` changes the HUD from `FIRST` to
+  `THIRD`.
+
+- Observation: The HUD now has a character toggle button in addition to camera
+  mode and frame time.
+  Evidence: `index.html` contains `#character-toggle`, `src/main.ts` requires
+  it before calling `startGame`, and `src/app/game.ts` wires it to
+  `game.command({ type: "togglePlayerCharacter" })`.
+
+- Observation: This worktree should not use the default dev-server ports while
+  other OFG worktrees are active.
+  Evidence: `tools/dev-server.mjs` reads `PORT` and defaults to `5173`;
+  `tools/browser-smoke.mjs` reads `OFG_SMOKE_PORT` and defaults to `5174`.
+  For this worktree, use `PORT=5183` for manual dev runs and
+  `OFG_SMOKE_PORT=5184` for browser smoke unless those are also occupied.
 
 - Observation: The current source already exposes player position through the
   debug hook.
@@ -87,6 +131,36 @@ polish are future work.
   Evidence: `AGENTS.md` directs ownership questions to `docs/API_CONTRACTS.md`
   and `docs/ARCHITECTURE.md`; `docs/archived/RUST_CONVERSION_PLAN.md` starts
   with an archived note.
+
+- Observation: The updated `PLANS.md` requires a coverage completion gate for
+  implementation ExecPlans.
+  Evidence: after merging `origin/main` on 2026-06-07, `PLANS.md` says an
+  implementation plan is not complete until modified implementation files pass
+  the default coverage attention gate, currently about 90% line coverage, or
+  the plan records an explicit exception with rationale.
+
+- Observation: The current repo coverage command is Rust-focused, while this
+  plan changes TypeScript browser/input implementation files and browser smoke
+  tooling.
+  Evidence: `AGENTS.md` defines `npm run coverage:rust` as the command for
+  Rust API coverage and says its default output reports implementation files
+  below 90% line coverage, excluding tests, smoke/benchmark harnesses, and Rust
+  export glue. This touch-control implementation does not modify Rust
+  implementation files.
+
+- Observation: The mobile browser smoke path now proves local touch movement
+  reaches Rust-owned player state.
+  Evidence: `artifacts/browser-smoke/2026-06-07T13-09-33-897Z/report.json`
+  records `mobileTouch.touchControls.display` as `block`,
+  `mobileTouch.touchControls.visibility` as `visible`, movement from
+  `{x: 0, z: 0}` to approximately `{x: 0.393, z: 0.619}`, and
+  `movementDistance` as `0.7328200837689752`.
+
+- Observation: The updated coverage gate passed for this TypeScript/browser
+  slice.
+  Evidence: `npm run coverage:rust` completed on 2026-06-07 and reported
+  `files below 90% line coverage ... none`; this plan changes no Rust
+  implementation files.
 
 ## Decision Log
 
@@ -132,15 +206,58 @@ polish are future work.
   renderer, simulation, or world ownership.
   Date/Author: 2026-06-06 / Codex
 
+- Decision: Use alternate local ports for this worktree during touch-control
+  implementation.
+  Rationale: Other active worktrees may already be using the repo defaults
+  `5173` and `5174`. Running manual dev with `PORT=5183` and browser smoke with
+  `OFG_SMOKE_PORT=5184` avoids unnecessary local conflicts while preserving the
+  existing scripts.
+  Date/Author: 2026-06-07 / Codex
+
+- Decision: Treat `npm run coverage:rust` as the required coverage command for
+  this plan, and record a TypeScript coverage exception.
+  Rationale: The default repository coverage attention report is currently
+  Rust-only. This implementation modifies TypeScript input/app files and browser
+  smoke tooling, with focused unit tests and browser smoke covering the changed
+  behavior. Because no Rust implementation files are modified, the coverage gate
+  is satisfied when `npm run coverage:rust` runs and does not list changed Rust
+  implementation files. TypeScript line-coverage tooling should be added by a
+  separate testing-plan milestone rather than invented inside this touch-control
+  slice.
+  Date/Author: 2026-06-07 / Codex
+
+- Decision: Keep the mobile touch smoke scenario in a separate tool module.
+  Rationale: The local milestone review flagged `tools/browser-smoke.mjs` above
+  the 600-line split-pressure threshold. Moving the mobile scenario to
+  `tools/browser-smoke-mobile-touch.mjs` keeps the desktop smoke script compact
+  and gives touch-specific browser automation a clear owner.
+  Date/Author: 2026-06-07 / Codex
+
+- Decision: Do not change `docs/API_CONTRACTS.md` for this slice.
+  Rationale: The implementation preserves `BrowserFrameInput` and `GameCommand`
+  as the Rust-facing contracts. Touch-specific state remains browser-local in
+  `InputTracker` and `buildBrowserFrameInput`, and smoke verification uses
+  existing black-box debug hooks.
+  Date/Author: 2026-06-07 / Codex
+
 ## Outcomes & Retrospective
 
-This plan has not been implemented yet. The expected outcome is a deployed OFG
-build that can be moved and looked around from a mobile browser, while preserving
-desktop keyboard and mouse behavior.
+The local implementation is complete. OFG now has a touch overlay with a
+movement joystick, right-side look area, and camera-mode toggle button. Touch
+input is translated into the existing movement/look frame packet that Rust
+already owns, so the player/camera ownership boundary stayed intact.
 
-Remaining gaps are all implementation and verification work described below. The
-plan has been refreshed to match the current repo instructions and active API
-contracts.
+Local verification passed after merging updated `origin/main`: `npm run
+check:wasm`, `npm test`, `npm run coverage:rust`, and
+`$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser`. The mobile smoke report
+shows visible controls, Rust-owned player movement from a synthetic touch
+joystick drag, a nonblank mobile screenshot, and a touch camera toggle changing
+the HUD from `FIRST` to `THIRD`.
+
+The remaining gap is the final deployment milestone: commit, push, wait for the
+Cloudflare deployment, then verify the remote URL on an actual WebGPU-capable
+mobile device. Local Chrome mobile emulation is evidence for the implementation,
+but it is not a substitute for the real-device acceptance item.
 
 ## Contract and Quality Baseline
 
@@ -167,9 +284,20 @@ Rust.
 
 The relevant `AGENTS.md` validation gates are `npm test` for logic changes and
 `npm run smoke:browser` for input, camera behavior, HUD behavior, browser
-integration, or rendering-adjacent changes. Terrain seam and preset smoke tests
-are not required for this plan unless the implementation unexpectedly changes
-terrain mesh, material, preset, descriptor, or terrain visual behavior.
+integration, or rendering-adjacent changes. In this worktree, run browser smoke
+as `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser` unless that port is
+occupied. Terrain seam and preset smoke tests are not required for this plan
+unless the implementation unexpectedly changes terrain mesh, material, preset,
+descriptor, or terrain visual behavior.
+
+The updated `PLANS.md` coverage completion gate also applies. Run
+`npm run coverage:rust` before final delivery. Expected result: the command
+completes or, if `cargo-llvm-cov` is unavailable, prints setup guidance without
+mutating build output as documented in `AGENTS.md`. If it completes, the default
+filtered output must not list any changed Rust implementation file. This plan
+changes no Rust implementation files; changed TypeScript implementation files
+are covered by focused TypeScript unit tests and browser smoke until the repo
+adds a TypeScript coverage lane.
 
 After each implementation milestone, run the repo-local `milestone-review` skill
 before marking that milestone complete. Required findings must be fixed, or a
@@ -177,18 +305,21 @@ rejected finding must be recorded in this plan's Decision Log with rationale.
 
 ## Context and Orientation
 
-The repository root is `C:\dev\ofg`. OFG is a browser-native WebGPU game
-prototype. Browser startup, DOM input collection, HUD updates, and calls into the
-Rust runtime live under `src/app` and `src/engine/web`. The current architecture
-says TypeScript is browser shell: DOM input, URL seed/preset parsing, HUD/debug
-UI, WASM startup, generic browser asset loading, and debug hooks. Rust owns
-player/camera state, terrain streaming, texture semantics, GLTF/model logic,
-WebGPU resources, frame construction, and draw submission through
-`crates/engine_core`, `crates/terrain_core`, and `crates/engine_web`.
+The repository root for this worktree is `C:\dev\ofg-touch-controls`. OFG is a
+browser-native WebGPU game prototype. Browser startup, DOM input collection, HUD
+updates, and calls into the Rust runtime live under `src/app` and
+`src/engine/web`. The current architecture says TypeScript is browser shell: DOM
+input, URL seed/preset parsing, HUD/debug UI, WASM startup, generic browser
+asset loading, and debug hooks. Rust owns player/camera state, terrain
+streaming, texture semantics, GLTF/model logic, WebGPU resources, frame
+construction, and draw submission through `crates/engine_core`,
+`crates/terrain_core`, and `crates/engine_web`.
 
 The active browser game loop is in `src/app/game.ts`. `startGame` creates an
 `InputTracker`, attaches it to the canvas, consumes input once per animation
 frame, builds a `BrowserFrameInput`, and calls `game.tick(frameInput)`.
+`src/main.ts` currently queries the canvas, camera-mode label, character-toggle
+button, and frame-time label before calling `startGame`.
 
 `BrowserFrameInput` is defined in `src/engine/web/browserGameTypes.ts`:
 
@@ -203,20 +334,25 @@ frame, builds a `BrowserFrameInput`, and calls `game.tick(frameInput)`.
 The Rust side already understands those fields. The current app maps keyboard
 keys to movement axes in `src/app/game.ts`: `W/S` map to forward/back,
 `D/A` map to right/left, `Space/ControlLeft` map to up/down in debug fly, and
-`ShiftLeft/ShiftRight` map to fast movement. Mouse look comes from
+`ShiftLeft/ShiftRight` map to fast movement. `C` and `F1` send
+`game.command({ type: "togglePlayerMode" })`, which currently cycles
+`FIRST -> THIRD -> FLY -> FIRST`. Mouse look comes from
 `InputTracker.consumeFrameSnapshot()` and only accumulates while the canvas has
 pointer lock.
 
 The current visual shell is minimal. `index.html` contains the game canvas, a
-terrain debug overlay canvas, and a small HUD. `src/app/styles.css` makes the
-game canvas fill the viewport and prevents body scrolling with `overflow:
-hidden`.
+terrain debug overlay canvas, and a small HUD with `#camera-mode`,
+`#character-toggle`, and `#frame-time`. `src/app/styles.css` makes the game
+canvas fill the viewport and prevents body scrolling with `overflow: hidden`.
 
 The browser smoke script is `tools/browser-smoke.mjs`. It builds the app,
 launches Chrome or Edge with WebGPU flags, opens a local dev server, verifies
 the page renders non-blank frames, toggles camera mode with keyboard input, and
 uses debug hooks to verify terrain streaming. This script should remain passing
-after touch controls are added.
+after touch controls are added. In this worktree, run browser smoke with
+`OFG_SMOKE_PORT=5184` so its temporary dev server starts away from other active
+worktrees. If port `5184` is occupied, choose the next free nearby port and
+record the actual port in Progress.
 
 ## Plan of Work
 
@@ -226,8 +362,10 @@ element after the HUD. It should contain a left joystick zone with a base and
 thumb element, a right look zone that can be visually subtle or transparent, and
 a camera-toggle button. Update `src/app/styles.css` with stable dimensions,
 `touch-action: none`, `user-select: none`, and media queries that show controls
-on coarse pointers while keeping them hidden on desktop. The overlay must not
-cover the HUD and must not cause layout shifts.
+on coarse pointers while keeping them hidden on desktop. Do not wire gameplay in
+this milestone; the visible controls are allowed to be inert until the input
+tracking milestone. The overlay must not cover the HUD, character-toggle button,
+or debug overlay and must not cause layout shifts.
 
 Milestone 2 adds pointer-event tracking. Prefer extending
 `src/engine/input/inputTracker.ts` with touch-control state if the resulting file
@@ -248,11 +386,16 @@ forward. The right look zone accumulates pixel deltas from pointer moves into
 is consumed.
 
 Milestone 4 merges touch input into the existing frame input. Update
-`src/app/game.ts` so `readFrameInput` combines keyboard axes and touch axes with
-clamping. For example, keyboard `W` plus joystick forward should still produce
-at most `1`, not `2`. The look input should add pointer-lock mouse deltas and
-touch look deltas. The camera toggle button should call the same command as
-`KeyC` / `F1`: `game.command({ type: "togglePlayerMode" })`.
+`src/main.ts` to query the touch-control elements added in Milestone 1 and pass
+them to `startGame`. Update `src/app/game.ts` so `readFrameInput` combines
+keyboard axes and touch axes with clamping. For example, keyboard `W` plus
+joystick forward should still produce at most `1`, not `2`. The look input
+should add pointer-lock mouse deltas and touch look deltas. The camera toggle
+button should follow the existing character-toggle button pattern in
+`startGame`: call `game.command({ type: "togglePlayerMode" })`, update visible
+state on the next frame, and return focus to the canvas without scrolling. The
+first tap from the default HUD state should change `FIRST` to `THIRD`, matching
+the current desktop smoke expectation.
 
 Milestone 5 adds focused tests. Extend `src/engine/input/inputTracker.test.ts`
 or add a new nearby test file for touch behavior. The fake element harness
@@ -279,13 +422,13 @@ scroll prevention, and desktop behavior.
 
 ## Concrete Steps
 
-Run these commands from `C:\dev\ofg` before editing, to understand the starting
-state:
+Run these commands from `C:\dev\ofg-touch-controls` before editing, to
+understand the starting state:
 
-    git -c safe.directory=C:/dev/ofg status --short
+    git -c safe.directory=C:/dev/ofg-touch-controls status --short
     npm run check:wasm
     npm test
-    npm run smoke:browser
+    $env:OFG_SMOKE_PORT='5184'; npm run smoke:browser
 
 Expected result: WASM generated artifacts are current, tests pass, and browser
 smoke passes before the touch-control work. If unrelated work is already
@@ -302,7 +445,7 @@ tests pass including any new touch-control tests.
 After each milestone that changes input, camera, HUD, browser integration, or
 rendering-adjacent behavior, run:
 
-    npm run smoke:browser
+    $env:OFG_SMOKE_PORT='5184'; npm run smoke:browser
 
 Expected result: desktop smoke still passes, screenshots are written under
 `artifacts/browser-smoke/`, the camera toggle is verified, and any new mobile
@@ -319,10 +462,13 @@ Before final delivery, run:
 
     npm run check:wasm
     npm test
-    npm run smoke:browser
+    npm run coverage:rust
+    $env:OFG_SMOKE_PORT='5184'; npm run smoke:browser
 
-Expected result: generated WASM metadata is current, all tests pass, browser
-smoke passes, and relevant screenshot/report artifacts are inspected.
+Expected result: generated WASM metadata is current, all tests pass, Rust
+coverage either passes its default attention gate without listing changed Rust
+implementation files or prints documented missing-tool guidance, browser smoke
+passes, and relevant screenshot/report artifacts are inspected.
 
 After remote deployment:
 
@@ -350,9 +496,39 @@ After each milestone:
 4. Apply required review findings before marking the milestone complete. If a
    finding is rejected, record the rejection and rationale in the Decision Log.
 5. Re-run the relevant validation commands, at minimum `npm test` and, for any
-   input/HUD/browser behavior milestone, `npm run smoke:browser`.
+   input/HUD/browser behavior milestone,
+   `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser`.
 6. Record commands, screenshots/report paths, review summary, and remaining risk
    in Progress or Outcomes & Retrospective.
+
+Review result for the local implementation milestone on 2026-06-07:
+
+    Scope: touch-control DOM/CSS, browser input collection, frame-packet merge,
+    TypeScript tests, mobile browser smoke helper, generated WASM artifacts, and
+    this ExecPlan.
+
+    Reviewers: contract, code quality, legacy, correctness, validation. The
+    review was performed locally because the available sub-agent tool policy
+    permits spawning only when the user explicitly requests sub-agents.
+
+    Required findings fixed: one earlier split-pressure finding for
+    `tools/browser-smoke.mjs` was fixed by moving the mobile scenario to
+    `tools/browser-smoke-mobile-touch.mjs`. Current line counts are 473 for
+    `tools/browser-smoke.mjs` and 275 for
+    `tools/browser-smoke-mobile-touch.mjs`.
+
+    Follow-ups recorded: actual Cloudflare mobile-device verification remains
+    pending in Progress and Acceptance.
+
+    Rejected findings: none.
+
+    Validation rerun: `npm run check:wasm`, `npm test`, `npm run
+    coverage:rust`, `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser`, and
+    `git diff --check`.
+
+    Remaining risk: local Chrome mobile emulation and in-app browser visual
+    inspection do not prove behavior on an actual phone/tablet or deployed
+    Cloudflare headers.
 
 ## Validation and Acceptance
 
@@ -368,18 +544,27 @@ The touch-control work is accepted when all of these are true:
 5. Releasing or canceling the joystick pointer immediately stops touch movement.
 6. Dragging the right look area changes the camera yaw/pitch through the
    existing Rust frame input.
-7. The camera toggle button switches the HUD between `FIRST` and `FLY`.
+7. The camera toggle button uses the same player-mode cycle as `C` / `F1`;
+   from a fresh load the HUD changes from `FIRST` to `THIRD`, then to `FLY`,
+   then back to `FIRST` on subsequent taps.
 8. The page does not scroll, zoom, select text, or open context menus while
    using the controls.
 9. `npm test` passes.
-10. `npm run smoke:browser` passes.
+10. `$env:OFG_SMOKE_PORT='5184'; npm run smoke:browser` passes, or the same
+    command passes with another recorded non-default free port.
 11. `npm run check:wasm` passes unless the implementation did not touch any
     generated WASM-facing contract or artifact. If skipped, record why.
-12. `OFG-API-001`, `OFG-API-003`, and `OFG-API-009` are preserved, or
+12. `npm run coverage:rust` runs before completion. If `cargo-llvm-cov` is
+    installed, the default filtered output does not list changed Rust
+    implementation files; if the coverage tool is missing, the command prints
+    documented setup guidance and this plan records the limitation. The
+    TypeScript coverage exception in the Decision Log remains in force until a
+    TypeScript coverage lane exists.
+13. `OFG-API-001`, `OFG-API-003`, and `OFG-API-009` are preserved, or
     `docs/API_CONTRACTS.md` is intentionally updated in the same milestone.
-13. Each implementation milestone has a recorded milestone-review result before
+14. Each implementation milestone has a recorded milestone-review result before
     being marked complete.
-14. The deployed Cloudflare build works from an actual WebGPU-capable mobile
+15. The deployed Cloudflare build works from an actual WebGPU-capable mobile
     browser.
 
 ## Idempotence and Recovery
@@ -420,6 +605,30 @@ The camera toggle should use a compact symbol or CSS-drawn icon with an
 `aria-label`, not explanatory visible text. Do not add onboarding copy or visible
 instructions to the game surface.
 
+Validation evidence from 2026-06-07:
+
+    npm run check:wasm
+    Result: passed.
+
+    npm test
+    Result: passed. Rust workspace tests passed, and TypeScript reported
+    73 passing Mocha tests including the new touch-control tests.
+
+    npm run coverage:rust
+    Result: passed. Rust coverage totals were 13280/15455 lines (85.9%)
+    overall, and the default filtered attention report listed no files below
+    90% line coverage.
+
+    $env:OFG_SMOKE_PORT='5184'; npm run smoke:browser
+    Result: passed. Artifacts:
+    artifacts/browser-smoke/2026-06-07T13-09-33-897Z/
+    Mobile touch report evidence: controls visible, movementDistance
+    0.7328200837689752, and touch camera toggle HUD FIRST -> THIRD.
+
+    In-app browser visual check on PORT=5183
+    Result: terrain rendered with HUD top-left, camera toggle top-right, and
+    joystick bottom-left without covering the HUD.
+
 Suggested joystick defaults:
 
     radius: 54 CSS pixels
@@ -443,20 +652,27 @@ both pointer-lock mouse look and touch-control intent. One acceptable final
 shape is:
 
     export type InputSnapshot = {
-      readonly lookDeltaX: number;
-      readonly lookDeltaY: number;
+      readonly mouseDeltaX: number;
+      readonly mouseDeltaY: number;
+      readonly touchLookDeltaX: number;
+      readonly touchLookDeltaY: number;
       readonly touchMovementForward: number;
       readonly touchMovementRight: number;
-      readonly touchTogglePlayerMode: boolean;
     };
 
-If preserving the existing `mouseDeltaX` / `mouseDeltaY` names makes the change
-smaller, keep them and add touch-specific fields, but `src/app/game.ts` must be
-the only place that combines them into `BrowserFrameInput`.
+This keeps the existing `mouseDeltaX` / `mouseDeltaY` names and adds
+touch-specific fields, but `src/app/game.ts` must be the only place that
+combines them into `BrowserFrameInput`. The touch camera button can be wired
+directly in `src/app/game.ts`, like the existing `#character-toggle` button,
+instead of being represented as per-frame input.
 
 `src/app/game.ts` should remain the bridge from browser input to Rust game
 commands. It should not duplicate player movement rules. It should continue to
 call `game.tick(frameInput)` once per animation frame.
+
+`src/main.ts` should continue to fail fast if required root DOM elements are
+missing. Add touch-control element queries there only when those elements are
+added to `index.html`.
 
 `src/engine/web/browserGameTypes.ts` should not need touch-specific fields. The
 existing `BrowserFrameInput` movement and look fields are the stable contract.
@@ -467,5 +683,30 @@ updated in `docs/API_CONTRACTS.md` in the same milestone.
 use stable fixed dimensions, avoid layout shifts, and use `touch-action: none`
 on touch-interactive regions.
 
-`tools/browser-smoke.mjs` may gain a mobile touch path, but the existing desktop
-smoke behavior and screenshots must remain intact.
+`tools/browser-smoke.mjs` imports the mobile touch scenario from
+`tools/browser-smoke-mobile-touch.mjs`; the existing desktop smoke behavior and
+screenshots must remain intact.
+
+For manual browser checks in this worktree, start the dev server with a
+non-default port:
+
+    $env:PORT='5183'; npm run dev
+
+Then open `http://127.0.0.1:5183/`. If that port is occupied, choose another
+nearby free port and record it in Progress.
+
+## Revision Note
+
+2026-06-07: Refreshed this ExecPlan for the `C:\dev\ofg-touch-controls`
+worktree. The refresh updated stale repository paths, recorded the clean
+starting state, aligned camera-toggle expectations with the current
+first-person/third-person/debug-fly cycle, and accounted for the existing
+character-toggle HUD button.
+
+2026-06-07: Added worktree-specific port guidance: use `PORT=5183` for manual
+dev server runs and `OFG_SMOKE_PORT=5184` for browser smoke unless either port
+is occupied.
+
+2026-06-07: Merged updated `origin/main`, incorporated the new `PLANS.md`
+coverage completion gate, and recorded the TypeScript coverage exception for
+this browser/input slice.

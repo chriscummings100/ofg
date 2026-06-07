@@ -1,4 +1,9 @@
-import { InputTracker } from "../engine/input/inputTracker.js";
+import {
+  InputTracker,
+  type InputSnapshot,
+  type TouchControlElements
+} from "../engine/input/inputTracker.js";
+import { buildBrowserFrameInput } from "./frameInput.js";
 import { computeFrameDeltaSeconds } from "./frameTiming.js";
 import type { EngineWebRendererStatus } from "../engine/web/engineWebWasm.js";
 import {
@@ -18,11 +23,16 @@ import {
   type PlayerMode
 } from "../engine/web/browserGameTypes.js";
 
+export type GameTouchControlElements = TouchControlElements & {
+  readonly cameraToggle: HTMLButtonElement;
+};
+
 type GameElements = {
   readonly canvas: HTMLCanvasElement;
   readonly cameraMode: HTMLElement;
   readonly characterToggle: HTMLButtonElement;
   readonly frameTime: HTMLElement;
+  readonly touchControls: GameTouchControlElements;
 };
 
 declare global {
@@ -166,8 +176,12 @@ export async function startGame(elements: GameElements): Promise<void> {
     updateCharacterToggle(elements.characterToggle, game.debugSnapshot());
     elements.canvas.focus({ preventScroll: true });
   });
+  elements.touchControls.cameraToggle.addEventListener("click", () => {
+    game.command({ type: "togglePlayerMode" });
+    elements.canvas.focus({ preventScroll: true });
+  });
   updateCharacterToggle(elements.characterToggle, game.debugSnapshot());
-  input.attach(elements.canvas);
+  input.attach(elements.canvas, document, elements.touchControls);
 
   let lastTimestamp = performance.now();
 
@@ -180,12 +194,7 @@ export async function startGame(elements: GameElements): Promise<void> {
     }
 
     const snapshot = input.consumeFrameSnapshot();
-    const frameInput = readFrameInput(
-      input,
-      deltaSeconds,
-      snapshot.mouseDeltaX,
-      snapshot.mouseDeltaY
-    );
+    const frameInput = readFrameInput(input, deltaSeconds, snapshot);
 
     game.tick(frameInput);
 
@@ -310,22 +319,21 @@ function cameraModeLabel(mode: PlayerMode): string {
 function readFrameInput(
   input: InputTracker,
   deltaSeconds: number,
-  lookDeltaX: number,
-  lookDeltaY: number
+  snapshot: InputSnapshot
 ): BrowserFrameInput {
-  return {
+  return buildBrowserFrameInput({
     deltaSeconds,
-    movement: {
-      forward: axis(input, "KeyW", "KeyS"),
-      right: axis(input, "KeyD", "KeyA"),
-      up: axis(input, "Space", "ControlLeft"),
-      fast: input.isDown("ShiftLeft") || input.isDown("ShiftRight")
-    },
-    look: {
-      deltaX: lookDeltaX,
-      deltaY: lookDeltaY
-    }
-  };
+    keyboardForward: axis(input, "KeyW", "KeyS"),
+    keyboardRight: axis(input, "KeyD", "KeyA"),
+    keyboardUp: axis(input, "Space", "ControlLeft"),
+    fast: input.isDown("ShiftLeft") || input.isDown("ShiftRight"),
+    mouseDeltaX: snapshot.mouseDeltaX,
+    mouseDeltaY: snapshot.mouseDeltaY,
+    touchLookDeltaX: snapshot.touchLookDeltaX,
+    touchLookDeltaY: snapshot.touchLookDeltaY,
+    touchMovementForward: snapshot.touchMovementForward,
+    touchMovementRight: snapshot.touchMovementRight
+  });
 }
 
 function axis(input: InputTracker, positiveCode: string, negativeCode: string): number {

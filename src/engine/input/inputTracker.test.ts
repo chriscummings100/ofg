@@ -1,17 +1,50 @@
-import { equal } from "node:assert/strict";
+import { deepEqual, equal } from "node:assert/strict";
 import { InputTracker } from "./inputTracker.js";
 
 type Listener = (event: any) => void;
+type FakeRect = {
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+};
+
+class FakeStyle {
+  left = "";
+  top = "";
+  transform = "";
+
+  removeProperty(property: string): void {
+    if (property === "left") {
+      this.left = "";
+    }
+    if (property === "top") {
+      this.top = "";
+    }
+    if (property === "transform") {
+      this.transform = "";
+    }
+  }
+}
 
 class FakeDocument {
   pointerLockElement: FakeElement | undefined;
   readonly listeners = new Map<string, Listener[]>();
+  readonly documentElement = {
+    classList: {
+      added: [] as string[],
+      add(className: string): void {
+        this.added.push(className);
+      }
+    }
+  };
 
   addEventListener(type: string, listener: Listener): void {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
   }
 
   dispatch(type: string, event: any): void {
+    event.currentTarget ??= this;
     for (const listener of this.listeners.get(type) ?? []) {
       listener(event);
     }
@@ -20,13 +53,23 @@ class FakeDocument {
 
 class FakeElement {
   readonly listeners = new Map<string, Listener[]>();
+  readonly capturedPointers: number[] = [];
+  readonly dataset: Record<string, string> = {};
+  readonly style = new FakeStyle();
   pointerLockRequests = 0;
+  rect: FakeRect = {
+    left: 0,
+    top: 0,
+    width: 168,
+    height: 168
+  };
 
   addEventListener(type: string, listener: Listener): void {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
   }
 
   dispatch(type: string, event: any = {}): void {
+    event.currentTarget ??= this;
     for (const listener of this.listeners.get(type) ?? []) {
       listener(event);
     }
@@ -34,6 +77,26 @@ class FakeElement {
 
   requestPointerLock(): void {
     this.pointerLockRequests += 1;
+  }
+
+  setPointerCapture(pointerId: number): void {
+    this.capturedPointers.push(pointerId);
+  }
+
+  getBoundingClientRect(): DOMRect {
+    const right = this.rect.left + this.rect.width;
+    const bottom = this.rect.top + this.rect.height;
+    return {
+      x: this.rect.left,
+      y: this.rect.top,
+      left: this.rect.left,
+      top: this.rect.top,
+      right,
+      bottom,
+      width: this.rect.width,
+      height: this.rect.height,
+      toJSON: () => ({})
+    } as DOMRect;
   }
 }
 
@@ -102,6 +165,8 @@ describe("InputTracker", () => {
     equal(input.consumePress("KeyW"), false);
     equal(nextSnapshot.mouseDeltaX, 0);
     equal(nextSnapshot.mouseDeltaY, 0);
+    equal(nextSnapshot.touchLookDeltaX, 0);
+    equal(nextSnapshot.touchLookDeltaY, 0);
   });
 
   it("clicking the target requests pointer lock", () => {
@@ -111,17 +176,221 @@ describe("InputTracker", () => {
 
     equal(target.pointerLockRequests, 1);
   });
+
+  it("marks the document after touch input so controls can become visible", () => {
+    const { document } = createHarness();
+
+    document.dispatch("pointerdown", pointerEvent({ pointerType: "touch" }));
+
+    deepEqual(document.documentElement.classList.added, ["touch-input"]);
+  });
+
+  it("normalizes upward joystick drag into forward touch movement", () => {
+    const { input, touchControls } = createHarness({ withTouchControls: true });
+
+    touchControls.moveZone.dispatch("pointerdown", pointerEvent({
+      pointerId: 7,
+      clientX: 100,
+      clientY: 120
+    }));
+    touchControls.moveZone.dispatch("pointermove", pointerEvent({
+      pointerId: 7,
+      clientX: 100,
+      clientY: 66
+    }));
+
+    const snapshot = input.consumeFrameSnapshot();
+
+    equal(snapshot.touchMovementForward, 1);
+    equal(snapshot.touchMovementRight, 0);
+    deepEqual(touchControls.moveZone.capturedPointers, [7]);
+    equal(touchControls.root.dataset.touchMove, "active");
+  });
+
+  it("normalizes sideways joystick drag into right touch movement", () => {
+    const { input, touchControls } = createHarness({ withTouchControls: true });
+
+    touchControls.moveZone.dispatch("pointerdown", pointerEvent({
+      pointerId: 8,
+      clientX: 100,
+      clientY: 120
+    }));
+    touchControls.moveZone.dispatch("pointermove", pointerEvent({
+      pointerId: 8,
+      clientX: 154,
+      clientY: 120
+    }));
+
+    const snapshot = input.consumeFrameSnapshot();
+
+    equal(snapshot.touchMovementForward, 0);
+    equal(snapshot.touchMovementRight, 1);
+  });
+
+  it("clears joystick movement on pointer release", () => {
+    const { input, touchControls } = createHarness({ withTouchControls: true });
+
+    touchControls.moveZone.dispatch("pointerdown", pointerEvent({
+      pointerId: 9,
+      clientX: 100,
+      clientY: 120
+    }));
+    touchControls.moveZone.dispatch("pointermove", pointerEvent({
+      pointerId: 9,
+      clientX: 100,
+      clientY: 66
+    }));
+    touchControls.moveZone.dispatch("pointerup", pointerEvent({ pointerId: 9 }));
+
+    const snapshot = input.consumeFrameSnapshot();
+
+    equal(snapshot.touchMovementForward, 0);
+    equal(snapshot.touchMovementRight, 0);
+    equal(touchControls.root.dataset.touchMove, undefined);
+    equal(touchControls.moveThumb.style.transform, "");
+  });
+
+  it("clears joystick movement on pointer cancel from the document", () => {
+    const { input, document, touchControls } = createHarness({ withTouchControls: true });
+
+    touchControls.moveZone.dispatch("pointerdown", pointerEvent({
+      pointerId: 10,
+      clientX: 100,
+      clientY: 120
+    }));
+    touchControls.moveZone.dispatch("pointermove", pointerEvent({
+      pointerId: 10,
+      clientX: 100,
+      clientY: 66
+    }));
+    document.dispatch("pointercancel", pointerEvent({ pointerId: 10 }));
+
+    const snapshot = input.consumeFrameSnapshot();
+
+    equal(snapshot.touchMovementForward, 0);
+    equal(snapshot.touchMovementRight, 0);
+  });
+
+  it("clears joystick movement on lost pointer capture", () => {
+    const { input, touchControls } = createHarness({ withTouchControls: true });
+
+    touchControls.moveZone.dispatch("pointerdown", pointerEvent({
+      pointerId: 11,
+      clientX: 100,
+      clientY: 120
+    }));
+    touchControls.moveZone.dispatch("pointermove", pointerEvent({
+      pointerId: 11,
+      clientX: 100,
+      clientY: 66
+    }));
+    touchControls.moveZone.dispatch("lostpointercapture", pointerEvent({ pointerId: 11 }));
+
+    const snapshot = input.consumeFrameSnapshot();
+
+    equal(snapshot.touchMovementForward, 0);
+    equal(snapshot.touchMovementRight, 0);
+  });
+
+  it("accumulates touch look deltas and clears them after frame consumption", () => {
+    const { input, touchControls } = createHarness({ withTouchControls: true });
+
+    touchControls.lookZone.dispatch("pointerdown", pointerEvent({
+      pointerId: 12,
+      clientX: 250,
+      clientY: 240
+    }));
+    touchControls.lookZone.dispatch("pointermove", pointerEvent({
+      pointerId: 12,
+      clientX: 265,
+      clientY: 230
+    }));
+    touchControls.lookZone.dispatch("pointermove", pointerEvent({
+      pointerId: 12,
+      clientX: 267,
+      clientY: 235
+    }));
+
+    const snapshot = input.consumeFrameSnapshot();
+    const nextSnapshot = input.consumeFrameSnapshot();
+
+    equal(snapshot.touchLookDeltaX, 17);
+    equal(snapshot.touchLookDeltaY, -5);
+    equal(nextSnapshot.touchLookDeltaX, 0);
+    equal(nextSnapshot.touchLookDeltaY, 0);
+  });
+
+  it("keeps keyboard state while touch movement is active", () => {
+    const { input, document, touchControls } = createHarness({ withTouchControls: true });
+
+    document.dispatch("keydown", { code: "KeyW" });
+    touchControls.moveZone.dispatch("pointerdown", pointerEvent({
+      pointerId: 13,
+      clientX: 100,
+      clientY: 120
+    }));
+    touchControls.moveZone.dispatch("pointermove", pointerEvent({
+      pointerId: 13,
+      clientX: 100,
+      clientY: 66
+    }));
+
+    const snapshot = input.consumeFrameSnapshot();
+
+    equal(input.isDown("KeyW"), true);
+    equal(snapshot.touchMovementForward, 1);
+  });
 });
 
-function createHarness(): {
+function createHarness(options: { readonly withTouchControls?: boolean } = {}): {
   readonly input: InputTracker;
   readonly document: FakeDocument;
   readonly target: FakeElement;
+  readonly touchControls: {
+    readonly root: FakeElement;
+    readonly moveZone: FakeElement;
+    readonly moveBase: FakeElement;
+    readonly moveThumb: FakeElement;
+    readonly lookZone: FakeElement;
+  };
 } {
   const input = new InputTracker();
   const document = new FakeDocument();
   const target = new FakeElement();
-  input.attach(target as unknown as HTMLElement, document as unknown as Document);
+  const touchControls = {
+    root: new FakeElement(),
+    moveZone: new FakeElement(),
+    moveBase: new FakeElement(),
+    moveThumb: new FakeElement(),
+    lookZone: new FakeElement()
+  };
+  const controls = options.withTouchControls
+    ? {
+        root: touchControls.root as unknown as HTMLElement,
+        moveZone: touchControls.moveZone as unknown as HTMLElement,
+        moveBase: touchControls.moveBase as unknown as HTMLElement,
+        moveThumb: touchControls.moveThumb as unknown as HTMLElement,
+        lookZone: touchControls.lookZone as unknown as HTMLElement
+      }
+    : undefined;
+  input.attach(target as unknown as HTMLElement, document as unknown as Document, controls);
 
-  return { input, document, target };
+  return { input, document, target, touchControls };
+}
+
+function pointerEvent(options: {
+  readonly pointerId?: number;
+  readonly pointerType?: string;
+  readonly clientX?: number;
+  readonly clientY?: number;
+  readonly button?: number;
+} = {}): PointerEvent {
+  return {
+    pointerId: options.pointerId ?? 1,
+    pointerType: options.pointerType ?? "touch",
+    clientX: options.clientX ?? 0,
+    clientY: options.clientY ?? 0,
+    button: options.button ?? 0,
+    preventDefault() {}
+  } as PointerEvent;
 }
