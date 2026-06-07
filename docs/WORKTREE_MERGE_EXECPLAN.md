@@ -20,7 +20,7 @@ The user-visible outcome is that the remote `main` branch contains the completed
 - [x] (2026-06-07 17:16Z) Merged `sky` into `main`, resolved conflicts by preserving both shadow and sky debug contracts, regenerated shaders/WASM, fixed two Rust test helpers for the 31-float render snapshot shape, and validated with `npm run check:shaders`, `npm run check:wasm`, `npm run test:rust`, `npm run test:ts`, and `npm run smoke`.
 - [x] (2026-06-07 17:38Z) Merged `postprocess` into `main`, resolved conflicts by preserving sky, shadow, and post-process debug/renderer contracts together, regenerated shaders/WASM, and validated with `npm run check:shaders`, `npm run check:wasm`, `npm run test:rust`, `npm run test:ts`, and `npm run smoke`.
 - [x] (2026-06-07 17:59Z) Merged `terrain` into `main`, resolved Rust smoke/test/debug conflicts, regenerated WASM artifacts, fixed browser smoke to wait for rendered multi-LOD terrain before mobile assertions, and validated with `npm run check:shaders`, `npm run check:wasm`, `npm run test:rust`, `npm run test:ts`, `npm run smoke:terrain-seams`, `npm run smoke:terrain-presets`, `cargo run -p ofg_test_harness --bin ofg-render-smoke -- --out artifacts/rust-smoke --scenario lods`, `npm run bench:terrain:rust`, and `npm run smoke:browser`; the Rust half of `npm run smoke` also passed before the browser wait fix.
-- [ ] Confirm `shadow-maps` is already included in `main` or merge it if needed, then validate and review.
+- [x] (2026-06-07 18:01Z) Confirmed `shadow-maps` is already included in `main`; `git merge --no-ff shadow-maps` reported "Already up to date." Archived the completed cascading shadow maps ExecPlan and validated the docs-only change with `git diff --check`.
 - [ ] Merge `touch-controls` into `main`, resolve conflicts, regenerate artifacts, validate, and run milestone review.
 - [ ] Run final `npm test`, `npm run build`, `npm run smoke:rust`, `npm run smoke:browser`, and `npm run smoke`.
 - [ ] Push final `main`.
@@ -48,6 +48,8 @@ The user-visible outcome is that the remote `main` branch contains the completed
   Evidence: the failure showed loaded LOD0/LOD1/LOD2 node keys but `terrainNodeKeys: []` and `renderedNodeCount: 0`; passing `waitForTerrainLodFrame` into `tools/browser-smoke-mobile-touch.mjs` made `npm run smoke:browser` pass.
 - Observation: Terrain milestone review found no required fixes, with file-size follow-ups already visible in the active terrain plan and API risk register.
   Evidence: local review checked contract, code-quality, legacy, correctness, and validation passes; `docs/TERRAIN_PLAN.md` records stream split-pressure handling and coverage evidence, while `docs/API_CONTRACTS.md` already tracks oversized renderer/facade risk. `crates/terrain_core/src/tests.rs` is now over 1000 lines and should be split by terrain subsystem before further test growth.
+- Observation: `shadow-maps` was already merged into `main` before this integration sequence reached it.
+  Evidence: `git merge-base --is-ancestor shadow-maps main` succeeded and `git merge --no-ff shadow-maps` reported "Already up to date."
 
 ## Decision Log
 
@@ -68,6 +70,9 @@ The user-visible outcome is that the remote `main` branch contains the completed
   Date/Author: 2026-06-07 / Codex.
 - Decision: Treat the mobile browser-smoke wait fix as required merge glue, not a terrain behavior change.
   Rationale: The Rust stream was exposing loaded LOD nodes, but the mobile page had not yet reached a rendered multi-LOD frame before the common debug assertion ran. Reusing the desktop `waitForTerrainLodFrame` keeps smoke black-box and avoids weakening the LOD assertion.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: Archive `docs/CASCADING_SHADOW_MAPS_PLAN.md` even though no shadow-map merge commit was needed.
+  Rationale: The branch's ExecPlan was complete and repository instructions require completed active plans to move under `docs/archived/` with active source-of-truth notes.
   Date/Author: 2026-06-07 / Codex.
 
 ## Outcomes & Retrospective

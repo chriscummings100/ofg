@@ -1,5 +1,10 @@
 # Implement Cascading Shadow Maps
 
+Completion note: this ExecPlan was completed on 2026-06-07. The active source
+of truth for the finished behavior is now `docs/API_CONTRACTS.md`,
+`docs/ARCHITECTURE.md`, the Rust/wgpu renderer code, shader tests, and smoke
+tests. This plan is kept only as an archived implementation record.
+
 This ExecPlan is a living document. The sections Progress, Surprises &
 Discoveries, Decision Log, and Outcomes & Retrospective must stay up to date as
 work proceeds.
