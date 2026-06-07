@@ -6,6 +6,7 @@ pub(crate) struct HermiteIntersection {
     pub(crate) normal: Vec3,
 }
 
+#[derive(Clone)]
 pub struct MeshData {
     pub vertices: Vec<f32>,
     pub indices: Vec<u32>,
@@ -30,6 +31,20 @@ pub fn build_chunk_mesh(
     let chunks = generate_neighbor_apron_chunks(&noise, preset, preset_id, seed, coord, cell_size);
 
     build_neighbor_aware_chunk_mesh(&noise, preset, seed, &chunks, coord)
+}
+
+pub fn build_node_mesh(
+    seed: u32,
+    preset: u32,
+    key: TerrainNodeKey,
+    base_cell_size: f64,
+) -> MeshData {
+    build_chunk_mesh(
+        seed,
+        preset,
+        key.coord,
+        terrain_node_cell_size(base_cell_size, key.lod),
+    )
 }
 
 pub(crate) const CELL_CORNERS: [TerrainSampleCoord; 8] = [

@@ -9,10 +9,13 @@ mod material;
 mod math;
 mod mesh;
 mod mesh_packet_store;
+mod node;
 mod noise;
 mod presets;
 mod store;
 mod stream;
+mod stream_helpers;
+mod stream_types;
 mod worker_pool;
 
 pub(crate) use chunk::*;
@@ -29,14 +32,20 @@ pub(crate) use presets::*;
 pub(crate) use store::*;
 #[allow(unused_imports)]
 pub(crate) use stream::*;
+pub(crate) use stream_helpers::*;
 pub(crate) use worker_pool::*;
 
 pub use chunk::{terrain_chunk_coord_containing_position, terrain_chunk_key, TerrainChunkCoord};
 pub use constants::{DEFAULT_TERRAIN_PRESET, TERRAIN_CHUNK_CELLS_PER_AXIS};
 pub use field::height_at;
-pub use mesh::{build_chunk_mesh, MeshData};
-pub use stream::{
-    TerrainStreamConfig, TerrainStreamError, TerrainStreamJob, TerrainStreamScheduler,
+pub use mesh::{build_chunk_mesh, build_node_mesh, MeshData};
+pub use node::{
+    terrain_node_cell_size, terrain_node_children, terrain_node_coord_for_lod, terrain_node_key,
+    terrain_node_parent, TerrainNodeKey,
+};
+pub use stream::TerrainStreamScheduler;
+pub use stream_types::{
+    TerrainLodBand, TerrainLodStatus, TerrainStreamConfig, TerrainStreamError, TerrainStreamJob,
     TerrainStreamStatus,
 };
 

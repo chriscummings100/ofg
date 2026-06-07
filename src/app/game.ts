@@ -29,7 +29,9 @@ declare global {
   interface Window {
     __ofgDebug?: {
       getLoadedTerrainChunkKeys: () => string[];
+      getLoadedTerrainNodeKeys: () => string[];
       getTerrainChunkKeys: () => string[];
+      getTerrainNodeKeys: () => string[];
       getTerrainPreset: () => TerrainPresetId;
       getTerrainSeed: () => number;
       getTerrainStreamStatus: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["terrainStreamStatus"];
@@ -87,7 +89,9 @@ export async function startGame(elements: GameElements): Promise<void> {
   const game = await createRustBrowserGameRuntime(elements.canvas, descriptor);
   window.__ofgDebug = {
     getLoadedTerrainChunkKeys: () => game.debugSnapshot().loadedTerrainChunkKeys,
+    getLoadedTerrainNodeKeys: () => game.debugSnapshot().loadedTerrainNodeKeys,
     getTerrainChunkKeys: () => game.debugSnapshot().terrainChunkKeys,
+    getTerrainNodeKeys: () => game.debugSnapshot().terrainNodeKeys,
     getTerrainPreset: () => game.debugSnapshot().terrainPreset,
     getTerrainSeed: () => game.debugSnapshot().terrainSeed,
     getTerrainStreamStatus: () => game.debugSnapshot().terrainStreamStatus,

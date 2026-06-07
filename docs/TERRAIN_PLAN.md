@@ -1,1018 +1,922 @@
-# Terrain System Plan
-
-This is the living implementation plan for taking OFG from its current seed
-terrain to a high-grade procedural terrain system. It is based on
-[TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md), especially:
-
-- [Survey of algorithms and techniques](TERRAIN_GEN_RESEARCH.md#survey-of-algorithms-and-techniques)
-- [Biomes, distribution, and blending](TERRAIN_GEN_RESEARCH.md#biomes-distribution-and-blending)
-- [Erosion, rivers, caves, materials, texturing, and art layers](TERRAIN_GEN_RESEARCH.md#erosion-rivers-caves-materials-texturing-and-art-layers)
-- [Implementation plan and validation](TERRAIN_GEN_RESEARCH.md#implementation-plan-and-validation)
-
-This document is the continuity source for terrain work. Treat it as a cared-for
-shared memory: progress notes must be updated as milestones are started, changed,
-completed, deferred, or blocked, including the reason for meaningful pivots. If an
-AI agent resumes after context compaction, or is unsure what terrain work was last
-planned, it must reread this plan before continuing implementation.
-
-The Rust conversion is complete. Terrain work should align with
-[API_CONTRACTS.md](API_CONTRACTS.md) and [ARCHITECTURE.md](ARCHITECTURE.md):
-TypeScript remains browser/UI glue and generic browser utility code, while
-terrain streaming, scheduling, world state, render extraction, and WebGPU
-rendering belong in Rust. The completed conversion plan is archived at
-`docs/archived/RUST_CONVERSION_PLAN.md`.
-
-The core lesson from the research is that high quality terrain is a layered world
-generation architecture, not a single better noise function. The target is a
-deterministic field stack with three scales:
-
-1. Planet or world-scale climate, geology, and macro landforms.
-2. Regional hydrology, biome segmentation, and material logic.
-3. Local voxel volumetrics for caves, overhangs, edits, and silhouettes.
-
-For the current project, we will build this as a local-world system first. The APIs
-should remain compatible with a later planet or cube-sphere patch system, but the
-next visible wins should come from better local landforms, debugging tools, seams,
-and materials.
-
-## Current State
-
-This section should stay bluntly current. The project now has a real terrain
-generation/rendering pipeline, but only the first layers of the high-grade terrain
-plan are implemented.
-
-Supported:
-
-- Deterministic 3D terrain density chunks with 32x32x32 cells and 33x33x33
-  samples.
-- Rust-owned deterministic simplex, ridged, domain-warp, and cellular macro noise
-  helpers inside `crates/terrain_core`.
-- A browser-facing `WorldDescriptor`/terrain descriptor contract for seed and
-  preset selection. Runtime generation itself is Rust-owned.
-- `seed`, `rollingHills`, `mountainValley`, and `rockyHighland` terrain presets.
-  `rollingHills` is the default.
-- URL-selectable terrain presets and seeds through `?terrainPreset=...` and
-  `?terrainSeed=...`, primarily for repeatable verification captures.
-- Macro channels for base elevation, large feature value, mountainness,
-  continentality, erosion susceptibility, ridge, and warp.
-- First weighted biome solver for grassland, temperate forest, wetland,
-  coast/beach, dry badland, alpine meadow, high mountain rock, and snow/tundra.
-- Terrain density formed from macro base elevation plus 3D detail noise. This is
-  still fundamentally a height-biased field, but Dual Contouring can represent
-  local non-heightfield detail where the density field creates it.
-- Rust-owned Dual Contouring chunk mesh emission, material/biome classification,
-  triangle-local material palette expansion, and per-chunk neighbor-aware meshing
-  with deterministic same-LOD seam ownership.
-- Runtime streaming of per-chunk terrain render meshes inside the loaded density
-  window.
-- A 16-material Poly Haven CC0 terrain library imported under
-  `assets/textures/polyhaven`.
-- Global WebGPU texture arrays for terrain albedo, normal, and roughness maps.
-- Terrain samples that emit biome/slope/altitude/macro-driven material weights.
-- Terrain mesh vertices that pack the strongest four material layers and weights.
-- A terrain mesh post-pass that expands triangles to coherent local material
-  palettes, preventing interpolated weights from referring to different texture
-  layers at each triangle corner.
-- WGSL triplanar blending of terrain albedo and roughness from the texture arrays.
-- Browser smoke coverage for regular gameplay render, refresh/blank-frame
-  regression, terrain streaming after player movement, terrain presets, and
-  seam/corner views.
-- A Rust terrain core crate at `crates/terrain_core`, linked into
-  `engine_web` for the playable browser path and also built as the standalone
-  `assets/wasm/terrain_core.wasm` export-contract fixture.
-- Deterministic generated TypeScript metadata for the standalone terrain WASM
-  fixture, used by build/check tooling rather than as a terrain client.
-- Rust/WASM exports for terrain core versioning, preset count, macro base
-  elevation, density, compatibility height sampling, and 33x33x33 density chunk
-  filling, plus neighbor-aware runtime chunk mesh generation.
-- Native Rust tests and benchmarks that validate deterministic height/density
-  samples, density chunk filling, emitted mesh buffers, retained density stores,
-  stream scheduling, worker-pool behavior, and benchmark report shape.
-- Runtime terrain streaming now lives inside `engine_web.wasm`, which composes
-  `terrain_core` as a Rust library to build renderable terrain chunk meshes. The
-  generated `terrain_core.wasm` artifact remains for export-contract
-  compatibility fixtures. The compiled TypeScript terrain generator/noise
-  reference has been deleted; Rust is now the browser terrain source of truth.
-- Runtime streaming treats density chunks as a retained lowest-detail streaming
-  layer. The Rust scheduler computes the density window, including positive
-  apron chunks, before render meshing; the Rust/WASM core prepares and retains
-  that density window so mesh generation reuses stored chunks.
-- Browser runtime terrain schedules and completes its current synchronous LOD0
-  work inside `engine_web` through Rust-owned stream state. Rust owns desired
-  sets, rendered/empty status, mesh upload/pruning, chunk debug keys, and
-  immediate streaming reset.
-- The scheduler now models density readiness as an explicit chunk stage. It
-  schedules density-field jobs across the widest active radius first, then only
-  schedules render mesh jobs for chunks whose 2x2x2 positive-apron density
-  dependencies are ready.
-- The old TypeScript density/mesh worker job protocol has been retired from the
-  playable path. Current LOD0 mesh generation calls `terrain_core` directly from
-  `engine_web`; future threading work should add Rust-managed wasm threads or
-  another Rust-owned job system without reintroducing TypeScript terrain payload
-  schemas.
-- A native Rust benchmark, `npm run bench:terrain:rust`, reports density
-  fill-only, density fill-plus-copy, retained density-window preparation, and
-  chunk mesh-build-plus-copy milliseconds and writes JSON under
-  `artifacts/terrain-bench/`.
-- `crates/terrain_core` now has a first tested Rust-owned terrain stream
-  scheduler core for desired density sets, LOD0 render sets, density-apron
-  dependencies, priority, in-flight work, reset generations, stale completions,
-  retryable density failures, empty chunks, and pruning.
-- The browser runtime now wires that Rust stream scheduler through
-  `engine_web`. Rust `BrowserTerrainStream` executes Rust-selected work,
-  generates meshes through the `terrain_core` library, and uploads/prunes
-  chunk-keyed Rust/wgpu terrain mesh handles internally.
-- The older `terrain_core.wasm` terrain mesh packet store and worker-pool facade
-  remain tested compatibility surfaces, but they are no longer the playable
-  browser mesh handoff.
-- The compiled TypeScript scene/component model has been retired. The app no
-  longer assembles a compiled TypeScript `RenderWorld`, and it no longer passes
-  engine render snapshots into the browser renderer. `RustBrowserGame` now owns
-  the active player/camera tick state, terrain-height grounding, renderer
-  mesh/texture/object handles, render resource pruning, live terrain draw set,
-  and the debug player marker mesh/material. `src/app` now forwards browser
-  input axes/debug commands through a coarse `RustBrowserGameRuntime` shell and
-  calls `tick`; Rust advances terrain streaming, uploads/prunes meshes, and
-  renders inside that frame call. Rust also owns terrain texture manifest
-  interpretation, texture-array validation, and GPU texture installation; the
-  TypeScript shell only provides a generic browser image decoder for
-  Rust-provided URL lists.
-- Rust/wgpu is now the playable browser renderer through `crates/engine_web` and
-  generated `assets/wasm/engine_web/` wasm-bindgen artifacts. Rust owns the
-  WebGPU canvas surface, adapter/device/queue, surface configuration, depth
-  texture, shader modules, pipeline layouts, pipelines, buffers, texture arrays,
-  samplers, bind groups, render-pass submission, frame/resource counts, and GPU
-  resource pruning. Rust also owns the fixed terrain material recipe,
-  material packet construction, material-to-texture selection, shader uniform
-  packing for frame and object draw data, and object normal-matrix calculation.
-  Browser smoke asserts
-  `rendererRuntime: "rust-wgpu"` and captures first-person, refreshed,
-  debug-fly, and streamed terrain screenshots.
-- The remaining TypeScript terrain work is browser/UI substrate, not a terrain
-  algorithm problem. TypeScript exposes debug/smoke hooks and decodes generic
-  texture-array requests for Rust, while Rust owns stream status, terrain chunk
-  debug data, terrain texture layer selection, and GPU texture installation.
-
-Partially supported or placeholder-only:
-
-- `climatePreset` and `materialPalette` exist on `WorldDescriptor`, but do not
-  yet drive distinct generation behavior.
-- `biomeAt()` now emits weighted biome archetypes plus temperature, moisture, and
-  a cellular province ID, but it is still a first pass. There are no authored
-  biome rules, biome-specific debug heatmaps, hard ecological constraints, or
-  hydrology inputs yet.
-- Material classification uses biome weights, slope, altitude, sea-level
-  proximity, and macro values. It does not yet use hydrology/wetness fields,
-  curvature, strata, cave humidity, or authored geological regions.
-- Snow, cliff, mud, sand, grass, moss, rock, and red-soil materials can appear,
-  but their placement is still heuristic and only lightly biome-driven.
-- Normal and roughness texture arrays are loaded; roughness is sampled for
-  lighting, but normal maps are not yet applied to perturb terrain normals.
-- Terrain variation screenshots now prove several material and biome-weight
-  regions existed during the TypeScript-generator era. That survey tool was
-  retired with the TypeScript generator; comparable Rust debug/survey snapshots
-  need to be rebuilt from Rust debug APIs.
-- The Rust core now owns the browser runtime density-to-render-mesh path for
-  generated terrain chunks, including material/biome classification, centroid
-  Dual Contouring, same-LOD neighbor seam ownership, and triangle-local material
-  palette expansion. It has retained density-store and worker-pool compatibility
-  fixtures, but the playable runtime now generates and uploads terrain meshes
-  inside `engine_web`; this is not yet multi-resolution streaming or
-  mesh-upload optimized.
-- TypeScript still performs browser image fetch/decode for Rust-provided generic
-  texture-array requests. Rust owns renderer handle maps, terrain mesh handles,
-  terrain texture handles, terrain texture manifest parsing, texture-array
-  validation, terrain identity world matrices, fixed terrain renderer vertex
-  stride, fixed terrain material recipe, material packet construction,
-  material-to-texture selection, live terrain draw-set retention, stale resource
-  pruning, active player/camera state, render-frame construction, player-marker
-  transform derivation, packet validation, normal-matrix computation, and WGSL
-  shader uniform packing. The remaining bridge is generic browser asset decode,
-  not terrain scheduling, mesh upload, or terrain texture ownership.
-- The Rust engine migration has moved past the render-packet bridge for the
-  active browser player/camera path. `engine_web` now composes `engine_core` and
-  `terrain_core` as Rust library dependencies, owns the active tick state,
-  advances terrain streaming, and renders through `tick(frame)` without an
-  engine snapshot from TypeScript. Terrain mesh upload is Rust-owned for the
-  playable path, and the old TypeScript
-  `SceneRenderExtractor`/`MeshRenderer`/`RenderWorld` path has been deleted.
-  TypeScript still acts as a generic browser image decoder and UI/debug shell;
-  terrain asset semantics now live behind the Rust game facade.
-
-Not yet supported:
-
-- Mature biome solver, authored biome provinces, biome heatmap screenshots, or
-  polished biome transition bands.
-- Hydrology: no river graph, flow accumulation, drainage, lakes, river carving,
-  floodplains, beaches driven by water bodies, or wetness propagation.
-- Erosion simulation or erosion-inspired post-processing beyond simple macro
-  noise channels.
-- Geological strata, sediment layers, cliffs formed by rock layers, talus fields
-  driven by curvature, or regional material palettes.
-- Caves, arches, tunnels, overhang-focused volumetric features, or cave entrance
-  placement.
-- Far-field terrain, LOD, LOD transition meshes, or mature view/visibility
-  priority scheduling.
-- Rust-managed wasm threads, partition-aware multi-resolution density/mesh
-  streaming, batch density jobs, fine-grained cancellation queues beyond
-  generation-token invalidation, or mesh upload preparation.
-- Rust debug snapshots for macro/biome/material/QEF/stream overlays. The old
-  TypeScript debug overlay was deleted with the TypeScript generator.
-- Saveable human-facing terrain tuning knobs.
-- Runtime terrain edits such as subtract-sphere editing.
-- Terrain collision/grounding based on the generated mesh. Player grounding still
-  uses a compatibility `heightAt(x, z)` query.
-- High-quality sharp-feature Dual Contouring. The current Rust runtime path is
-  good enough for same-LOD chunk terrain, but not feature-preserving at
-  production quality.
-
-Current believability gap:
-
-- The terrain can now produce distinct biome/material regions in sampled
-  screenshots, but it does not yet read as a fully believable world.
-- The main missing layer is regional structure with stronger composition:
-  hydrology-informed wetness and river corridors, better biome province shaping,
-  and geology/strata that explains cliffs, badlands, talus, and rock color.
-- The immediate blocker is iteration speed and view distance. Human material and
-  biome tuning will not be productive while changing one number takes seconds and
-  the camera can only inspect a few chunks.
-- The next visible win should therefore be realtime terrain iteration: move the
-  expensive chunk sampling/meshing path behind Rust/WASM, add generation timing
-  counters, widen the visible terrain window, then expose saveable tuning knobs.
-  The chunk sampling/meshing path is now Rust/WASM-owned; the current Rust/WASM
-  worker pipeline separates density from meshing and
-  retains density payloads in Rust/WASM. LOD0 mesh dependencies now travel to
-  Workers through shared browser buffers, and Rust owns worker-pool task
-  assignment/completion bookkeeping, but each Worker still copies density into
-  local WASM memory before contouring and the system has not yet proven a larger
-  view distance budget. Browser CPU parallelism is still Worker-backed;
-  Rust-managed worker creation or true wasm threads will need a wasm-threads
-  runtime slice.
-  Hydrology and better biome composition remain the next believability layer once
-  the terrain can regenerate fast enough to tune.
-
-## Target Data Flow
-
-```mermaid
-flowchart TD
-    A["WorldDescriptor seed and presets"]
-    B["MacroField continentality, mountainness, base elevation"]
-    C["BiomeField temperature, moisture, province, weights"]
-    D["HydrologyField rivers, wetness, flow, carve fields"]
-    E["VolumetricField caves, arches, cliffs, craters, edits"]
-    F["TerrainSample density, gradient, materials, debug"]
-    G["Density chunk sampler with apron"]
-    H["Dual Contouring mesher"]
-    I["Seam and material post-passes"]
-    J["Renderer, collision, debug overlays"]
-
-    A --> B
-    A --> C
-    B --> C
-    B --> D
-    C --> D
-    B --> E
-    C --> E
-    D --> E
-    E --> F
-    F --> G --> H --> I --> J
-```
-
-## Core Interfaces
-
-These are direction-setting contracts, not literal current TypeScript APIs. Names
-can change during implementation, but the responsibilities should stay stable and
-Rust-owned.
-
-```ts
-type WorldDescriptor = {
-  seed: number;
-  seaLevel: number;
-  terrainPreset: TerrainPresetId;
-  climatePreset: ClimatePresetId;
-  materialPalette: TerrainMaterialPaletteId;
-};
-
-type RustTerrainFacade = {
-  configure(descriptor: WorldDescriptor): void;
-  heightAt(x: number, z: number): number;
-  densityAt(position: Vec3): number;
-  fillDensityChunk(coord: TerrainChunkCoord, cellSize: number): DensityChunkPacket;
-  buildChunkMesh(coord: TerrainChunkCoord, lod: number): TerrainMeshPacket;
-  resetStreaming(center: TerrainChunkCoord): void;
-  tickStreaming(center: TerrainChunkCoord): TerrainStreamWorkSummary;
-  debugSnapshot(): TerrainDebugSnapshot;
-};
-
-type TerrainSurfaceSample = {
-  density: number;
-  gradient: Vec3;
-  materialWeights: readonly TerrainMaterialWeight[];
-  biomeWeights: readonly BiomeWeight[];
-  debug: TerrainDebugChannels;
-};
-```
-
-Implementation rule: runtime generation should be deterministic from descriptor
-and position. Persistent storage should be reserved for edits and authored
-landmarks, not for every generated sample. TypeScript should consume coarse Rust
-facade calls and debug snapshots rather than owning sampling or meshing logic.
-
-## Milestone Summary
-
-| # | Milestone | Main Deliverable | Validation Gate |
-|---:|---|---|---|
-| 1 | Generator core | `WorldDescriptor` and Rust terrain facade replacing seed field | Same seed gives same samples/chunks |
-| 2 | Macro landforms | Ridged, warped, cellular-enhanced terrain presets | Better silhouettes, no obvious periodic grid |
-| 3 | Debug terrain lab | Browser overlays and screenshot scripts for generation layers | Every field can be inspected in isolation |
-| 4 | Dual Contouring hardening | Per-chunk neighbor-aware meshing and seam ownership | No same-LOD chunk cracks or QEF spikes |
-| 5 | Biome solver | Climate/province-driven biome weights | Stable biome heatmaps, no hard borders |
-| 6 | Material classification | Material weights from slope, altitude, biome, wetness, strata | Terrain blends 4-8 materials predictably |
-| 7 | Hydrology and rivers | Coarse river graph, carve field, wetness map | Rivers flow downhill or terminate validly |
-| 8 | Caves and local volumes | Tunnel graph plus 3D noise carving | Navigable caves and natural entrances |
-| 9 | Streaming and LOD | Chunk scheduler, retained stores, LOD/seam transition plan | Free-flight remains hole-free within budget |
-| 10 | Presentation layers | Vegetation masks, water rendering, atmosphere improvements | Terrain reads at multiple scales |
-| 11 | Realtime Rust/WASM terrain path | Rust/WASM hot paths, profiling, worker scheduling, tuning persistence | Terrain edits and tuning regenerate fast enough for human iteration |
-| 12 | Rust engine migration | Rust-owned world, terrain streaming, render extraction, and Rust/wgpu renderer | TypeScript is reduced to browser shell and UI glue |
-
-## Recommended Next Slice: Realtime Terrain Iteration
-
-Goal: make terrain regeneration fast enough that a human can tune believable,
-varying terrain by feel. This should happen before more biome/material/hydrology
-polish, because slow feedback makes every knob hard to judge.
-
-Architectural note: this slice should now be executed as part of the Rust engine
-migration, not as further TypeScript scene optimization. The intended end state is
-Rust-owned terrain streaming and render packets feeding a Rust/wgpu renderer, with
-TypeScript limited to browser shell and UI.
-
-Proposed order:
-
-1. Add a focused benchmark/profiling harness for the current terrain hot path.
-   (First Rust density chunk benchmark complete.)
-   - Measure density chunk fill, Hermite extraction, QEF placement, mesh buffer
-     emission, GPU upload preparation, active chunk count, and triangles.
-   - Write machine-readable JSON for fixed seeds, presets, and camera paths.
-   - Validation: budgets are explicit enough that future Rust/WASM migrations can
-     prove they helped.
-2. Move density chunk sampling into Rust/WASM. (First runtime slice complete.)
-   - Export a flat chunk-fill API that writes the 33x33x33 density/gradient sample
-     layout needed by `TerrainChunk`.
-   - Keep TypeScript as the reference implementation and compare full chunk
-     fixtures at boundaries, negative coordinates, and multiple presets.
-   - Validation: Rust/WASM density chunks match TypeScript fixtures and reduce
-     chunk generation time.
-3. Wire Rust/WASM density chunks into runtime streaming behind a narrow adapter.
-   (First runtime slice complete.)
-   - Historical: this step once preserved a TypeScript scene/component/render
-     boundary while migration was young. That scene/render path is now retired;
-     playable terrain streaming and rendering are Rust-owned.
-   - Validation: browser smoke remains visually stable and chunk seam tests still
-     pass.
-4. Move Dual Contouring meshing hot paths next if profiling still shows chunk
-   rebuilds are too slow. (First runtime WASM mesh path complete.)
-   - Start with Hermite extraction and QEF placement, then mesh buffer emission.
-   - Validation: mesh summaries and seam ownership match TypeScript golden
-     fixtures before runtime promotion.
-5. Add worker-backed scheduling and retained streaming-layer budgets.
-   (First worker scheduler, density stage, and shared density payload slices
-   complete.)
-   - Main thread should stop blocking on expensive terrain rebuilds.
-   - Treat density chunks as the lowest current LOD generated over the widest
-     active radius, so apron reuse falls out of the streaming model.
-   - Next: reduce worker-local WASM install cost, add Rust-owned batch or
-     partition-aware density work, move more execution behind a coarse Rust
-     facade, and measure wider view-distance budgets before increasing view
-     distance aggressively.
-   - Validation: free-flight remains hole-free while visible radius increases.
-6. Add a terrain tuning panel with save/load only after regeneration is responsive.
-   - Knobs should cover seed, preset, macro scales, ridge strength, detail
-     amplitude, biome/material weights, and later hydrology.
-   - Validation: saved descriptors reproduce the same terrain and screenshots.
-
-After that, return to believable variation work: biome heatmap overlays,
-hydrology/wet corridors, geological strata, normal-map shading, and broader
-material art direction. The artistic work will go much better once the engine can
-answer back quickly.
-
-Progress notes:
-
-| Date | Status | Notes |
-|---|---|---|
-| 2026-06-01 | In progress | Added `?terrainSeed=` support and `npm run smoke:terrain-variation`. The smoke samples all current terrain presets across seeds `246`, `7001`, `112358`, and `424242`, scores representative meadow, wet lowland, dry soil, mossy ridge, rocky slope, and red cliff targets, captures browser screenshots, and writes a report with macro/biome/material evidence. |
-| 2026-06-01 | In progress | Added the first weighted biome solver and made the variation smoke require at least three distinct dominant biome regions. Current captures include grassland, wetland, dry badland, and high mountain rock evidence. Next work should add biome heatmap overlays and hydrology/water shaping. |
-| 2026-06-01 | Pivoted | Screenshots still read too similar, but further material tuning is blocked by slow iteration and short view distance. The recommended next slice is now Rust/WASM-backed realtime terrain generation, then tuning knobs and save/load, then renewed biome/hydrology/material polish. |
-| 2026-06-01 | In progress | Added a Rust/WASM density chunk fill API for the 33x33x33 `TerrainChunk` sample layout, copied it into `TerrainDensityChunk`, and wired `TerrainChunkStreamer` to use it at runtime when the browser loads `assets/wasm/terrain_core.wasm`. Browser smoke passes with no fallback warnings. Next target is profiling plus moving meshing/worker scheduling enough to widen view distance. |
-| 2026-06-01 | In progress | Added `npm run bench:terrain:wasm` to measure release WASM density chunk generation directly. Initial fill-only median was about 36.8 ms per 33x33x33 chunk, which confirmed the Rust path was still too slow. Caching macro terrain once per x/z column inside chunk fill reduced the quick benchmark to about 6.6 ms fill-only median and 6.5 ms fill-plus-copy median, with machine-readable JSON in `artifacts/terrain-wasm-bench/`. |
-| 2026-06-01 | In progress | Moved the browser runtime generated-terrain chunk mesh path into Rust/WASM. `ofg_build_chunk_mesh` now builds the density apron, extracts Hermite intersections, performs centroid Dual Contouring with same-LOD seam ownership, classifies biome/material weights, expands triangle-local material palettes, and returns renderable vertex/index buffers to TypeScript. Browser smoke passes. Quick benchmark now shows density fill around 6.5 ms median and full mesh build plus copy around 62.7 ms median per chunk. Added an apron-density phase estimate: filling the eight 33x33x33 density chunks needed for one mesh costs about 52.5 ms median, leaving about 10.2 ms median for contouring/material/palette/copy. The next target is a retained density streaming layer, then worker-backed scheduling. |
-| 2026-06-01 | In progress | Reframed apron reuse as a streaming-layer problem rather than an ad hoc cache. The streamer now builds a retained density window that includes apron chunks, and Rust/WASM exposes `ofg_prepare_density_chunk_window` plus density-store counters. The benchmark now separates cold mesh generation from prepared mesh generation: on the development run, cold mesh plus copy was about 61.8 ms median per chunk, while prepared mesh plus copy was about 9.7 ms median. Density-window preparation is still main-thread-bound and can spike, so the next target is worker-backed preparation, priority/cancellation, and then widening view distance. |
-| 2026-06-01 | In progress | Added the first worker-backed terrain scheduler. `TerrainChunkStreamer` now behaves like a ticked scheduler: it compares desired density/render sets with rendered, empty, and in-flight chunks, submits nearest missing render chunks up to a worker-pool concurrency limit, and ignores stale completions after reset. The app exposes `resetTerrainStreaming()` and stream status through `window.__ofgDebug`, giving future tuning UI a direct instant-regenerate path. Browser smoke waits for worker completion and passes. Remaining scheduler work: separate density jobs, shared or partition-aware density stores across workers, better queue cancellation, and wider view-distance budgets. |
-| 2026-06-01 | In progress | Split the scheduler state into explicit stages: not present, density-field ready, and renderable LOD 0/empty. Worker messages now include density jobs as a separate stage, and the streamer only schedules a chunk mesh after its positive-apron density dependencies are marked ready. This matches the intended multi-stage architecture and sets up future LOD N stages. Caveat: Rust density storage is still local to each worker, so the next architecture step is a shared or partition-aware density store rather than just logical readiness in TypeScript. |
-| 2026-06-01 | In progress | Added the first properly shared density payload layer. Density jobs transfer generated 33x33x33 `Float32Array` chunks back to `TerrainChunkStreamer`, the streamer retains them by chunk key, and mesh jobs receive the exact 2x2x2 apron payloads they depend on before installing them into worker-local Rust/WASM storage. This makes the TypeScript scheduler's density-ready state physically meaningful across workers. Caveat: payloads are still copied into mesh workers, not backed by `SharedArrayBuffer` or persistent partition-owned worker stores. |
-| 2026-06-01 | In progress | Moved the scheduler-backed retained density payload owner from the TypeScript streamer map into the main Rust/WASM terrain core. `TerrainChunkStreamer` now writes completed density payloads into the Rust density store, loads mesh apron dependencies from that store, and exposes `densityStoreRuntime: rust` for browser smoke. Caveat: mesh workers still receive copied payloads and install them into worker-local Rust/WASM stores; partition-aware worker ownership and shared-memory transfer remain next. |
-| 2026-06-02 | In progress | Enabled the first browser shared-memory density transfer path. The dev/smoke server now sends COOP/COEP/CORP headers, `TerrainCoreWorkerStreamer` wraps LOD0 apron dependencies from the Rust density store in `SharedArrayBuffer` payloads when available, and browser smoke asserts cross-origin isolation plus `densityTransferMode: "shared"`. Caveat: TypeScript still hosts Workers, and each worker still copies shared payload contents into its own `terrain_core.wasm` density store before meshing; Rust-managed wasm threads and partition-owned worker stores remain next. |
-| 2026-06-02 | In progress | Moved the terrain worker-pool/request model into Rust. `terrain_core.wasm` now assigns worker slots and request IDs, tracks in-flight density/LOD tasks, bumps reset generations, rejects stale completions, and detects mismatched completions. TypeScript now uses a generic browser Worker group for transport; the intended end state remains a coarse Rust facade close to `game.tick()`. |
-| 2026-06-02 | Cleanup complete | Deleted the compiled legacy TypeScript terrain manager/renderer path: `TerrainChunkStreamer`, `TerrainRenderer`, the old TypeScript terrain packet store, the highest-surface chunk mesher, and the heightfield mesh builder/tests. No reference copy was kept in `src`; remaining TypeScript terrain was narrowed to browser bridge/debug/parity code at that point. |
-| 2026-06-02 | Rust source of truth promoted | Deleted the compiled TypeScript terrain generator/noise reference, TypeScript Dual Contouring/debug overlay path, and old terrain debug/variation smoke tools. At that point `terrain_core.wasm` became the browser terrain source of truth for height, density, chunk fill, mesh emission, stream scheduling, density storage, worker-pool state, and terrain mesh packet storage. Later slices moved the playable mesh handoff directly into `RustBrowserGame`; see the 2026-06-03 notes. |
-
-## Milestone 1: Generator Core
-
-Goal: introduce deterministic terrain generation behind a descriptor without
-breaking the runtime.
-
-Current status: the original TypeScript implementation for this milestone was
-retired on 2026-06-02. The live generator behavior now belongs to
-`crates/terrain_core`; TypeScript keeps only `terrainDescriptor.ts` for seed and
-preset configuration.
-
-Implementation:
-
-- Maintain `WorldDescriptor`, terrain preset IDs, climate preset IDs, and seed
-  handling as a browser-facing config contract.
-- Keep Rust `heightAt(x, z)` for player grounding until movement becomes
-  density/mesh aware.
-- Expose Rust density, macro, biome/material, surface, and debug snapshot APIs
-  through coarse WASM facades as needed.
-
-Tests:
-
-- Rust/WASM tests verify same descriptor returns deterministic samples.
-- Different seeds and presets produce meaningfully different macro samples.
-- Rust `heightAt` lands near the zero-density surface.
-- Browser smoke passes without a TypeScript generation fallback.
-
-Progress notes:
-
-| Date | Status | Notes |
-|---|---|---|
-| 2026-05-31 | Initial implementation complete | Added `TerrainGenerator`/`WorldDescriptor`, moved the existing seed field behind it, kept `createSeedTerrainField()` as a compatibility wrapper, and added generator determinism/sampling/surface tests. `npm test` passes. |
-| 2026-06-02 | Retired from TypeScript | Deleted the compiled TypeScript `TerrainGenerator` and promoted `terrain_core.wasm` as the browser terrain source of truth. |
-
-## Milestone 2: Macro Landforms
-
-Goal: replace the current simple terrain with a layered macro terrain stack.
-
-Research basis:
-
-- The research recommends simplex-style coherent fields, ridged fractals, domain
-  warping, and Worley/cellular secondary structure rather than plain fBm
-  [TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md#survey-of-algorithms-and-techniques).
-
-Implementation:
-
-- Add ridged fractal sampling on top of the existing simplex implementation.
-- Add domain warp helpers with deterministic gradients where practical.
-- Add cellular/Worley-style 2D and 3D utilities for cliff/region breakup.
-- Define `MacroSample`:
-
-```ts
-type MacroSample = {
-  baseElevation: number;
-  mountainness: number;
-  continentality: number;
-  erosionSusceptibility: number;
-  ridge: number;
-  warp: Vec3;
-};
-```
-
-- Create at least three presets:
-  - rolling hills
-  - mountain valley
-  - badlands or rocky highland
-
-Tests:
-
-- Noise helpers are deterministic for seed and position.
-- Ridged fields stay in expected ranges and have sharper peaks than fBm.
-- Domain warp does not produce NaN gradients or discontinuous jumps.
-- Adjacent chunk seams sample matching macro values at shared positions.
-- Distribution tests assert each preset has useful height variation without
-  collapsing into all-flat or all-mountain terrain.
-- Browser smoke captures each macro preset from a fixed debug camera.
-
-Progress notes:
-
-| Date | Status | Notes |
-|---|---|---|
-| 2026-05-31 | Initial implementation complete | Added tested ridged fractal, domain warp, and cellular noise helpers; wired `seed`, `rollingHills`, `mountainValley`, and `rockyHighland` presets into `TerrainGenerator`; made `rollingHills` the default. Added `?terrainPreset=` app selection and `npm run smoke:terrain-presets` to capture every preset. `npm test`, `npm run smoke:terrain-presets`, and browser smoke pass. Visual tuning remains iterative. |
-| 2026-06-02 | Promoted to Rust | Deleted the compiled TypeScript noise helpers. The live macro landform helpers and presets now live in `crates/terrain_core`; as of 2026-06-07, `npm run smoke:terrain-presets` runs the Rust offscreen image harness instead of browser preset validation. |
-
-## Milestone 3: Debug Terrain Lab
-
-Goal: make every terrain layer inspectable before adding more complexity.
-
-Research basis:
-
-- The research calls isolated debug overlays the most important validation strategy
-  [TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md#implementation-plan-and-validation).
-
-Implementation:
-
-- Add a debug mode for terrain overlays:
-  - density slice
-  - normal/gradient
-  - slope
-  - chunk borders
-  - QEF error
-  - macro elevation
-  - mountainness
-  - biome weights
-  - material weights
-  - wetness/flow
-  - cave occupancy
-- Add keyboard-controlled overlay cycling or a compact debug panel.
-- Rebuild debug snapshots from Rust terrain data. The old TypeScript overlay
-  smoke was retired with the TypeScript generator.
-
-Tests:
-
-- Overlay state is deterministic and can be toggled without crashing.
-- Debug render data can be built without WebGPU for unit tests.
-- Browser screenshot tests verify overlays are nonblank and visually distinct.
-- Console errors fail smoke runs.
-
-Progress notes:
-
-| Date | Status | Notes |
-|---|---|---|
-| 2026-05-31 | In progress | Added a CPU-built debug overlay pipeline with browser canvas display, `F2` cycling, `?terrainDebug=` startup selection, and debug API controls. Current overlay modes: macro elevation, mountainness, slope, normal, density slice, material weights, QEF error, and chunk borders. Added unit coverage and `npm run smoke:terrain-debug`; `npm test`, terrain debug smoke, and browser smoke pass. Remaining work: biome-specific overlays once biome solver exists, hydrology/wetness/cave overlays once those systems exist, and fuller in-app controls. |
-| 2026-06-02 | Retired pending Rust replacement | Deleted the TypeScript debug overlay and `smoke:terrain-debug` script. Future terrain lab work should use Rust debug snapshots/packets rather than TypeScript sampling/QEF diagnostics. |
-
-## Milestone 4: Dual Contouring Hardening
-
-Goal: turn the original stitched-window prototype into a reliable chunk meshing
-system.
-
-Research basis:
-
-- The research identifies Dual Contouring as a good Hermite-data basis but warns
-  that chunk and LOD seams need explicit engineering
-  [TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md#implementation-plan-and-validation).
-
-Implementation:
-
-- Add 1-cell apron sampling for each meshed chunk.
-- Define deterministic ownership for border quads.
-- Make `meshChunkDualContouring` neighbor-aware.
-- Keep stitched-window meshing as a fallback/debug path only while it remains
-  useful for comparison tests.
-- Improve QEF:
-  - mass-point fallback
-  - rank deficiency handling
-  - condition/quality metrics
-  - per-cell QEF error output for debug overlays
-- Add material-weight interpolation at Hermite intersections.
-- Separate render mesh extraction from collision mesh extraction.
-
-Tests:
-
-- Adjacent chunks share seam densities, gradients, material weights, and border
-  topology.
-- No invalid indices or duplicate zero-area triangles.
-- Flat plane, diagonal plane, sphere, cliff, arch, and thin-wall fixtures mesh
-  without holes.
-- QEF tests cover clean solve, underconstrained solve, out-of-cell solve, sharp
-  corner, and noisy Hermite planes.
-- Browser smoke verifies no visible cracks at chunk boundaries from close and
-  grazing angles.
-
-Progress notes:
-
-| Date | Status | Notes |
-|---|---|---|
-| | In progress | Current QEF has an out-of-cell guard; runtime still uses centroid placement. |
-| 2026-05-31 | In progress | Added `analyzeDualContouringCellVertex()` diagnostics with QEF/centroid error, fallback reasons, and arbitrary-bounds Hermite extraction for debug overlays. `qefError` overlay is now captured by terrain debug smoke. Runtime meshing still uses centroid placement via `TerrainChunkStreamer`; per-chunk neighbor-aware meshing remains next. |
-| 2026-05-31 | In progress | Added `meshChunkDualContouringWithNeighbors()` with deterministic edge ownership and vertex compaction. Tests prove a two-chunk flat-plane seam is emitted by exactly one per-chunk mesh and sums to the stitched mesh topology. Runtime migration to per-chunk neighbor-aware rendering was still pending at this point. |
-| 2026-05-31 | In progress | Migrated `TerrainChunkStreamer` to render per-chunk neighbor-aware meshes using a positive 1-cell apron instead of one stitched render window. The streamer keeps render chunks inside the loaded density window, skips all-air/all-solid chunks before apron sampling, and browser smoke now validates per-chunk render ownership. |
-| 2026-05-31 | In progress | Added `npm run smoke:terrain-seams`, which originally used browser debug camera placement to capture x-seam, z-seam, and chunk-corner grazing views. As of 2026-06-07, the command runs the Rust offscreen image harness and verifies render coverage on both sides of the target seams without browser terrain clients. |
-
-## Milestone 5: Biome Solver
-
-Goal: add climate and province-based biome weights instead of hard biome IDs.
-
-Research basis:
-
-- The research recommends climate fields plus spatial provinces, then continuous
-  blending with local terrain-condition overrides
-  [TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md#biomes-distribution-and-blending).
-
-Implementation:
-
-- Define primary biome archetypes:
-  - coast/beach
-  - rocky desert/badlands
-  - grassland
-  - temperate forest
-  - wetland
-  - alpine meadow
-  - high mountain rock
-  - tundra/ice
-  - cave interior
-- Define biome modifiers:
-  - riverbank
-  - floodplain
-  - canyon
-  - cratered
-  - volcanic/geothermal
-- Add climate fields:
-  - temperature
-  - moisture
-  - altitude
-  - continentality
-  - drainage/wetness
-  - province ID/mask
-- Output normalized biome weights with transition bands.
-
-Tests:
-
-- Biome weights sum to 1 within tolerance.
-- Same position/seed gives same biome weights.
-- Neighboring positions transition smoothly except where an intentional hard
-  override exists.
-- Cold/dry/wet/high-altitude sample fixtures map to plausible archetypes.
-- Province seams are blended, not hard strategy-map borders.
-- Debug heatmaps render for each biome weight.
-
-Progress notes:
-
-| Date | Status | Notes |
-|---|---|---|
-| 2026-06-01 | In progress | Replaced the placeholder single-biome output with weighted grassland, temperate forest, wetland, coast/beach, dry badland, alpine meadow, high mountain rock, and snow/tundra archetypes. The solver uses altitude, temperature, moisture, continentality, mountainness, erosion susceptibility, and cellular province IDs. Tests cover normalized weights and cold/wet/dry fixtures. Missing: biome heatmap overlays, authored province shaping, hydrology/wetness inputs, and polished transition tuning. |
-
-## Milestone 6: Material Classification
-
-Goal: move from one triplanar atlas sample to terrain material weights driven by
-terrain and biome conditions.
-
-Research basis:
-
-- The research recommends a larger global material library but limiting each
-  planet/chunk/draw to a smaller set of blended materials
-  [TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md#erosion-rivers-caves-materials-texturing-and-art-layers).
-
-Implementation:
-
-- Define `TerrainMaterialId` and `TerrainMaterialWeight`.
-- Start with 6-8 active material families:
-  - grass
-  - soil
-  - exposed rock
-  - cliff rock
-  - gravel/talus
-  - wet mud
-  - sand
-  - snow/ice later
-- Generate material weights from:
-  - biome weights
-  - slope
-  - altitude
-  - curvature/concavity
-  - wetness
-  - strata noise
-  - cave humidity
-- Update mesh format or chunk render metadata to carry material weights.
-- Update WGSL triplanar path to sample and blend multiple material tiles.
-
-Tests:
-
-- Material weights are normalized and capped to the supported blend count.
-- Steep slopes prefer rock/cliff material.
-- Low wet concavities prefer mud/wet material.
-- High cold areas prefer snow/ice once implemented.
-- Adjacent chunks produce matching material weights on seams.
-- Shader tests verify material-weight inputs and blend contract.
-- Browser screenshots compare slope, valley, and flatland material results.
-
-Progress notes:
-
-| Date | Status | Notes |
-|---|---|---|
-| 2026-06-01 | In progress | Added a 16-material Poly Haven CC0 terrain library imported by `tools/import-polyhaven-terrain.mjs`, tracked through Git LFS, and loaded as global albedo/normal/roughness texture arrays. Terrain samples now emit slope/altitude/macro-driven material weights, Dual Contouring vertices pack the strongest four material layers, runtime meshes expand triangles to coherent local material palettes, and WGSL triplanar-blends albedo plus roughness from the arrays. Normal maps are loaded but not yet sampled for lighting. `npm test`, `npm run check:shaders`, `npm run smoke:browser`, and `npm run smoke:terrain-seams` pass. |
-| 2026-06-01 | In progress | Remaining material work for believable variation: feed biome/wetness/strata fields into classification, add a survey smoke that captures representative material/biome regions, and apply terrain normal maps in lighting after regional material choice is readable. |
-| 2026-06-01 | In progress | Added the first material-variation survey smoke. It currently finds visually distinct material conditions, but the evidence also shows several categories are still heuristic mixtures rather than true ecological/geological regions. The next classifier improvement should consume real biome weights once Milestone 5 starts. |
-| 2026-06-01 | In progress | Material classification now consumes the first biome weights: wetland/coast increase mud and sand, dry badland increases dry/red soil, mountain rock increases rocky materials, alpine adds moss/grass influence, and snow/tundra reinforces snow. This is still heuristic and needs hydrology, curvature, and strata inputs. |
-
-## Milestone 7: Hydrology And Rivers
-
-Goal: add coarse drainage logic before full erosion simulation.
-
-Research basis:
-
-- The research recommends separating rivers into hydrology graph, carve field, and
-  visible water representation
-  [TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md#erosion-rivers-caves-materials-texturing-and-art-layers).
-
-Implementation:
-
-- Build a low-resolution surface graph over macro terrain cells.
-- Compute downhill flow direction, accumulation, basins, and outlets.
-- Classify water features:
-  - dry channel
-  - stream
-  - river
-  - floodplain
-  - lake/basin
-- Project hydrology into local terrain:
-  - river carve density modifier
-  - bank/floodplain material weights
-  - wetness field
-  - optional water spline/render primitive
-- Defer full hydraulic erosion simulation until the graph/carve path works.
-
-Tests:
-
-- Flow directions do not climb uphill except for explicit basin handling.
-- Major rivers have outlet or valid basin termination.
-- River carve field is deterministic and continuous across chunks.
-- Wetness increases near river paths and decays with distance.
-- Browser smoke captures a fixed river valley preset.
-
-Progress notes:
-
-| Date | Status | Notes |
-|---|---|---|
-| | Not started | |
-
-## Milestone 8: Caves And Local Volumetrics
-
-Goal: use the voxel nature of the engine for overhangs, caves, arches, and edits.
-
-Research basis:
-
-- The research recommends hybrid cave generation: structural tunnel graphs plus
-  3D noise/metaball-style wall richness, with cave material logic
-  [TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md#erosion-rivers-caves-materials-texturing-and-art-layers).
-
-Implementation:
-
-- Define cave/tunnel graph primitives:
-  - tunnel spline
-  - chamber
-  - entrance
-  - vertical shaft
-  - arch/bridge volume
-- Convert graph primitives to density modifiers.
-- Add 3D noise wall perturbation.
-- Add cave biome/material override:
-  - damp rock
-  - mineral streaks
-  - exposed strata
-- Make subtract-sphere edits part of the same modifier stack.
-
-Tests:
-
-- Cave graph generation is deterministic.
-- Tunnel graph connectivity metrics pass.
-- Entrances intersect terrain surface cleanly.
-- Generated caves remain inside configured shell depth.
-- Dual Contouring meshes cave fixtures without holes.
-- Player/camera smoke can enter or view a cave test preset.
-
-Progress notes:
-
-| Date | Status | Notes |
-|---|---|---|
-| | Not started | |
-
-## Milestone 9: Streaming And LOD
-
-Goal: make the terrain scale beyond the current small loaded window.
-
-Research basis:
-
-- The research recommends dense active chunks early, sparse or paged hierarchy
-  later, and explicit seam/transition systems at chunk/LOD boundaries
-  [TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md#implementation-plan-and-validation).
-
-Implementation:
-
-- Treat realtime chunk generation as a prerequisite for widening the view window.
-  Farther terrain is only useful if chunks can be generated, meshed, uploaded,
-  and evicted without blocking the camera loop.
-- Keep 32-cell chunks as the default active brick size.
-- Add chunk priority scheduling:
-  - near chunks
-  - visible silhouette chunks
-  - collision-critical chunks
-  - low-priority background chunks
-- Add eviction for retained density chunks and meshes.
-- Add far-field simplified terrain representation before full voxel LOD.
-- Define LOD transition strategy:
-  - same-LOD seams first
-  - lower-detail far meshes second
-  - transition meshes only after the above is stable
-- Add generation timing and memory counters.
-
-Tests:
-
-- Chunk scheduler requests deterministic chunk sets for fixed camera paths.
-- Retained-store eviction does not remove active collision/render chunks.
-- Free-flight smoke has no holes or missing terrain.
-- Memory and chunk count stay under configured budgets.
-- LOD transition fixtures do not show cracks once implemented.
-
-Progress notes:
-
-| Date | Status | Notes |
-|---|---|---|
-| 2026-06-01 | Started | Streaming is now a staged scheduler instead of a one-shot chunk builder. It tracks desired density chunks, retained density payloads, render chunks, empty chunks, and in-flight work, then prioritizes nearby missing work up to the worker limit. This is still same-LOD only; far-field LOD, transition meshes, visibility-aware priority, and true multi-resolution density storage remain ahead. |
-
-## Milestone 10: Presentation Layers
-
-Goal: make the terrain read as a place, not just a mesh.
-
-Research basis:
-
-- The research notes that perceived high-end terrain quality depends heavily on
-  vegetation, cloudscape, aerial perspective, wetness, shadows, and palette
-  discipline
-  [TERRAIN_GEN_RESEARCH.md](TERRAIN_GEN_RESEARCH.md#erosion-rivers-caves-materials-texturing-and-art-layers).
-
-Implementation:
-
-- Add placement masks for:
-  - grass tufts
-  - shrubs
-  - rocks
-  - trees later
-  - cave props later
-- Start with impostor/simple mesh props before heavy instancing.
-- Add water rendering for river/lake surfaces.
-- Improve sky with atmospheric depth/aerial perspective.
-- Add wetness and color palette modulation.
-- Add debug tools for prop candidates and density.
-
-Tests:
-
-- Prop candidate generation is deterministic.
-- Props respect slope, biome, water, cave, and clearance masks.
-- Browser screenshots show prop density from multiple distances.
-- Render budgets stay within target for a fixed test scene.
-
-Progress notes:
-
-| Date | Status | Notes |
-|---|---|---|
-| 2026-06-06 | Research started | Added [VEGETATION_RESEARCH.md](VEGETATION_RESEARCH.md) with early placement, streaming, rendering, and testing recommendations for large props and grass. |
-
-## Milestone 11: Optimisation And Rust/WASM Gates
-
-Goal: make terrain generation fast enough that artists, designers, and developers
-can tune believable terrain in realtime.
-
-Pivot:
-
-- As of 2026-06-01, Rust/WASM is no longer a distant migration gate. It is the
-  next enabling layer because terrain tuning is blocked by slow chunk generation
-  and a too-small loaded view distance.
-- TypeScript remains the reference implementation until each Rust/WASM slice has
-  golden tests. The migration should proceed one hot path at a time, with clear
-  contracts and measured budgets.
-
-Implementation:
-
-- Keep the Rust terrain core small and dependency-light while contracts are still
-  moving.
-- Maintain deterministic generated WASM artifacts under `assets/wasm` with
-  generated TypeScript metadata under `src/generated`.
-- Move the terrain hot path in slices:
-  - scalar field sampling and compatibility height queries
-  - density chunk sampling into flat typed arrays
-  - material/biome sample channels needed by meshing and debug overlays
-  - Dual Contouring Hermite extraction, QEF placement, and mesh buffer emission
-  - worker-backed scheduling, cancellation, and result transfer
-- Treat retained density chunks as the current lowest LOD and prepare them over
-  the widest active streaming radius before meshing nearer render chunks.
-- Add profiling HUD or debug stats:
-  - density sample time
-  - chunk generation time
-  - meshing time
-  - GPU upload time
-  - triangle count
-  - active chunk count
-  - memory estimate
-- Add benchmark scripts for fixed seeds and camera paths.
-- Add explicit budgets for a tuning-friendly loop:
-  - changing a terrain number should show a nearby terrain update in well under a
-    second on the development machine
-  - visible view distance should expand beyond the current few chunks without
-    hitching
-  - expensive chunk work should happen off the main thread before serious tuning
-    UI work begins
-- Add save/load for tuning descriptors only after regeneration is responsive
-  enough to make saved knobs meaningful.
-
-Tests:
-
-- Benchmark scripts produce machine-readable JSON.
-- Performance budgets are explicit and versioned.
-- Rust/WASM output is now the browser terrain source of truth; fixture tests
-  should validate deterministic Rust samples, chunks, meshes, stores, and
-  scheduler behavior.
-- `npm run check:wasm` verifies generated WASM metadata and asset freshness.
-- `npm run bench:terrain:rust` records Rust terrain density, store, and mesh timing.
-- `cargo test -p terrain_core` validates Rust-side deterministic terrain logic.
-- WASM tests instantiate the generated artifact and validate density, height,
-  chunk, mesh, retained-store, scheduler, and worker-pool fixtures.
-- Browser smoke remains the final integration gate.
-
-Progress notes:
-
-| Date | Status | Notes |
-|---|---|---|
-| 2026-06-01 | Started | Realtime-first pivot accepted. Added `crates/terrain_core`, `tools/build-terrain-wasm.mjs`, generated `assets/wasm/terrain_core.wasm`, and TypeScript WASM metadata/loader tests. The first Rust slice mirrored macro base elevation, density, and compatibility height sampling against the then-current TypeScript terrain generator. |
-| 2026-06-01 | In progress | Added density chunk filling to the Rust/WASM core and wired the browser runtime through a narrow `TerrainChunkStreamer` density chunk generator hook. This moved the first real streaming hot path onto WASM while preserving TypeScript golden chunk tests. The playable browser path later stopped using the TypeScript terrain fallback. |
-| 2026-06-01 | In progress | Added a retained Rust/WASM density chunk store and a density-window preparation API. `TerrainChunkStreamer` now treats `loadedChunkKeys` as the density window, not just render chunks, so positive apron chunks are generated once at the streaming layer and reused by mesh builds. `npm run bench:terrain:wasm` now reports retained density-window preparation and shows prepared mesh build plus copy at about 9.7 ms median versus about 61.8 ms cold. |
-| 2026-06-01 | In progress | Added a browser module-worker pool and scheduler-style streaming loop. Each tick prioritizes nearest missing render chunks, keeps in-flight work bounded by worker count, and uses stream generations plus worker reset so tuning changes can invalidate old work immediately. This is intentionally a first worker slice; density reuse is still local to each worker's Rust store rather than a shared multi-resolution density layer. |
-| 2026-06-01 | In progress | Added explicit density-stage scheduling before render mesh jobs. The scheduler now tracks density-ready chunks and requires the 2x2x2 apron dependency before submitting a chunk mesh job, which is the first concrete shape of the future density -> LOD N -> LOD 0 state machine. |
-| 2026-06-01 | Prep complete | Split `crates/terrain_core` out of its single epic `lib.rs` into focused Rust modules for facade, field sampling, chunks, density generation, store, meshing, materials, noise, presets, and tests before starting the Rust-owned terrain streaming migration. No behavior change intended. |
-| 2026-06-01 | Started | Added the first Rust-owned terrain stream scheduler core in `terrain_core`. It models desired density and LOD0 sets, treats 2x2x2 positive-apron density chunks as LOD0 dependencies, prioritizes nearby jobs, tracks bounded in-flight density/LOD work, rejects stale completions after reset generations, prunes moved-out windows, and has Rust tests for each behavior. Browser runtime still uses the TypeScript scheduler until the next adapter slice. |
-| 2026-06-01 | In progress | Wired the Rust stream scheduler into the browser runtime through a `terrain_core.wasm` facade and TypeScript adapter. The worker-backed `TerrainChunkStreamer` asked Rust for desired density/LOD0 sets and ticked jobs, reported density and LOD completions back to Rust, and read Rust status for debug/smoke. Browser smoke asserted `schedulerRuntime: rust` with active workers. Remaining Phase 3 ownership gap at that point: TypeScript still dispatched workers and owned transferred density payload maps/render uploads. |
-| 2026-06-01 | In progress | Moved the scheduler-backed retained density payload store into Rust/WASM. Completed density jobs were copied into the main `terrain_core.wasm` density store, mesh dependency reads loaded the required apron chunks from that Rust store, and browser smoke asserted `densityStoreRuntime: rust`. Remaining Phase 3 ownership gap at that point: TypeScript still dispatched workers, copied apron payloads into worker-local WASM stores, uploaded meshes, and mutated `TerrainRenderer`. |
-| 2026-06-01 | In progress | Started the Rust render-packet bridge in `engine_core` for camera/light/player-marker snapshots and wired the browser render loop to consume the Rust camera/light packet. Terrain chunks still flowed through `TerrainRenderer` at that point; later slices moved chunk packets to Rust and deleted scene extraction. |
-| 2026-06-01 | In progress | Retired the playable app's optional TypeScript terrain fallback. Browser startup now requires `terrain_core.wasm`, the Rust stream scheduler, the Rust density store, and terrain workers. The TypeScript reference/debug code was later deleted when Rust was promoted as source of truth. |
-| 2026-06-02 | In progress | Added the first playable terrain render-packet bridge. `TerrainChunkStreamer` targeted a chunk-sink interface, the browser runtime streamed Rust/WASM worker mesh payloads into `TerrainRenderPacketStore`, and `SceneRenderExtractor` appended those packet items to `RenderWorld` instead of discovering playable terrain through `TerrainRenderer`. Browser smoke asserted `terrainRenderPacketRuntime: rust`. Later slices moved packet storage to Rust and deleted scene extraction. |
-| 2026-06-02 | In progress | Moved playable terrain mesh packet storage into Rust. `terrain_core.wasm` then validated and stored completed chunk mesh payloads by chunk coordinate/LOD, exposed packet-list and packet-load buffers, and the browser used `TerrainCoreRenderPacketStore` as the then-current WebGPU cache adapter. `TerrainChunkStreamer` passed raw mesh buffers to its sink instead of constructing `Mesh` objects. Remaining ownership gap at that point: TypeScript still owned worker dispatch, density payload transfer into workers, renderer cache objects, WebGPU upload, and scene extraction for marker/static meshes. |
-| 2026-06-02 | In progress | Moved scheduler-backed terrain packet pruning into Rust. The mesh packet store now has a retain operation exposed through `terrain_core.wasm`; the scheduler-backed streamer prunes rendered packets through that Rust store and uses Rust scheduler LOD0 ready/empty counts for status instead of treating TypeScript render/empty sets as the source of truth. |
-| 2026-06-02 | In progress | Moved the playable terrain worker queue to a Rust-owned bridge. `TerrainCoreWorkerStreamer` now replaces `TerrainChunkStreamer` in the browser app; it executes Worker jobs emitted by the Rust scheduler, loads LOD0 density dependencies from Rust-provided coordinates, stores completed density/mesh payloads in Rust, and exposes `streamerRuntime: rust` in browser smoke. At that point TypeScript still hosted browser Workers and copied payloads until the later shared-transfer slice. |
-| 2026-06-02 | In progress | Added SharedArrayBuffer-backed density dependency transfer for the playable Rust worker bridge. The dev/smoke server now enables cross-origin isolation, `TerrainCoreWorkerStreamer` reports `densityTransferMode`, and browser smoke asserts the shared path after refresh. Remaining gap: Workers are still hosted from TypeScript, and shared density payloads are still copied into worker-local WASM memory before contouring; Rust-managed wasm threads remain the next threading slice. |
-| 2026-06-02 | In progress | Moved the terrain worker-pool/request model into Rust. `terrain_core.wasm` now owns worker count, slot assignment, request IDs, in-flight task records, reset generation tokens, stale completion rejection, and mismatch detection. TypeScript still constructs browser Workers, but only through a generic worker transport; browser smoke asserts `workerPoolRuntime: rust`. |
-| 2026-06-02 | Cleanup complete | Deleted compiled legacy TypeScript terrain streaming/rendering code now superseded by the Rust scheduler/mesh packet path: `TerrainChunkStreamer`, `TerrainRenderer`, old TypeScript terrain packet store, highest-surface chunk mesher, and heightfield mesh builder/tests. |
-| 2026-06-02 | Rust terrain source of truth | Deleted the compiled TypeScript terrain generator/noise reference, TypeScript Dual Contouring/debug overlay path, and old terrain debug/variation smoke tools. At that point the app directly assembled `RenderWorld` from Rust camera/light/player-marker packets and Rust terrain mesh packets; the later `renderEngineFrame` slice retired that bridge. TypeScript still handled browser startup, input, Worker transport, shared-density wrapping, debug hooks, and the temporary render adapter. |
-| 2026-06-02 | Rust WebGPU bridge started | Added raw `engine_web.wasm` as the first Phase 5 renderer migration slice. The terrain still rendered through the temporary TypeScript `WebGpuRenderer`, but that renderer registered mesh, texture, object, resize, frame, draw, and pruning events with Rust. This bridge was then retired by the Rust/wgpu renderer slice. |
-| 2026-06-02 | Rust/wgpu renderer became playable default | Added the `wasm-bindgen`/`wgpu` renderer in `crates/engine_web`, generated `assets/wasm/engine_web/`, deleted the TypeScript `WebGpuRenderer`, raw `engine_web.wasm`, and WebGPU ambient type shim, and routed terrain/player-marker render items through Rust-owned WebGPU resources and draw submission. Browser smoke passed with first-person, refreshed, debug-fly, and streamed terrain screenshots under `artifacts/browser-smoke/2026-06-02T12-27-54-025Z/`. |
-| 2026-06-02 | Rust shader uniform packing | Moved frame/object shader uniform packing into `engine_web`. The TypeScript render adapter then sent compact frame, world-matrix, and material packets, while Rust validated packet shape, computed normal matrices, and wrote the WGSL uniform buffers. Later slices moved material packets into `RustBrowserGame`. Deleted the old TypeScript `FrameUniforms` and `ObjectUniforms` modules/tests. |
-| 2026-06-02 | TypeScript RenderWorld retired | Added Rust engine-snapshot packet builders and `renderEngineFrame` in `engine_web`. The playable app now sends the raw `engine_core.wasm` render snapshot plus direct terrain mesh packets, while Rust builds the frame packet and player-marker world matrix. Deleted the compiled TypeScript `RenderWorld`, `CameraFrame`, `Lighting`, and `engineRenderPackets` path, and stopped adapting Rust terrain packets into CPU-side `Mesh` objects. |
-| 2026-06-02 | Rust browser render facade started | Added `RustBrowserGame` in `engine_web` so Rust owns WebGPU renderer handles, object handles, stale render-resource pruning, and the debug player marker mesh/material. The terrain bridge still loads mesh packets from `terrain_core.wasm`, but TypeScript now uploads bytes by ID and submits item IDs instead of registering/passing renderer handles. |
-| 2026-06-02 | Rust material render facade started | Added Rust-owned material packet construction and a `RustBrowserGame` material registry. The terrain render bridge then submitted material IDs and world matrices per frame instead of prepacked material floats or per-item texture arrays. |
-| 2026-06-02 | Generic TypeScript render items retired | Deleted the compiled `RenderItemPacket` abstraction. The app loop now hands the Rust terrain packet source to the temporary render adapter directly, so TypeScript no longer builds a generic render item list before calling `RustBrowserGame`. |
-| 2026-06-03 | Terrain material definition moved to Rust | Deleted the compiled TypeScript `Material` model and removed material fields from the terrain packet store and worker streamer. At that point the remaining TypeScript terrain render bridge uploaded texture bytes and called Rust's terrain-specific material configuration API; Rust owned the terrain material recipe and no per-chunk material IDs were submitted from TypeScript. |
-| 2026-06-03 | Terrain texture handles moved to Rust | Deleted the compiled TypeScript `Texture` model and replaced generic texture registration with a single `upsertTerrainTextures` facade call. TypeScript still fetches and decodes checked-in JPEGs with browser APIs, but Rust owns the resulting terrain texture handles and streamed chunks no longer reference texture IDs. |
-| 2026-06-03 | Terrain mesh handles moved to Rust | Replaced generic mesh IDs with terrain chunk keys at the `RustBrowserGame` boundary. At that point TypeScript still loaded terrain mesh packet bytes from `terrain_core.wasm`, but Rust owned the terrain GPU mesh handle map, per-chunk object handles, and stale chunk resource pruning through `upsertTerrainMesh`, `destroyTerrainMesh`, and the then-temporary chunk-keyed `renderEngineFrame` call. Later slices removed chunk keys from `renderEngineFrame` and then retired the playable mesh packet-store mirror. |
-| 2026-06-03 | Terrain draw transforms moved to Rust | Deleted the temporary TypeScript terrain `worldMatrix` packet fields and stopped passing `worldMatrices` to `RustBrowserGame.renderEngineFrame`. Terrain chunks are emitted in world space today, so Rust now supplies identity terrain world matrices internally before uniform packing. |
-| 2026-06-03 | Terrain renderer vertex stride moved to Rust | Stopped carrying `floatsPerVertex` through TypeScript terrain render packets and the browser game facade. Rust/wgpu now supplies the fixed terrain vertex stride when registering chunk meshes, leaving TypeScript to transport only chunk keys plus raw vertex/index arrays. |
-| 2026-06-03 | Per-frame terrain render source retired | The playable frame loop stopped walking `terrain_core.wasm` mesh packets or passing terrain chunk keys into `RustBrowserGame.renderEngineFrame`. At that point the streamer still mirrored completed/removed chunks into both the Rust terrain packet store and Rust/wgpu facade as stream events; the later playable mesh packet-store mirror slice removed that duplicate handoff. |
-| 2026-06-03 | Active browser player/tick moved to Rust game facade | Added Rust-owned `BrowserGameState` inside `engine_web`, backed by `engine_core` and `terrain_core`. The playable app deleted `RustPlayerController`, stopped loading `engine_core.wasm` for runtime player/camera state, forwards input axes to `RustBrowserGame.tick`, reads player position/mode from Rust for streaming/debug hooks, and calls `renderGameFrame` without passing an engine snapshot. Browser smoke passed after refresh with the Rust player/render/renderer path active. |
-| 2026-06-03 | App terrain wiring hidden behind browser game runtime | Added `RustBrowserGameRuntime` so `src/app/game.ts` no longer constructs the terrain stream scheduler, density store, mesh packet store, worker client, mirrored terrain sink, texture upload path, or height sampler directly. The app now creates one runtime and calls `tick`/`renderFrame`, while the remaining TypeScript terrain worker and asset transport live below that shell boundary. |
-| 2026-06-03 | Playable mesh packet-store mirror retired | Completed terrain worker mesh results now go straight to `RustBrowserGame` through the adapter sink. The adapter tracks live terrain chunk keys for debug/smoke, while Rust/wgpu owns the actual mesh handles and active draw set. The older `terrain_core.wasm` mesh packet store remains tested but is no longer used by the playable browser handoff. |
-| 2026-06-03 | Browser bridge moved out of game components | Moved `TerrainCoreWorkerStreamer` and browser game input types into `src/engine/web`, deleting the live `src/game/components` source files. Remaining TypeScript terrain code is now framed as browser/WASM shell utility code, not scene/game component architecture. |
-| 2026-06-06 | TypeScript terrain boundary clarified | Added the now-archived `docs/RUST_CONVERSION_PLAN.md` and updated the terrain plan to frame the remaining TypeScript as browser Worker transport, density payload movement, texture asset decode, and debug/smoke mirrors. Terrain generation, meshing, scheduling, density storage, and WebGPU rendering are Rust-owned; the next cleanup should delete a whole terrain-aware TypeScript category rather than add another wrapper. |
-| 2026-06-06 | Playable terrain stream moved into `engine_web` | Added Rust `BrowserTerrainStream` inside `engine_web`, exposed `terrain_core` stream/mesh APIs as a Rust library surface, and deleted the playable TypeScript worker bridge plus public terrain mesh upload methods. The browser frame path now uses `tick(frame)` for player/camera, terrain streaming, mesh upload/pruning, and render submission. Remaining terrain TypeScript ownership is generic texture-array image decoding plus UI/debug hooks. |
-| 2026-06-06 | Terrain texture ownership moved into `engine_web` | Added Rust terrain texture manifest parsing and texture-array validation, deleted the terrain-specific TypeScript manifest/texture upload path, and replaced public `upsertTerrainTextures` with create-time generic browser asset loading. TypeScript now only decodes Rust-provided texture URL lists into RGBA arrays. |
-
-## Cross-Cutting Validation
-
-Every terrain milestone should preserve these checks:
-
-- `npm test`
-- `cargo test -p terrain_core` when Rust terrain code changes
-- `npm run check:shaders` when shader artifacts change
-- `npm run check:wasm` when Rust/WASM terrain artifacts change
-- `npm run smoke:rust` for terrain visual, camera framing, Rust render,
-  streaming, material, seam, preset, or chunk-boundary image changes
-- `npm run smoke:browser` for browser integration changes such as wasm loading,
-  WebGPU canvas setup, browser asset fetch/decode, HUD, reload, and input
-  forwarding
-- `npm run smoke:terrain-seams` for Dual Contouring seam, topology, material
-  seam, or chunk-boundary changes; this runs Rust offscreen image smoke
-- `npm run smoke:terrain-presets` for terrain preset, descriptor, biome,
-  material-classification, or terrain visual changes; this runs Rust offscreen
-  image smoke
-- `npm run bench:terrain:rust` with before/after reports for performance-sensitive
-  density, meshing, streaming, or render-upload changes
-- `git diff --check`
-
-Terrain-specific regression suites to build over time:
-
-- Determinism fixtures for sample fields.
-- Chunk seam fixtures for density, gradient, topology, and material weights.
-- Dual Contouring fixtures for flat plane, sphere, diagonal plane, sharp corner,
-  thin wall, cave, arch, and repeated edits.
-- Distribution fixtures for macro landforms and biome weights.
-- Hydrology graph fixtures for flow validity.
-- Screenshot fixtures for representative terrain presets.
-
-## Deferred Work
-
-Do not start these until the earlier systems are working and measured:
-
-- Full spherical planet/cube-sphere runtime.
-- Full hydraulic erosion simulation.
-- Runtime virtual texturing.
-- GPU terrain meshing.
-- Sparse voxel octree cold storage.
-- Large vegetation/foliage system.
-
-These are all compatible with the target architecture, but doing them too early
-would make the system harder for AI agents to understand and test.
-
-## Open Questions
-
-| Question | Current Leaning | Notes |
-|---|---|---|
-| Local terrain first or planet patches now? | Local terrain first | Keep APIs planet-compatible. |
-| OpenSimplex2 vs current Simplex only? | Current Simplex first, add variants if needed | Avoid algorithm churn before debug tools. |
-| Material weights in vertex data or chunk side buffer? | Start with vertex data | Simpler for current renderer. |
-| Terrain collision source? | Near render mesh first, then simplified collision mesh | Needs player movement upgrade. |
-| When Rust/WASM? | Now for terrain hot paths | Realtime iteration is blocking believable terrain tuning; every migrated slice still needs golden tests against TypeScript until promoted. |
+# Multi-Resolution Terrain View Distance
+
+This ExecPlan is a living document. The sections Progress, Surprises &
+Discoveries, Decision Log, and Outcomes & Retrospective must stay up to date as
+work proceeds.
+
+Once this plan is started, proceed independently for as long as possible. Return
+to the user only for critical input that cannot be safely inferred, or when the
+plan is complete.
+
+Maintain this document in accordance with `PLANS.md`.
+
+## Purpose / Big Picture
+
+The goal of this terrain phase is to make the world feel much larger by replacing
+the current small same-detail terrain window with a sparse, rootless,
+multi-resolution grid. Near the player, terrain should render at the same
+resolution the game has today. Farther away, terrain should render as coarser
+levels of detail, so distant mountains and landforms remain visible without
+requiring thousands of highest-detail chunks.
+
+Success means a player can move through the world and see a long view distance.
+Terrain should stream in the right order, never leave holes in the intended
+visible cover, and render the correct level of detail for each distance band.
+The coarsest loaded level is not a single root node; it is an infinite grid of
+coarse nodes around the player. Every level is a grid, and each coarser node can
+represent up to eight generated or ungenerated children at the next finer level.
+
+For this plan, `lod = 0` is the current highest-detail terrain. Larger `lod`
+values are coarser. A `lod = 1` node covers a 2x2x2 group of `lod = 0` child
+nodes, `lod = 2` covers a 2x2x2 group of `lod = 1` child nodes, and so on.
+Every generated fine node must have its coarser parent ready first. That
+parent-before-child invariant gives the renderer a fallback surface while finer
+detail is generated and is the basis for smooth streaming transitions.
+
+## Progress
+
+- [x] (2026-06-07 14:08+01:00) Archived the historical terrain plan to
+  `docs/archived/TERRAIN_PLAN_2026-06-07.md` and created this focused
+  view-distance ExecPlan.
+- [x] (2026-06-07 14:20+01:00) Added concrete API change examples for
+  node-keyed LOD identity, scheduling, mesh generation, runtime stream updates,
+  renderer IDs, debug snapshots, and architecture verification tests.
+- [x] (2026-06-07 14:44+01:00) Milestone 1 complete: introduced
+  `TerrainNodeKey`, LOD band stream config, node-keyed density/mesh jobs,
+  parent-before-child scheduler ordering, per-LOD status summaries, and LOD0
+  compatibility adapters for the fixture facade and current browser stream.
+- [x] (2026-06-07 15:12+01:00) Milestone 2 complete: added node mesh generation,
+  converted browser stream mesh updates/removals and Rust/wgpu terrain handles
+  to `TerrainNodeKey`, added node/LOD debug snapshot fields, preserved LOD0
+  chunk compatibility fields, and proved mixed LOD0/LOD1 runtime mesh keys in
+  tests.
+- [x] (2026-06-07 15:27+01:00) Milestone 3 complete: enabled conservative LOD0,
+  LOD1, and LOD2 default bands; split generated mesh caching from renderer
+  visibility; selected hole-free parent fallback cover until child groups are
+  ready; exposed node keys through the browser debug hook; and made browser
+  smoke assert multiple rendered terrain LODs.
+- [x] (2026-06-07 16:02+01:00) Milestone 4 complete: added far-view and
+  LOD-boundary Rust image smoke scenarios, extended smoke and benchmark reports
+  with multi-LOD node counts, verified browser smoke/benchmark/coverage gates,
+  and recorded final review evidence.
+
+## Surprises & Discoveries
+
+- Observation: the previous `docs/TERRAIN_PLAN.md` had become a combined
+  research memo, migration history, progress log, and active plan.
+  Evidence: it is archived as `docs/archived/TERRAIN_PLAN_2026-06-07.md`.
+- Observation: the current terrain mesh entry point already accepts `cell_size`,
+  which gives the first coarse-LOD implementation a simple path: keep 32x32x32
+  voxel cells per node, but increase world-space cell size for coarser LODs.
+  Evidence: `crates/terrain_core/src/mesh.rs` exposes
+  `build_chunk_mesh(seed, preset, coord, cell_size)`.
+- Observation: the runtime stream and renderer can process coarser nodes and
+  now use them by default through conservative LOD0, LOD1, and LOD2 bands.
+  Evidence:
+  `browser_terrain_stream_generates_unique_mesh_keys_across_lods` creates LOD0
+  and LOD1 bands, settles the stream, and asserts rendered node keys include
+  both LOD0 and LOD1 keys; `browser_terrain_stream_default_bands_render_multiple_lods_after_settling`
+  asserts the default stream renders more node LODs than LOD0 chunks.
+- Observation: Milestone 1 made `stream.rs` exceed the review skill's 600-line
+  split-pressure threshold.
+  Evidence: local milestone review measured `crates/terrain_core/src/stream.rs`
+  above 600 lines before extracting public stream types to
+  `crates/terrain_core/src/stream_types.rs`; after the split, `stream.rs` is
+  533 lines.
+- Observation: the standalone fixture facade can remain LOD0-compatible while
+  the Rust library scheduler becomes node-keyed.
+  Evidence: `ofg_stream_configure` still builds a single LOD0 band, while
+  `TerrainStreamJob` and scheduler completion APIs now use `TerrainNodeKey`.
+- Observation: Milestone 2 initially left the native Rust smoke harness on the
+  old stream update field names.
+  Evidence: `npm run test:rust` failed in
+  `crates/ofg_test_harness/src/render_smoke/scenarios.rs` on
+  `removed_coords` and `mesh_update.coord`; the harness now translates LOD0
+  `removed_nodes` and node-keyed upserts for its current chunk coverage checks.
+- Observation: Milestone 2 review again put pressure on scheduler file size.
+  Evidence: after runtime work, `crates/terrain_core/src/stream.rs` measured
+  615 lines; moving pure config validation and priority helpers to
+  `crates/terrain_core/src/stream_helpers.rs` reduced it to 570 lines.
+- Observation: parent fallback needs cached mesh data separate from renderer
+  visibility.
+  Evidence: `BrowserTerrainStream` now stores generated non-empty node meshes in
+  `mesh_cache` and tracks only renderer-submitted nodes in `visible_nodes`, so a
+  parent can be hidden and restored without regenerating the terrain mesh.
+- Observation: the native smoke harness can prove multi-LOD visibility without
+  weakening the existing boot, preset, and seam coverage checks.
+  Evidence: `ScenarioStreamMode::Lod0` keeps legacy coverage scenarios on exact
+  LOD0 chunk maps, while the new `ScenarioFilter::Lods` group uses the default
+  multi-LOD stream and reports rendered node counts per LOD.
+- Observation: the default LOD0/LOD1/LOD2 bands already give a much larger
+  visible world span than the old LOD0 window without adding LOD3 yet.
+  Evidence: `npm run bench:terrain:rust` wrote
+  `artifacts/terrain-bench/run-1780843414-534/report.json`, where the
+  `multiLod` probe rendered 104 nodes, reached max rendered LOD 2, and reported
+  a 1152m by 1152m visible world span.
+- Observation: coverage initially flagged the new stream config/error surface.
+  Evidence: the first `npm run coverage:rust` run listed
+  `crates/terrain_core/src/stream_types.rs` below the filtered 90% attention
+  threshold; `terrain_stream_config_helpers_and_errors_are_stable` now covers
+  the config helper and stable diagnostic messages, and the rerun listed no
+  files below threshold.
+
+## Decision Log
+
+- Decision: keep the active terrain plan at `docs/TERRAIN_PLAN.md` and archive
+  the old long-form plan under `docs/archived/`.
+  Rationale: existing repo instructions point terrain work at
+  `docs/TERRAIN_PLAN.md`, while the old file remains valuable historical
+  context.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: use `lod = 0` for the current highest-detail terrain and increasing
+  integers for coarser terrain.
+  Rationale: the existing scheduler, tests, and mesh packet store already use
+  LOD0 language. Keeping that convention minimizes churn.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: model the terrain as a sparse grid at every LOD, not as a rooted
+  octree.
+  Rationale: the player needs a moving local world window, not a fixed world
+  root. A rootless grid preserves infinite-world behavior while still giving
+  parent/child relationships.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: require coarser parent nodes to be ready before scheduling finer
+  child mesh generation.
+  Rationale: when a child is not ready, the parent can still render the same
+  broad terrain volume. This prevents holes during movement and reset.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: the first visual transition target is hole-free, stable cover with
+  bounded popping; aesthetic geomorph fading is future work unless this phase's
+  smoke captures prove it is necessary.
+  Rationale: cross-LOD Dual Contouring transition meshes are substantial. The
+  next useful terrain win is long view distance with reliable coverage, followed
+  by transition polish if needed.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: make the API change reviewable through code-shaped examples in this
+  plan before implementation starts.
+  Rationale: this phase changes architecture, not just constants. Concrete
+  proposed Rust and TypeScript shapes let reviewers verify ownership boundaries,
+  naming, and compatibility before code lands.
+  Date/Author: 2026-06-07 / User and Codex.
+- Decision: keep the default browser terrain LOD bands at LOD0 during Milestone
+  2, even though the stream can generate and render coarser nodes under an
+  explicit test configuration.
+  Rationale: enabling long-distance bands before parent fallback and cross-LOD
+  transition policy would make visual behavior harder to reason about. Milestone
+  3 owns the default view-distance bands and no-hole selection behavior.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: Milestone 3 default view distance uses LOD0 radius 1 with vertical
+  offsets `[-2, -1, 0, 1]`, LOD1 radius 2 with vertical offsets `[-1, 0, 1]`,
+  and LOD2 radius 4 with vertical offset `[0]`.
+  Rationale: this expands visible terrain far beyond the old one-chunk LOD0
+  radius while keeping synchronous per-frame work and smoke-test wait time
+  bounded. Milestone 4 benchmarks can tune these radii or add LOD3 once the
+  report includes multi-LOD timing.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: the first cross-LOD transition strategy is conservative parent
+  fallback, not geomorphing or transition meshes.
+  Rationale: a parent remains visible until all eight desired children are
+  generated or proven empty, so the renderer never removes broad cover before a
+  replacement exists. This avoids holes and duplicate overlap in full child
+  groups; visual transition polish remains future work if smoke captures show
+  unacceptable popping or cracks.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: keep the default view-distance bands at LOD0/LOD1/LOD2 for this
+  phase rather than adding LOD3 immediately.
+  Rationale: the benchmark already proves a 1152m by 1152m visible span with
+  mixed rendered LODs and no missing nodes in the settled debug summary. LOD3
+  and distant-mountain composition can be a follow-up once transition polish and
+  streaming budgets are tuned from this baseline.
+  Date/Author: 2026-06-07 / Codex.
+- Decision: add a dedicated native smoke `Lods` scenario group instead of
+  changing the legacy boot, preset, and seam scenarios to multi-LOD mode.
+  Rationale: the old scenarios still need precise LOD0 chunk coverage for seam
+  and preset regressions. A separate group makes far-view assertions explicit
+  and keeps the existing checks stable.
+  Date/Author: 2026-06-07 / Codex.
+
+## Outcomes & Retrospective
+
+Milestone 1 landed the terrain-core architecture foundation only. The playable
+browser terrain is intentionally still configured as LOD0, so user-visible view
+distance has not changed yet. Remaining gaps are Milestone 2 runtime node-keyed
+mesh upload/rendering, Milestone 3 visible-set and transition behavior, and
+Milestone 4 smoke/benchmark/coverage acceptance.
+
+Milestone 2 landed the runtime node-keyed mesh path. `terrain_core` now exposes
+`build_node_mesh`, `engine_web` streams mesh upserts/removals by
+`TerrainNodeKey`, Rust/wgpu mesh and object IDs use stable node strings, and
+debug snapshots expose node keys plus per-LOD summaries while preserving legacy
+LOD0 chunk fields. At that point, user-visible view distance was still unchanged
+because default bands and parent fallback belonged to Milestone 3.
+
+Milestone 3 made view distance user-visible in the default browser runtime. The
+stream now generates LOD0/LOD1/LOD2 bands, caches generated meshes, submits only
+the selected visible cover to the renderer, and keeps parent cover visible until
+desired children are ready or empty. Browser smoke now waits for and asserts a
+Rust-reported multi-LOD terrain frame.
+
+Milestone 4 completed the validation layer for this view-distance slice. Native
+Rust image smoke now captures far-view and LOD-boundary scenes with rendered
+LOD0/LOD1/LOD2 node counts in the report, the Rust benchmark records multi-LOD
+stream counts, mesh timings by LOD, and visible world span, browser smoke still
+passes against the Rust-owned multi-LOD debug snapshot, and Rust coverage no
+longer lists modified implementation files below the filtered attention
+threshold. Remaining work is future terrain polish, not required acceptance for
+this ExecPlan: add LOD3+ distant mountain composition when budgeted, and replace
+bounded parent/child popping with geomorphing, skirts, or transition meshes if
+visual review demands it.
+
+## Contract and Quality Baseline
+
+This plan preserves these active contracts:
+
+- `OFG-API-001`: browser code continues to use `RustBrowserGame.create`,
+  `resize`, `tick`, `command`, and `debugSnapshot`. New terrain debug data must
+  be exposed through `debugSnapshot()` rather than new TypeScript terrain owners.
+- `OFG-API-003`: browser debug hooks may expose Rust-assembled terrain LOD
+  status, but must not compute desired terrain sets, visibility, generation, or
+  renderer state in TypeScript.
+- `OFG-API-004`: terrain vertex layout remains 19 `f32` values per vertex unless
+  a milestone explicitly updates every Rust and WGSL layout site plus shader
+  tests.
+- `OFG-API-006`: the standalone `terrain_core.wasm` artifact remains fixture
+  only. Runtime terrain scheduling, density, meshing, and rendering stay inside
+  Rust and `engine_web`.
+- `OFG-API-009`: TypeScript must not regain terrain generation, density
+  sampling, stream scheduling, mesh generation, WebGPU resource ownership, or
+  terrain render submission.
+
+If a milestone changes public debug fields, update `docs/API_CONTRACTS.md` in
+the same milestone. If a milestone changes the terrain architecture, update
+`docs/ARCHITECTURE.md` before marking the milestone complete.
+
+Every implementation milestone must satisfy the default Rust coverage attention
+gate for modified implementation files. Run `npm run coverage:rust` before the
+plan is complete and confirm changed implementation files do not appear in the
+default filtered output, or record an explicit exception here with rationale.
+
+## Context and Orientation
+
+Current terrain is Rust-owned and same-LOD. `crates/terrain_core/src/stream.rs`
+contains `TerrainStreamScheduler`, which currently builds one desired LOD0 render
+set plus a wider density dependency set. It submits density jobs first, then
+LOD0 jobs only after the 2x2x2 positive-apron density dependencies are ready.
+
+`crates/engine_web/src/terrain_stream.rs` owns the playable browser stream inside
+Rust. It creates the scheduler with a one-chunk horizontal radius and vertical
+offsets `[-2, -1, 0, 1]`, executes jobs synchronously in `tick`, calls
+`build_chunk_mesh` for LOD0 meshes, and returns mesh upserts/removals to the
+Rust/wgpu renderer.
+
+`crates/terrain_core/src/chunk.rs` defines `TerrainChunkCoord`,
+`terrain_chunk_origin`, `terrain_chunk_coord_containing_position`, and
+`terrain_chunk_key`. These are currently LOD0-oriented names, but the coordinate
+math already accepts a `cell_size`, so the same coordinate type can be reused
+inside an explicit `TerrainNodeKey`.
+
+`crates/terrain_core/src/mesh.rs` builds a 32x32x32-cell Dual Contouring mesh
+with a 2x2x2 neighbor density apron and same-LOD seam ownership. It takes
+`cell_size`, so `lod = n` can initially use
+`cell_size = base_cell_size * 2^n` while keeping the same sample count per node.
+
+`crates/ofg_test_harness/src/render_smoke/scenarios.rs` builds deterministic
+terrain meshes with `BrowserTerrainStream` for native Rust image smoke. This is
+the right place to add long-view and LOD-boundary image scenarios because terrain
+visual verification belongs in Rust smoke rather than browser-side terrain
+clients.
+
+Important definitions for this plan:
+
+- A terrain node is one generated or empty chunk at a specific LOD and 3D grid
+  coordinate.
+- A parent node is the next coarser node, with `lod + 1` and coordinate
+  `floor_div(child_coord, 2)` on each axis.
+- A child group is the up-to-eight finer nodes covered by one parent.
+- The loaded set is every node whose density or mesh state is retained.
+- The visible set is the subset of ready non-empty nodes submitted to the
+  renderer this frame.
+- A missing node is desired but not generated.
+- An empty node has generated density/mesh work and proven it has no renderable
+  surface.
+- A transition boundary is any face where adjacent visible terrain is at
+  different LODs.
+
+## Plan of Work
+
+Milestone 1 introduces the multi-resolution node model without trying to solve
+all rendering at once. Add `TerrainNodeKey { lod, coord }` in
+`crates/terrain_core`, plus helpers for node key strings, cell size per LOD,
+world bounds, parent keys, child keys, and floor division for negative
+coordinates. Replace scheduler internals that assume `desired_lod0` with
+node-keyed desired mesh sets. The scheduler must build a rootless set of desired
+nodes from configurable LOD bands, schedule coarser parents before finer
+children, preserve density-before-mesh ordering per node, reject stale
+completions after reset, and expose per-LOD status counts. Existing LOD0 tests
+must keep passing, and new tests must prove parent/child mapping, no-root desired
+sets, parent-before-child scheduling, empty parent handling, and pruning.
+
+Milestone 2 makes the runtime render real coarser nodes. Add a mesh entry point
+that takes `TerrainNodeKey` and base cell size, derives the effective cell size
+from `lod`, and reuses the current 32x32x32 density and Dual Contouring path.
+Update `BrowserTerrainStream` so mesh state, removal, upsert, status, and debug
+keys are node-keyed rather than chunk-only. Keep existing `terrainChunkKeys`
+debug output compatible for LOD0, and add explicit node-level fields such as
+`loadedTerrainNodeKeys`, `terrainNodeKeys`, and `terrainLodSummary`. Update the
+Rust/wgpu terrain mesh handle map to use stable node IDs, for example
+`terrain:lod:x,y,z`, so LOD0 and coarser nodes cannot collide. Native tests must
+prove the stream can upload and prune both LOD0 and coarser meshes.
+
+Milestone 3 implements the actual view-distance behavior. Define conservative
+LOD bands in `engine_web`, such as near LOD0, mid LOD1, far LOD2, and distant
+LOD3 or LOD4, with hysteresis so walking across a chunk boundary does not churn
+the whole visible set. The scheduler should keep parent cover rendered until a
+child group is ready enough to replace it, and should fall back to the parent if
+children are missing, empty, or pruned. Add cross-LOD transition safety at
+visible boundaries. The first acceptable implementation is a Rust-owned,
+tested no-hole strategy: keep parent cover alive while children arrive, avoid
+rendering duplicate overlapping regions where possible, and add transition
+closure geometry or skirts where mixed-LOD screenshots show cracks. Record the
+chosen seam strategy in the Decision Log after the implementation proves what is
+needed.
+
+Milestone 4 validates and tunes. Extend Rust image smoke with a far-view
+scenario and an LOD-boundary scenario that records rendered LOD counts, total
+node counts, vertex/index counts, and screenshot paths. Extend the Rust terrain
+benchmark so it reports multi-LOD desired node counts, prepared density counts,
+mesh timings by LOD, and total visible world span. Browser smoke should continue
+to validate startup, reload, input, WebGPU rendering, and Rust debug snapshots,
+and should assert that the terrain debug snapshot reports at least two LODs
+after the stream settles. Update active docs and run `milestone-review` before
+marking each milestone complete.
+
+## Concrete Steps
+
+Work from `C:\dev\ofg-terrain`.
+
+1. Before implementation, inspect the current diff and tests:
+
+       git -c safe.directory=C:/dev/ofg-terrain status --short
+       npm run test:rust
+
+2. For Milestone 1, edit:
+
+       crates/terrain_core/src/chunk.rs
+       crates/terrain_core/src/stream.rs
+       crates/terrain_core/src/facade.rs, only if fixture stream buffers need node LOD fields
+       crates/terrain_core/src/tests.rs
+
+   Expected new behavior: scheduler tests show desired nodes across multiple
+   LODs, parent nodes are scheduled before child nodes, and reset/prune behavior
+   still rejects stale completions.
+
+3. For Milestone 2, edit:
+
+       crates/terrain_core/src/mesh.rs
+       crates/terrain_core/src/density.rs, only if density-store keys need node-aware helpers
+       crates/engine_web/src/terrain_stream.rs
+       crates/engine_web/src/wgpu_renderer.rs
+       crates/engine_web/src/tests.rs
+
+   Expected new behavior: `BrowserTerrainStream` can produce at least one LOD0
+   mesh and one coarser mesh in a deterministic test, and renderer mesh handles
+   remain stable and unique by LOD node key.
+
+4. For Milestone 3, edit:
+
+       crates/engine_web/src/terrain_stream.rs
+       crates/terrain_core/src/stream.rs
+       crates/terrain_core/src/mesh.rs, if transition geometry is needed
+       crates/terrain_core/src/tests.rs
+       crates/engine_web/src/tests.rs
+
+   Expected new behavior: moving the stream center keeps a complete visible
+   cover, parent nodes remain available until child nodes are ready, and mixed
+   LOD boundaries do not create visible holes in targeted Rust smoke captures.
+
+5. For Milestone 4, edit:
+
+       crates/ofg_test_harness/src/render_smoke/scenarios.rs
+       crates/ofg_test_harness/src/render_smoke/report.rs
+       crates/ofg_test_harness/src/terrain_bench.rs
+       tools/browser-smoke.mjs, only for debug snapshot assertions
+       docs/API_CONTRACTS.md, if debug contract fields change
+       docs/ARCHITECTURE.md
+       docs/TERRAIN_PLAN.md
+
+   Expected new behavior: reports include multi-LOD node counts, the Rust smoke
+   screenshots show far terrain, browser smoke observes multiple Rust-owned LODs,
+   and this ExecPlan records final outcomes.
+
+## Milestone Review
+
+After each milestone:
+
+1. Update this ExecPlan's Progress, Surprises & Discoveries, Decision Log, and
+   Outcomes & Retrospective.
+2. Update changed active docs or API contracts.
+3. Run the repo-local `milestone-review` skill against the milestone diff and
+   this ExecPlan.
+4. Apply required findings before marking the milestone complete, or record a
+   rejected finding with rationale in the Decision Log.
+5. Re-run relevant validation commands.
+6. Record commands, artifact paths, and remaining risks in this plan.
+
+## Validation and Acceptance
+
+The plan is accepted only when these observable behaviors are true:
+
+- The terrain stream debug snapshot reports multiple LODs loaded and rendered
+  after settling near the default spawn.
+- The visible terrain cover extends far beyond the old one-chunk horizontal
+  LOD0 radius while keeping near terrain at current detail.
+- Moving the player across multiple chunk centers does not produce holes in the
+  intended terrain cover.
+- Coarser nodes are generated before finer child nodes, and tests prove stale
+  child completions after reset are rejected.
+- Empty nodes are tracked and do not repeatedly regenerate every tick.
+- Renderer mesh/object keys are unique across LODs and stale nodes are pruned.
+- Rust image smoke includes a far-view capture and an LOD-boundary capture with
+  nonblank terrain pixels and multiple rendered LOD counts in the report.
+- Browser smoke still passes, including reload, input forwarding, WebGPU canvas
+  rendering, Rust runtime sentinels, and terrain debug status.
+
+Run these commands before completing the plan:
+
+    npm run test:rust
+    npm run test:ts
+    npm test
+    npm run bench:terrain:rust
+    npm run smoke:rust
+    npm run smoke:terrain-seams
+    npm run smoke:browser
+    npm run coverage:rust
+    git diff --check
+
+If shader code or terrain vertex layout changes, also run:
+
+    npm run check:shaders
+
+If WASM fixture exports, generated bindings, or build artifacts change, also
+run:
+
+    npm run check:wasm
+    npm run build:wasm
+
+For coverage, the default filtered `npm run coverage:rust` output must not list
+modified implementation files. If a file remains below the attention threshold,
+record the exception and rationale in Outcomes & Retrospective before stopping.
+
+## Idempotence and Recovery
+
+The implementation should remain restartable. Stream resets must bump
+generations so stale density and mesh work is ignored. Changing LOD band
+settings should clear or reconcile loaded node sets without reusing incompatible
+mesh handles. Generated terrain remains deterministic from seed, preset, node
+key, and cell size, so failed jobs can be retried.
+
+If a milestone destabilizes rendering, set the runtime LOD config back to a
+single LOD0 band while keeping the tested node-key helpers. That rollback path
+should preserve the current playable behavior while allowing the LOD scheduler
+work to be debugged separately.
+
+Do not delete the archived historical plan. Do not restore TypeScript terrain
+workers, terrain schedulers, mesh builders, or WebGPU terrain ownership as a
+fallback.
+
+## Artifacts and Notes
+
+Historical terrain context is archived at
+`docs/archived/TERRAIN_PLAN_2026-06-07.md`.
+
+Expected artifact locations during implementation:
+
+- Rust terrain benchmark reports under `artifacts/terrain-bench/`.
+- Rust image smoke screenshots and reports under `artifacts/rust-smoke/`.
+- Browser smoke screenshots and reports under `artifacts/browser-smoke/`.
+- Rust coverage summaries under `artifacts/coverage/rust/`.
+
+When milestones complete, paste concise evidence here: command names, pass/fail
+summary, relevant report paths, and any important timing or screenshot notes.
+
+Milestone 1 evidence:
+
+- `cargo test -p terrain_core`: passed before widening validation.
+- `cargo test -p engine_web`: passed before widening validation.
+- `npm run test:rust`: passed after the node-keyed scheduler, type split,
+  architecture doc update, and warning cleanup.
+- `git -c safe.directory=C:/dev/ofg-terrain diff --check`: passed.
+
+Milestone review:
+
+- Scope: Milestone 1 node-keyed terrain stream scheduler in `terrain_core`,
+  LOD0 compatibility adapters in `terrain_core` facade and `engine_web`
+  stream setup, active architecture doc update, and this ExecPlan.
+- Reviewers: contract, code quality, legacy, correctness, and validation passes
+  were performed locally. Sub-agent tools were discoverable, but the tool rules
+  allow spawning only when the user explicitly requests delegated/parallel
+  agents, so no sub-agents were spawned.
+- Required findings fixed: split `crates/terrain_core/src/stream.rs` by moving
+  public stream types to `crates/terrain_core/src/stream_types.rs`; updated
+  `docs/ARCHITECTURE.md` so active docs no longer describe the scheduler as
+  LOD0-only; hardened and documented `crates/terrain_core/src/node.rs` helpers;
+  removed an unused re-export warning and reran validation.
+- Follow-ups recorded: none for Milestone 1.
+- Rejected findings: no rejected findings.
+- Remaining risk at the time: the runtime still rendered only LOD0 because
+  mesh updates, renderer keys, and debug snapshots had not yet been converted
+  to `TerrainNodeKey`. Milestones 2 and 3 have since addressed this.
+
+Milestone 2 evidence:
+
+- `cargo test -p terrain_core`: passed after adding `build_node_mesh` and the
+  coarse-cell-size equivalence test.
+- `cargo test -p engine_web`: passed after converting browser stream updates to
+  `TerrainNodeKey` and adding
+  `browser_terrain_stream_generates_unique_mesh_keys_across_lods`.
+- `npm run test:ts`: passed after installing locked npm dependencies with
+  `npm ci`; this command rebuilt wasm artifacts, compiled app/test TypeScript,
+  and ran 62 mocha tests.
+- `npm run test:rust`: passed after updating the Rust smoke harness to consume
+  node-keyed stream updates for its current LOD0 coverage map.
+- `npm run check:wasm`: passed after generated wasm artifacts were refreshed.
+- `git -c safe.directory=C:/dev/ofg-terrain diff --check`: passed.
+
+Milestone 2 review:
+
+- Scope: node mesh generation in `terrain_core`; node-keyed
+  `BrowserTerrainStream` updates/removals/status; Rust/wgpu node-keyed terrain
+  mesh handles, object IDs, and debug snapshot fields; TypeScript debug types
+  and adapter fixture updates; Rust smoke harness compatibility; active API and
+  architecture docs; generated wasm artifacts.
+- Reviewers: contract, code quality, legacy, correctness, and validation passes
+  were performed locally. Sub-agent tools were not used because this milestone
+  review was plan-required rather than an explicit user request for delegated
+  reviewers.
+- Required findings fixed: updated `docs/API_CONTRACTS.md` for
+  `loadedTerrainNodeKeys`, `terrainNodeKeys`, and `terrainLodSummary`; updated
+  `docs/ARCHITECTURE.md` so runtime mesh identity is no longer described as
+  chunk-keyed; updated the Rust smoke harness off the removed `removed_coords`
+  and `mesh_update.coord` fields; split pure stream helpers into
+  `crates/terrain_core/src/stream_helpers.rs`, reducing `stream.rs` from 615 to
+  570 lines; reran validation.
+- Follow-ups recorded: `crates/engine_web/src/wgpu_renderer.rs` remains a
+  pre-existing oversized wasm facade at 2439 lines. Milestone 2 kept renderer
+  edits scoped to terrain node IDs and debug conversion; a future renderer
+  decomposition should be planned before broadening that file again.
+- Rejected findings: no rejected findings.
+- Remaining risk at the time: default gameplay still rendered only LOD0.
+  Milestone 3 has since enabled distance bands and parent fallback cover.
+
+Milestone 3 evidence:
+
+- `cargo test -p terrain_core`: passed after adding the scheduler
+  `mesh_generated` cover query.
+- `cargo test -p engine_web`: passed after adding
+  `browser_terrain_stream_keeps_parent_visible_until_children_are_ready` and
+  `browser_terrain_stream_default_bands_render_multiple_lods_after_settling`.
+- `npm run test:ts`: passed after exposing terrain node-key debug hooks in
+  `src/app/game.ts` and rebuilding wasm artifacts.
+- `npm run smoke:browser`: passed and wrote screenshots/report under
+  `artifacts/browser-smoke/2026-06-07T14-23-52-877Z`; browser smoke now waits
+  for `terrainStreamStatus.maxRenderedLod >= 1` and mixed `terrainNodeKeys`.
+- `npm run smoke:rust`: passed and wrote screenshots/report under
+  `artifacts/rust-smoke/run-1780842288-292`; current native smoke scenarios use
+  explicit LOD0 bands until Milestone 4 adds far-view and LOD-boundary image
+  scenarios.
+- `npm run test:rust`: passed after all Milestone 3 edits.
+- `npm run check:wasm`: passed after wasm artifacts were refreshed.
+- `git -c safe.directory=C:/dev/ofg-terrain diff --check`: passed.
+
+Milestone 3 review:
+
+- Scope: default multi-LOD bands in `BrowserTerrainStream`; generated mesh cache
+  plus visible renderer set; parent fallback selection; browser debug hook node
+  keys; browser smoke multi-LOD assertions; active architecture and this
+  ExecPlan.
+- Reviewers: contract, code quality, legacy, correctness, and validation passes
+  were performed locally. Sub-agent tools were not used because this milestone
+  review was plan-required rather than an explicit user request for delegated
+  reviewers.
+- Required findings fixed: updated `docs/ARCHITECTURE.md` so it no longer says
+  the default playable stream remains LOD0-only; changed
+  `Option::is_none_or` to an older-stable-compatible `match`; kept
+  `crates/engine_web/src/terrain_stream.rs`, `tools/browser-smoke.mjs`, and
+  `crates/terrain_core/src/stream.rs` under the 600-line split-pressure
+  threshold; reran validation.
+- Follow-ups recorded: the Rust smoke harness still uses explicit LOD0 stream
+  bands for its existing boot/preset/seam scenarios. Milestone 4 must add
+  dedicated far-view and LOD-boundary native smoke scenarios instead of
+  overloading those legacy coverage checks.
+- Rejected findings: no rejected findings.
+- Remaining risk: parent fallback is hole-safe but visually conservative. It
+  can pop when a full child group replaces a parent, and it does not yet add
+  geomorphing, skirts, or transition meshes for mixed-LOD boundaries.
+
+Milestone 4 evidence:
+
+- `cargo test -p ofg_test_harness render_smoke`: passed after adding the
+  `Lods` scenario group and splitting smoke scenario tests to
+  `crates/ofg_test_harness/src/render_smoke/scenarios_tests.rs`.
+- `cargo test -p ofg_test_harness terrain_bench`: passed after adding
+  `crates/ofg_test_harness/src/terrain_bench_lod.rs` and the multi-LOD report
+  fields.
+- `npm run smoke:rust`: passed and wrote screenshots/report under
+  `artifacts/rust-smoke/run-1780843124-199`. `far-view-multi-lod` rendered
+  103 nodes with max LOD 2 and LOD counts `LOD0=4, LOD1=15, LOD2=84`;
+  `lod-boundary-oblique` rendered 101 nodes with max LOD 2 and LOD counts
+  `LOD0=4, LOD1=15, LOD2=82`. Both images had nonblank pixel diversity
+  (`uniqueColorBuckets` 57 and 80 respectively).
+- `npm run bench:terrain:rust`: passed and wrote
+  `artifacts/terrain-bench/run-1780843414-534/report.json`. The `multiLod`
+  probe settled in 107 stream ticks, rendered 104 nodes, reached max LOD 2,
+  and reported a 1152m by 1152m visible world span.
+- `npm run smoke:terrain-seams`: passed and wrote screenshots/report under
+  `artifacts/rust-smoke/run-1780843478-661`.
+- `npm run smoke:terrain-presets`: passed and wrote screenshots/report under
+  `artifacts/rust-smoke/run-1780843478-783`.
+- `cargo test -p terrain_core`: passed after adding coverage for
+  `TerrainStreamConfig` helpers and `TerrainStreamError` messages.
+- `npm run coverage:rust`: passed after the coverage fix; the filtered output
+  listed no implementation files below the 90% attention threshold and wrote
+  summaries under `artifacts/coverage/rust/`.
+- `npm test`: passed after all Milestone 4 edits; this ran `npm run test:rust`
+  and `npm run test:ts`, rebuilt generated shader/WASM artifacts, and ran the
+  62 TypeScript tests.
+- `npm run smoke:browser`: passed at the end of validation and wrote
+  screenshots/report under
+  `artifacts/browser-smoke/2026-06-07T14-59-42-538Z`.
+- `npm run check:wasm`: passed after final browser smoke rebuilt the WASM
+  artifacts.
+- `git -c safe.directory=C:/dev/ofg-terrain diff --check`: passed; Git emitted
+  Windows line-ending warnings only.
+
+Milestone 4 review:
+
+- Scope: native Rust far-view and LOD-boundary smoke scenarios; smoke report
+  multi-LOD debug fields; Rust terrain benchmark multi-LOD probe/report fields;
+  coverage for new stream types; browser smoke final validation; active docs
+  and this ExecPlan.
+- Reviewers: contract, code quality, legacy, correctness, and validation passes
+  were performed locally using the repo-local `milestone-review` instructions.
+  Sub-agent tools were not used because this review was plan-required rather
+  than an explicit user request for delegated reviewers.
+- Required findings fixed: split smoke scenario tests out of
+  `crates/ofg_test_harness/src/render_smoke/scenarios.rs`, keeping the scenario
+  implementation under the 600-line split-pressure threshold; extracted the
+  multi-LOD benchmark probe to `crates/ofg_test_harness/src/terrain_bench_lod.rs`
+  instead of growing `terrain_bench.rs` past 1000 lines; added
+  `terrain_stream_config_helpers_and_errors_are_stable` after coverage initially
+  flagged `stream_types.rs`; reran validation.
+- Follow-ups recorded: `crates/engine_web/src/wgpu_renderer.rs`,
+  `crates/engine_web/src/tests.rs`, `crates/terrain_core/src/tests.rs`, and
+  `crates/terrain_core/src/facade.rs` remain pre-existing oversized files. Do
+  not broaden those files further without a split plan; future benchmark growth
+  should also continue moving focused probes out of
+  `crates/ofg_test_harness/src/terrain_bench.rs`.
+- Rejected findings: no rejected findings.
+- Remaining risk: the current transition behavior is hole-free but can still
+  pop when a complete child group replaces a parent. The default far view uses
+  LOD0/LOD1/LOD2; LOD3+ distant mountain composition and visual transition
+  polish remain future terrain phases.
+
+## Interfaces and Dependencies
+
+This phase should make one architectural shift visible in the API: terrain is
+addressed as LOD nodes, not plain chunks. The current chunk is simply `lod = 0`.
+The concrete names may adjust during implementation, but new code should keep
+this shape unless the Decision Log records a better reason.
+
+Core node identity should live in `crates/terrain_core`, either in
+`src/chunk.rs` or a focused `src/node.rs` module:
+
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct TerrainNodeKey {
+        pub lod: u8,
+        pub coord: TerrainChunkCoord,
+    }
+
+    pub fn terrain_node_key(key: TerrainNodeKey) -> String {
+        format!(
+            "lod{}:{},{},{}",
+            key.lod, key.coord.x, key.coord.y, key.coord.z
+        )
+    }
+
+    pub fn terrain_node_cell_size(base_cell_size: f64, lod: u8) -> f64 {
+        base_cell_size * 2_f64.powi(i32::from(lod))
+    }
+
+    pub fn terrain_node_parent(key: TerrainNodeKey) -> Option<TerrainNodeKey> {
+        if key.lod == u8::MAX {
+            return None;
+        }
+
+        Some(TerrainNodeKey {
+            lod: key.lod + 1,
+            coord: TerrainChunkCoord {
+                x: key.coord.x.div_euclid(2),
+                y: key.coord.y.div_euclid(2),
+                z: key.coord.z.div_euclid(2),
+            },
+        })
+    }
+
+    pub fn terrain_node_children(parent: TerrainNodeKey) -> Option<[TerrainNodeKey; 8]> {
+        if parent.lod == 0 {
+            return None;
+        }
+
+        let lod = parent.lod - 1;
+        let base_x = parent.coord.x * 2;
+        let base_y = parent.coord.y * 2;
+        let base_z = parent.coord.z * 2;
+
+        Some([
+            TerrainNodeKey { lod, coord: TerrainChunkCoord { x: base_x,     y: base_y,     z: base_z } },
+            TerrainNodeKey { lod, coord: TerrainChunkCoord { x: base_x + 1, y: base_y,     z: base_z } },
+            TerrainNodeKey { lod, coord: TerrainChunkCoord { x: base_x,     y: base_y + 1, z: base_z } },
+            TerrainNodeKey { lod, coord: TerrainChunkCoord { x: base_x + 1, y: base_y + 1, z: base_z } },
+            TerrainNodeKey { lod, coord: TerrainChunkCoord { x: base_x,     y: base_y,     z: base_z + 1 } },
+            TerrainNodeKey { lod, coord: TerrainChunkCoord { x: base_x + 1, y: base_y,     z: base_z + 1 } },
+            TerrainNodeKey { lod, coord: TerrainChunkCoord { x: base_x,     y: base_y + 1, z: base_z + 1 } },
+            TerrainNodeKey { lod, coord: TerrainChunkCoord { x: base_x + 1, y: base_y + 1, z: base_z + 1 } },
+        ])
+    }
+
+The stream configuration should become band-based instead of one
+horizontal-radius setting:
+
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct TerrainLodBand {
+        pub lod: u8,
+        pub horizontal_radius: i32,
+        pub vertical_chunk_offsets: Vec<i32>,
+    }
+
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct TerrainStreamConfig {
+        pub lod_bands: Vec<TerrainLodBand>,
+        pub max_in_flight_jobs: usize,
+    }
+
+Milestone 3 should enable conservative default bands near
+`crates/engine_web/src/terrain_stream.rs`. This is illustrative; tune the exact
+radii after benchmark and smoke evidence. Milestone 2 intentionally keeps the
+default runtime at a single LOD0 band while tests exercise mixed LODs:
+
+    fn default_terrain_lod_bands() -> Vec<TerrainLodBand> {
+        vec![
+            TerrainLodBand {
+                lod: 0,
+                horizontal_radius: 1,
+                vertical_chunk_offsets: vec![-2, -1, 0, 1],
+            },
+            TerrainLodBand {
+                lod: 1,
+                horizontal_radius: 3,
+                vertical_chunk_offsets: vec![-1, 0, 1],
+            },
+            TerrainLodBand {
+                lod: 2,
+                horizontal_radius: 6,
+                vertical_chunk_offsets: vec![0],
+            },
+            TerrainLodBand {
+                lod: 3,
+                horizontal_radius: 10,
+                vertical_chunk_offsets: vec![0],
+            },
+        ]
+    }
+
+Scheduler jobs should become node-keyed:
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum TerrainStreamJob {
+        Density {
+            generation: u64,
+            key: TerrainNodeKey,
+        },
+        Mesh {
+            generation: u64,
+            key: TerrainNodeKey,
+        },
+    }
+
+    impl TerrainStreamScheduler {
+        pub fn complete_density(&mut self, generation: u64, key: TerrainNodeKey) -> bool;
+        pub fn fail_density(&mut self, generation: u64, key: TerrainNodeKey) -> bool;
+
+        pub fn complete_mesh(
+            &mut self,
+            generation: u64,
+            key: TerrainNodeKey,
+            empty: bool,
+        ) -> bool;
+
+        pub fn visible_nodes(&self) -> Vec<TerrainNodeKey>;
+    }
+
+The first coarse-mesh API should reuse the current chunk mesher by deriving
+effective cell size from LOD:
+
+    pub fn build_node_mesh(
+        seed: u32,
+        preset: u32,
+        key: TerrainNodeKey,
+        base_cell_size: f64,
+    ) -> MeshData {
+        build_chunk_mesh(
+            seed,
+            preset,
+            key.coord,
+            terrain_node_cell_size(base_cell_size, key.lod),
+        )
+    }
+
+`BrowserTerrainStream` should pass node-keyed runtime updates to the Rust/wgpu
+renderer:
+
+    pub struct BrowserTerrainMeshUpdate {
+        pub key: TerrainNodeKey,
+        pub mesh: MeshData,
+    }
+
+    #[derive(Default)]
+    pub struct BrowserTerrainStreamUpdate {
+        pub removed_nodes: Vec<TerrainNodeKey>,
+        pub upserted_meshes: Vec<BrowserTerrainMeshUpdate>,
+    }
+
+Renderer object IDs and mesh-handle maps must include the LOD so coarser and
+finer nodes at the same coordinate cannot collide:
+
+    fn terrain_node_object_id(key: TerrainNodeKey) -> String {
+        terrain_node_key(key)
+    }
+
+`BrowserTerrainStreamStatus` should keep existing LOD0-compatible counts where
+browser smoke relies on them, and add node/LOD-specific status instead of
+changing TypeScript into a terrain client. The renderer should receive only
+Rust-owned mesh updates and removals keyed by stable terrain node IDs.
+
+The TypeScript debug type should expand only as a Rust-assembled snapshot. It
+must not compute desired terrain sets, visibility, LOD selection, density
+dependencies, or renderer state:
+
+    export type TerrainNodeKey = string;
+
+    export type TerrainLodSummary = {
+      readonly lod: number;
+      readonly desiredNodeCount: number;
+      readonly densityReadyNodeCount: number;
+      readonly renderedNodeCount: number;
+      readonly emptyNodeCount: number;
+      readonly missingNodeCount: number;
+    };
+
+    export type TerrainStreamStatus = {
+      readonly generation: number;
+      readonly pending: boolean;
+
+      // Existing compatibility fields may stay for HUD and smoke tests.
+      readonly loadedChunkCount: number;
+      readonly desiredRenderChunkCount: number;
+      readonly renderedChunkCount: number;
+
+      // New architecture counts and summaries.
+      readonly loadedNodeCount: number;
+      readonly desiredRenderNodeCount: number;
+      readonly renderedNodeCount: number;
+      readonly emptyNodeCount: number;
+      readonly missingNodeCount: number;
+      readonly maxRenderedLod: number;
+      readonly terrainLodSummary: readonly TerrainLodSummary[];
+      readonly workerPoolRuntime: "rust";
+    };
+
+    export type RustBrowserGameDebugSnapshot = {
+      readonly loadedTerrainChunkKeys: readonly string[];
+      readonly loadedTerrainNodeKeys: readonly string[];
+      readonly terrainChunkKeys: readonly string[];
+      readonly terrainNodeKeys: readonly string[];
+      readonly terrainStreamStatus: TerrainStreamStatus;
+    };
+
+Architecture tests should include these behavior-focused cases before or with
+the implementation:
+
+    #[test]
+    fn terrain_node_parent_maps_negative_coords_with_floor_division() {}
+
+    #[test]
+    fn stream_scheduler_builds_rootless_lod_bands_without_a_root_node() {}
+
+    #[test]
+    fn stream_scheduler_schedules_parent_mesh_before_child_mesh() {}
+
+    #[test]
+    fn browser_terrain_stream_generates_unique_mesh_keys_across_lods() {}
+
+    #[test]
+    fn browser_terrain_stream_keeps_parent_visible_until_children_are_ready() {}

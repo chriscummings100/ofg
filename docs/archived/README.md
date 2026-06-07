@@ -19,3 +19,5 @@ in the active replacement explaining where the source of truth moved.
 - `RUST_CONVERSION_PLAN.md` was completed on 2026-06-06. Current runtime
   ownership and API contracts moved to `docs/ARCHITECTURE.md` and
   `docs/API_CONTRACTS.md`.
+- `TERRAIN_PLAN_2026-06-07.md` was replaced on 2026-06-07. Current terrain work
+  moved to the focused view-distance ExecPlan at `docs/TERRAIN_PLAN.md`.

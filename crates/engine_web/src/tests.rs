@@ -20,7 +20,7 @@ use crate::{
     TEXTURE_FORMAT_RGBA8_UNORM, WORLD_MATRIX_FLOATS,
 };
 use engine_core::{EngineError, MaterialId, MeshId, PlayerMode, TerrainComponent, Vec3};
-use terrain_core::{height_at, DEFAULT_TERRAIN_PRESET};
+use terrain_core::{height_at, TerrainLodBand, DEFAULT_TERRAIN_PRESET};
 
 const STATIC_BOX_GLB: &[u8] = include_bytes!("../../../assets/models/test-fixtures/static-box.glb");
 const BOX_ANIMATED_GLB: &[u8] =
@@ -1592,7 +1592,7 @@ fn browser_game_state_debug_fly_moves_camera_without_moving_player_character() {
 
 #[test]
 fn browser_terrain_stream_generates_and_prunes_meshes_in_rust() {
-    let mut stream = BrowserTerrainStream::new(0x0F6, 1).unwrap();
+    let mut stream = BrowserTerrainStream::new_lod0(0x0F6, 1).unwrap();
     let origin = Vec3::new(0.0, 0.0, 0.0);
     stream.reset_around(origin);
 
@@ -1609,9 +1609,129 @@ fn browser_terrain_stream_generates_and_prunes_meshes_in_rust() {
     let moved = Vec3::new(96.0, 0.0, 0.0);
     let update = stream.tick(moved);
 
-    assert!(update.removed_coords.iter().any(|coord| coord.x == 0));
+    assert!(update
+        .removed_nodes
+        .iter()
+        .any(|key| key.lod == 0 && key.coord.x == 0));
     assert!(stream.loaded_chunk_keys().contains(&"3,0,0".to_string()));
     assert!(!stream.render_chunk_keys().contains(&"0,0,0".to_string()));
+}
+
+#[test]
+fn browser_terrain_stream_default_bands_render_multiple_lods_after_settling() {
+    let mut stream = BrowserTerrainStream::new(0x0F6, 1).unwrap();
+    let origin = Vec3::new(0.0, 0.0, 0.0);
+    stream.reset_around(origin);
+
+    for _ in 0..360 {
+        stream.tick(origin);
+        let status = stream.status();
+        if status.rendered_chunk_count > 0 && status.max_rendered_lod >= 1 {
+            break;
+        }
+    }
+
+    let status = stream.status();
+    let render_node_keys = stream.render_node_keys();
+
+    assert!(status.rendered_chunk_count > 0);
+    assert!(status.rendered_node_count > status.rendered_chunk_count);
+    assert!(status.max_rendered_lod >= 1);
+    assert!(render_node_keys.iter().any(|key| key.starts_with("lod0:")));
+    assert!(render_node_keys
+        .iter()
+        .any(|key| key.starts_with("lod1:") || key.starts_with("lod2:")));
+}
+
+#[test]
+fn browser_terrain_stream_generates_unique_mesh_keys_across_lods() {
+    let mut stream = BrowserTerrainStream::new_with_lod_bands(
+        0x0F6,
+        1,
+        vec![
+            TerrainLodBand {
+                lod: 0,
+                horizontal_radius: 1,
+                vertical_chunk_offsets: vec![0, 1],
+            },
+            TerrainLodBand {
+                lod: 1,
+                horizontal_radius: 1,
+                vertical_chunk_offsets: vec![0],
+            },
+        ],
+    )
+    .unwrap();
+    let origin = Vec3::new(0.0, 0.0, 0.0);
+    stream.reset_around(origin);
+
+    for _ in 0..240 {
+        stream.tick(origin);
+    }
+
+    let render_node_keys = stream.render_node_keys();
+
+    assert!(render_node_keys.contains(&"lod0:0,0,0".to_string()));
+    assert!(render_node_keys.iter().any(|key| key.starts_with("lod1:")));
+    assert!(stream.render_chunk_keys().contains(&"0,0,0".to_string()));
+
+    let status = stream.status();
+    assert!(status.rendered_node_count >= 2);
+    assert!(status.max_rendered_lod >= 1);
+    assert!(status
+        .lod_summaries
+        .iter()
+        .any(|summary| summary.lod == 1 && summary.rendered_node_count > 0));
+}
+
+#[test]
+fn browser_terrain_stream_keeps_parent_visible_until_children_are_ready() {
+    let mut stream = BrowserTerrainStream::new_with_lod_bands(
+        0x0F6,
+        1,
+        vec![
+            TerrainLodBand {
+                lod: 0,
+                horizontal_radius: 1,
+                vertical_chunk_offsets: vec![0, 1],
+            },
+            TerrainLodBand {
+                lod: 1,
+                horizontal_radius: 0,
+                vertical_chunk_offsets: vec![0],
+            },
+        ],
+    )
+    .unwrap();
+    let origin = Vec3::new(0.0, 0.0, 0.0);
+    let parent_key = "lod1:0,0,0".to_string();
+    let child_key = "lod0:0,0,0".to_string();
+    stream.reset_around(origin);
+
+    let mut saw_parent_fallback = false;
+    for _ in 0..120 {
+        stream.tick(origin);
+        let visible = stream.render_node_keys();
+        if visible.contains(&parent_key) {
+            assert!(!visible.iter().any(|key| key.starts_with("lod0:")));
+            saw_parent_fallback = true;
+            break;
+        }
+    }
+
+    assert!(saw_parent_fallback);
+
+    for _ in 0..240 {
+        stream.tick(origin);
+        let visible = stream.render_node_keys();
+        if visible.contains(&child_key) && !visible.contains(&parent_key) {
+            break;
+        }
+    }
+
+    let visible = stream.render_node_keys();
+    assert!(visible.contains(&child_key));
+    assert!(!visible.contains(&parent_key));
 }
 
 fn sample_engine_render_snapshot() -> [f32; ENGINE_RENDER_SNAPSHOT_FLOATS] {

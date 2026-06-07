@@ -1,37 +1,9 @@
+// Terrain stream scheduling for the rootless multi-resolution LOD grid.
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Mutex, OnceLock};
 
 use crate::*;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TerrainStreamConfig {
-    pub horizontal_radius: i32,
-    pub vertical_chunk_offsets: Vec<i32>,
-    pub max_in_flight_jobs: usize,
-}
-
-impl Default for TerrainStreamConfig {
-    fn default() -> Self {
-        Self {
-            horizontal_radius: 1,
-            vertical_chunk_offsets: vec![-1, 0, 1],
-            max_in_flight_jobs: 1,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TerrainStreamJob {
-    Density {
-        generation: u64,
-        coord: TerrainChunkCoord,
-    },
-    Lod {
-        generation: u64,
-        lod: u8,
-        coord: TerrainChunkCoord,
-    },
-}
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -39,45 +11,9 @@ pub(crate) enum TerrainChunkStage {
     NotPresent,
     DensityInFlight { generation: u64 },
     DensityReady,
-    LodInFlight { lod: u8, generation: u64 },
-    LodReady { lod: u8 },
-    LodEmpty { lod: u8 },
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TerrainStreamError {
-    NegativeHorizontalRadius,
-    EmptyVerticalOffsets,
-    DuplicateVerticalOffsets,
-    ZeroMaxInFlightJobs,
-}
-
-impl std::fmt::Display for TerrainStreamError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let message = match self {
-            Self::NegativeHorizontalRadius => "negative terrain stream horizontal radius",
-            Self::EmptyVerticalOffsets => "empty terrain stream vertical offsets",
-            Self::DuplicateVerticalOffsets => "duplicate terrain stream vertical offsets",
-            Self::ZeroMaxInFlightJobs => "zero terrain stream max in-flight jobs",
-        };
-
-        formatter.write_str(message)
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TerrainStreamStatus {
-    pub generation: u64,
-    pub desired_density_count: usize,
-    pub desired_lod0_count: usize,
-    pub density_ready_count: usize,
-    pub lod0_ready_count: usize,
-    pub lod0_empty_count: usize,
-    pub in_flight_density_count: usize,
-    pub in_flight_lod_count: usize,
-    pub missing_density_count: usize,
-    pub missing_lod0_count: usize,
-    pub max_in_flight_jobs: usize,
+    MeshInFlight { lod: u8, generation: u64 },
+    MeshReady { lod: u8 },
+    MeshEmpty { lod: u8 },
 }
 
 #[derive(Default)]
@@ -85,9 +21,9 @@ pub struct TerrainStreamScheduler {
     config: TerrainStreamConfig,
     generation: u64,
     center_coord: Option<TerrainChunkCoord>,
-    desired_density: BTreeSet<TerrainChunkCoord>,
-    desired_lod0: BTreeSet<TerrainChunkCoord>,
-    chunks: BTreeMap<TerrainChunkCoord, TerrainChunkRecord>,
+    desired_density: BTreeSet<TerrainNodeKey>,
+    desired_mesh: BTreeSet<TerrainNodeKey>,
+    nodes: BTreeMap<TerrainNodeKey, TerrainNodeRecord>,
 }
 
 pub(crate) static TERRAIN_STREAM_SCHEDULER: OnceLock<Mutex<TerrainStreamScheduler>> =
@@ -98,16 +34,16 @@ pub(crate) fn terrain_stream_scheduler() -> &'static Mutex<TerrainStreamSchedule
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct TerrainChunkRecord {
+struct TerrainNodeRecord {
     density: DensityStage,
-    lod0: LodStage,
+    mesh: MeshStage,
 }
 
-impl Default for TerrainChunkRecord {
+impl Default for TerrainNodeRecord {
     fn default() -> Self {
         Self {
             density: DensityStage::Missing,
-            lod0: LodStage::Missing,
+            mesh: MeshStage::Missing,
         }
     }
 }
@@ -120,7 +56,7 @@ enum DensityStage {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum LodStage {
+enum MeshStage {
     Missing,
     InFlight { generation: u64 },
     Ready,
@@ -136,8 +72,8 @@ impl TerrainStreamScheduler {
             generation: 0,
             center_coord: None,
             desired_density: BTreeSet::new(),
-            desired_lod0: BTreeSet::new(),
-            chunks: BTreeMap::new(),
+            desired_mesh: BTreeSet::new(),
+            nodes: BTreeMap::new(),
         })
     }
 
@@ -147,14 +83,11 @@ impl TerrainStreamScheduler {
 
     pub fn sync_center(&mut self, center_coord: TerrainChunkCoord) {
         self.center_coord = Some(center_coord);
-        self.desired_lod0 = self
-            .build_render_chunk_coords(center_coord)
-            .into_iter()
-            .collect();
+        self.desired_mesh = self.build_desired_mesh_nodes(center_coord);
         self.desired_density = self
-            .desired_lod0
+            .desired_mesh
             .iter()
-            .flat_map(|coord| self.density_dependencies(*coord))
+            .flat_map(|key| self.density_dependencies(*key))
             .collect();
         self.prune_outside_desired_sets();
     }
@@ -163,8 +96,8 @@ impl TerrainStreamScheduler {
         self.generation = self.generation.wrapping_add(1);
         self.center_coord = None;
         self.desired_density.clear();
-        self.desired_lod0.clear();
-        self.chunks.clear();
+        self.desired_mesh.clear();
+        self.nodes.clear();
         self.sync_center(center_coord);
     }
 
@@ -172,33 +105,32 @@ impl TerrainStreamScheduler {
         self.generation = self.generation.wrapping_add(1);
         self.center_coord = None;
         self.desired_density.clear();
-        self.desired_lod0.clear();
-        self.chunks.clear();
+        self.desired_mesh.clear();
+        self.nodes.clear();
     }
 
     pub fn tick(&mut self) -> Vec<TerrainStreamJob> {
         let mut jobs = Vec::new();
 
         while self.active_job_count() < self.config.max_in_flight_jobs {
-            if let Some(coord) = self.next_density_job_coord() {
-                self.record_mut(coord).density = DensityStage::InFlight {
+            if let Some(key) = self.next_density_job_key() {
+                self.record_mut(key).density = DensityStage::InFlight {
                     generation: self.generation,
                 };
                 jobs.push(TerrainStreamJob::Density {
                     generation: self.generation,
-                    coord,
+                    key,
                 });
                 continue;
             }
 
-            if let Some(coord) = self.next_lod0_job_coord() {
-                self.record_mut(coord).lod0 = LodStage::InFlight {
+            if let Some(key) = self.next_mesh_job_key() {
+                self.record_mut(key).mesh = MeshStage::InFlight {
                     generation: self.generation,
                 };
-                jobs.push(TerrainStreamJob::Lod {
+                jobs.push(TerrainStreamJob::Mesh {
                     generation: self.generation,
-                    lod: 0,
-                    coord,
+                    key,
                 });
                 continue;
             }
@@ -209,12 +141,12 @@ impl TerrainStreamScheduler {
         jobs
     }
 
-    pub fn complete_density(&mut self, generation: u64, coord: TerrainChunkCoord) -> bool {
-        if generation != self.generation || !self.desired_density.contains(&coord) {
+    pub fn complete_density(&mut self, generation: u64, key: TerrainNodeKey) -> bool {
+        if generation != self.generation || !self.desired_density.contains(&key) {
             return false;
         }
 
-        let record = self.record_mut(coord);
+        let record = self.record_mut(key);
         if record.density != (DensityStage::InFlight { generation }) {
             return false;
         }
@@ -223,17 +155,49 @@ impl TerrainStreamScheduler {
         true
     }
 
-    pub fn fail_density(&mut self, generation: u64, coord: TerrainChunkCoord) -> bool {
-        if generation != self.generation || !self.desired_density.contains(&coord) {
+    pub fn fail_density(&mut self, generation: u64, key: TerrainNodeKey) -> bool {
+        if generation != self.generation || !self.desired_density.contains(&key) {
             return false;
         }
 
-        let record = self.record_mut(coord);
+        let record = self.record_mut(key);
         if record.density != (DensityStage::InFlight { generation }) {
             return false;
         }
 
         record.density = DensityStage::Missing;
+        true
+    }
+
+    pub fn complete_mesh(&mut self, generation: u64, key: TerrainNodeKey, empty: bool) -> bool {
+        if generation != self.generation || !self.desired_mesh.contains(&key) {
+            return false;
+        }
+
+        let record = self.record_mut(key);
+        if record.mesh != (MeshStage::InFlight { generation }) {
+            return false;
+        }
+
+        record.mesh = if empty {
+            MeshStage::Empty
+        } else {
+            MeshStage::Ready
+        };
+        true
+    }
+
+    pub fn fail_mesh(&mut self, generation: u64, key: TerrainNodeKey) -> bool {
+        if generation != self.generation || !self.desired_mesh.contains(&key) {
+            return false;
+        }
+
+        let record = self.record_mut(key);
+        if record.mesh != (MeshStage::InFlight { generation }) {
+            return false;
+        }
+
+        record.mesh = MeshStage::Missing;
         true
     }
 
@@ -243,50 +207,29 @@ impl TerrainStreamScheduler {
         coord: TerrainChunkCoord,
         empty: bool,
     ) -> bool {
-        if generation != self.generation || !self.desired_lod0.contains(&coord) {
-            return false;
-        }
-
-        let record = self.record_mut(coord);
-        if record.lod0 != (LodStage::InFlight { generation }) {
-            return false;
-        }
-
-        record.lod0 = if empty {
-            LodStage::Empty
-        } else {
-            LodStage::Ready
-        };
-        true
+        self.complete_mesh(generation, TerrainNodeKey::lod0(coord), empty)
     }
 
     pub fn fail_lod0(&mut self, generation: u64, coord: TerrainChunkCoord) -> bool {
-        if generation != self.generation || !self.desired_lod0.contains(&coord) {
-            return false;
-        }
-
-        let record = self.record_mut(coord);
-        if record.lod0 != (LodStage::InFlight { generation }) {
-            return false;
-        }
-
-        record.lod0 = LodStage::Missing;
-        true
+        self.fail_mesh(generation, TerrainNodeKey::lod0(coord))
     }
 
     #[allow(dead_code)]
-    pub(crate) fn chunk_stage(&self, coord: TerrainChunkCoord) -> TerrainChunkStage {
-        let Some(record) = self.chunks.get(&coord) else {
+    pub(crate) fn node_stage(&self, key: TerrainNodeKey) -> TerrainChunkStage {
+        let Some(record) = self.nodes.get(&key) else {
             return TerrainChunkStage::NotPresent;
         };
 
-        match record.lod0 {
-            LodStage::Ready => return TerrainChunkStage::LodReady { lod: 0 },
-            LodStage::Empty => return TerrainChunkStage::LodEmpty { lod: 0 },
-            LodStage::InFlight { generation } => {
-                return TerrainChunkStage::LodInFlight { lod: 0, generation };
+        match record.mesh {
+            MeshStage::Ready => return TerrainChunkStage::MeshReady { lod: key.lod },
+            MeshStage::Empty => return TerrainChunkStage::MeshEmpty { lod: key.lod },
+            MeshStage::InFlight { generation } => {
+                return TerrainChunkStage::MeshInFlight {
+                    lod: key.lod,
+                    generation,
+                };
             }
-            LodStage::Missing => {}
+            MeshStage::Missing => {}
         }
 
         match record.density {
@@ -298,212 +241,337 @@ impl TerrainStreamScheduler {
         }
     }
 
-    pub fn desired_density_coords(&self) -> Vec<TerrainChunkCoord> {
+    #[allow(dead_code)]
+    pub(crate) fn chunk_stage(&self, coord: TerrainChunkCoord) -> TerrainChunkStage {
+        self.node_stage(TerrainNodeKey::lod0(coord))
+    }
+
+    pub fn desired_density_nodes(&self) -> Vec<TerrainNodeKey> {
         self.desired_density.iter().copied().collect()
     }
 
+    pub fn desired_mesh_nodes(&self) -> Vec<TerrainNodeKey> {
+        self.desired_mesh.iter().copied().collect()
+    }
+
+    pub fn desired_density_coords(&self) -> Vec<TerrainChunkCoord> {
+        self.desired_density
+            .iter()
+            .filter(|key| key.lod == 0)
+            .map(|key| key.coord)
+            .collect()
+    }
+
     pub fn desired_lod0_coords(&self) -> Vec<TerrainChunkCoord> {
-        self.desired_lod0.iter().copied().collect()
+        self.desired_mesh
+            .iter()
+            .filter(|key| key.lod == 0)
+            .map(|key| key.coord)
+            .collect()
     }
 
-    pub fn density_dependencies(&self, coord: TerrainChunkCoord) -> Vec<TerrainChunkCoord> {
-        let mut coords = Vec::with_capacity(8);
-        for z in coord.z..=coord.z + 1 {
-            for y in coord.y..=coord.y + 1 {
-                for x in coord.x..=coord.x + 1 {
-                    coords.push(TerrainChunkCoord { x, y, z });
-                }
-            }
-        }
-
-        coords
-    }
-
-    pub fn status(&self) -> TerrainStreamStatus {
-        let in_flight_density_count = self
-            .chunks
-            .values()
-            .filter(|record| matches!(record.density, DensityStage::InFlight { .. }))
-            .count();
-        let in_flight_lod_count = self
-            .chunks
-            .values()
-            .filter(|record| matches!(record.lod0, LodStage::InFlight { .. }))
-            .count();
-        let density_ready_count = self
-            .desired_density
-            .iter()
-            .filter(|coord| {
-                self.chunks
-                    .get(coord)
-                    .is_some_and(|record| record.density == DensityStage::Ready)
-            })
-            .count();
-        let lod0_ready_count = self
-            .desired_lod0
-            .iter()
-            .filter(|coord| {
-                self.chunks
-                    .get(coord)
-                    .is_some_and(|record| record.lod0 == LodStage::Ready)
-            })
-            .count();
-        let lod0_empty_count = self
-            .desired_lod0
-            .iter()
-            .filter(|coord| {
-                self.chunks
-                    .get(coord)
-                    .is_some_and(|record| record.lod0 == LodStage::Empty)
-            })
-            .count();
-
-        TerrainStreamStatus {
-            generation: self.generation,
-            desired_density_count: self.desired_density.len(),
-            desired_lod0_count: self.desired_lod0.len(),
-            density_ready_count,
-            lod0_ready_count,
-            lod0_empty_count,
-            in_flight_density_count,
-            in_flight_lod_count,
-            missing_density_count: self
-                .desired_density
-                .iter()
-                .filter(|coord| self.should_submit_density(**coord))
-                .count(),
-            missing_lod0_count: self
-                .desired_lod0
-                .iter()
-                .filter(|coord| self.should_submit_lod0(**coord))
-                .count(),
-            max_in_flight_jobs: self.config.max_in_flight_jobs,
-        }
-    }
-
-    fn build_render_chunk_coords(&self, center_coord: TerrainChunkCoord) -> Vec<TerrainChunkCoord> {
-        let mut coords = Vec::new();
-
-        for z in center_coord.z - self.config.horizontal_radius
-            ..=center_coord.z + self.config.horizontal_radius
-        {
-            for x in center_coord.x - self.config.horizontal_radius
-                ..=center_coord.x + self.config.horizontal_radius
-            {
-                for offset in &self.config.vertical_chunk_offsets {
-                    coords.push(TerrainChunkCoord {
-                        x,
-                        y: center_coord.y + offset,
-                        z,
+    pub fn density_dependencies(&self, key: TerrainNodeKey) -> Vec<TerrainNodeKey> {
+        let mut keys = Vec::with_capacity(8);
+        for z in key.coord.z..=key.coord.z + 1 {
+            for y in key.coord.y..=key.coord.y + 1 {
+                for x in key.coord.x..=key.coord.x + 1 {
+                    keys.push(TerrainNodeKey {
+                        lod: key.lod,
+                        coord: TerrainChunkCoord { x, y, z },
                     });
                 }
             }
         }
 
-        coords
+        keys
     }
 
-    fn next_density_job_coord(&self) -> Option<TerrainChunkCoord> {
+    pub fn lod0_density_dependencies(&self, coord: TerrainChunkCoord) -> Vec<TerrainChunkCoord> {
+        self.density_dependencies(TerrainNodeKey::lod0(coord))
+            .into_iter()
+            .map(|key| key.coord)
+            .collect()
+    }
+
+    pub fn visible_nodes(&self) -> Vec<TerrainNodeKey> {
+        self.desired_mesh
+            .iter()
+            .copied()
+            .filter(|key| {
+                self.nodes
+                    .get(key)
+                    .is_some_and(|record| record.mesh == MeshStage::Ready)
+            })
+            .collect()
+    }
+
+    pub fn mesh_generated(&self, key: TerrainNodeKey) -> bool {
+        matches!(
+            self.mesh_stage(key),
+            Some(MeshStage::Ready | MeshStage::Empty)
+        )
+    }
+
+    pub fn status(&self) -> TerrainStreamStatus {
+        let in_flight_density_count = self
+            .nodes
+            .values()
+            .filter(|record| matches!(record.density, DensityStage::InFlight { .. }))
+            .count();
+        let in_flight_lod_count = self
+            .nodes
+            .values()
+            .filter(|record| matches!(record.mesh, MeshStage::InFlight { .. }))
+            .count();
+        let density_ready_count = self
+            .desired_density
+            .iter()
+            .filter(|key| self.density_stage(**key) == Some(DensityStage::Ready))
+            .count();
+        let lod0_ready_count = self
+            .desired_mesh
+            .iter()
+            .filter(|key| key.lod == 0 && self.mesh_stage(**key) == Some(MeshStage::Ready))
+            .count();
+        let lod0_empty_count = self
+            .desired_mesh
+            .iter()
+            .filter(|key| key.lod == 0 && self.mesh_stage(**key) == Some(MeshStage::Empty))
+            .count();
+        let mesh_ready_count = self
+            .desired_mesh
+            .iter()
+            .filter(|key| self.mesh_stage(**key) == Some(MeshStage::Ready))
+            .count();
+        let mesh_empty_count = self
+            .desired_mesh
+            .iter()
+            .filter(|key| self.mesh_stage(**key) == Some(MeshStage::Empty))
+            .count();
+        let missing_density_count = self
+            .desired_density
+            .iter()
+            .filter(|key| self.should_submit_density(**key))
+            .count();
+        let missing_lod0_count = self
+            .desired_mesh
+            .iter()
+            .filter(|key| key.lod == 0 && self.should_submit_mesh(**key))
+            .count();
+        let missing_mesh_count = self
+            .desired_mesh
+            .iter()
+            .filter(|key| self.should_submit_mesh(**key))
+            .count();
+
+        TerrainStreamStatus {
+            generation: self.generation,
+            desired_density_count: self.desired_density.len(),
+            desired_lod0_count: self.desired_lod0_coords().len(),
+            desired_mesh_count: self.desired_mesh.len(),
+            density_ready_count,
+            lod0_ready_count,
+            lod0_empty_count,
+            mesh_ready_count,
+            mesh_empty_count,
+            in_flight_density_count,
+            in_flight_lod_count,
+            missing_density_count,
+            missing_lod0_count,
+            missing_mesh_count,
+            max_in_flight_jobs: self.config.max_in_flight_jobs,
+            lod_summaries: self.lod_summaries(),
+        }
+    }
+
+    fn build_desired_mesh_nodes(
+        &self,
+        center_coord: TerrainChunkCoord,
+    ) -> BTreeSet<TerrainNodeKey> {
+        let mut nodes = BTreeSet::new();
+
+        for band in &self.config.lod_bands {
+            let lod_center = terrain_node_coord_for_lod(center_coord, band.lod);
+            for z in lod_center.z - band.horizontal_radius..=lod_center.z + band.horizontal_radius {
+                for x in
+                    lod_center.x - band.horizontal_radius..=lod_center.x + band.horizontal_radius
+                {
+                    for offset in &band.vertical_chunk_offsets {
+                        nodes.insert(TerrainNodeKey {
+                            lod: band.lod,
+                            coord: TerrainChunkCoord {
+                                x,
+                                y: lod_center.y + offset,
+                                z,
+                            },
+                        });
+                    }
+                }
+            }
+        }
+
+        let base_nodes = nodes.iter().copied().collect::<Vec<_>>();
+        let max_lod = self.max_configured_lod();
+        for key in base_nodes {
+            let mut current = key;
+            while current.lod < max_lod {
+                let Some(parent) = terrain_node_parent(current) else {
+                    break;
+                };
+                nodes.insert(parent);
+                current = parent;
+            }
+        }
+
+        nodes
+    }
+
+    fn next_density_job_key(&self) -> Option<TerrainNodeKey> {
         let center_coord = self.center_coord?;
 
         self.desired_density
             .iter()
             .copied()
-            .filter(|coord| self.should_submit_density(*coord))
-            .min_by_key(|coord| (chunk_priority(*coord, center_coord), *coord))
+            .filter(|key| self.should_submit_density(*key))
+            .min_by_key(|key| node_priority(*key, center_coord))
     }
 
-    fn next_lod0_job_coord(&self) -> Option<TerrainChunkCoord> {
+    fn next_mesh_job_key(&self) -> Option<TerrainNodeKey> {
         let center_coord = self.center_coord?;
 
-        self.desired_lod0
+        self.desired_mesh
             .iter()
             .copied()
-            .filter(|coord| self.should_submit_lod0(*coord))
-            .min_by_key(|coord| (chunk_priority(*coord, center_coord), *coord))
+            .filter(|key| self.should_submit_mesh(*key))
+            .min_by_key(|key| node_priority(*key, center_coord))
     }
 
-    fn should_submit_density(&self, coord: TerrainChunkCoord) -> bool {
-        if !self.desired_density.contains(&coord) {
+    fn should_submit_density(&self, key: TerrainNodeKey) -> bool {
+        if !self.desired_density.contains(&key) || !self.parent_cover_generated(key) {
             return false;
         }
 
         !matches!(
-            self.chunks.get(&coord).map(|record| record.density),
+            self.density_stage(key),
             Some(DensityStage::InFlight { .. } | DensityStage::Ready)
         )
     }
 
-    fn should_submit_lod0(&self, coord: TerrainChunkCoord) -> bool {
-        if !self.desired_lod0.contains(&coord) || !self.density_dependencies_ready(coord) {
+    fn should_submit_mesh(&self, key: TerrainNodeKey) -> bool {
+        if !self.desired_mesh.contains(&key)
+            || !self.parent_cover_generated(key)
+            || !self.density_dependencies_ready(key)
+        {
             return false;
         }
 
         !matches!(
-            self.chunks.get(&coord).map(|record| record.lod0),
-            Some(LodStage::InFlight { .. } | LodStage::Ready | LodStage::Empty)
+            self.mesh_stage(key),
+            Some(MeshStage::InFlight { .. } | MeshStage::Ready | MeshStage::Empty)
         )
     }
 
-    fn density_dependencies_ready(&self, coord: TerrainChunkCoord) -> bool {
-        self.density_dependencies(coord).iter().all(|dependency| {
-            self.chunks
-                .get(dependency)
-                .is_some_and(|record| record.density == DensityStage::Ready)
-        })
+    fn density_dependencies_ready(&self, key: TerrainNodeKey) -> bool {
+        self.density_dependencies(key)
+            .iter()
+            .all(|dependency| self.density_stage(*dependency) == Some(DensityStage::Ready))
+    }
+
+    fn parent_cover_generated(&self, key: TerrainNodeKey) -> bool {
+        let Some(parent) = terrain_node_parent(key) else {
+            return true;
+        };
+        if !self.desired_mesh.contains(&parent) {
+            return true;
+        }
+
+        matches!(
+            self.mesh_stage(parent),
+            Some(MeshStage::Ready | MeshStage::Empty)
+        )
     }
 
     fn active_job_count(&self) -> usize {
-        self.chunks
+        self.nodes
             .values()
             .filter(|record| matches!(record.density, DensityStage::InFlight { .. }))
             .count()
             + self
-                .chunks
+                .nodes
                 .values()
-                .filter(|record| matches!(record.lod0, LodStage::InFlight { .. }))
+                .filter(|record| matches!(record.mesh, MeshStage::InFlight { .. }))
                 .count()
     }
 
-    fn record_mut(&mut self, coord: TerrainChunkCoord) -> &mut TerrainChunkRecord {
-        self.chunks.entry(coord).or_default()
+    fn density_stage(&self, key: TerrainNodeKey) -> Option<DensityStage> {
+        self.nodes.get(&key).map(|record| record.density)
+    }
+
+    fn mesh_stage(&self, key: TerrainNodeKey) -> Option<MeshStage> {
+        self.nodes.get(&key).map(|record| record.mesh)
+    }
+
+    fn record_mut(&mut self, key: TerrainNodeKey) -> &mut TerrainNodeRecord {
+        self.nodes.entry(key).or_default()
     }
 
     fn prune_outside_desired_sets(&mut self) {
         let desired_density = &self.desired_density;
-        let desired_lod0 = &self.desired_lod0;
+        let desired_mesh = &self.desired_mesh;
 
-        self.chunks.retain(|coord, _record| {
-            desired_density.contains(coord) || desired_lod0.contains(coord)
-        });
-    }
-}
-
-fn validate_stream_config(config: &TerrainStreamConfig) -> Result<(), TerrainStreamError> {
-    if config.horizontal_radius < 0 {
-        return Err(TerrainStreamError::NegativeHorizontalRadius);
+        self.nodes
+            .retain(|key, _record| desired_density.contains(key) || desired_mesh.contains(key));
     }
 
-    if config.vertical_chunk_offsets.is_empty() {
-        return Err(TerrainStreamError::EmptyVerticalOffsets);
+    fn lod_summaries(&self) -> Vec<TerrainLodStatus> {
+        let lods = self
+            .desired_mesh
+            .iter()
+            .map(|key| key.lod)
+            .collect::<BTreeSet<_>>();
+
+        lods.into_iter()
+            .map(|lod| TerrainLodStatus {
+                lod,
+                desired_node_count: self
+                    .desired_mesh
+                    .iter()
+                    .filter(|key| key.lod == lod)
+                    .count(),
+                density_ready_node_count: self
+                    .desired_density
+                    .iter()
+                    .filter(|key| key.lod == lod)
+                    .filter(|key| self.density_stage(**key) == Some(DensityStage::Ready))
+                    .count(),
+                rendered_node_count: self
+                    .desired_mesh
+                    .iter()
+                    .filter(|key| key.lod == lod)
+                    .filter(|key| self.mesh_stage(**key) == Some(MeshStage::Ready))
+                    .count(),
+                empty_node_count: self
+                    .desired_mesh
+                    .iter()
+                    .filter(|key| key.lod == lod)
+                    .filter(|key| self.mesh_stage(**key) == Some(MeshStage::Empty))
+                    .count(),
+                missing_node_count: self
+                    .desired_mesh
+                    .iter()
+                    .filter(|key| key.lod == lod)
+                    .filter(|key| self.should_submit_mesh(**key))
+                    .count(),
+            })
+            .collect()
     }
 
-    let unique_offsets: BTreeSet<i32> = config.vertical_chunk_offsets.iter().copied().collect();
-    if unique_offsets.len() != config.vertical_chunk_offsets.len() {
-        return Err(TerrainStreamError::DuplicateVerticalOffsets);
+    fn max_configured_lod(&self) -> u8 {
+        self.config
+            .lod_bands
+            .iter()
+            .map(|band| band.lod)
+            .max()
+            .unwrap_or(0)
     }
-
-    if config.max_in_flight_jobs == 0 {
-        return Err(TerrainStreamError::ZeroMaxInFlightJobs);
-    }
-
-    Ok(())
-}
-
-fn chunk_priority(coord: TerrainChunkCoord, center_coord: TerrainChunkCoord) -> i64 {
-    let dx = i64::from(coord.x - center_coord.x);
-    let dy = i64::from((coord.y - center_coord.y).abs());
-    let dz = i64::from(coord.z - center_coord.z);
-
-    (dx * dx + dz * dz) * 2 + dy
 }

@@ -37,7 +37,7 @@ use crate::terrain_stream::{BrowserTerrainStream, BrowserTerrainStreamStatus, Te
 use crate::terrain_textures::{load_terrain_texture_arrays, TerrainTextureArrays};
 use crate::ENGINE_WEB_VERSION;
 use engine_core::{PlayerConfig, PlayerMode, Vec3};
-use terrain_core::{terrain_chunk_key, TerrainChunkCoord, DEFAULT_TERRAIN_PRESET};
+use terrain_core::{terrain_node_key, TerrainNodeKey, DEFAULT_TERRAIN_PRESET};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
 const SHADER_SOURCE: &str = include_str!("../../../src/engine/render/shaders/uber.wgsl");
@@ -421,8 +421,18 @@ impl RustBrowserGame {
         )?;
         set_js_property(
             &snapshot,
+            "loadedTerrainNodeKeys",
+            string_vec_to_js_array(self.terrain_stream.loaded_node_keys()).into(),
+        )?;
+        set_js_property(
+            &snapshot,
             "terrainChunkKeys",
             string_vec_to_js_array(self.terrain_stream.render_chunk_keys()).into(),
+        )?;
+        set_js_property(
+            &snapshot,
+            "terrainNodeKeys",
+            string_vec_to_js_array(self.terrain_stream.render_node_keys()).into(),
         )?;
         set_js_property(
             &snapshot,
@@ -631,9 +641,9 @@ impl RustBrowserGame {
         let engine_snapshot = self.game_state.render_snapshot_values().map_err(js_error)?;
         let scene_mesh_items = self.game_state.render_mesh_items().map_err(js_error)?;
         let aspect = self.renderer.aspect_ratio();
-        let chunk_keys = sorted_terrain_chunk_keys(&self.terrain_mesh_handles_by_key);
-        let chunk_count = chunk_keys.len();
-        let item_count = chunk_count + scene_mesh_items.len();
+        let terrain_node_keys = sorted_terrain_node_keys(&self.terrain_mesh_handles_by_key);
+        let terrain_node_count = terrain_node_keys.len();
+        let item_count = terrain_node_count + scene_mesh_items.len();
 
         let mut mesh_handles = Vec::with_capacity(item_count);
         let mut object_handles = Vec::with_capacity(item_count);
@@ -648,18 +658,17 @@ impl RustBrowserGame {
             material: self.renderer.fallback_material,
         });
 
-        for index in 0..chunk_count {
-            let chunk_key = &chunk_keys[index];
-            let mesh_handle =
-                *self
-                    .terrain_mesh_handles_by_key
-                    .get(chunk_key)
-                    .ok_or_else(|| {
-                        js_error(format!(
-                            "Rust browser game is missing terrain mesh '{chunk_key}'."
-                        ))
-                    })?;
-            let object_handle = self.object_handle_for_id(chunk_key)?;
+        for index in 0..terrain_node_count {
+            let terrain_node_key = &terrain_node_keys[index];
+            let mesh_handle = *self
+                .terrain_mesh_handles_by_key
+                .get(terrain_node_key)
+                .ok_or_else(|| {
+                    js_error(format!(
+                        "Rust browser game is missing terrain mesh '{terrain_node_key}'."
+                    ))
+                })?;
+            let object_handle = self.object_handle_for_id(terrain_node_key)?;
 
             mesh_handles.push(handle_to_js(mesh_handle));
             object_handles.push(handle_to_js(object_handle));
@@ -859,13 +868,13 @@ impl RustBrowserGame {
         let player_position = self.game_state.player_position().map_err(js_error)?;
         let update = self.terrain_stream.tick(player_position);
 
-        for coord in update.removed_coords {
-            self.destroy_terrain_mesh(coord)?;
+        for key in update.removed_nodes {
+            self.destroy_terrain_mesh(key)?;
         }
 
         for mesh_update in update.upserted_meshes {
             self.upsert_terrain_mesh(
-                mesh_update.coord,
+                mesh_update.key,
                 &mesh_update.mesh.vertices,
                 &mesh_update.mesh.indices,
             )?;
@@ -876,33 +885,33 @@ impl RustBrowserGame {
 
     fn upsert_terrain_mesh(
         &mut self,
-        coord: TerrainChunkCoord,
+        key: TerrainNodeKey,
         vertices: &[f32],
         indices: &[u32],
     ) -> Result<(), JsValue> {
-        let chunk_key = terrain_chunk_key(coord);
-        if let Some(handle) = self.terrain_mesh_handles_by_key.remove(&chunk_key) {
+        let node_key = terrain_node_key(key);
+        if let Some(handle) = self.terrain_mesh_handles_by_key.remove(&node_key) {
             self.renderer.destroy_mesh(handle)?;
         }
 
         let handle = self
             .renderer
             .register_mesh(vertices, indices, TERRAIN_VERTEX_FLOATS)?;
-        self.terrain_mesh_handles_by_key.insert(chunk_key, handle);
+        self.terrain_mesh_handles_by_key.insert(node_key, handle);
         Ok(())
     }
 
-    fn destroy_terrain_mesh(&mut self, coord: TerrainChunkCoord) -> Result<(), JsValue> {
-        self.destroy_terrain_mesh_by_key(&terrain_chunk_key(coord))
+    fn destroy_terrain_mesh(&mut self, key: TerrainNodeKey) -> Result<(), JsValue> {
+        self.destroy_terrain_mesh_by_key(&terrain_node_key(key))
     }
 
-    fn destroy_terrain_mesh_by_key(&mut self, chunk_key: &str) -> Result<(), JsValue> {
-        let Some(handle) = self.terrain_mesh_handles_by_key.remove(chunk_key) else {
+    fn destroy_terrain_mesh_by_key(&mut self, node_key: &str) -> Result<(), JsValue> {
+        let Some(handle) = self.terrain_mesh_handles_by_key.remove(node_key) else {
             return Ok(());
         };
         self.renderer.destroy_mesh(handle)?;
 
-        if let Some(object_handle) = self.object_handles_by_id.remove(chunk_key) {
+        if let Some(object_handle) = self.object_handles_by_id.remove(node_key) {
             self.renderer.destroy_object(object_handle)?;
         }
 
@@ -910,9 +919,9 @@ impl RustBrowserGame {
     }
 
     fn clear_terrain_meshes(&mut self) -> Result<(), JsValue> {
-        let chunk_keys = sorted_terrain_chunk_keys(&self.terrain_mesh_handles_by_key);
-        for chunk_key in chunk_keys {
-            self.destroy_terrain_mesh_by_key(&chunk_key)?;
+        let node_keys = sorted_terrain_node_keys(&self.terrain_mesh_handles_by_key);
+        for node_key in node_keys {
+            self.destroy_terrain_mesh_by_key(&node_key)?;
         }
 
         Ok(())
@@ -2258,6 +2267,41 @@ fn terrain_stream_status_to_js(status: BrowserTerrainStreamStatus) -> Result<JsV
     )?;
     set_js_property(
         &object,
+        "loadedNodeCount",
+        JsValue::from_f64(status.loaded_node_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "desiredRenderNodeCount",
+        JsValue::from_f64(status.desired_render_node_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "renderedNodeCount",
+        JsValue::from_f64(status.rendered_node_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "emptyNodeCount",
+        JsValue::from_f64(status.empty_node_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "missingNodeCount",
+        JsValue::from_f64(status.missing_node_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "maxRenderedLod",
+        JsValue::from_f64(status.max_rendered_lod as f64),
+    )?;
+    set_js_property(
+        &object,
+        "terrainLodSummary",
+        terrain_lod_summary_to_js(status.lod_summaries)?,
+    )?;
+    set_js_property(
+        &object,
         "maxConcurrentChunkJobs",
         JsValue::from_f64(status.max_concurrent_chunk_jobs as f64),
     )?;
@@ -2278,6 +2322,44 @@ fn terrain_stream_status_to_js(status: BrowserTerrainStreamStatus) -> Result<JsV
     }
 
     Ok(object.into())
+}
+
+fn terrain_lod_summary_to_js(
+    statuses: Vec<crate::terrain_stream::BrowserTerrainLodStatus>,
+) -> Result<JsValue, JsValue> {
+    let array = js_sys::Array::new();
+    for status in statuses {
+        let object = js_sys::Object::new();
+        set_js_property(&object, "lod", JsValue::from_f64(status.lod as f64))?;
+        set_js_property(
+            &object,
+            "desiredNodeCount",
+            JsValue::from_f64(status.desired_node_count as f64),
+        )?;
+        set_js_property(
+            &object,
+            "densityReadyNodeCount",
+            JsValue::from_f64(status.density_ready_node_count as f64),
+        )?;
+        set_js_property(
+            &object,
+            "renderedNodeCount",
+            JsValue::from_f64(status.rendered_node_count as f64),
+        )?;
+        set_js_property(
+            &object,
+            "emptyNodeCount",
+            JsValue::from_f64(status.empty_node_count as f64),
+        )?;
+        set_js_property(
+            &object,
+            "missingNodeCount",
+            JsValue::from_f64(status.missing_node_count as f64),
+        )?;
+        array.push(&object);
+    }
+
+    Ok(array.into())
 }
 
 fn terrain_job_stats_to_js(stats: TerrainJobStats) -> Result<JsValue, JsValue> {
@@ -2331,7 +2413,7 @@ fn terrain_preset_to_js_name(preset: u32) -> &'static str {
     }
 }
 
-fn sorted_terrain_chunk_keys(handles: &HashMap<String, ResourceHandle>) -> Vec<String> {
+fn sorted_terrain_node_keys(handles: &HashMap<String, ResourceHandle>) -> Vec<String> {
     let mut keys = handles.keys().cloned().collect::<Vec<_>>();
     keys.sort();
     keys

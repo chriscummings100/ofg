@@ -65,6 +65,8 @@ describe("RustBrowserGameAdapter", () => {
     equal(snapshot.playerMode, "firstPerson");
     equal(snapshot.playerPosition.x, 96);
     equal(snapshot.loadedTerrainChunkKeys[0], "0,0,0");
+    equal(snapshot.loadedTerrainNodeKeys[0], "lod0:0,0,0");
+    equal(snapshot.terrainNodeKeys[0], "lod0:0,0,0");
     equal(snapshot.playerCharacterId, "female");
     equal(snapshot.playerCharacterLabel, "Female");
     equal(snapshot.modelAnimationRuntime, "rust");
@@ -119,7 +121,9 @@ function fakeBrowserGame(): FakeBrowserGame {
           z: 12
         },
         loadedTerrainChunkKeys: ["0,0,0"],
+        loadedTerrainNodeKeys: ["lod0:0,0,0"],
         terrainChunkKeys: ["0,0,0"],
+        terrainNodeKeys: ["lod0:0,0,0"],
         terrainPreset: "rollingHills",
         terrainSeed: 0x0F6,
         terrainStreamStatus: {
@@ -135,6 +139,22 @@ function fakeBrowserGame(): FakeBrowserGame {
           emptyChunkCount: 0,
           inFlightChunkCount: 0,
           missingChunkCount: 0,
+          loadedNodeCount: 1,
+          desiredRenderNodeCount: 1,
+          renderedNodeCount: 1,
+          emptyNodeCount: 0,
+          missingNodeCount: 0,
+          maxRenderedLod: 0,
+          terrainLodSummary: [
+            {
+              lod: 0,
+              desiredNodeCount: 1,
+              densityReadyNodeCount: 1,
+              renderedNodeCount: 1,
+              emptyNodeCount: 0,
+              missingNodeCount: 0
+            }
+          ],
           maxConcurrentChunkJobs: 6,
           workerPoolRuntime: "rust"
         },
