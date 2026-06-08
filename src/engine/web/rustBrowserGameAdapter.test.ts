@@ -1,5 +1,10 @@
 import { equal } from "node:assert/strict";
 import { deepEqual } from "node:assert/strict";
+import {
+  fakeRenderDebugOptions,
+  fakeRendererStatus,
+  fakeRustPerfStats
+} from "../../../tests/fixtures/debugSnapshotFixtures.js";
 import type { BrowserFrameInput } from "./browserGameTypes.js";
 import type { EngineWebBrowserGame } from "./engineWebWasm.js";
 import { RustBrowserGameAdapter, type TerrainWorkerBridge } from "./rustBrowserGameAdapter.js";
@@ -80,6 +85,13 @@ describe("RustBrowserGameAdapter", () => {
       focusRange: 4,
       maxBlurPixels: 10
     });
+    adapter.command({
+      type: "setRenderDebugOptions",
+      skyEnabled: false,
+      materialMode: "lambert"
+    });
+    adapter.command({ type: "resetRenderDebugOptions" });
+    adapter.command({ type: "resetPerfStats" });
     const snapshot = adapter.getDebugSnapshot();
 
     equal(fake.commandCalls[0]?.type, "resetGame");
@@ -99,6 +111,9 @@ describe("RustBrowserGameAdapter", () => {
     equal(fake.commandCalls[10]?.type, "setPostProcessToneMapping");
     equal(fake.commandCalls[11]?.type, "setPostProcessBloom");
     equal(fake.commandCalls[12]?.type, "setPostProcessDepthOfField");
+    equal(fake.commandCalls[13]?.type, "setRenderDebugOptions");
+    equal(fake.commandCalls[14]?.type, "resetRenderDebugOptions");
+    equal(fake.commandCalls[15]?.type, "resetPerfStats");
     equal(snapshot.playerMode, "firstPerson");
     equal(snapshot.playerPosition.x, 96);
     equal(snapshot.shadowDebugView, "shadowVisibility");
@@ -110,6 +125,9 @@ describe("RustBrowserGameAdapter", () => {
     equal(snapshot.rendererStatus.postProcessBloomThreshold, 1);
     equal(snapshot.rendererStatus.postProcessDofEnabled, false);
     equal(snapshot.rendererStatus.postProcessDofFocusDistance, 30);
+    equal(snapshot.rendererStatus.gpuTimerAvailable, false);
+    equal(snapshot.rustPerfStats.sampleCount, 1);
+    equal(snapshot.renderDebugOptions.skyEnabled, true);
     equal(snapshot.playerCharacterId, "female");
     equal(snapshot.playerCharacterLabel, "Female");
     equal(snapshot.modelAnimationRuntime, "rust");
@@ -234,40 +252,9 @@ function fakeBrowserGame(): FakeBrowserGame {
         renderPacketRuntime: "rust",
         terrainRenderPacketRuntime: "rust",
         rendererRuntime: "rust-wgpu",
-        rendererStatus: {
-          version: 1,
-          runtime: "rust-wgpu",
-          configured: true,
-          canvasWidth: 640,
-          canvasHeight: 480,
-          maxTextureArrayLayers: 16,
-          requiredTextureArrayLayers: 16,
-          meshCount: 1,
-          textureCount: 3,
-          objectCount: 1,
-          frameIndex: 1,
-          frameDrawCount: 1,
-          frameVisibleDrawCount: 1,
-          frameShadowDrawCount: 0,
-          terrainUpdateTotalMs: 0,
-          terrainUpdateUpsertedMeshCount: 0,
-          terrainUpdateRemovedMeshCount: 0,
-          terrainUpdateUploadedVertexFloatCount: 0,
-          terrainUpdateUploadedIndexCount: 0,
-          shadowCascadeCount: 4,
-          shadowMapSize: 1024,
-          postProcessRuntime: "rust-wgpu",
-          postProcessDebugView: "final",
-          postProcessExposure: 1,
-          postProcessToneMappingEnabled: true,
-          postProcessBloomEnabled: true,
-          postProcessBloomThreshold: 1,
-          postProcessBloomIntensity: 0.08,
-          postProcessDofEnabled: false,
-          postProcessDofFocusDistance: 30,
-          postProcessDofFocusRange: 8,
-          postProcessDofMaxBlurPixels: 6
-        },
+        rendererStatus: fakeRendererStatus(),
+        rustPerfStats: fakeRustPerfStats(),
+        renderDebugOptions: fakeRenderDebugOptions(),
         shadowDebugView: "shadowVisibility",
         terrainWorkerCount: 0,
         playerControllerRuntime: "rust",

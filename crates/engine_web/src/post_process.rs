@@ -426,13 +426,15 @@ impl PostProcessResources {
         encoder: &mut wgpu::CommandEncoder,
         surface_view: &wgpu::TextureView,
         settings: PostProcessSettings,
+        bloom_timestamp_writes: Option<wgpu::RenderPassTimestampWrites<'_>>,
+        present_timestamp_writes: Option<wgpu::RenderPassTimestampWrites<'_>>,
     ) {
         queue.write_buffer(
             &self.uniform_buffer,
             0,
             f32_as_bytes(&settings.uniform_values()),
         );
-        self.render_bloom(encoder);
+        self.render_bloom(encoder, bloom_timestamp_writes);
 
         let color_attachments = [Some(wgpu::RenderPassColorAttachment {
             view: surface_view,
@@ -446,7 +448,7 @@ impl PostProcessResources {
             label: Some("post process present pass"),
             color_attachments: &color_attachments,
             depth_stencil_attachment: None,
-            timestamp_writes: None,
+            timestamp_writes: present_timestamp_writes,
             occlusion_query_set: None,
         });
         pass.set_pipeline(&self.pipeline);
@@ -454,7 +456,11 @@ impl PostProcessResources {
         pass.draw(0..3, 0..1);
     }
 
-    fn render_bloom(&self, encoder: &mut wgpu::CommandEncoder) {
+    fn render_bloom(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        timestamp_writes: Option<wgpu::RenderPassTimestampWrites<'_>>,
+    ) {
         let color_attachments = [Some(wgpu::RenderPassColorAttachment {
             view: &self.bloom.view,
             resolve_target: None,
@@ -467,7 +473,7 @@ impl PostProcessResources {
             label: Some("post bloom pass"),
             color_attachments: &color_attachments,
             depth_stencil_attachment: None,
-            timestamp_writes: None,
+            timestamp_writes,
             occlusion_query_set: None,
         });
         pass.set_pipeline(&self.bloom_pipeline);
@@ -925,7 +931,7 @@ mod tests {
         }
         let mut settings = PostProcessSettings::default();
         settings.set_debug_view(debug_view);
-        resources.render(queue, &mut encoder, &target_view, settings);
+        resources.render(queue, &mut encoder, &target_view, settings, None, None);
         queue.submit(Some(encoder.finish()));
         device.poll(wgpu::Maintain::Wait);
     }

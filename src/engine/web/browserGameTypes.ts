@@ -25,6 +25,23 @@ export type PostProcessDebugView =
   | "dofCoc"
   | "dofBlurred";
 
+export type RenderMaterialDebugMode = "full" | "lambert";
+
+export type ShadowSunMode = "production" | "overhead" | "angled" | "low";
+
+export type RenderDebugOptions = {
+  readonly terrainLodMask: number;
+  readonly skyEnabled: boolean;
+  readonly shadowPassEnabled: boolean;
+  readonly shadowCascadeMask: number;
+  readonly shadowSamplingEnabled: boolean;
+  readonly shadowSunMode: ShadowSunMode;
+  readonly whiteTexturesEnabled: boolean;
+  readonly materialMode: RenderMaterialDebugMode;
+};
+
+export type RenderDebugOptionsUpdate = Partial<RenderDebugOptions>;
+
 export type PlayerAnimationTuning = {
   readonly walkSpeedMetersPerSecond: number;
   readonly runSpeedMetersPerSecond: number;
@@ -73,7 +90,6 @@ export type GameCommand =
       readonly pitch: number;
     }
   | { readonly type: "setShadowDebugView"; readonly view: ShadowDebugView }
-  | { readonly type: "setShadowDebugView"; readonly view: ShadowDebugView }
   | { readonly type: "setPostProcessDebugView"; readonly view: PostProcessDebugView }
   | {
       readonly type: "setPostProcessToneMapping";
@@ -93,6 +109,9 @@ export type GameCommand =
       readonly focusRange: number;
       readonly maxBlurPixels: number;
     }
+  | ({ readonly type: "setRenderDebugOptions" } & RenderDebugOptionsUpdate)
+  | { readonly type: "resetRenderDebugOptions" }
+  | { readonly type: "resetPerfStats" }
   | { readonly type: "resetStreaming" };
 
 export type RustBrowserGameResetCommand = {
@@ -157,6 +176,134 @@ export type TerrainStreamStatus = {
   readonly lastChunkJobStats?: TerrainStreamJobStats;
 };
 
+export type NumericPerfSummary = {
+  readonly latest: number;
+  readonly min: number;
+  readonly max: number;
+  readonly average: number;
+  readonly p95: number;
+};
+
+export type RustCpuPerfSummary = {
+  readonly totalFrameMs: NumericPerfSummary;
+  readonly inputParseMs: NumericPerfSummary;
+  readonly gameStateTickMs: NumericPerfSummary;
+  readonly playerCharacterUpdateMs: NumericPerfSummary;
+  readonly terrainStreamUpdateMs: NumericPerfSummary;
+  readonly renderFrameMs: NumericPerfSummary;
+  readonly renderPacketBuildMs: NumericPerfSummary;
+  readonly rendererPrepareMs: NumericPerfSummary;
+  readonly rendererShadowCpuMs: NumericPerfSummary;
+  readonly rendererSceneCpuMs: NumericPerfSummary;
+  readonly rendererPostCpuMs: NumericPerfSummary;
+  readonly rendererSubmitMs: NumericPerfSummary;
+};
+
+export type RustCpuPerfSample = {
+  readonly totalFrameMs: number;
+  readonly inputParseMs: number;
+  readonly gameStateTickMs: number;
+  readonly playerCharacterUpdateMs: number;
+  readonly terrainStreamUpdateMs: number;
+  readonly renderFrameMs: number;
+  readonly renderPacketBuildMs: number;
+  readonly rendererPrepareMs: number;
+  readonly rendererShadowCpuMs: number;
+  readonly rendererSceneCpuMs: number;
+  readonly rendererPostCpuMs: number;
+  readonly rendererSubmitMs: number;
+};
+
+export type TerrainLodCounter = {
+  readonly lod: number;
+  readonly drawCount: number;
+  readonly vertexCount: number;
+  readonly indexCount: number;
+  readonly triangleCount: number;
+};
+
+export type ShadowCascadeCounter = {
+  readonly cascadeIndex: number;
+  readonly enabled: boolean;
+  readonly candidateCount: number;
+  readonly visibleCount: number;
+  readonly culledCount: number;
+  readonly drawCount: number;
+  readonly vertexCount: number;
+  readonly indexCount: number;
+  readonly triangleCount: number;
+};
+
+export type RenderCounterSummary = {
+  readonly frameCandidateCount: NumericPerfSummary;
+  readonly frameVisibleDrawCount: NumericPerfSummary;
+  readonly frameCulledCount: NumericPerfSummary;
+  readonly frameShadowDrawCount: NumericPerfSummary;
+  readonly terrainDrawCount: NumericPerfSummary;
+  readonly modelDrawCount: NumericPerfSummary;
+  readonly skyDrawCount: NumericPerfSummary;
+  readonly postProcessDrawCount: NumericPerfSummary;
+  readonly submittedVertexCount: NumericPerfSummary;
+  readonly submittedIndexCount: NumericPerfSummary;
+  readonly submittedTriangleCount: NumericPerfSummary;
+};
+
+export type RenderCounterSample = {
+  readonly frameCandidateCount: number;
+  readonly frameVisibleDrawCount: number;
+  readonly frameCulledCount: number;
+  readonly frameShadowDrawCount: number;
+  readonly terrainDrawCount: number;
+  readonly modelDrawCount: number;
+  readonly skyDrawCount: number;
+  readonly postProcessDrawCount: number;
+  readonly submittedVertexCount: number;
+  readonly submittedIndexCount: number;
+  readonly submittedTriangleCount: number;
+  readonly terrainLodCounters: TerrainLodCounter[];
+  readonly shadowCascadeCounters: ShadowCascadeCounter[];
+};
+
+export type GpuTimerStatus = {
+  readonly available: boolean;
+  readonly unavailableReason: string;
+  readonly timestampPeriodNs: number;
+  readonly pendingReadbackCount: number;
+};
+
+export type GpuPassTimingSummary = {
+  readonly shadowCascadeMs: NumericPerfSummary[];
+  readonly sceneMs: NumericPerfSummary;
+  readonly bloomMs: NumericPerfSummary;
+  readonly postProcessMs: NumericPerfSummary;
+  readonly totalMeasuredMs: NumericPerfSummary;
+};
+
+export type GpuPassTimingSample = {
+  readonly shadowCascadeMs: Array<number | null>;
+  readonly sceneMs: number | null;
+  readonly bloomMs: number | null;
+  readonly postProcessMs: number | null;
+  readonly totalMeasuredMs: number | null;
+};
+
+export type RustPerfStats = {
+  readonly sampleCount: number;
+  readonly capacity: number;
+  readonly gpuTimerStatus: GpuTimerStatus;
+  readonly rustCpu: RustCpuPerfSummary;
+  readonly rendererCounters: RenderCounterSummary;
+  readonly gpu: GpuPassTimingSummary;
+  readonly latest?: {
+    readonly frameIndex: number;
+    readonly rustCpu: RustCpuPerfSample;
+    readonly rendererCounters: RenderCounterSample;
+    readonly gpuPassTimings: GpuPassTimingSample;
+  };
+  readonly terrainLodCounters: TerrainLodCounter[];
+  readonly shadowCascadeCounters: ShadowCascadeCounter[];
+};
+
 export type RustBrowserGameDebugSnapshot = {
   readonly playerMode: PlayerMode;
   readonly playerPosition: Vec3;
@@ -175,6 +322,8 @@ export type RustBrowserGameDebugSnapshot = {
   readonly terrainRenderPacketRuntime: "rust";
   readonly rendererRuntime: "rust-wgpu";
   readonly rendererStatus: EngineWebRendererStatus;
+  readonly rustPerfStats: RustPerfStats;
+  readonly renderDebugOptions: RenderDebugOptions;
   readonly shadowDebugView: ShadowDebugView;
   readonly skyRuntime?: "rust";
   readonly skyDayPhase?: number;

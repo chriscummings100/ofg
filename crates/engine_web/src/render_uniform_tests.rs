@@ -2,7 +2,8 @@
 
 use crate::{
     build_shadow_cascades, build_shadow_uniform_values, RenderUniformError, RenderVec3,
-    ENGINE_RENDER_SNAPSHOT_FLOATS, SHADOW_CASCADE_COUNT, SHADOW_UNIFORM_FLOATS,
+    ENGINE_RENDER_SNAPSHOT_FLOATS, SHADOW_CASCADE_COUNT, SHADOW_STRENGTH_OFFSET,
+    SHADOW_UNIFORM_FLOATS,
     WORLD_MATRIX_FLOATS,
 };
 
@@ -26,6 +27,7 @@ fn shadow_uniforms_pack_four_cascade_matrices_and_splits() {
     assert_close(uniforms[70], 0.02);
     assert_close(uniforms[71], 1.0 / 1024.0);
     assert_eq!(&uniforms[72..76], &[0.0, 0.0, 0.0, 0.0]);
+    assert_close(uniforms[SHADOW_STRENGTH_OFFSET], 0.0);
 }
 
 #[test]

@@ -24,9 +24,9 @@ decisions.
 
 | ID | Boundary | Status | Source of truth |
 |---|---|---|---|
-| OFG-API-001 | Browser shell to Rust browser game | Active | `src/engine/web/browserGameTypes.ts`, `src/engine/web/engineWebWasm.ts`, `crates/engine_web/src/wgpu_renderer.rs`, `crates/engine_web/src/post_process.rs` |
+| OFG-API-001 | Browser shell to Rust browser game | Active | `src/engine/web/browserGameTypes.ts`, `src/engine/web/engineWebWasm.ts`, `crates/engine_web/src/perf.rs`, `crates/engine_web/src/wgpu_renderer.rs`, `crates/engine_web/src/post_process.rs` |
 | OFG-API-002 | Rust browser game to browser asset loader | Active | `src/engine/browser/textureAssetLoader.ts`, `crates/engine_web/src/terrain_textures.rs` |
-| OFG-API-003 | Debug and smoke-test hooks | Active | `src/app/game.ts`, `src/engine/web/browserGameTypes.ts`, `tools/browser-smoke.mjs` |
+| OFG-API-003 | Debug and smoke-test hooks | Active | `src/app/game.ts`, `src/app/perfDebug.ts`, `src/engine/web/browserGameTypes.ts`, `tools/browser-smoke.mjs`, `tools/browser-perf-debug-capture.mjs` |
 | OFG-API-004 | Terrain vertex and material layout | Active | `crates/terrain_core/src/constants.rs`, `crates/engine_web/src/config.rs`, `crates/engine_web/src/wgpu_renderer.rs`, `src/engine/render/shaders/UberShader.test.ts`, `src/engine/render/shaders/PostShader.test.ts` |
 | OFG-API-005 | Terrain presets and world descriptor codes | Active | `src/engine/world/terrainDescriptor.ts`, `src/engine/web/rustBrowserGameRuntime.ts`, `crates/terrain_core/src/presets.rs` |
 | OFG-API-006 | Standalone `terrain_core.wasm` artifact | Fixture | `tools/build-terrain-wasm.mjs`, `crates/terrain_core/src/facade.rs` |
@@ -105,6 +105,12 @@ smoke tests. Current commands are:
     { type: "setPostProcessBloom", enabled, threshold, intensity }
     { type: "setPostProcessDepthOfField", enabled, focusDistance,
       focusRange, maxBlurPixels }
+    { type: "setRenderDebugOptions", terrainLodMask?, skyEnabled?,
+      shadowPassEnabled?, shadowCascadeMask?, shadowSamplingEnabled?,
+      shadowSunMode?: "production" | "overhead" | "angled" | "low",
+      whiteTexturesEnabled?, materialMode?: "full" | "lambert" }
+    { type: "resetRenderDebugOptions" }
+    { type: "resetPerfStats" }
     { type: "resetStreaming" }
 
 The TypeScript runtime also sends the internal create-time reset command:
@@ -138,10 +144,37 @@ and the selected post-process debug view:
     rendererStatus.terrainUpdateRemovedMeshCount: number
     rendererStatus.terrainUpdateUploadedVertexFloatCount: number
     rendererStatus.terrainUpdateUploadedIndexCount: number
+    rendererStatus.frameCulledDrawCount: number
+    rendererStatus.frameSubmittedVertexCount: number
+    rendererStatus.frameSubmittedIndexCount: number
+    rendererStatus.frameSubmittedTriangleCount: number
+    rendererStatus.shadowMaxDistanceMeters: number
+    rendererStatus.shadowStrength: number
+    rendererStatus.shadowEffectiveSunElevation: number
+    rendererStatus.shadowEffectiveSunDirection: { x, y, z }
+    rendererStatus.gpuTimerAvailable: boolean
+    rendererStatus.gpuTimerUnavailableReason: string
+    rendererStatus.gpuTimestampPeriodNs: number
+    rendererStatus.gpuTimerPendingReadbackCount: number
+    rendererStatus.renderDebugOptions: RenderDebugOptions
+    rendererStatus.lastRenderCounters: RenderCounterSample
+    rendererStatus.lastGpuPassTimings: GpuPassTimingSample
+
+The root debug snapshot also includes:
+
+    rustPerfStats
+    renderDebugOptions
 
 The terrain update fields are Rust-owned CPU-side diagnostics for the latest
 terrain stream update on the browser game tick. They are intended for smoke and
 performance reports, not for browser-side terrain scheduling decisions.
+
+`rustPerfStats` is Rust-owned frame-history data. It summarizes recent Rust CPU
+timing spans, renderer counters, latest terrain LOD counters, shadow cascade
+counters, and optional GPU pass timings. `renderDebugOptions` is the active
+Rust-owned diagnostic render state. TypeScript may display, dump, and test these
+values, but must not use them to compute terrain visibility, culling, material
+selection, or renderer behavior.
 
 Terrain debug state currently includes LOD0 compatibility keys
 `loadedTerrainChunkKeys` and `terrainChunkKeys`, plus explicit multi-resolution
@@ -242,9 +275,29 @@ Current hook categories:
 - Renderer status from Rust `debugSnapshot()`, including resource counts,
   frame count, total frame draw candidates, and visible post-cull frame draw
   count. Shadow resource status currently reports cascade count, shadow-map
-  size, and per-frame shadow-pass draw count. Post-process status reports the
+  size, per-frame shadow-pass draw count, maximum receiver distance, active
+  fade strength, effective sun elevation, and clamped effective sun direction.
+  Post-process status reports the
   selected debug view, exposure, tone mapping, bloom, and depth-of-field
-  settings.
+  settings. Performance status also reports main-camera cull count, submitted
+  vertices/indices/triangles, GPU timer availability, latest render counters,
+  active render debug options, and latest GPU pass timings when available.
+- Browser CPU frame-loop perf summaries from `src/app/perfDebug.ts`, combined
+  with Rust-provided `rustPerfStats` only for DevTools dumps and capture
+  artifacts. Current debug hooks are `getPerfStats()`, `dumpPerfStats()`, and
+  `resetPerfStats()`.
+- Render diagnostic controls through `setRenderDebugOptions(...)`,
+  `getRenderDebugOptions()`, and `resetRenderDebugOptions()`. Options can
+  filter submitted terrain LODs, disable sky draws, disable shadow-map passes,
+  choose active shadow cascades, disable shadow sampling, force deterministic
+  shadow sun modes for capture diagnostics, force diagnostic white texture
+  sampling, and use a basic Lambert material mode. These controls must default
+  to production rendering and must not mutate terrain streaming, mesh
+  generation, resource lifetime, or ownership policy. Shadow sun modes are
+  Rust-owned renderer diagnostics: `production` uses the engine sky, `overhead`
+  forces a vertical sun for tight culling probes, `angled` forces a non-vertical
+  daylight sun, and `low` forces a near-horizon sun that should fade/disable
+  shadows rather than expand caster search indefinitely.
 - Shadow debug view state from Rust `debugSnapshot()` as `shadowDebugView`, plus
   the browser-only `setShadowDebugView(...)` debug hook. Supported debug view
   names are `off`, `cascadeIndex`, `shadowVisibility`, and

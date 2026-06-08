@@ -10,7 +10,7 @@ import type {
   PlayerMode,
   RustBrowserGameCommand,
   RustBrowserGameDebugSnapshot,
-  ShadowDebugView,
+  ShadowDebugView
 } from "./browserGameTypes.js";
 import { TerrainWorkerClient, type TerrainBuildCompletion } from "./terrainWorkerClient.js";
 
@@ -108,6 +108,8 @@ export class RustBrowserGameAdapter {
       terrainWorkerCount: snapshot.terrainWorkerCount,
       playerControllerRuntime: snapshot.playerControllerRuntime,
       rendererStatus: snapshot.rendererStatus,
+      rustPerfStats: snapshot.rustPerfStats,
+      renderDebugOptions: snapshot.renderDebugOptions,
       shadowDebugView: validateShadowDebugView(snapshot.shadowDebugView),
       skyRuntime: snapshot.skyRuntime,
       skyDayPhase: snapshot.skyDayPhase,

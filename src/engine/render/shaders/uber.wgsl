@@ -49,6 +49,8 @@ const SHADOW_DEBUG_OFF: i32 = 0;
 const SHADOW_DEBUG_CASCADE_INDEX: i32 = 1;
 const SHADOW_DEBUG_VISIBILITY: i32 = 2;
 const SHADOW_DEBUG_DEPTH_CASCADE0: i32 = 3;
+const MATERIAL_DEBUG_FULL: i32 = 0;
+const MATERIAL_DEBUG_LAMBERT: i32 = 1;
 
 struct VertexInput {
   @location(0) position: vec3<f32>,
@@ -132,6 +134,18 @@ fn shadowDebugMode() -> i32 {
   return i32(round(shadows.spare.x));
 }
 
+fn materialDebugMode() -> i32 {
+  return i32(round(shadows.spare.y));
+}
+
+fn whiteTexturesEnabled() -> bool {
+  return shadows.spare.z > 0.5;
+}
+
+fn shadowStrength() -> f32 {
+  return clamp(shadows.spare.w, 0.0, 1.0);
+}
+
 fn shadowCascadeIndex(viewDepth: f32) -> i32 {
   if (viewDepth <= shadows.cascadeSplits.x) {
     return 0;
@@ -195,7 +209,8 @@ fn loadShadowDepth(cascadeIndex: i32, uv: vec2<f32>) -> f32 {
 }
 
 fn sampleShadowVisibility(worldPosition: vec3<f32>) -> f32 {
-  if (shadows.options.x < 0.5) {
+  let strength = shadowStrength();
+  if (shadows.options.x < 0.5 || strength <= 0.0001) {
     return 1.0;
   }
   let coords = shadowCoordinates(worldPosition);
@@ -218,7 +233,7 @@ fn sampleShadowVisibility(worldPosition: vec3<f32>) -> f32 {
       );
     }
   }
-  return visibility / 9.0;
+  return mix(1.0, visibility / 9.0, strength);
 }
 
 fn shadowCascadeDebugColor(cascadeIndex: i32) -> vec3<f32> {
@@ -267,10 +282,16 @@ fn shadowDebugColor(input: VertexOutput) -> vec4<f32> {
 }
 
 fn sampleTerrainAlbedoLayer(uv: vec2<f32>, layer: f32) -> vec3<f32> {
+  if (whiteTexturesEnabled()) {
+    return vec3<f32>(1.0);
+  }
   return srgbToLinear(textureSample(albedoTexture, albedoSampler, fract(uv), i32(round(layer))).rgb);
 }
 
 fn sampleTerrainMaterialLayer(uv: vec2<f32>, layer: f32) -> vec4<f32> {
+  if (whiteTexturesEnabled()) {
+    return vec4<f32>(1.0);
+  }
   return textureSample(materialTexture, albedoSampler, fract(uv), i32(round(layer)));
 }
 
@@ -344,6 +365,9 @@ fn sampleTerrainRoughness(input: VertexOutput, normal: vec3<f32>) -> f32 {
 }
 
 fn sampleModelBaseColor(input: VertexOutput) -> vec4<f32> {
+  if (whiteTexturesEnabled()) {
+    return vec4<f32>(input.color * object.albedoFactor.rgb, object.albedoFactor.a);
+  }
   let textureColor = textureSample(albedoTexture, albedoSampler, input.uv, 0);
   return vec4<f32>(
     input.color * object.albedoFactor.rgb * srgbToLinear(textureColor.rgb),
@@ -352,6 +376,12 @@ fn sampleModelBaseColor(input: VertexOutput) -> vec4<f32> {
 }
 
 fn sampleModelMetallicRoughness(input: VertexOutput) -> vec2<f32> {
+  if (whiteTexturesEnabled()) {
+    return vec2<f32>(
+      clamp(object.specularAndFactor.x, 0.0, 1.0),
+      clamp(object.specularAndFactor.y, 0.04, 1.0)
+    );
+  }
   let packed = textureSample(materialTexture, albedoSampler, input.uv, 0);
   let metallic = clamp(object.specularAndFactor.x * packed.b, 0.0, 1.0);
   let roughness = clamp(object.specularAndFactor.y * packed.g, 0.04, 1.0);
@@ -359,6 +389,12 @@ fn sampleModelMetallicRoughness(input: VertexOutput) -> vec2<f32> {
 }
 
 fn sampleModelSpecularGlossiness(input: VertexOutput) -> vec4<f32> {
+  if (whiteTexturesEnabled()) {
+    return vec4<f32>(
+      clamp(object.specularAndFactor.rgb, vec3<f32>(0.0), vec3<f32>(1.0)),
+      clamp(object.specularAndFactor.w, 0.0, 1.0)
+    );
+  }
   let packed = textureSample(materialTexture, albedoSampler, input.uv, 0);
   return vec4<f32>(
     clamp(object.specularAndFactor.rgb * packed.rgb, vec3<f32>(0.0), vec3<f32>(1.0)),
@@ -422,6 +458,26 @@ fn shadeTerrain(input: VertexOutput, normal: vec3<f32>, viewDirection: vec3<f32>
   return vec4<f32>(litColor, object.albedoFactor.a);
 }
 
+fn shadeLambert(input: VertexOutput, normal: vec3<f32>) -> vec4<f32> {
+  let lightDirection = normalize(camera.sunDirectionAndIntensity.xyz);
+  let nDotL = max(dot(normal, lightDirection), 0.0);
+  var baseColor = sampleModelBaseColor(input);
+  if (materialWorkflowIs(MATERIAL_WORKFLOW_TERRAIN)) {
+    let vertexColor = mix(vec3<f32>(1.0), input.color, 0.35);
+    baseColor = vec4<f32>(
+      vertexColor * object.albedoFactor.rgb * sampleTerrainAlbedo(input, normal),
+      object.albedoFactor.a
+    );
+  }
+  let shadowVisibility = sampleShadowVisibility(input.worldPosition);
+  let direct = camera.sunColorAndAmbient.rgb *
+    camera.sunDirectionAndIntensity.w *
+    nDotL *
+    shadowVisibility;
+  let litColor = baseColor.rgb * (camera.sunColorAndAmbient.w + direct);
+  return vec4<f32>(litColor, baseColor.a);
+}
+
 fn shadeMetallicRoughness(input: VertexOutput, normal: vec3<f32>, viewDirection: vec3<f32>) -> vec4<f32> {
   let baseColor = sampleModelBaseColor(input);
   let metallicRoughness = sampleModelMetallicRoughness(input);
@@ -459,6 +515,13 @@ fn fragmentMain(input: VertexOutput) -> SceneFragmentOutput {
 
   let viewDirection = normalize(camera.eyeWorld.xyz - input.worldPosition);
   let normal = normalize(input.worldNormal);
+  if (materialDebugMode() == MATERIAL_DEBUG_LAMBERT) {
+    var lambertOutput: SceneFragmentOutput;
+    lambertOutput.color = shadeLambert(input, normal);
+    lambertOutput.linearDepth = linearDepth;
+    return lambertOutput;
+  }
+
   var color = shadeMetallicRoughness(input, normal, viewDirection);
   if (materialWorkflowIs(MATERIAL_WORKFLOW_TERRAIN)) {
     color = shadeTerrain(input, normal, viewDirection);

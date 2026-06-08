@@ -7,12 +7,24 @@ use crate::config::{
     SHADOW_SPLIT_LAMBDA,
 };
 use crate::render_math::{
-    look_at_mat4, multiply_mat4, orthographic_mat4, transform_point, Aabb, RenderVec3,
-    MATRIX_FLOATS,
+    frustum_from_view_projection, frustum_intersects_aabb, look_at_mat4, multiply_mat4,
+    orthographic_mat4, transform_point, Aabb, RenderVec3, MATRIX_FLOATS,
 };
 
 const SHADOW_EXTENT_PADDING: f32 = 1.05;
 const MIN_SHADOW_NEAR_DISTANCE: f32 = 0.01;
+pub const SHADOW_FULL_STRENGTH_SUN_ELEVATION: f32 = 0.22;
+pub const SHADOW_DISABLED_SUN_ELEVATION: f32 = 0.08;
+pub const SHADOW_MIN_EFFECTIVE_SUN_ELEVATION: f32 = 0.18;
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ShadowSunMode {
+    #[default]
+    Production,
+    Overhead,
+    Angled,
+    Low,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ShadowCascade {
@@ -189,11 +201,34 @@ pub fn build_shadow_cascades(
     camera_far: f32,
     light_direction: RenderVec3,
 ) -> Option<ShadowCascadeSet> {
+    build_shadow_cascades_with_max_distance(
+        eye,
+        target,
+        fov_y_radians,
+        aspect,
+        camera_near,
+        camera_far,
+        SHADOW_MAX_DISTANCE,
+        light_direction,
+    )
+}
+
+/// Builds stable directional-light matrices with an explicit shadow receiver range.
+pub fn build_shadow_cascades_with_max_distance(
+    eye: RenderVec3,
+    target: RenderVec3,
+    fov_y_radians: f32,
+    aspect: f32,
+    camera_near: f32,
+    camera_far: f32,
+    max_shadow_distance: f32,
+    light_direction: RenderVec3,
+) -> Option<ShadowCascadeSet> {
     let light_direction = light_direction.normalize()?;
     let splits = compute_cascade_splits(
         camera_near,
         camera_far,
-        SHADOW_MAX_DISTANCE,
+        max_shadow_distance,
         SHADOW_SPLIT_LAMBDA,
     )?;
     let mut cascades = [empty_cascade(); SHADOW_CASCADE_COUNT];
@@ -218,6 +253,63 @@ pub fn build_shadow_cascades(
         cascades,
         split_depths: splits,
     })
+}
+
+/// Returns the deterministic sun direction used by a shadow diagnostic mode.
+pub fn shadow_sun_mode_direction(mode: ShadowSunMode, production: RenderVec3) -> Option<RenderVec3> {
+    match mode {
+        ShadowSunMode::Production => production.normalize(),
+        ShadowSunMode::Overhead => Some(RenderVec3::UP),
+        ShadowSunMode::Angled => RenderVec3::new(0.62, 0.62, 0.48).normalize(),
+        ShadowSunMode::Low => RenderVec3::new(0.996, 0.05, 0.06).normalize(),
+    }
+}
+
+/// Returns the 0..1 strength applied to sampled shadows for a sun elevation.
+pub fn shadow_strength_for_sun_elevation(sun_elevation: f32) -> f32 {
+    if !sun_elevation.is_finite() {
+        return 0.0;
+    }
+
+    smoothstep(
+        SHADOW_DISABLED_SUN_ELEVATION,
+        SHADOW_FULL_STRENGTH_SUN_ELEVATION,
+        sun_elevation,
+    )
+}
+
+/// Clamps the cascade-building direction so near-horizon shadows stay bounded.
+pub fn clamp_shadow_light_direction(direction: RenderVec3) -> Option<RenderVec3> {
+    let normalized = direction.normalize()?;
+    if normalized.y >= SHADOW_MIN_EFFECTIVE_SUN_ELEVATION {
+        return Some(normalized);
+    }
+
+    let horizontal = RenderVec3::new(normalized.x, 0.0, normalized.z);
+    let horizontal_direction = horizontal
+        .normalize()
+        .unwrap_or(RenderVec3::new(1.0, 0.0, 0.0));
+    let horizontal_scale = (1.0
+        - SHADOW_MIN_EFFECTIVE_SUN_ELEVATION * SHADOW_MIN_EFFECTIVE_SUN_ELEVATION)
+        .sqrt();
+    RenderVec3::new(
+        horizontal_direction.x * horizontal_scale,
+        SHADOW_MIN_EFFECTIVE_SUN_ELEVATION,
+        horizontal_direction.z * horizontal_scale,
+    )
+    .normalize()
+}
+
+/// Returns true when a caster AABB intersects the cascade light clip volume.
+pub fn shadow_caster_intersects_cascade(cascade: ShadowCascade, caster_bounds: Aabb) -> bool {
+    if !aabb_is_finite(caster_bounds) {
+        return false;
+    }
+    let Some(light_frustum) = frustum_from_view_projection(&cascade.light_view_projection) else {
+        return false;
+    };
+
+    frustum_intersects_aabb(light_frustum, caster_bounds)
 }
 
 fn build_shadow_cascade(
@@ -366,6 +458,19 @@ fn snap_down(value: f32, step: f32) -> f32 {
 
 fn matrix_is_finite(matrix: &[f32; MATRIX_FLOATS]) -> bool {
     matrix.iter().all(|value| value.is_finite())
+}
+
+fn aabb_is_finite(aabb: Aabb) -> bool {
+    aabb.min.is_finite()
+        && aabb.max.is_finite()
+        && aabb.min.x <= aabb.max.x
+        && aabb.min.y <= aabb.max.y
+        && aabb.min.z <= aabb.max.z
+}
+
+fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
+    let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 const fn empty_cascade() -> ShadowCascade {

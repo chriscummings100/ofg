@@ -9,6 +9,7 @@ mod model_materials;
 mod model_render_assets;
 mod model_skinning;
 mod model_texture_assets;
+mod perf;
 mod player_character;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod post_process;
@@ -84,6 +85,14 @@ pub use model_render_assets::{
 };
 pub use model_skinning::{model_node_world_matrices, skin_joint_matrices, skin_primitive_vertices};
 pub use model_texture_assets::{decode_model_texture, ModelRgbaImage, ModelTextureAssetError};
+pub use perf::{
+    default_shadow_cascade_mask, terrain_lod_from_node_key, FramePerfReport, FramePerfRing,
+    FramePerfSample, GpuPassTimingSummary, GpuPassTimings, GpuTimedPass, GpuTimerStatus,
+    GpuTimestampPair, NumericSummary, RenderCounterSample, RenderCounterSummary,
+    RenderDebugOptions, RenderDebugOptionsError, RenderDebugOptionsUpdate, RenderMaterialDebugMode,
+    RustCpuFrameSummary, RustCpuFrameTimings, ShadowCascadeCounter, TerrainLodCounter,
+    DEFAULT_TERRAIN_LOD_MASK, MAX_TRACKED_TERRAIN_LODS, PERF_HISTORY_CAPACITY,
+};
 pub use player_character::{
     player_character_descriptor, PlayerCharacterDescriptor, PlayerCharacterId,
     PLAYER_CHARACTER_DESCRIPTORS,
@@ -99,15 +108,19 @@ pub use render_packets::{
 pub use render_uniforms::{
     build_frame_uniform_values, build_object_uniform_values, build_shadow_uniform_values,
     RenderUniformError, FRAME_PACKET_FLOATS, FRAME_UNIFORM_FLOATS, MATERIAL_PACKET_FLOATS,
-    OBJECT_UNIFORM_FLOATS, SHADOW_DEBUG_MODE_OFFSET, SHADOW_UNIFORM_FLOATS, WORLD_MATRIX_FLOATS,
+    OBJECT_UNIFORM_FLOATS, SHADOW_DEBUG_MODE_OFFSET, SHADOW_STRENGTH_OFFSET, SHADOW_UNIFORM_FLOATS,
+    WORLD_MATRIX_FLOATS,
 };
 pub use renderer::{
     MeshResource, RendererResourceCounts, RendererState, RendererStateError, TextureResource,
 };
 pub use resources::{ResourceHandle, ResourceStoreError};
 pub use shadows::{
-    build_shadow_cascades, camera_frustum_corners_world, compute_cascade_splits, ShadowCascade,
-    ShadowCascadeSet,
+    build_shadow_cascades, build_shadow_cascades_with_max_distance, camera_frustum_corners_world,
+    clamp_shadow_light_direction, compute_cascade_splits, shadow_caster_intersects_cascade,
+    shadow_strength_for_sun_elevation, shadow_sun_mode_direction, ShadowCascade, ShadowCascadeSet,
+    ShadowSunMode, SHADOW_DISABLED_SUN_ELEVATION, SHADOW_FULL_STRENGTH_SUN_ELEVATION,
+    SHADOW_MIN_EFFECTIVE_SUN_ELEVATION,
 };
 pub use terrain_stream::{
     BrowserTerrainBuildCompletion, BrowserTerrainBuildRequest, BrowserTerrainLodStatus,
@@ -126,8 +139,12 @@ pub use wgpu_renderer::*;
 #[cfg(test)]
 mod model_materials_tests;
 #[cfg(test)]
+mod perf_tests;
+#[cfg(test)]
 mod render_math_tests;
 #[cfg(test)]
 mod render_uniform_tests;
+#[cfg(test)]
+mod shadow_tests;
 #[cfg(test)]
 mod tests;

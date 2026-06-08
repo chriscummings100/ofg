@@ -175,6 +175,27 @@ async function runBrowserSmoke(url) {
     await setPostProcessDepthOfField(page, false, 30, 8, 6);
     await setPostProcessDebugView(page, "final");
 
+    const diagnosticRenderOptions = {
+      skyEnabled: false,
+      shadowCascadeMask: 0b0001,
+      shadowSamplingEnabled: false,
+      whiteTexturesEnabled: true,
+      materialMode: "lambert"
+    };
+    await setRenderDebugOptions(page, diagnosticRenderOptions);
+    assertNoBrowserFailures(consoleMessages);
+    const renderDebugDisabled = await readDebugContract(page);
+    assertDebugContract(renderDebugDisabled, {
+      renderDebugOptions: {
+        ...defaultRenderDebugOptions(),
+        ...diagnosticRenderOptions
+      }
+    });
+    await resetRenderDebugOptions(page);
+    assertNoBrowserFailures(consoleMessages);
+    const renderDebugReset = await readDebugContract(page);
+    assertDebugContract(renderDebugReset);
+
     await page.keyboard.press("KeyC");
     await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "THIRD");
     await waitForBrowserFrame(page);
@@ -260,6 +281,8 @@ async function runBrowserSmoke(url) {
       postToneMapDebug,
       dofCocDebug,
       dofBlurredDebug,
+      renderDebugDisabled,
+      renderDebugReset,
       toggledDebug,
       reloadedDebug,
       movementPerformance,
@@ -409,6 +432,58 @@ async function setPostProcessDepthOfField(
   await page.waitForTimeout(250);
 }
 
+/// Updates render diagnostic options and waits for Rust/wgpu to report them.
+async function setRenderDebugOptions(page, options) {
+  const startingFrameIndex = await page.evaluate(() =>
+    window.__ofgDebug?.getRendererStatus?.()?.frameIndex ?? 0
+  );
+  await page.evaluate((selectedOptions) => {
+    window.__ofgDebug?.setRenderDebugOptions?.(selectedOptions);
+  }, options);
+  await page.waitForFunction(({ expectedOptions, frameIndex }) => {
+    const status = window.__ofgDebug?.getRendererStatus?.();
+    const activeOptions = window.__ofgDebug?.getRenderDebugOptions?.();
+    const matches = (actual) => actual !== undefined &&
+      Object.entries(expectedOptions).every(([key, expected]) => actual[key] === expected);
+    return status !== undefined &&
+      status.frameIndex > frameIndex &&
+      matches(activeOptions) &&
+      matches(status.renderDebugOptions);
+  }, { expectedOptions: options, frameIndex: startingFrameIndex }, { timeout: 10000 });
+  await page.waitForTimeout(250);
+}
+
+/// Resets render diagnostic options and waits for production defaults.
+async function resetRenderDebugOptions(page) {
+  const startingFrameIndex = await page.evaluate(() =>
+    window.__ofgDebug?.getRendererStatus?.()?.frameIndex ?? 0
+  );
+  await page.evaluate(() => {
+    window.__ofgDebug?.resetRenderDebugOptions?.();
+  });
+  await page.waitForFunction((frameIndex) => {
+    const status = window.__ofgDebug?.getRendererStatus?.();
+    const activeOptions = window.__ofgDebug?.getRenderDebugOptions?.();
+    const expectedOptions = {
+      terrainLodMask: 0xFFFFFFFF,
+      skyEnabled: true,
+      shadowPassEnabled: true,
+      shadowCascadeMask: 0b1111,
+      shadowSamplingEnabled: true,
+      shadowSunMode: "production",
+      whiteTexturesEnabled: false,
+      materialMode: "full"
+    };
+    const matches = (actual) => actual !== undefined &&
+      Object.entries(expectedOptions).every(([key, expected]) => actual[key] === expected);
+    return status !== undefined &&
+      status.frameIndex > frameIndex &&
+      matches(activeOptions) &&
+      matches(status.renderDebugOptions);
+  }, startingFrameIndex, { timeout: 10000 });
+  await page.waitForTimeout(250);
+}
+
 /// Waits until Rust terrain streaming exposes a settled mixed-LOD frame.
 async function waitForTerrainLodFrame(page) {
   await page.waitForFunction((minSpanMeters) => {
@@ -457,10 +532,16 @@ async function readDebugContract(page) {
   return page.evaluate(() => {
     const debug = window.__ofgDebug;
     const status = debug?.getRendererStatus?.();
+    const perfStats = debug?.getPerfStats?.();
+    const renderDebugOptions = debug?.getRenderDebugOptions?.();
 
     return {
       hasDebug: debug !== undefined,
       apiKeys: debug === undefined ? [] : Object.keys(debug).sort(),
+      hasDumpPerfStats: typeof debug?.dumpPerfStats === "function",
+      hasResetPerfStats: typeof debug?.resetPerfStats === "function",
+      hasSetRenderDebugOptions: typeof debug?.setRenderDebugOptions === "function",
+      hasResetRenderDebugOptions: typeof debug?.resetRenderDebugOptions === "function",
       playerControllerRuntime: debug?.getPlayerControllerRuntime?.() ?? "missing",
       renderPacketRuntime: debug?.getRenderPacketRuntime?.() ?? "missing",
       terrainStreamerRuntime: debug?.getTerrainStreamerRuntime?.() ?? "missing",
@@ -480,6 +561,8 @@ async function readDebugContract(page) {
       skyCloudCoverage: debug?.getSkyCloudCoverage?.(),
       skyStarIntensity: debug?.getSkyStarIntensity?.(),
       postProcessDebugView: debug?.getPostProcessDebugView?.() ?? "missing",
+      perfStats,
+      renderDebugOptions,
       rendererStatus: status === undefined
         ? undefined
         : {
@@ -495,6 +578,10 @@ async function readDebugContract(page) {
             frameDrawCount: status.frameDrawCount,
             frameVisibleDrawCount: status.frameVisibleDrawCount,
             frameShadowDrawCount: status.frameShadowDrawCount,
+            frameCulledDrawCount: status.frameCulledDrawCount,
+            frameSubmittedVertexCount: status.frameSubmittedVertexCount,
+            frameSubmittedIndexCount: status.frameSubmittedIndexCount,
+            frameSubmittedTriangleCount: status.frameSubmittedTriangleCount,
             terrainUpdateTotalMs: status.terrainUpdateTotalMs,
             terrainUpdateUpsertedMeshCount: status.terrainUpdateUpsertedMeshCount,
             terrainUpdateRemovedMeshCount: status.terrainUpdateRemovedMeshCount,
@@ -502,6 +589,13 @@ async function readDebugContract(page) {
             terrainUpdateUploadedIndexCount: status.terrainUpdateUploadedIndexCount,
             shadowCascadeCount: status.shadowCascadeCount,
             shadowMapSize: status.shadowMapSize,
+            gpuTimerAvailable: status.gpuTimerAvailable,
+            gpuTimerUnavailableReason: status.gpuTimerUnavailableReason,
+            gpuTimestampPeriodNs: status.gpuTimestampPeriodNs,
+            gpuTimerPendingReadbackCount: status.gpuTimerPendingReadbackCount,
+            renderDebugOptions: status.renderDebugOptions,
+            lastRenderCounters: status.lastRenderCounters,
+            lastGpuPassTimings: status.lastGpuPassTimings,
             postProcessRuntime: status.postProcessRuntime,
             postProcessDebugView: status.postProcessDebugView,
             postProcessExposure: status.postProcessExposure,
@@ -565,10 +659,19 @@ function assertDebugContract(debug, expectations = {}) {
     dofEnabled = false,
     dofFocusDistance = 30,
     dofFocusRange = 8,
-    dofMaxBlurPixels = 6
+    dofMaxBlurPixels = 6,
+    renderDebugOptions = defaultRenderDebugOptions()
   } = expectations;
   if (!debug.hasDebug) {
     throw new Error("Debug API is unavailable.");
+  }
+  if (
+    !debug.hasDumpPerfStats ||
+    !debug.hasResetPerfStats ||
+    !debug.hasSetRenderDebugOptions ||
+    !debug.hasResetRenderDebugOptions
+  ) {
+    throw new Error(`Perf/debug hooks are missing: ${JSON.stringify(debug)}`);
   }
 
   const expectedRustSentinels = {
@@ -604,6 +707,8 @@ function assertDebugContract(debug, expectations = {}) {
       `Expected shadow debug view ${shadowDebugView}, saw ${debug.shadowDebugView}.`
     );
   }
+  assertRenderDebugOptions(debug.renderDebugOptions, renderDebugOptions, "debug API");
+  assertPerfStats(debug.perfStats);
 
   const terrainStatus = debug.terrainStreamStatus;
   if (
@@ -686,6 +791,14 @@ function assertDebugContract(debug, expectations = {}) {
     status.frameDrawCount <= 0 ||
     status.frameVisibleDrawCount <= 0 ||
     status.frameShadowDrawCount <= 0 ||
+    !Number.isFinite(status.frameCulledDrawCount) ||
+    status.frameCulledDrawCount < 0 ||
+    !Number.isFinite(status.frameSubmittedVertexCount) ||
+    status.frameSubmittedVertexCount <= 0 ||
+    !Number.isFinite(status.frameSubmittedIndexCount) ||
+    status.frameSubmittedIndexCount <= 0 ||
+    !Number.isFinite(status.frameSubmittedTriangleCount) ||
+    status.frameSubmittedTriangleCount <= 0 ||
     !Number.isFinite(status.terrainUpdateTotalMs) ||
     status.terrainUpdateTotalMs < 0 ||
     !Number.isFinite(status.terrainUpdateUpsertedMeshCount) ||
@@ -705,6 +818,140 @@ function assertDebugContract(debug, expectations = {}) {
     status.maxTextureArrayLayers < status.requiredTextureArrayLayers
   ) {
     throw new Error(`Renderer status is not a valid Rust/wgpu frame: ${JSON.stringify(debug)}`);
+  }
+  if (
+    typeof status.gpuTimerAvailable !== "boolean" ||
+    !Number.isFinite(status.gpuTimestampPeriodNs) ||
+    status.gpuTimestampPeriodNs < 0 ||
+    !Number.isFinite(status.gpuTimerPendingReadbackCount) ||
+    status.gpuTimerPendingReadbackCount < 0 ||
+    (!status.gpuTimerAvailable && status.gpuTimerUnavailableReason.length === 0)
+  ) {
+    throw new Error(`GPU timer status is invalid: ${JSON.stringify(status)}`);
+  }
+  assertRenderDebugOptions(status.renderDebugOptions, renderDebugOptions, "renderer status");
+  assertRenderCounters(status.lastRenderCounters);
+  assertGpuPassTimings(status.lastGpuPassTimings, status.gpuTimerAvailable);
+}
+
+/// Returns production render-debug defaults expected after load/reset.
+function defaultRenderDebugOptions() {
+  return {
+    terrainLodMask: 0xFFFFFFFF,
+    skyEnabled: true,
+    shadowPassEnabled: true,
+    shadowCascadeMask: 0b1111,
+    shadowSamplingEnabled: true,
+    shadowSunMode: "production",
+    whiteTexturesEnabled: false,
+    materialMode: "full"
+  };
+}
+
+/// Checks a render-debug option object against expected values.
+function assertRenderDebugOptions(actual, expected, label) {
+  if (actual === undefined) {
+    throw new Error(`Missing ${label} render debug options.`);
+  }
+  for (const [key, expectedValue] of Object.entries(expected)) {
+    if (actual[key] !== expectedValue) {
+      throw new Error(
+        `Expected ${label} renderDebugOptions.${key}=${expectedValue}, ` +
+        `saw ${actual[key]}: ${JSON.stringify(actual)}`
+      );
+    }
+  }
+}
+
+/// Checks combined browser/Rust perf stats exposed through the debug API.
+function assertPerfStats(stats) {
+  if (
+    stats === undefined ||
+    stats.browserCpu === undefined ||
+    stats.rustCpu === undefined ||
+    stats.rendererCounters === undefined ||
+    stats.gpu === undefined ||
+    stats.gpu.timerStatus === undefined
+  ) {
+    throw new Error(`Perf stats are missing required sections: ${JSON.stringify(stats)}`);
+  }
+  assertNumericSummary(stats.browserCpu.browserCpu.totalFrameMs, "browser total frame");
+  assertNumericSummary(stats.rustCpu.totalFrameMs, "Rust total frame");
+  assertNumericSummary(stats.rendererCounters.frameVisibleDrawCount, "visible draws");
+  if (
+    typeof stats.gpu.timerStatus.available !== "boolean" ||
+    !Number.isFinite(stats.gpu.timerStatus.pendingReadbackCount)
+  ) {
+    throw new Error(`Perf GPU timer status is invalid: ${JSON.stringify(stats.gpu.timerStatus)}`);
+  }
+  if (!Array.isArray(stats.terrainLodCounters) || stats.terrainLodCounters.length === 0) {
+    throw new Error(`Perf stats do not expose terrain LOD counters: ${JSON.stringify(stats)}`);
+  }
+  if (
+    !Array.isArray(stats.shadowCascadeCounters) ||
+    stats.shadowCascadeCounters.length !== 4
+  ) {
+    throw new Error(`Perf stats do not expose four shadow cascade counters: ${JSON.stringify(stats)}`);
+  }
+}
+
+/// Checks that a numeric perf summary has stable finite values.
+function assertNumericSummary(summary, label) {
+  if (
+    summary === undefined ||
+    !Number.isFinite(summary.latest) ||
+    !Number.isFinite(summary.min) ||
+    !Number.isFinite(summary.max) ||
+    !Number.isFinite(summary.average) ||
+    !Number.isFinite(summary.p95)
+  ) {
+    throw new Error(`Invalid ${label} perf summary: ${JSON.stringify(summary)}`);
+  }
+}
+
+/// Checks latest renderer counters exposed by Rust/wgpu.
+function assertRenderCounters(counters) {
+  if (
+    counters === undefined ||
+    counters.frameCandidateCount < counters.frameVisibleDrawCount ||
+    counters.frameVisibleDrawCount <= 0 ||
+    counters.frameCulledCount < 0 ||
+    counters.frameShadowDrawCount <= 0 ||
+    counters.submittedVertexCount <= 0 ||
+    counters.submittedIndexCount <= 0 ||
+    counters.submittedTriangleCount <= 0 ||
+    !Array.isArray(counters.terrainLodCounters) ||
+    counters.terrainLodCounters.length === 0 ||
+    !Array.isArray(counters.shadowCascadeCounters) ||
+    counters.shadowCascadeCounters.length !== 4
+  ) {
+    throw new Error(`Renderer counters are invalid: ${JSON.stringify(counters)}`);
+  }
+}
+
+/// Checks latest GPU pass timing shape; values may be null when timestamps are unavailable.
+function assertGpuPassTimings(timings, gpuTimerAvailable) {
+  if (
+    timings === undefined ||
+    !Array.isArray(timings.shadowCascadeMs) ||
+    timings.shadowCascadeMs.length !== 4
+  ) {
+    throw new Error(`GPU pass timings are invalid: ${JSON.stringify(timings)}`);
+  }
+  const values = [
+    ...timings.shadowCascadeMs,
+    timings.sceneMs,
+    timings.bloomMs,
+    timings.postProcessMs,
+    timings.totalMeasuredMs
+  ];
+  for (const value of values) {
+    if (value !== null && (!Number.isFinite(value) || value < 0)) {
+      throw new Error(`GPU pass timing contains an invalid value: ${JSON.stringify(timings)}`);
+    }
+  }
+  if (gpuTimerAvailable && timings.sceneMs === null) {
+    throw new Error(`GPU timers are available but scene timing is absent: ${JSON.stringify(timings)}`);
   }
 }
 

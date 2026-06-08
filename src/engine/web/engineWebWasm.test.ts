@@ -3,6 +3,11 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { ENGINE_WEB_WASM_METADATA } from "../../generated/web/engineWebWasm.js";
 import {
+  fakeRenderDebugOptions,
+  fakeRendererStatus,
+  fakeRustPerfStats
+} from "../../../tests/fixtures/debugSnapshotFixtures.js";
+import {
   createEngineWebBrowserGame,
   loadEngineWebWasmModule,
   patchLegacyWgpuRequiredLimits,
@@ -229,40 +234,9 @@ function fakeBrowserGame(): EngineWebBrowserGame {
         renderPacketRuntime: "rust",
         terrainRenderPacketRuntime: "rust",
         rendererRuntime: "rust-wgpu",
-        rendererStatus: {
-          version: 1,
-          runtime: "rust-wgpu",
-          configured: true,
-          canvasWidth: 1,
-          canvasHeight: 1,
-          maxTextureArrayLayers: 16,
-          requiredTextureArrayLayers: 16,
-          meshCount: 0,
-          textureCount: 3,
-          objectCount: 1,
-          frameIndex: 0,
-          frameDrawCount: 0,
-          frameVisibleDrawCount: 0,
-          frameShadowDrawCount: 0,
-          terrainUpdateTotalMs: 0,
-          terrainUpdateUpsertedMeshCount: 0,
-          terrainUpdateRemovedMeshCount: 0,
-          terrainUpdateUploadedVertexFloatCount: 0,
-          terrainUpdateUploadedIndexCount: 0,
-          shadowCascadeCount: 4,
-          shadowMapSize: 1024,
-          postProcessRuntime: "rust-wgpu",
-          postProcessDebugView: "final",
-          postProcessExposure: 1,
-          postProcessToneMappingEnabled: true,
-          postProcessBloomEnabled: true,
-          postProcessBloomThreshold: 1,
-          postProcessBloomIntensity: 0.08,
-          postProcessDofEnabled: false,
-          postProcessDofFocusDistance: 30,
-          postProcessDofFocusRange: 8,
-          postProcessDofMaxBlurPixels: 6
-        },
+        rendererStatus: fakeRendererStatus({ canvasWidth: 1, canvasHeight: 1, meshCount: 0 }),
+        rustPerfStats: fakeRustPerfStats(),
+        renderDebugOptions: fakeRenderDebugOptions(),
         shadowDebugView: "off",
         terrainWorkerCount: 0,
         playerControllerRuntime: "rust"

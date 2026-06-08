@@ -5,6 +5,11 @@ import {
 } from "../engine/input/inputTracker.js";
 import { buildBrowserFrameInput } from "./frameInput.js";
 import { computeFrameDeltaSeconds } from "./frameTiming.js";
+import {
+  BrowserPerfTracker,
+  buildPerfStats,
+  dumpPerfStats
+} from "./perfDebug.js";
 import type { EngineWebRendererStatus } from "../engine/web/engineWebWasm.js";
 import {
   createRustBrowserGameRuntime,
@@ -22,7 +27,10 @@ import {
   type PlayerCharacterId,
   type PlayerMode,
   type PostProcessDebugView,
-  type ShadowDebugView
+  type RenderDebugOptions,
+  type RenderDebugOptionsUpdate,
+  type ShadowDebugView,
+  type ShadowSunMode
 } from "../engine/web/browserGameTypes.js";
 
 export type GameTouchControlElements = TouchControlElements & {
@@ -100,6 +108,12 @@ declare global {
       getModelSkinningRuntime: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelSkinningRuntime"];
       getModelSkinningJointCount: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["modelSkinningJointCount"];
       getPlayerPosition: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerPosition"];
+      getPerfStats: () => ReturnType<typeof buildPerfStats>;
+      dumpPerfStats: () => ReturnType<typeof buildPerfStats>;
+      resetPerfStats: () => void;
+      getRenderDebugOptions: () => RenderDebugOptions;
+      setRenderDebugOptions: (options: RenderDebugOptionsUpdate) => void;
+      resetRenderDebugOptions: () => void;
       resetTerrainStreaming: () => void;
       setCameraMode: (mode: PlayerMode) => void;
       setDebugCamera: (x: number, y: number, z: number, yaw: number, pitch: number) => void;
@@ -125,6 +139,7 @@ export async function startGame(elements: GameElements): Promise<void> {
   const input = new InputTracker();
   const descriptor = readWorldDescriptor();
   const game = await createRustBrowserGameRuntime(elements.canvas, descriptor);
+  const browserPerf = new BrowserPerfTracker();
   let latestDebugSnapshot = game.debugSnapshot();
   const readDebugSnapshot = () => latestDebugSnapshot;
   const runDebugCommand = (command: Parameters<RustBrowserGameRuntime["command"]>[0]) => {
@@ -206,6 +221,29 @@ export async function startGame(elements: GameElements): Promise<void> {
     getModelSkinningRuntime: () => readDebugSnapshot().modelSkinningRuntime,
     getModelSkinningJointCount: () => readDebugSnapshot().modelSkinningJointCount,
     getPlayerPosition: () => readDebugSnapshot().playerPosition,
+    getPerfStats() {
+      return buildPerfStats(browserPerf.summary(), readDebugSnapshot());
+    },
+    dumpPerfStats() {
+      const stats = buildPerfStats(browserPerf.summary(), readDebugSnapshot());
+      return dumpPerfStats(stats);
+    },
+    resetPerfStats() {
+      browserPerf.reset();
+      runDebugCommand({ type: "resetPerfStats" });
+    },
+    getRenderDebugOptions() {
+      return readDebugSnapshot().renderDebugOptions;
+    },
+    setRenderDebugOptions(options) {
+      runDebugCommand({
+        type: "setRenderDebugOptions",
+        ...validateRenderDebugOptionsUpdate(options)
+      });
+    },
+    resetRenderDebugOptions() {
+      runDebugCommand({ type: "resetRenderDebugOptions" });
+    },
     resetTerrainStreaming() {
       runDebugCommand({ type: "resetStreaming" });
     },
@@ -283,6 +321,7 @@ export async function startGame(elements: GameElements): Promise<void> {
   let lastTimestamp = performance.now();
 
   function frame(timestamp: number): void {
+    const frameStartedAt = performance.now();
     const deltaSeconds = computeFrameDeltaSeconds(timestamp, lastTimestamp);
     lastTimestamp = timestamp;
 
@@ -290,18 +329,33 @@ export async function startGame(elements: GameElements): Promise<void> {
       game.command({ type: "togglePlayerMode" });
     }
 
+    const inputStartedAt = performance.now();
     const snapshot = input.consumeFrameSnapshot();
     const frameInput = readFrameInput(input, deltaSeconds, snapshot);
+    const inputAndFrameBuildMs = performance.now() - inputStartedAt;
 
+    const gameTickStartedAt = performance.now();
     game.tick(frameInput);
+    const gameTickMs = performance.now() - gameTickStartedAt;
 
+    const debugSnapshotStartedAt = performance.now();
     latestDebugSnapshot = game.debugSnapshot();
+    const debugSnapshotMs = performance.now() - debugSnapshotStartedAt;
+    const hudStartedAt = performance.now();
     const debugSnapshot = latestDebugSnapshot;
     const playerMode = debugSnapshot.playerMode;
     elements.cameraMode.textContent = cameraModeLabel(playerMode);
     elements.cameraMode.dataset.mode = playerMode;
     updateCharacterToggle(elements.characterToggle, debugSnapshot);
     elements.frameTime.textContent = `${(deltaSeconds * 1000).toFixed(1)} ms`;
+    const hudUpdateMs = performance.now() - hudStartedAt;
+    browserPerf.record({
+      totalFrameMs: performance.now() - frameStartedAt,
+      inputAndFrameBuildMs,
+      gameTickMs,
+      debugSnapshotMs,
+      hudUpdateMs
+    });
 
     requestAnimationFrame(frame);
   }
@@ -441,6 +495,88 @@ function validatePostProcessDofMaxBlurPixels(maxBlurPixels: number): number {
   }
 
   throw new Error(`Invalid post-process DoF max blur pixels '${maxBlurPixels}'.`);
+}
+
+function validateRenderDebugOptionsUpdate(
+  options: RenderDebugOptionsUpdate
+): RenderDebugOptionsUpdate {
+  const update: MutableRenderDebugOptionsUpdate = {};
+  if (options.terrainLodMask !== undefined) {
+    if (
+      !Number.isInteger(options.terrainLodMask) ||
+      options.terrainLodMask <= 0 ||
+      options.terrainLodMask > 0xFFFFFFFF
+    ) {
+      throw new Error(`Invalid terrain LOD mask '${options.terrainLodMask}'.`);
+    }
+    update.terrainLodMask = options.terrainLodMask >>> 0;
+  }
+  if (options.skyEnabled !== undefined) {
+    update.skyEnabled = validateBoolean(options.skyEnabled, "skyEnabled");
+  }
+  if (options.shadowPassEnabled !== undefined) {
+    update.shadowPassEnabled = validateBoolean(options.shadowPassEnabled, "shadowPassEnabled");
+  }
+  if (options.shadowCascadeMask !== undefined) {
+    if (
+      !Number.isInteger(options.shadowCascadeMask) ||
+      options.shadowCascadeMask <= 0 ||
+      options.shadowCascadeMask > 0b1111
+    ) {
+      throw new Error(`Invalid shadow cascade mask '${options.shadowCascadeMask}'.`);
+    }
+    update.shadowCascadeMask = options.shadowCascadeMask;
+  }
+  if (options.shadowSamplingEnabled !== undefined) {
+    update.shadowSamplingEnabled = validateBoolean(
+      options.shadowSamplingEnabled,
+      "shadowSamplingEnabled"
+    );
+  }
+  if (options.shadowSunMode !== undefined) {
+    update.shadowSunMode = validateShadowSunMode(options.shadowSunMode);
+  }
+  if (options.whiteTexturesEnabled !== undefined) {
+    update.whiteTexturesEnabled = validateBoolean(
+      options.whiteTexturesEnabled,
+      "whiteTexturesEnabled"
+    );
+  }
+  if (options.materialMode !== undefined) {
+    if (options.materialMode !== "full" && options.materialMode !== "lambert") {
+      throw new Error(`Invalid material debug mode '${options.materialMode}'.`);
+    }
+    update.materialMode = options.materialMode;
+  }
+
+  return update;
+}
+
+type MutableRenderDebugOptionsUpdate = {
+  terrainLodMask?: RenderDebugOptions["terrainLodMask"];
+  skyEnabled?: RenderDebugOptions["skyEnabled"];
+  shadowPassEnabled?: RenderDebugOptions["shadowPassEnabled"];
+  shadowCascadeMask?: RenderDebugOptions["shadowCascadeMask"];
+  shadowSamplingEnabled?: RenderDebugOptions["shadowSamplingEnabled"];
+  shadowSunMode?: RenderDebugOptions["shadowSunMode"];
+  whiteTexturesEnabled?: RenderDebugOptions["whiteTexturesEnabled"];
+  materialMode?: RenderDebugOptions["materialMode"];
+};
+
+function validateShadowSunMode(mode: string): ShadowSunMode {
+  if (mode === "production" || mode === "overhead" || mode === "angled" || mode === "low") {
+    return mode;
+  }
+
+  throw new Error(`Invalid shadow sun mode '${mode}'.`);
+}
+
+function validateBoolean(value: boolean, label: string): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  throw new Error(`Invalid boolean render debug option '${label}'.`);
 }
 
 function updateCharacterToggle(

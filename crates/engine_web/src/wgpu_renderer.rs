@@ -1,7 +1,9 @@
 // Browser-facing Rust/wgpu game facade. It owns WebGPU resources, terrain draw
 // submission, and render-facing GLTF model resources for the playable browser path.
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::OnceLock;
 #[cfg(not(target_arch = "wasm32"))]
@@ -13,7 +15,7 @@ use wgpu::util::DeviceExt;
 
 use crate::config::{
     MODEL_VERTEX_FLOATS, REQUIRED_TEXTURE_ARRAY_LAYERS, SHADOW_CASCADE_COUNT, SHADOW_MAP_SIZE,
-    TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
+    SHADOW_MAX_DISTANCE, TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM,
 };
 use crate::game_state::{BrowserGameInput, BrowserGameState};
 use crate::materials::TERRAIN_MATERIAL_PACKET;
@@ -28,6 +30,12 @@ use crate::model_locomotion::{PlayerCharacterLocomotionTuning, PlayerCharacterMo
 use crate::model_materials::{ModelMaterial, ModelMaterialWorkflow, ModelTextureInfo};
 use crate::model_render_assets::model_material_packet;
 use crate::model_texture_assets::decode_model_texture;
+use crate::perf::{
+    terrain_lod_from_node_key, FramePerfReport, FramePerfRing, FramePerfSample, GpuPassTimings,
+    GpuTimedPass, GpuTimerStatus, GpuTimestampPair, RenderCounterSample, RenderCounterSummary,
+    RenderDebugOptions, RenderDebugOptionsError, RenderDebugOptionsUpdate, RenderMaterialDebugMode,
+    RustCpuFrameTimings, ShadowCascadeCounter, TerrainLodCounter,
+};
 use crate::player_character::{
     PlayerCharacterDescriptor, PlayerCharacterId, PLAYER_CHARACTER_DESCRIPTORS,
 };
@@ -45,13 +53,17 @@ use crate::render_packets::{
 use crate::render_uniforms::{
     build_frame_uniform_values, build_object_uniform_values, build_shadow_uniform_values,
     FRAME_PACKET_FLOATS, FRAME_UNIFORM_FLOATS, MATERIAL_PACKET_FLOATS, OBJECT_UNIFORM_FLOATS,
-    SHADOW_DEBUG_MODE_OFFSET, WORLD_MATRIX_FLOATS,
+    SHADOW_DEBUG_MODE_OFFSET, SHADOW_STRENGTH_OFFSET, WORLD_MATRIX_FLOATS,
 };
 use crate::resources::{ResourceHandle, ResourceStore};
 use crate::shadow_renderer::{
     create_shadow_pipelines, create_shadow_resources, ShadowPipelines, ShadowResources,
 };
-use crate::shadows::{build_shadow_cascades, ShadowCascadeSet};
+use crate::shadows::{
+    build_shadow_cascades_with_max_distance, clamp_shadow_light_direction,
+    shadow_caster_intersects_cascade, shadow_strength_for_sun_elevation,
+    shadow_sun_mode_direction, ShadowCascadeSet, ShadowSunMode,
+};
 use crate::terrain_stream::{
     BrowserTerrainBuildCompletion, BrowserTerrainBuildRequest, BrowserTerrainStream,
     BrowserTerrainStreamStatus, TerrainJobStats, MAX_SAFE_TERRAIN_WORKER_REQUEST_ID,
@@ -65,6 +77,9 @@ const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
 const SHADER_SOURCE: &str = include_str!("../../../src/engine/render/shaders/uber.wgsl");
 const SHADOW_CONSTANT_BIAS: f32 = 0.0015;
 const SHADOW_NORMAL_BIAS: f32 = 0.0;
+const SHADOW_DEBUG_MATERIAL_MODE_OFFSET: usize = SHADOW_DEBUG_MODE_OFFSET + 1;
+const SHADOW_DEBUG_WHITE_TEXTURES_OFFSET: usize = SHADOW_DEBUG_MODE_OFFSET + 2;
+const GPU_TIMESTAMP_QUERY_COUNT: u32 = 16;
 
 #[wasm_bindgen]
 pub struct RustBrowserGame {
@@ -80,6 +95,7 @@ pub struct RustBrowserGame {
     active_player_character_id: PlayerCharacterId,
     model_skinning_runtime: Option<&'static str>,
     last_terrain_update_stats: TerrainUpdateStats,
+    perf_history: FramePerfRing,
 }
 
 #[derive(Debug)]
@@ -104,6 +120,10 @@ struct RustBrowserGameStatus {
     terrain_update_uploaded_index_count: u32,
     shadow_cascade_count: u32,
     shadow_map_size: u32,
+    shadow_max_distance_meters: f32,
+    shadow_strength: f32,
+    shadow_effective_sun_elevation: f32,
+    shadow_effective_sun_direction: RenderVec3,
     post_process_debug_view: PostProcessDebugView,
     post_process_exposure: f32,
     post_process_tone_mapping_enabled: bool,
@@ -114,6 +134,10 @@ struct RustBrowserGameStatus {
     post_process_dof_focus_distance: f32,
     post_process_dof_focus_range: f32,
     post_process_dof_max_blur_pixels: f32,
+    gpu_timer_status: GpuTimerStatus,
+    render_debug_options: RenderDebugOptions,
+    last_render_counters: RenderCounterSample,
+    last_gpu_pass_timings: GpuPassTimings,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -123,6 +147,44 @@ struct TerrainUpdateStats {
     removed_mesh_count: u32,
     uploaded_vertex_float_count: u32,
     uploaded_index_count: u32,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct RenderFrameCpuTimings {
+    render_packet_build_ms: f64,
+    renderer_prepare_ms: f64,
+    renderer_shadow_cpu_ms: f64,
+    renderer_scene_cpu_ms: f64,
+    renderer_post_cpu_ms: f64,
+    renderer_submit_ms: f64,
+}
+
+#[derive(Clone, Debug)]
+struct RenderFrameResult {
+    cpu_timings: RenderFrameCpuTimings,
+    counters: RenderCounterSample,
+    gpu_pass_timings: GpuPassTimings,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ShadowRuntimeState {
+    light_direction: RenderVec3,
+    cascade_light_direction: RenderVec3,
+    sun_elevation: f32,
+    strength: f32,
+    max_distance_meters: f32,
+}
+
+impl Default for ShadowRuntimeState {
+    fn default() -> Self {
+        Self {
+            light_direction: RenderVec3::UP,
+            cascade_light_direction: RenderVec3::UP,
+            sun_elevation: 1.0,
+            strength: 1.0,
+            max_distance_meters: SHADOW_MAX_DISTANCE,
+        }
+    }
 }
 
 struct BrowserWgpuRenderer {
@@ -155,6 +217,60 @@ struct BrowserWgpuRenderer {
     frame_draw_count: u32,
     frame_visible_draw_count: u32,
     frame_shadow_draw_count: u32,
+    render_debug_options: RenderDebugOptions,
+    last_shadow_runtime: ShadowRuntimeState,
+    last_render_counters: RenderCounterSample,
+    last_gpu_pass_timings: GpuPassTimings,
+    gpu_timer_status: GpuTimerStatus,
+    gpu_timers: Option<GpuTimerResources>,
+}
+
+struct GpuTimerResources {
+    query_set: wgpu::QuerySet,
+    resolve_buffer: wgpu::Buffer,
+    timestamp_period_ns: f64,
+    pending_readbacks: Vec<PendingGpuReadback>,
+    latest_timings: GpuPassTimings,
+}
+
+struct PendingGpuReadback {
+    buffer: wgpu::Buffer,
+    query_count: u32,
+    pairs: Vec<GpuTimestampPair>,
+    completion: Rc<RefCell<Option<Result<(), String>>>>,
+}
+
+#[derive(Default)]
+struct GpuFrameTimestampPlan {
+    enabled: bool,
+    next_query_index: u32,
+    pairs: Vec<GpuTimestampPair>,
+}
+
+impl GpuFrameTimestampPlan {
+    fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            next_query_index: 0,
+            pairs: Vec::new(),
+        }
+    }
+
+    fn reserve_pass(&mut self, pass: GpuTimedPass) -> Option<(u32, u32)> {
+        if !self.enabled || self.next_query_index + 1 >= GPU_TIMESTAMP_QUERY_COUNT {
+            return None;
+        }
+
+        let start_index = self.next_query_index;
+        let end_index = self.next_query_index + 1;
+        self.next_query_index += 2;
+        self.pairs.push(GpuTimestampPair {
+            pass,
+            start_index,
+            end_index,
+        });
+        Some((start_index, end_index))
+    }
 }
 
 struct GpuMesh {
@@ -183,6 +299,7 @@ struct PreparedRenderItem {
     mesh_handle: ResourceHandle,
     object_handle: ResourceHandle,
     world_bounds: Aabb,
+    terrain_lod: Option<u8>,
 }
 
 struct PlayerCharacterSlot {
@@ -234,6 +351,16 @@ impl MeshVertexLayout {
             MODEL_VERTEX_FLOATS => Some(Self::Model),
             _ => None,
         }
+    }
+}
+
+impl GpuMesh {
+    fn vertex_count(&self) -> usize {
+        self.vertex_float_count
+            / match self.vertex_layout {
+                MeshVertexLayout::Terrain => TERRAIN_VERTEX_FLOATS as usize,
+                MeshVertexLayout::Model => MODEL_VERTEX_FLOATS as usize,
+            }
     }
 }
 
@@ -414,6 +541,7 @@ impl RustBrowserGame {
             active_player_character_id,
             model_skinning_runtime: Some("rust-cpu"),
             last_terrain_update_stats: TerrainUpdateStats::default(),
+            perf_history: FramePerfRing::default(),
         };
         game.install_terrain_textures(terrain_texture_arrays)?;
 
@@ -429,11 +557,48 @@ impl RustBrowserGame {
 
     #[wasm_bindgen(js_name = tick)]
     pub fn tick(&mut self, frame: JsValue) -> Result<(), JsValue> {
+        let frame_started_at_ms = perf_now_ms();
+        let input_started_at_ms = perf_now_ms();
         let input = browser_game_input_from_js(&frame)?;
+        let input_parse_ms = perf_now_ms() - input_started_at_ms;
+
+        let game_state_started_at_ms = perf_now_ms();
         self.game_state.tick(input).map_err(js_error)?;
+        let game_state_tick_ms = perf_now_ms() - game_state_started_at_ms;
+
+        let player_character_started_at_ms = perf_now_ms();
         self.update_player_character_mesh(input)?;
+        let player_character_update_ms = perf_now_ms() - player_character_started_at_ms;
+
+        let terrain_stream_started_at_ms = perf_now_ms();
         self.update_terrain_stream()?;
-        self.render_frame()
+        let terrain_stream_update_ms = perf_now_ms() - terrain_stream_started_at_ms;
+
+        let render_frame_started_at_ms = perf_now_ms();
+        let render_result = self.render_frame()?;
+        let render_frame_ms = perf_now_ms() - render_frame_started_at_ms;
+
+        self.perf_history.push(FramePerfSample {
+            frame_index: self.renderer.frame_index(),
+            rust_cpu: RustCpuFrameTimings {
+                total_frame_ms: perf_now_ms() - frame_started_at_ms,
+                input_parse_ms,
+                game_state_tick_ms,
+                player_character_update_ms,
+                terrain_stream_update_ms,
+                render_frame_ms,
+                render_packet_build_ms: render_result.cpu_timings.render_packet_build_ms,
+                renderer_prepare_ms: render_result.cpu_timings.renderer_prepare_ms,
+                renderer_shadow_cpu_ms: render_result.cpu_timings.renderer_shadow_cpu_ms,
+                renderer_scene_cpu_ms: render_result.cpu_timings.renderer_scene_cpu_ms,
+                renderer_post_cpu_ms: render_result.cpu_timings.renderer_post_cpu_ms,
+                renderer_submit_ms: render_result.cpu_timings.renderer_submit_ms,
+            },
+            renderer_counters: render_result.counters,
+            gpu_pass_timings: render_result.gpu_pass_timings,
+        });
+
+        Ok(())
     }
 
     #[wasm_bindgen(js_name = configureTerrainWorkers)]
@@ -483,6 +648,19 @@ impl RustBrowserGame {
                 let player_position = self.game_state.player_position().map_err(js_error)?;
                 self.clear_terrain_meshes()?;
                 self.terrain_stream.reset_around(player_position);
+            }
+            "resetPerfStats" => {
+                self.perf_history.clear();
+                self.renderer.reset_perf_stats();
+            }
+            "resetRenderDebugOptions" => {
+                self.renderer.reset_render_debug_options();
+            }
+            "setRenderDebugOptions" => {
+                let update = render_debug_options_update_from_js(&command)?;
+                self.renderer
+                    .set_render_debug_options(update)
+                    .map_err(js_error)?;
             }
             "togglePlayerMode" => {
                 self.game_state.toggle_player_mode().map_err(js_error)?;
@@ -667,6 +845,16 @@ impl RustBrowserGame {
             &snapshot,
             "rendererStatus",
             renderer_status_to_js(self.renderer.status(self.last_terrain_update_stats))?,
+        )?;
+        set_js_property(
+            &snapshot,
+            "rustPerfStats",
+            frame_perf_report_to_js(self.perf_history.report(), self.renderer.gpu_timer_status())?,
+        )?;
+        set_js_property(
+            &snapshot,
+            "renderDebugOptions",
+            render_debug_options_to_js(self.renderer.render_debug_options())?,
         )?;
         let sky_snapshot = self.game_state.sky_snapshot();
         set_js_property(
@@ -855,19 +1043,30 @@ impl RustBrowserGame {
         Ok(snapshot.into())
     }
 
-    fn render_frame(&mut self) -> Result<(), JsValue> {
+    fn render_frame(&mut self) -> Result<RenderFrameResult, JsValue> {
+        let packet_started_at_ms = perf_now_ms();
         let engine_snapshot = self.game_state.render_snapshot_values().map_err(js_error)?;
         let scene_mesh_items = self.game_state.render_mesh_items().map_err(js_error)?;
         let aspect = self.renderer.aspect_ratio();
+        let render_debug_options = self.renderer.render_debug_options();
         let terrain_node_keys = sorted_terrain_node_keys(&self.terrain_mesh_handles_by_key);
-        let terrain_node_count = terrain_node_keys.len();
-        let item_count = terrain_node_count + scene_mesh_items.len();
+        let visible_terrain_node_keys = terrain_node_keys
+            .iter()
+            .filter_map(|node_key| {
+                let lod = terrain_lod_from_node_key(node_key).unwrap_or(0);
+                render_debug_options
+                    .terrain_lod_enabled(lod)
+                    .then_some((node_key, lod))
+            })
+            .collect::<Vec<_>>();
+        let item_count = visible_terrain_node_keys.len() + scene_mesh_items.len();
 
         let mut mesh_handles = Vec::with_capacity(item_count);
         let mut object_handles = Vec::with_capacity(item_count);
         let mut albedo_texture_handles = Vec::with_capacity(item_count);
         let mut normal_texture_handles = Vec::with_capacity(item_count);
         let mut material_texture_handles = Vec::with_capacity(item_count);
+        let mut terrain_lods = Vec::with_capacity(item_count);
         let mut world_matrices = Vec::with_capacity(item_count * WORLD_MATRIX_FLOATS);
         let mut material_packets = Vec::with_capacity(item_count * MATERIAL_PACKET_FLOATS);
         let terrain_textures = self.terrain_textures.unwrap_or(TerrainTextureHandles {
@@ -876,8 +1075,7 @@ impl RustBrowserGame {
             material: self.renderer.fallback_material,
         });
 
-        for index in 0..terrain_node_count {
-            let terrain_node_key = &terrain_node_keys[index];
+        for (terrain_node_key, lod) in visible_terrain_node_keys {
             let mesh_handle = *self
                 .terrain_mesh_handles_by_key
                 .get(terrain_node_key)
@@ -893,6 +1091,7 @@ impl RustBrowserGame {
             albedo_texture_handles.push(handle_to_js(terrain_textures.albedo));
             normal_texture_handles.push(handle_to_js(terrain_textures.normal));
             material_texture_handles.push(handle_to_js(terrain_textures.material));
+            terrain_lods.push(i32::from(lod));
             world_matrices.extend_from_slice(&IDENTITY_WORLD_MATRIX);
             material_packets.extend_from_slice(&TERRAIN_MATERIAL_PACKET);
         }
@@ -908,11 +1107,13 @@ impl RustBrowserGame {
             albedo_texture_handles.push(handle_to_js(material.albedo_texture));
             normal_texture_handles.push(handle_to_js(material.normal_texture));
             material_texture_handles.push(handle_to_js(material.material_texture));
+            terrain_lods.push(-1);
             world_matrices.extend_from_slice(&item.world_matrix);
             material_packets.extend_from_slice(&material.packet);
         }
 
-        self.renderer.render_engine_frame(
+        let render_packet_build_ms = perf_now_ms() - packet_started_at_ms;
+        let mut result = self.renderer.render_engine_frame(
             &engine_snapshot,
             aspect,
             &mesh_handles,
@@ -920,10 +1121,12 @@ impl RustBrowserGame {
             &albedo_texture_handles,
             &normal_texture_handles,
             &material_texture_handles,
+            &terrain_lods,
             &world_matrices,
             &material_packets,
         )?;
-        Ok(())
+        result.cpu_timings.render_packet_build_ms = render_packet_build_ms;
+        Ok(result)
     }
 }
 
@@ -1210,6 +1413,13 @@ impl BrowserWgpuRenderer {
             )));
         }
         let max_texture_array_layers = adapter.limits().max_texture_array_layers;
+        let adapter_features = adapter.features();
+        let timestamp_query_supported = adapter_features.contains(wgpu::Features::TIMESTAMP_QUERY);
+        let required_features = if timestamp_query_supported {
+            wgpu::Features::TIMESTAMP_QUERY
+        } else {
+            wgpu::Features::empty()
+        };
 
         let mut limits =
             wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits());
@@ -1220,7 +1430,7 @@ impl BrowserWgpuRenderer {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("ofg rust webgpu device"),
-                    required_features: wgpu::Features::empty(),
+                    required_features,
                     required_limits: limits,
                 },
                 None,
@@ -1350,6 +1560,25 @@ impl BrowserWgpuRenderer {
         let shadow_pipelines = create_shadow_pipelines(&device, &shadow_pipeline_layout, &shader);
         let post_process =
             PostProcessResources::new(&device, format, display_width, display_height);
+        let gpu_timer_status = GpuTimerStatus {
+            available: timestamp_query_supported,
+            unavailable_reason: if timestamp_query_supported {
+                ""
+            } else {
+                "adapter does not expose TIMESTAMP_QUERY"
+            },
+            timestamp_period_ns: if timestamp_query_supported {
+                queue.get_timestamp_period() as f64
+            } else {
+                0.0
+            },
+            pending_readback_count: 0,
+        };
+        let gpu_timers = if timestamp_query_supported {
+            Some(create_gpu_timer_resources(&device, &queue))
+        } else {
+            None
+        };
         let mut renderer = Self {
             canvas,
             surface,
@@ -1380,6 +1609,12 @@ impl BrowserWgpuRenderer {
             frame_draw_count: 0,
             frame_visible_draw_count: 0,
             frame_shadow_draw_count: 0,
+            render_debug_options: RenderDebugOptions::default(),
+            last_shadow_runtime: ShadowRuntimeState::default(),
+            last_render_counters: RenderCounterSample::default(),
+            last_gpu_pass_timings: GpuPassTimings::default(),
+            gpu_timer_status,
+            gpu_timers,
         };
         renderer.create_fallback_textures()?;
         Ok(renderer)
@@ -1651,14 +1886,21 @@ impl BrowserWgpuRenderer {
         &mut self,
         frame_packet: &[f32],
         shadow_cascades: &ShadowCascadeSet,
+        shadow_runtime: ShadowRuntimeState,
         mesh_handles: &[f64],
         object_handles: &[f64],
         albedo_texture_handles: &[f64],
         normal_texture_handles: &[f64],
         material_texture_handles: &[f64],
+        terrain_lods: &[i32],
         world_matrices: &[f32],
         material_packets: &[f32],
-    ) -> Result<(), JsValue> {
+    ) -> Result<RenderFrameResult, JsValue> {
+        self.collect_completed_gpu_readbacks();
+        let mut cpu_timings = RenderFrameCpuTimings::default();
+        let mut counters = RenderCounterSample::default();
+        let mut gpu_timestamp_plan = GpuFrameTimestampPlan::new(self.gpu_timers.is_some());
+
         if frame_packet.len() != FRAME_PACKET_FLOATS {
             return Err(js_error(
                 "Rust WebGPU renderer received an invalid frame packet.",
@@ -1670,6 +1912,7 @@ impl BrowserWgpuRenderer {
             || albedo_texture_handles.len() != item_count
             || normal_texture_handles.len() != item_count
             || material_texture_handles.len() != item_count
+            || terrain_lods.len() != item_count
             || world_matrices.len() != item_count * WORLD_MATRIX_FLOATS
             || material_packets.len() != item_count * MATERIAL_PACKET_FLOATS
         {
@@ -1677,6 +1920,7 @@ impl BrowserWgpuRenderer {
                 "Rust WebGPU renderer received mismatched render packet arrays.",
             ));
         }
+        let render_prepare_started_at_ms = perf_now_ms();
         let mut view_projection = [0.0; WORLD_MATRIX_FLOATS];
         view_projection.copy_from_slice(&frame_packet[0..WORLD_MATRIX_FLOATS]);
         let camera_frustum = frustum_from_view_projection(&view_projection)
@@ -1710,6 +1954,15 @@ impl BrowserWgpuRenderer {
             let albedo_texture = handle_from_js(albedo_texture_handles[index])?;
             let normal_texture = handle_from_js(normal_texture_handles[index])?;
             let material_texture = handle_from_js(material_texture_handles[index])?;
+            let terrain_lod = match terrain_lods[index] {
+                -1 => None,
+                lod if (0..=u8::MAX as i32).contains(&lod) => Some(lod as u8),
+                _ => {
+                    return Err(js_error(
+                        "Rust WebGPU renderer received an invalid terrain LOD marker.",
+                    ))
+                }
+            };
             let local_bounds = self
                 .meshes
                 .get(mesh_handle)
@@ -1736,17 +1989,32 @@ impl BrowserWgpuRenderer {
                 mesh_handle,
                 object_handle,
                 world_bounds: transform_aabb(local_bounds, &world_matrix),
+                terrain_lod,
             });
         }
+        counters.set_main_camera_candidates(item_count as u64);
+        cpu_timings.renderer_prepare_ms = perf_now_ms() - render_prepare_started_at_ms;
 
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("rust webgpu frame encoder"),
             });
-        let shadow_draw_count =
-            self.render_shadow_passes(&mut encoder, &render_items, shadow_cascades)?;
+        let shadow_started_at_ms = perf_now_ms();
+        let shadow_draw_count = self.render_shadow_passes(
+            &mut encoder,
+            &render_items,
+            shadow_cascades,
+            shadow_runtime,
+            &mut counters,
+            &mut gpu_timestamp_plan,
+        )?;
+        cpu_timings.renderer_shadow_cpu_ms = perf_now_ms() - shadow_started_at_ms;
+        let scene_started_at_ms = perf_now_ms();
         {
+            let scene_query = gpu_timestamp_plan.reserve_pass(GpuTimedPass::Scene);
+            let scene_timestamp_writes =
+                render_pass_timestamp_writes(self.gpu_timers.as_ref(), scene_query);
             let color_attachments = [
                 Some(wgpu::RenderPassColorAttachment {
                     view: self.post_process.scene_color_view(),
@@ -1781,18 +2049,22 @@ impl BrowserWgpuRenderer {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: scene_timestamp_writes,
                 occlusion_query_set: None,
             });
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            pass.set_pipeline(&self.sky_pipeline);
-            pass.draw(0..3, 0..1);
+            if self.render_debug_options.sky_enabled {
+                pass.set_pipeline(&self.sky_pipeline);
+                pass.draw(0..3, 0..1);
+                counters.record_sky_draw();
+            }
             pass.set_bind_group(2, &self.shadow_resources.bind_group, &[]);
 
             let mut active_vertex_layout = None;
             let mut visible_draw_count = 0_u32;
             for item in &render_items {
                 if !frustum_intersects_aabb(camera_frustum, item.world_bounds) {
+                    counters.record_main_camera_cull();
                     continue;
                 }
                 let mesh = self.meshes.get(item.mesh_handle).ok_or_else(|| {
@@ -1816,18 +2088,54 @@ impl BrowserWgpuRenderer {
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                counters.record_scene_draw(
+                    mesh.vertex_count() as u64,
+                    u64::from(mesh.index_count),
+                    item.terrain_lod,
+                );
                 visible_draw_count = visible_draw_count.saturating_add(1);
             }
             self.frame_visible_draw_count = visible_draw_count;
             self.frame_shadow_draw_count = shadow_draw_count;
         }
-        self.post_process
-            .render(&self.queue, &mut encoder, &view, self.post_process_settings);
+        cpu_timings.renderer_scene_cpu_ms = perf_now_ms() - scene_started_at_ms;
+        let post_started_at_ms = perf_now_ms();
+        let bloom_query = gpu_timestamp_plan.reserve_pass(GpuTimedPass::Bloom);
+        let post_query = gpu_timestamp_plan.reserve_pass(GpuTimedPass::PostProcess);
+        let bloom_timestamp_writes =
+            render_pass_timestamp_writes(self.gpu_timers.as_ref(), bloom_query);
+        let post_timestamp_writes =
+            render_pass_timestamp_writes(self.gpu_timers.as_ref(), post_query);
+        self.post_process.render(
+            &self.queue,
+            &mut encoder,
+            &view,
+            self.post_process_settings,
+            bloom_timestamp_writes,
+            post_timestamp_writes,
+        );
+        counters.record_post_process_draw();
+        counters.record_post_process_draw();
+        cpu_timings.renderer_post_cpu_ms = perf_now_ms() - post_started_at_ms;
+
+        let pending_gpu_readback =
+            self.prepare_gpu_timestamp_readback(&mut encoder, gpu_timestamp_plan);
+        let submit_started_at_ms = perf_now_ms();
         self.queue.submit(Some(encoder.finish()));
+        if let Some(pending_gpu_readback) = pending_gpu_readback {
+            self.enqueue_gpu_timestamp_readback(pending_gpu_readback);
+        }
         frame.present();
+        cpu_timings.renderer_submit_ms = perf_now_ms() - submit_started_at_ms;
         self.frame_index = self.frame_index.saturating_add(1);
         self.frame_draw_count = item_count as u32;
-        Ok(())
+        self.last_render_counters = counters.clone();
+        self.last_gpu_pass_timings = self.latest_gpu_pass_timings();
+        Ok(RenderFrameResult {
+            cpu_timings,
+            counters,
+            gpu_pass_timings: self.last_gpu_pass_timings,
+        })
     }
 
     fn render_shadow_passes(
@@ -1835,16 +2143,30 @@ impl BrowserWgpuRenderer {
         encoder: &mut wgpu::CommandEncoder,
         render_items: &[PreparedRenderItem],
         shadow_cascades: &ShadowCascadeSet,
+        shadow_runtime: ShadowRuntimeState,
+        counters: &mut RenderCounterSample,
+        gpu_timestamp_plan: &mut GpuFrameTimestampPlan,
     ) -> Result<u32, JsValue> {
         let mut base_uniforms = build_shadow_uniform_values(
             shadow_cascades,
-            true,
+            self.render_debug_options
+                .effective_shadow_sampling_enabled()
+                && shadow_runtime.strength > 0.0,
             SHADOW_CONSTANT_BIAS,
             SHADOW_NORMAL_BIAS,
             1.0 / SHADOW_MAP_SIZE as f32,
         )
         .map_err(js_error)?;
         base_uniforms[SHADOW_DEBUG_MODE_OFFSET] = self.shadow_debug_view.uniform_code();
+        base_uniforms[SHADOW_DEBUG_MATERIAL_MODE_OFFSET] =
+            self.render_debug_options.material_mode_code();
+        base_uniforms[SHADOW_DEBUG_WHITE_TEXTURES_OFFSET] =
+            if self.render_debug_options.white_textures_enabled {
+                1.0
+            } else {
+                0.0
+            };
+        base_uniforms[SHADOW_STRENGTH_OFFSET] = shadow_runtime.strength;
         self.queue.write_buffer(
             &self.shadow_resources.uniform_buffer,
             0,
@@ -1853,6 +2175,20 @@ impl BrowserWgpuRenderer {
 
         let mut shadow_draw_count = 0_u32;
         for cascade_index in 0..SHADOW_CASCADE_COUNT {
+            let cascade_enabled = self.render_debug_options.shadow_pass_enabled
+                && shadow_runtime.strength > 0.0
+                && self
+                    .render_debug_options
+                    .shadow_cascade_enabled(cascade_index);
+            counters.set_shadow_cascade_candidates(
+                cascade_index,
+                cascade_enabled,
+                render_items.len() as u64,
+            );
+            if !cascade_enabled {
+                continue;
+            }
+
             let mut cascade_uniforms = base_uniforms;
             cascade_uniforms[0..WORLD_MATRIX_FLOATS]
                 .copy_from_slice(&shadow_cascades.cascades[cascade_index].light_view_projection);
@@ -1870,11 +2206,15 @@ impl BrowserWgpuRenderer {
                 }),
                 stencil_ops: None,
             });
+            let shadow_query =
+                gpu_timestamp_plan.reserve_pass(GpuTimedPass::ShadowCascade(cascade_index));
+            let shadow_timestamp_writes =
+                render_pass_timestamp_writes(self.gpu_timers.as_ref(), shadow_query);
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("shadow map render pass"),
                 color_attachments: &[],
                 depth_stencil_attachment: depth_attachment,
-                timestamp_writes: None,
+                timestamp_writes: shadow_timestamp_writes,
                 occlusion_query_set: None,
             });
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
@@ -1886,6 +2226,13 @@ impl BrowserWgpuRenderer {
 
             let mut active_vertex_layout = None;
             for item in render_items {
+                if !shadow_caster_intersects_cascade(
+                    shadow_cascades.cascades[cascade_index],
+                    item.world_bounds,
+                ) {
+                    counters.record_shadow_cull(cascade_index);
+                    continue;
+                }
                 let mesh = self.meshes.get(item.mesh_handle).ok_or_else(|| {
                     js_error("Rust WebGPU renderer received a stale mesh handle.")
                 })?;
@@ -1909,6 +2256,11 @@ impl BrowserWgpuRenderer {
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                counters.record_shadow_draw(
+                    cascade_index,
+                    mesh.vertex_count() as u64,
+                    u64::from(mesh.index_count),
+                );
                 shadow_draw_count = shadow_draw_count.saturating_add(1);
             }
         }
@@ -1925,21 +2277,34 @@ impl BrowserWgpuRenderer {
         albedo_texture_handles: &[f64],
         normal_texture_handles: &[f64],
         material_texture_handles: &[f64],
+        terrain_lods: &[i32],
         world_matrices: &[f32],
         material_packets: &[f32],
-    ) -> Result<(), JsValue> {
+    ) -> Result<RenderFrameResult, JsValue> {
+        let shadow_runtime =
+            shadow_runtime_state_from_engine_snapshot(engine_snapshot, self.render_debug_options)?;
+        let effective_snapshot =
+            engine_snapshot_with_shadow_debug_light(engine_snapshot, self.render_debug_options, shadow_runtime)?;
         let frame_packet =
-            build_frame_packet_from_engine_snapshot(engine_snapshot, aspect).map_err(js_error)?;
-        let shadow_cascades = build_shadow_cascades_from_engine_snapshot(engine_snapshot, aspect)?;
+            build_frame_packet_from_engine_snapshot(&effective_snapshot, aspect).map_err(js_error)?;
+        let shadow_cascades = build_shadow_cascades_from_engine_snapshot(
+            &effective_snapshot,
+            aspect,
+            shadow_runtime.cascade_light_direction,
+            shadow_runtime.max_distance_meters,
+        )?;
+        self.last_shadow_runtime = shadow_runtime;
 
         self.render(
             &frame_packet,
             &shadow_cascades,
+            shadow_runtime,
             mesh_handles,
             object_handles,
             albedo_texture_handles,
             normal_texture_handles,
             material_texture_handles,
+            terrain_lods,
             world_matrices,
             material_packets,
         )
@@ -2097,6 +2462,138 @@ impl BrowserWgpuRenderer {
         self.shadow_debug_view.js_name()
     }
 
+    fn frame_index(&self) -> u32 {
+        self.frame_index
+    }
+
+    fn render_debug_options(&self) -> RenderDebugOptions {
+        self.render_debug_options
+    }
+
+    fn gpu_timer_status(&self) -> GpuTimerStatus {
+        self.gpu_timer_status
+    }
+
+    fn set_render_debug_options(
+        &mut self,
+        update: RenderDebugOptionsUpdate,
+    ) -> Result<(), RenderDebugOptionsError> {
+        self.render_debug_options = self.render_debug_options.apply_update(update)?;
+        Ok(())
+    }
+
+    fn reset_render_debug_options(&mut self) {
+        self.render_debug_options = RenderDebugOptions::default();
+    }
+
+    fn reset_perf_stats(&mut self) {
+        self.last_render_counters = RenderCounterSample::default();
+        self.last_gpu_pass_timings = GpuPassTimings::default();
+        if let Some(gpu_timers) = &mut self.gpu_timers {
+            gpu_timers.pending_readbacks.clear();
+            gpu_timers.latest_timings = GpuPassTimings::default();
+        }
+        self.gpu_timer_status.pending_readback_count = 0;
+    }
+
+    fn latest_gpu_pass_timings(&self) -> GpuPassTimings {
+        self.gpu_timers
+            .as_ref()
+            .map(|timers| timers.latest_timings)
+            .unwrap_or_default()
+    }
+
+    fn collect_completed_gpu_readbacks(&mut self) {
+        if self.gpu_timers.is_none() {
+            return;
+        }
+
+        self.device.poll(wgpu::Maintain::Poll);
+        let Some(gpu_timers) = &mut self.gpu_timers else {
+            return;
+        };
+        let mut remaining = Vec::with_capacity(gpu_timers.pending_readbacks.len());
+        for pending in gpu_timers.pending_readbacks.drain(..) {
+            let completion = pending.completion.borrow_mut().take();
+            match completion {
+                Some(Ok(())) => {
+                    let byte_len = u64::from(pending.query_count * wgpu::QUERY_SIZE);
+                    let mapped = pending.buffer.slice(0..byte_len).get_mapped_range();
+                    let timestamps = mapped
+                        .chunks_exact(std::mem::size_of::<u64>())
+                        .map(|chunk| {
+                            let bytes: [u8; 8] = chunk.try_into().unwrap_or([0; 8]);
+                            u64::from_le_bytes(bytes)
+                        })
+                        .collect::<Vec<_>>();
+                    drop(mapped);
+                    pending.buffer.unmap();
+                    gpu_timers.latest_timings = GpuPassTimings::from_timestamp_pairs(
+                        gpu_timers.timestamp_period_ns,
+                        &timestamps,
+                        &pending.pairs,
+                    );
+                }
+                Some(Err(_error)) => {
+                    pending.buffer.unmap();
+                }
+                None => remaining.push(pending),
+            }
+        }
+        gpu_timers.pending_readbacks = remaining;
+        self.last_gpu_pass_timings = gpu_timers.latest_timings;
+        self.gpu_timer_status.pending_readback_count =
+            gpu_timers.pending_readbacks.len().min(u32::MAX as usize) as u32;
+    }
+
+    fn prepare_gpu_timestamp_readback(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        plan: GpuFrameTimestampPlan,
+    ) -> Option<PendingGpuReadback> {
+        let gpu_timers = self.gpu_timers.as_ref()?;
+        if plan.next_query_index == 0 {
+            return None;
+        }
+
+        let byte_len = u64::from(plan.next_query_index * wgpu::QUERY_SIZE);
+        let readback_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("perf timestamp readback buffer"),
+            size: byte_len,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        encoder.resolve_query_set(
+            &gpu_timers.query_set,
+            0..plan.next_query_index,
+            &gpu_timers.resolve_buffer,
+            0,
+        );
+        encoder.copy_buffer_to_buffer(&gpu_timers.resolve_buffer, 0, &readback_buffer, 0, byte_len);
+        Some(PendingGpuReadback {
+            buffer: readback_buffer,
+            query_count: plan.next_query_index,
+            pairs: plan.pairs,
+            completion: Rc::new(RefCell::new(None)),
+        })
+    }
+
+    fn enqueue_gpu_timestamp_readback(&mut self, pending: PendingGpuReadback) {
+        let Some(gpu_timers) = &mut self.gpu_timers else {
+            return;
+        };
+        let completion = Rc::clone(&pending.completion);
+        pending
+            .buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                *completion.borrow_mut() = Some(result.map_err(|error| error.to_string()));
+            });
+        gpu_timers.pending_readbacks.push(pending);
+        self.gpu_timer_status.pending_readback_count =
+            gpu_timers.pending_readbacks.len().min(u32::MAX as usize) as u32;
+    }
+
     fn status(&self, terrain_update_stats: TerrainUpdateStats) -> RustBrowserGameStatus {
         let shadow_cascade_count = self
             .shadow_resources
@@ -2127,6 +2624,10 @@ impl BrowserWgpuRenderer {
             terrain_update_uploaded_index_count: terrain_update_stats.uploaded_index_count,
             shadow_cascade_count,
             shadow_map_size: SHADOW_MAP_SIZE,
+            shadow_max_distance_meters: self.last_shadow_runtime.max_distance_meters,
+            shadow_strength: self.last_shadow_runtime.strength,
+            shadow_effective_sun_elevation: self.last_shadow_runtime.sun_elevation,
+            shadow_effective_sun_direction: self.last_shadow_runtime.cascade_light_direction,
             post_process_debug_view: self.post_process_settings.debug_view(),
             post_process_exposure: self.post_process_settings.exposure(),
             post_process_tone_mapping_enabled: self.post_process_settings.tone_mapping_enabled(),
@@ -2137,6 +2638,10 @@ impl BrowserWgpuRenderer {
             post_process_dof_focus_distance: self.post_process_settings.dof_focus_distance(),
             post_process_dof_focus_range: self.post_process_settings.dof_focus_range(),
             post_process_dof_max_blur_pixels: self.post_process_settings.dof_max_blur_pixels(),
+            gpu_timer_status: self.gpu_timer_status,
+            render_debug_options: self.render_debug_options,
+            last_render_counters: self.last_render_counters.clone(),
+            last_gpu_pass_timings: self.last_gpu_pass_timings,
         }
     }
 }
@@ -2157,6 +2662,8 @@ fn texture_binding(binding: u32) -> wgpu::BindGroupLayoutEntry {
 fn build_shadow_cascades_from_engine_snapshot(
     snapshot: &[f32],
     aspect: f32,
+    light_direction: RenderVec3,
+    max_shadow_distance: f32,
 ) -> Result<ShadowCascadeSet, JsValue> {
     if snapshot.len() != ENGINE_RENDER_SNAPSHOT_FLOATS {
         return Err(js_error(
@@ -2164,16 +2671,72 @@ fn build_shadow_cascades_from_engine_snapshot(
         ));
     }
 
-    build_shadow_cascades(
+    build_shadow_cascades_with_max_distance(
         RenderVec3::new(snapshot[0], snapshot[1], snapshot[2]),
         RenderVec3::new(snapshot[3], snapshot[4], snapshot[5]),
         snapshot[8],
         aspect,
         snapshot[9],
         snapshot[10],
-        RenderVec3::new(snapshot[11], snapshot[12], snapshot[13]),
+        max_shadow_distance,
+        light_direction,
     )
     .ok_or_else(|| js_error("Rust WebGPU renderer could not build shadow cascades."))
+}
+
+fn shadow_runtime_state_from_engine_snapshot(
+    snapshot: &[f32],
+    options: RenderDebugOptions,
+) -> Result<ShadowRuntimeState, JsValue> {
+    if snapshot.len() != ENGINE_RENDER_SNAPSHOT_FLOATS {
+        return Err(js_error(
+            "Rust WebGPU renderer received an invalid engine render snapshot for shadow state.",
+        ));
+    }
+
+    let production_direction = RenderVec3::new(snapshot[11], snapshot[12], snapshot[13]);
+    let light_direction = shadow_sun_mode_direction(options.shadow_sun_mode, production_direction)
+        .ok_or_else(|| js_error("Rust WebGPU renderer received an invalid shadow sun direction."))?;
+    let sun_elevation = if options.shadow_sun_mode == ShadowSunMode::Production {
+        snapshot[21]
+    } else {
+        light_direction.y
+    };
+    let strength = shadow_strength_for_sun_elevation(sun_elevation);
+    let cascade_light_direction = clamp_shadow_light_direction(light_direction).ok_or_else(|| {
+        js_error("Rust WebGPU renderer could not build a bounded shadow light direction.")
+    })?;
+
+    Ok(ShadowRuntimeState {
+        light_direction,
+        cascade_light_direction,
+        sun_elevation,
+        strength,
+        max_distance_meters: SHADOW_MAX_DISTANCE,
+    })
+}
+
+fn engine_snapshot_with_shadow_debug_light(
+    snapshot: &[f32],
+    options: RenderDebugOptions,
+    shadow_runtime: ShadowRuntimeState,
+) -> Result<[f32; ENGINE_RENDER_SNAPSHOT_FLOATS], JsValue> {
+    if snapshot.len() != ENGINE_RENDER_SNAPSHOT_FLOATS {
+        return Err(js_error(
+            "Rust WebGPU renderer received an invalid engine render snapshot for shadow debug.",
+        ));
+    }
+
+    let mut effective = [0.0; ENGINE_RENDER_SNAPSHOT_FLOATS];
+    effective.copy_from_slice(snapshot);
+    if options.shadow_sun_mode != ShadowSunMode::Production {
+        effective[11] = shadow_runtime.light_direction.x;
+        effective[12] = shadow_runtime.light_direction.y;
+        effective[13] = shadow_runtime.light_direction.z;
+        effective[21] = shadow_runtime.sun_elevation;
+    }
+
+    Ok(effective)
 }
 
 fn create_main_pipeline(
@@ -2382,6 +2945,41 @@ fn create_depth_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu:
         format: DEPTH_FORMAT,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         view_formats: &[],
+    })
+}
+
+fn create_gpu_timer_resources(device: &wgpu::Device, queue: &wgpu::Queue) -> GpuTimerResources {
+    let query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
+        label: Some("perf timestamp query set"),
+        ty: wgpu::QueryType::Timestamp,
+        count: GPU_TIMESTAMP_QUERY_COUNT,
+    });
+    let resolve_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("perf timestamp resolve buffer"),
+        size: u64::from(GPU_TIMESTAMP_QUERY_COUNT * wgpu::QUERY_SIZE),
+        usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+
+    GpuTimerResources {
+        query_set,
+        resolve_buffer,
+        timestamp_period_ns: queue.get_timestamp_period() as f64,
+        pending_readbacks: Vec::new(),
+        latest_timings: GpuPassTimings::default(),
+    }
+}
+
+fn render_pass_timestamp_writes<'a>(
+    gpu_timers: Option<&'a GpuTimerResources>,
+    query_pair: Option<(u32, u32)>,
+) -> Option<wgpu::RenderPassTimestampWrites<'a>> {
+    let timers = gpu_timers?;
+    let (beginning_of_pass_write_index, end_of_pass_write_index) = query_pair?;
+    Some(wgpu::RenderPassTimestampWrites {
+        query_set: &timers.query_set,
+        beginning_of_pass_write_index: Some(beginning_of_pass_write_index),
+        end_of_pass_write_index: Some(end_of_pass_write_index),
     })
 }
 
@@ -2619,6 +3217,71 @@ fn player_animation_tuning_from_js(
     })
 }
 
+fn render_debug_options_update_from_js(
+    command: &JsValue,
+) -> Result<RenderDebugOptionsUpdate, JsValue> {
+    let material_mode = match js_optional_string(command, "materialMode", "command.materialMode")? {
+        Some(mode_name) => Some(render_material_debug_mode_from_js_name(&mode_name)?),
+        None => None,
+    };
+    let shadow_sun_mode =
+        match js_optional_string(command, "shadowSunMode", "command.shadowSunMode")? {
+            Some(mode_name) => Some(shadow_sun_mode_from_js_name(&mode_name)?),
+            None => None,
+        };
+
+    Ok(RenderDebugOptionsUpdate {
+        terrain_lod_mask: js_optional_u32(command, "terrainLodMask", "command.terrainLodMask")?,
+        sky_enabled: js_optional_bool(command, "skyEnabled", "command.skyEnabled")?,
+        shadow_pass_enabled: js_optional_bool(
+            command,
+            "shadowPassEnabled",
+            "command.shadowPassEnabled",
+        )?,
+        shadow_cascade_mask: js_optional_u32(
+            command,
+            "shadowCascadeMask",
+            "command.shadowCascadeMask",
+        )?,
+        shadow_sampling_enabled: js_optional_bool(
+            command,
+            "shadowSamplingEnabled",
+            "command.shadowSamplingEnabled",
+        )?,
+        shadow_sun_mode,
+        white_textures_enabled: js_optional_bool(
+            command,
+            "whiteTexturesEnabled",
+            "command.whiteTexturesEnabled",
+        )?,
+        material_mode,
+    })
+}
+
+fn render_material_debug_mode_from_js_name(
+    mode_name: &str,
+) -> Result<RenderMaterialDebugMode, JsValue> {
+    match mode_name {
+        "full" => Ok(RenderMaterialDebugMode::Full),
+        "lambert" => Ok(RenderMaterialDebugMode::Lambert),
+        _ => Err(js_error(format!(
+            "Rust WebGPU renderer received unknown material debug mode '{mode_name}'."
+        ))),
+    }
+}
+
+fn shadow_sun_mode_from_js_name(mode_name: &str) -> Result<ShadowSunMode, JsValue> {
+    match mode_name {
+        "production" => Ok(ShadowSunMode::Production),
+        "overhead" => Ok(ShadowSunMode::Overhead),
+        "angled" => Ok(ShadowSunMode::Angled),
+        "low" => Ok(ShadowSunMode::Low),
+        _ => Err(js_error(format!(
+            "Rust WebGPU renderer received unknown shadow sun mode '{mode_name}'."
+        ))),
+    }
+}
+
 fn js_required_property(object: &JsValue, property: &str, path: &str) -> Result<JsValue, JsValue> {
     let value = js_sys::Reflect::get(object, &JsValue::from_str(property))
         .map_err(|_| js_error(format!("Rust browser game could not read {path}.")))?;
@@ -2627,6 +3290,20 @@ fn js_required_property(object: &JsValue, property: &str, path: &str) -> Result<
     }
 
     Ok(value)
+}
+
+fn js_optional_property(
+    object: &JsValue,
+    property: &str,
+    path: &str,
+) -> Result<Option<JsValue>, JsValue> {
+    let value = js_sys::Reflect::get(object, &JsValue::from_str(property))
+        .map_err(|_| js_error(format!("Rust browser game could not read {path}.")))?;
+    if value.is_null() || value.is_undefined() {
+        return Ok(None);
+    }
+
+    Ok(Some(value))
 }
 
 fn js_required_f32(object: &JsValue, property: &str, path: &str) -> Result<f32, JsValue> {
@@ -2659,6 +3336,24 @@ fn js_required_u32(object: &JsValue, property: &str, path: &str) -> Result<u32, 
     }
 
     Ok(number as u32)
+}
+
+fn js_optional_u32(object: &JsValue, property: &str, path: &str) -> Result<Option<u32>, JsValue> {
+    let Some(value) = js_optional_property(object, property, path)? else {
+        return Ok(None);
+    };
+    let Some(number) = value.as_f64() else {
+        return Err(js_error(format!(
+            "Rust browser game expected {path} to be a number."
+        )));
+    };
+    if !number.is_finite() || number.fract() != 0.0 || number < 0.0 || number > u32::MAX as f64 {
+        return Err(js_error(format!(
+            "Rust browser game expected {path} to be a u32."
+        )));
+    }
+
+    Ok(Some(number as u32))
 }
 
 fn js_required_u64(object: &JsValue, property: &str, path: &str) -> Result<u64, JsValue> {
@@ -2710,10 +3405,35 @@ fn js_required_bool(object: &JsValue, property: &str, path: &str) -> Result<bool
     })
 }
 
+fn js_optional_bool(object: &JsValue, property: &str, path: &str) -> Result<Option<bool>, JsValue> {
+    let Some(value) = js_optional_property(object, property, path)? else {
+        return Ok(None);
+    };
+    value.as_bool().map(Some).ok_or_else(|| {
+        js_error(format!(
+            "Rust browser game expected {path} to be a boolean."
+        ))
+    })
+}
+
 fn js_required_string(object: &JsValue, property: &str, path: &str) -> Result<String, JsValue> {
     let value = js_required_property(object, property, path)?;
     value
         .as_string()
+        .ok_or_else(|| js_error(format!("Rust browser game expected {path} to be a string.")))
+}
+
+fn js_optional_string(
+    object: &JsValue,
+    property: &str,
+    path: &str,
+) -> Result<Option<String>, JsValue> {
+    let Some(value) = js_optional_property(object, property, path)? else {
+        return Ok(None);
+    };
+    value
+        .as_string()
+        .map(Some)
         .ok_or_else(|| js_error(format!("Rust browser game expected {path} to be a string.")))
 }
 
@@ -2785,6 +3505,26 @@ fn renderer_status_to_js(status: RustBrowserGameStatus) -> Result<JsValue, JsVal
     )?;
     set_js_property(
         &object,
+        "frameCulledDrawCount",
+        JsValue::from_f64(status.last_render_counters.frame_culled_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "frameSubmittedVertexCount",
+        JsValue::from_f64(status.last_render_counters.submitted_vertex_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "frameSubmittedIndexCount",
+        JsValue::from_f64(status.last_render_counters.submitted_index_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "frameSubmittedTriangleCount",
+        JsValue::from_f64(status.last_render_counters.submitted_triangle_count as f64),
+    )?;
+    set_js_property(
+        &object,
         "terrainUpdateTotalMs",
         JsValue::from_f64(status.terrain_update_total_ms),
     )?;
@@ -2817,6 +3557,77 @@ fn renderer_status_to_js(status: RustBrowserGameStatus) -> Result<JsValue, JsVal
         &object,
         "shadowMapSize",
         JsValue::from_f64(status.shadow_map_size as f64),
+    )?;
+    set_js_property(
+        &object,
+        "shadowMaxDistanceMeters",
+        JsValue::from_f64(status.shadow_max_distance_meters as f64),
+    )?;
+    set_js_property(
+        &object,
+        "shadowStrength",
+        JsValue::from_f64(status.shadow_strength as f64),
+    )?;
+    set_js_property(
+        &object,
+        "shadowEffectiveSunElevation",
+        JsValue::from_f64(status.shadow_effective_sun_elevation as f64),
+    )?;
+    let shadow_direction = js_sys::Object::new();
+    set_js_property(
+        &shadow_direction,
+        "x",
+        JsValue::from_f64(status.shadow_effective_sun_direction.x as f64),
+    )?;
+    set_js_property(
+        &shadow_direction,
+        "y",
+        JsValue::from_f64(status.shadow_effective_sun_direction.y as f64),
+    )?;
+    set_js_property(
+        &shadow_direction,
+        "z",
+        JsValue::from_f64(status.shadow_effective_sun_direction.z as f64),
+    )?;
+    set_js_property(
+        &object,
+        "shadowEffectiveSunDirection",
+        shadow_direction.into(),
+    )?;
+    set_js_property(
+        &object,
+        "gpuTimerAvailable",
+        JsValue::from_bool(status.gpu_timer_status.available),
+    )?;
+    set_js_property(
+        &object,
+        "gpuTimerUnavailableReason",
+        JsValue::from_str(status.gpu_timer_status.unavailable_reason),
+    )?;
+    set_js_property(
+        &object,
+        "gpuTimestampPeriodNs",
+        JsValue::from_f64(status.gpu_timer_status.timestamp_period_ns),
+    )?;
+    set_js_property(
+        &object,
+        "gpuTimerPendingReadbackCount",
+        JsValue::from_f64(status.gpu_timer_status.pending_readback_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "renderDebugOptions",
+        render_debug_options_to_js(status.render_debug_options)?,
+    )?;
+    set_js_property(
+        &object,
+        "lastRenderCounters",
+        render_counter_sample_to_js(&status.last_render_counters)?,
+    )?;
+    set_js_property(
+        &object,
+        "lastGpuPassTimings",
+        gpu_pass_timings_to_js(status.last_gpu_pass_timings)?,
     )?;
     set_js_property(
         &object,
@@ -2877,13 +3688,581 @@ fn renderer_status_to_js(status: RustBrowserGameStatus) -> Result<JsValue, JsVal
     Ok(object.into())
 }
 
+fn frame_perf_report_to_js(
+    report: FramePerfReport,
+    gpu_timer_status: GpuTimerStatus,
+) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    set_js_property(
+        &object,
+        "sampleCount",
+        JsValue::from_f64(report.sample_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "capacity",
+        JsValue::from_f64(report.capacity as f64),
+    )?;
+    set_js_property(
+        &object,
+        "gpuTimerStatus",
+        gpu_timer_status_to_js(gpu_timer_status)?,
+    )?;
+    set_js_property(
+        &object,
+        "rustCpu",
+        rust_cpu_summary_to_js(&report.rust_cpu)?,
+    )?;
+    set_js_property(
+        &object,
+        "rendererCounters",
+        render_counter_summary_to_js(&report.renderer_counters)?,
+    )?;
+    set_js_property(&object, "gpu", gpu_pass_timing_summary_to_js(&report.gpu)?)?;
+    if let Some(latest) = report.latest {
+        set_js_property(&object, "latest", frame_perf_sample_to_js(&latest)?)?;
+    }
+    set_js_property(
+        &object,
+        "terrainLodCounters",
+        terrain_lod_counters_to_js(&report.terrain_lod_counters).into(),
+    )?;
+    set_js_property(
+        &object,
+        "shadowCascadeCounters",
+        shadow_cascade_counters_to_js(&report.shadow_cascade_counters).into(),
+    )?;
+
+    Ok(object.into())
+}
+
+fn frame_perf_sample_to_js(sample: &FramePerfSample) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    set_js_property(
+        &object,
+        "frameIndex",
+        JsValue::from_f64(sample.frame_index as f64),
+    )?;
+    set_js_property(
+        &object,
+        "rustCpu",
+        rust_cpu_timings_to_js(&sample.rust_cpu)?,
+    )?;
+    set_js_property(
+        &object,
+        "rendererCounters",
+        render_counter_sample_to_js(&sample.renderer_counters)?,
+    )?;
+    set_js_property(
+        &object,
+        "gpuPassTimings",
+        gpu_pass_timings_to_js(sample.gpu_pass_timings)?,
+    )?;
+    Ok(object.into())
+}
+
+fn gpu_timer_status_to_js(status: GpuTimerStatus) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    set_js_property(&object, "available", JsValue::from_bool(status.available))?;
+    set_js_property(
+        &object,
+        "unavailableReason",
+        JsValue::from_str(status.unavailable_reason),
+    )?;
+    set_js_property(
+        &object,
+        "timestampPeriodNs",
+        JsValue::from_f64(status.timestamp_period_ns),
+    )?;
+    set_js_property(
+        &object,
+        "pendingReadbackCount",
+        JsValue::from_f64(status.pending_readback_count as f64),
+    )?;
+    Ok(object.into())
+}
+
+fn rust_cpu_summary_to_js(summary: &crate::perf::RustCpuFrameSummary) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    set_js_property(
+        &object,
+        "totalFrameMs",
+        numeric_summary_to_js(summary.total_frame_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "inputParseMs",
+        numeric_summary_to_js(summary.input_parse_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "gameStateTickMs",
+        numeric_summary_to_js(summary.game_state_tick_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "playerCharacterUpdateMs",
+        numeric_summary_to_js(summary.player_character_update_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamUpdateMs",
+        numeric_summary_to_js(summary.terrain_stream_update_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "renderFrameMs",
+        numeric_summary_to_js(summary.render_frame_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "renderPacketBuildMs",
+        numeric_summary_to_js(summary.render_packet_build_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "rendererPrepareMs",
+        numeric_summary_to_js(summary.renderer_prepare_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "rendererShadowCpuMs",
+        numeric_summary_to_js(summary.renderer_shadow_cpu_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "rendererSceneCpuMs",
+        numeric_summary_to_js(summary.renderer_scene_cpu_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "rendererPostCpuMs",
+        numeric_summary_to_js(summary.renderer_post_cpu_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "rendererSubmitMs",
+        numeric_summary_to_js(summary.renderer_submit_ms)?,
+    )?;
+    Ok(object.into())
+}
+
+fn rust_cpu_timings_to_js(timings: &RustCpuFrameTimings) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    set_js_property(
+        &object,
+        "totalFrameMs",
+        JsValue::from_f64(timings.total_frame_ms),
+    )?;
+    set_js_property(
+        &object,
+        "inputParseMs",
+        JsValue::from_f64(timings.input_parse_ms),
+    )?;
+    set_js_property(
+        &object,
+        "gameStateTickMs",
+        JsValue::from_f64(timings.game_state_tick_ms),
+    )?;
+    set_js_property(
+        &object,
+        "playerCharacterUpdateMs",
+        JsValue::from_f64(timings.player_character_update_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamUpdateMs",
+        JsValue::from_f64(timings.terrain_stream_update_ms),
+    )?;
+    set_js_property(
+        &object,
+        "renderFrameMs",
+        JsValue::from_f64(timings.render_frame_ms),
+    )?;
+    set_js_property(
+        &object,
+        "renderPacketBuildMs",
+        JsValue::from_f64(timings.render_packet_build_ms),
+    )?;
+    set_js_property(
+        &object,
+        "rendererPrepareMs",
+        JsValue::from_f64(timings.renderer_prepare_ms),
+    )?;
+    set_js_property(
+        &object,
+        "rendererShadowCpuMs",
+        JsValue::from_f64(timings.renderer_shadow_cpu_ms),
+    )?;
+    set_js_property(
+        &object,
+        "rendererSceneCpuMs",
+        JsValue::from_f64(timings.renderer_scene_cpu_ms),
+    )?;
+    set_js_property(
+        &object,
+        "rendererPostCpuMs",
+        JsValue::from_f64(timings.renderer_post_cpu_ms),
+    )?;
+    set_js_property(
+        &object,
+        "rendererSubmitMs",
+        JsValue::from_f64(timings.renderer_submit_ms),
+    )?;
+    Ok(object.into())
+}
+
+fn render_counter_summary_to_js(summary: &RenderCounterSummary) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    set_js_property(
+        &object,
+        "frameCandidateCount",
+        numeric_summary_to_js(summary.frame_candidate_count)?,
+    )?;
+    set_js_property(
+        &object,
+        "frameVisibleDrawCount",
+        numeric_summary_to_js(summary.frame_visible_draw_count)?,
+    )?;
+    set_js_property(
+        &object,
+        "frameCulledCount",
+        numeric_summary_to_js(summary.frame_culled_count)?,
+    )?;
+    set_js_property(
+        &object,
+        "frameShadowDrawCount",
+        numeric_summary_to_js(summary.frame_shadow_draw_count)?,
+    )?;
+    set_js_property(
+        &object,
+        "terrainDrawCount",
+        numeric_summary_to_js(summary.terrain_draw_count)?,
+    )?;
+    set_js_property(
+        &object,
+        "modelDrawCount",
+        numeric_summary_to_js(summary.model_draw_count)?,
+    )?;
+    set_js_property(
+        &object,
+        "skyDrawCount",
+        numeric_summary_to_js(summary.sky_draw_count)?,
+    )?;
+    set_js_property(
+        &object,
+        "postProcessDrawCount",
+        numeric_summary_to_js(summary.post_process_draw_count)?,
+    )?;
+    set_js_property(
+        &object,
+        "submittedVertexCount",
+        numeric_summary_to_js(summary.submitted_vertex_count)?,
+    )?;
+    set_js_property(
+        &object,
+        "submittedIndexCount",
+        numeric_summary_to_js(summary.submitted_index_count)?,
+    )?;
+    set_js_property(
+        &object,
+        "submittedTriangleCount",
+        numeric_summary_to_js(summary.submitted_triangle_count)?,
+    )?;
+    Ok(object.into())
+}
+
+fn render_counter_sample_to_js(sample: &RenderCounterSample) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    set_js_property(
+        &object,
+        "frameCandidateCount",
+        JsValue::from_f64(sample.frame_candidate_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "frameVisibleDrawCount",
+        JsValue::from_f64(sample.frame_visible_draw_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "frameCulledCount",
+        JsValue::from_f64(sample.frame_culled_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "frameShadowDrawCount",
+        JsValue::from_f64(sample.frame_shadow_draw_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "terrainDrawCount",
+        JsValue::from_f64(sample.terrain_draw_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "modelDrawCount",
+        JsValue::from_f64(sample.model_draw_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "skyDrawCount",
+        JsValue::from_f64(sample.sky_draw_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessDrawCount",
+        JsValue::from_f64(sample.post_process_draw_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "submittedVertexCount",
+        JsValue::from_f64(sample.submitted_vertex_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "submittedIndexCount",
+        JsValue::from_f64(sample.submitted_index_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "submittedTriangleCount",
+        JsValue::from_f64(sample.submitted_triangle_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "terrainLodCounters",
+        terrain_lod_counters_to_js(&sample.terrain_lod_counters).into(),
+    )?;
+    set_js_property(
+        &object,
+        "shadowCascadeCounters",
+        shadow_cascade_counters_to_js(&sample.shadow_cascade_counters).into(),
+    )?;
+    Ok(object.into())
+}
+
+fn gpu_pass_timing_summary_to_js(
+    summary: &crate::perf::GpuPassTimingSummary,
+) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    let shadow_array = js_sys::Array::new();
+    for cascade_summary in summary.shadow_cascade_ms {
+        shadow_array.push(&numeric_summary_to_js(cascade_summary)?);
+    }
+    set_js_property(&object, "shadowCascadeMs", shadow_array.into())?;
+    set_js_property(&object, "sceneMs", numeric_summary_to_js(summary.scene_ms)?)?;
+    set_js_property(&object, "bloomMs", numeric_summary_to_js(summary.bloom_ms)?)?;
+    set_js_property(
+        &object,
+        "postProcessMs",
+        numeric_summary_to_js(summary.post_process_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "totalMeasuredMs",
+        numeric_summary_to_js(summary.total_measured_ms)?,
+    )?;
+    Ok(object.into())
+}
+
+fn gpu_pass_timings_to_js(timings: GpuPassTimings) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    let shadow_array = js_sys::Array::new();
+    for timing in timings.shadow_cascade_ms {
+        shadow_array.push(&optional_f64_to_js(timing));
+    }
+    set_js_property(&object, "shadowCascadeMs", shadow_array.into())?;
+    set_js_property(&object, "sceneMs", optional_f64_to_js(timings.scene_ms))?;
+    set_js_property(&object, "bloomMs", optional_f64_to_js(timings.bloom_ms))?;
+    set_js_property(
+        &object,
+        "postProcessMs",
+        optional_f64_to_js(timings.post_process_ms),
+    )?;
+    set_js_property(
+        &object,
+        "totalMeasuredMs",
+        optional_f64_to_js(timings.total_measured_ms),
+    )?;
+    Ok(object.into())
+}
+
+fn terrain_lod_counters_to_js(counters: &[TerrainLodCounter]) -> js_sys::Array {
+    let array = js_sys::Array::new();
+    for counter in counters {
+        let object = js_sys::Object::new();
+        let _ = set_js_property(&object, "lod", JsValue::from_f64(counter.lod as f64));
+        let _ = set_js_property(
+            &object,
+            "drawCount",
+            JsValue::from_f64(counter.draw_count as f64),
+        );
+        let _ = set_js_property(
+            &object,
+            "vertexCount",
+            JsValue::from_f64(counter.vertex_count as f64),
+        );
+        let _ = set_js_property(
+            &object,
+            "indexCount",
+            JsValue::from_f64(counter.index_count as f64),
+        );
+        let _ = set_js_property(
+            &object,
+            "triangleCount",
+            JsValue::from_f64(counter.triangle_count as f64),
+        );
+        array.push(&object);
+    }
+    array
+}
+
+fn shadow_cascade_counters_to_js(counters: &[ShadowCascadeCounter]) -> js_sys::Array {
+    let array = js_sys::Array::new();
+    for counter in counters {
+        let object = js_sys::Object::new();
+        let _ = set_js_property(
+            &object,
+            "cascadeIndex",
+            JsValue::from_f64(counter.cascade_index as f64),
+        );
+        let _ = set_js_property(&object, "enabled", JsValue::from_bool(counter.enabled));
+        let _ = set_js_property(
+            &object,
+            "candidateCount",
+            JsValue::from_f64(counter.candidate_count as f64),
+        );
+        let _ = set_js_property(
+            &object,
+            "visibleCount",
+            JsValue::from_f64(counter.visible_count as f64),
+        );
+        let _ = set_js_property(
+            &object,
+            "culledCount",
+            JsValue::from_f64(counter.culled_count as f64),
+        );
+        let _ = set_js_property(
+            &object,
+            "drawCount",
+            JsValue::from_f64(counter.draw_count as f64),
+        );
+        let _ = set_js_property(
+            &object,
+            "vertexCount",
+            JsValue::from_f64(counter.vertex_count as f64),
+        );
+        let _ = set_js_property(
+            &object,
+            "indexCount",
+            JsValue::from_f64(counter.index_count as f64),
+        );
+        let _ = set_js_property(
+            &object,
+            "triangleCount",
+            JsValue::from_f64(counter.triangle_count as f64),
+        );
+        array.push(&object);
+    }
+    array
+}
+
+fn render_debug_options_to_js(options: RenderDebugOptions) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    set_js_property(
+        &object,
+        "terrainLodMask",
+        JsValue::from_f64(options.terrain_lod_mask as f64),
+    )?;
+    set_js_property(
+        &object,
+        "skyEnabled",
+        JsValue::from_bool(options.sky_enabled),
+    )?;
+    set_js_property(
+        &object,
+        "shadowPassEnabled",
+        JsValue::from_bool(options.shadow_pass_enabled),
+    )?;
+    set_js_property(
+        &object,
+        "shadowCascadeMask",
+        JsValue::from_f64(options.shadow_cascade_mask as f64),
+    )?;
+    set_js_property(
+        &object,
+        "shadowSamplingEnabled",
+        JsValue::from_bool(options.shadow_sampling_enabled),
+    )?;
+    set_js_property(
+        &object,
+        "shadowSunMode",
+        JsValue::from_str(shadow_sun_mode_to_js_name(options.shadow_sun_mode)),
+    )?;
+    set_js_property(
+        &object,
+        "whiteTexturesEnabled",
+        JsValue::from_bool(options.white_textures_enabled),
+    )?;
+    set_js_property(
+        &object,
+        "materialMode",
+        JsValue::from_str(render_material_debug_mode_to_js_name(options.material_mode)),
+    )?;
+    Ok(object.into())
+}
+
+fn render_material_debug_mode_to_js_name(mode: RenderMaterialDebugMode) -> &'static str {
+    match mode {
+        RenderMaterialDebugMode::Full => "full",
+        RenderMaterialDebugMode::Lambert => "lambert",
+    }
+}
+
+fn shadow_sun_mode_to_js_name(mode: ShadowSunMode) -> &'static str {
+    match mode {
+        ShadowSunMode::Production => "production",
+        ShadowSunMode::Overhead => "overhead",
+        ShadowSunMode::Angled => "angled",
+        ShadowSunMode::Low => "low",
+    }
+}
+
+fn numeric_summary_to_js(summary: crate::perf::NumericSummary) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    set_js_property(&object, "latest", JsValue::from_f64(summary.latest))?;
+    set_js_property(&object, "min", JsValue::from_f64(summary.min))?;
+    set_js_property(&object, "max", JsValue::from_f64(summary.max))?;
+    set_js_property(&object, "average", JsValue::from_f64(summary.average))?;
+    set_js_property(&object, "p95", JsValue::from_f64(summary.p95))?;
+    Ok(object.into())
+}
+
+fn optional_f64_to_js(value: Option<f64>) -> JsValue {
+    value
+        .filter(|value| value.is_finite())
+        .map(JsValue::from_f64)
+        .unwrap_or(JsValue::NULL)
+}
+
 #[cfg(target_arch = "wasm32")]
 fn terrain_update_now_ms() -> f64 {
-    js_sys::Date::now()
+    perf_now_ms()
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 fn terrain_update_now_ms() -> f64 {
+    perf_now_ms()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn perf_now_ms() -> f64 {
+    js_sys::Date::now()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn perf_now_ms() -> f64 {
     static START: OnceLock<Instant> = OnceLock::new();
     START.get_or_init(Instant::now).elapsed().as_secs_f64() * 1000.0
 }

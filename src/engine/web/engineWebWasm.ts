@@ -6,7 +6,10 @@ import {
 import type {
   BrowserFrameInput,
   BrowserViewport,
+  GpuPassTimingSample,
   PostProcessDebugView,
+  RenderCounterSample,
+  RenderDebugOptions,
   RustBrowserGameCommand,
   RustBrowserGameDebugSnapshot
 } from "./browserGameTypes.js";
@@ -27,6 +30,10 @@ export type EngineWebRendererStatus = {
   readonly frameDrawCount: number;
   readonly frameVisibleDrawCount: number;
   readonly frameShadowDrawCount: number;
+  readonly frameCulledDrawCount: number;
+  readonly frameSubmittedVertexCount: number;
+  readonly frameSubmittedIndexCount: number;
+  readonly frameSubmittedTriangleCount: number;
   readonly terrainUpdateTotalMs: number;
   readonly terrainUpdateUpsertedMeshCount: number;
   readonly terrainUpdateRemovedMeshCount: number;
@@ -34,6 +41,21 @@ export type EngineWebRendererStatus = {
   readonly terrainUpdateUploadedIndexCount: number;
   readonly shadowCascadeCount: number;
   readonly shadowMapSize: number;
+  readonly shadowMaxDistanceMeters: number;
+  readonly shadowStrength: number;
+  readonly shadowEffectiveSunElevation: number;
+  readonly shadowEffectiveSunDirection: {
+    readonly x: number;
+    readonly y: number;
+    readonly z: number;
+  };
+  readonly gpuTimerAvailable: boolean;
+  readonly gpuTimerUnavailableReason: string;
+  readonly gpuTimestampPeriodNs: number;
+  readonly gpuTimerPendingReadbackCount: number;
+  readonly renderDebugOptions: RenderDebugOptions;
+  readonly lastRenderCounters: RenderCounterSample;
+  readonly lastGpuPassTimings: GpuPassTimingSample;
   readonly postProcessRuntime: "rust-wgpu";
   readonly postProcessDebugView: PostProcessDebugView;
   readonly postProcessExposure: number;

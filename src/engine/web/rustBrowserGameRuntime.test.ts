@@ -1,4 +1,9 @@
 import { deepEqual, equal } from "node:assert/strict";
+import {
+  fakeRenderDebugOptions,
+  fakeRendererStatus,
+  fakeRustPerfStats
+} from "../../../tests/fixtures/debugSnapshotFixtures.js";
 import type { BrowserFrameInput, RustBrowserGameCommand } from "./browserGameTypes.js";
 import {
   RustBrowserGameRuntime,
@@ -50,6 +55,14 @@ describe("RustBrowserGameRuntime", () => {
       focusRange: 4,
       maxBlurPixels: 10
     });
+    runtime.command({
+      type: "setRenderDebugOptions",
+      skyEnabled: false,
+      shadowSamplingEnabled: false,
+      materialMode: "lambert"
+    });
+    runtime.command({ type: "resetRenderDebugOptions" });
+    runtime.command({ type: "resetPerfStats" });
     const snapshot = runtime.debugSnapshot();
 
     deepEqual(renderer.tickCalls[0], frame);
@@ -78,13 +91,24 @@ describe("RustBrowserGameRuntime", () => {
       focusRange: 4,
       maxBlurPixels: 10
     });
+    deepEqual(renderer.commandCalls[7], {
+      type: "setRenderDebugOptions",
+      skyEnabled: false,
+      shadowSamplingEnabled: false,
+      materialMode: "lambert"
+    });
+    deepEqual(renderer.commandCalls[8], { type: "resetRenderDebugOptions" });
+    deepEqual(renderer.commandCalls[9], { type: "resetPerfStats" });
     equal(snapshot.terrainStreamStatus.workerPoolRuntime, "rust-sync");
     equal(snapshot.rendererStatus.runtime, "rust-wgpu");
+    equal(snapshot.rendererStatus.gpuTimerAvailable, false);
     equal(snapshot.rendererStatus.postProcessRuntime, "rust-wgpu");
     equal(snapshot.rendererStatus.postProcessToneMappingEnabled, true);
     equal(snapshot.rendererStatus.postProcessBloomEnabled, true);
     equal(snapshot.rendererStatus.postProcessDofEnabled, false);
     equal(snapshot.shadowDebugView, "cascadeIndex");
+    equal(snapshot.rustPerfStats.sampleCount, 1);
+    equal(snapshot.renderDebugOptions.skyEnabled, true);
     equal(snapshot.playerMode, "debugFly");
     deepEqual(snapshot.playerPosition, { x: 32, y: 8, z: 16 });
   });
@@ -164,40 +188,9 @@ function fakeRenderer(): FakeRenderer {
         renderPacketRuntime: "rust",
         terrainRenderPacketRuntime: "rust",
         rendererRuntime: "rust-wgpu",
-        rendererStatus: {
-          version: 1,
-          runtime: "rust-wgpu",
-          configured: true,
-          canvasWidth: 640,
-          canvasHeight: 480,
-          maxTextureArrayLayers: 16,
-          requiredTextureArrayLayers: 16,
-          meshCount: 1,
-          textureCount: 3,
-          objectCount: 1,
-          frameIndex: 1,
-          frameDrawCount: 1,
-          frameVisibleDrawCount: 1,
-          frameShadowDrawCount: 0,
-          terrainUpdateTotalMs: 0,
-          terrainUpdateUpsertedMeshCount: 0,
-          terrainUpdateRemovedMeshCount: 0,
-          terrainUpdateUploadedVertexFloatCount: 0,
-          terrainUpdateUploadedIndexCount: 0,
-          shadowCascadeCount: 4,
-          shadowMapSize: 1024,
-          postProcessRuntime: "rust-wgpu",
-          postProcessDebugView: "final",
-          postProcessExposure: 1,
-          postProcessToneMappingEnabled: true,
-          postProcessBloomEnabled: true,
-          postProcessBloomThreshold: 1,
-          postProcessBloomIntensity: 0.08,
-          postProcessDofEnabled: false,
-          postProcessDofFocusDistance: 30,
-          postProcessDofFocusRange: 8,
-          postProcessDofMaxBlurPixels: 6
-        },
+        rendererStatus: fakeRendererStatus(),
+        rustPerfStats: fakeRustPerfStats(),
+        renderDebugOptions: fakeRenderDebugOptions(),
         shadowDebugView: "cascadeIndex",
         terrainWorkerCount: 0,
         playerControllerRuntime: "rust"
