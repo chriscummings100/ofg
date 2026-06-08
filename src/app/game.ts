@@ -314,6 +314,7 @@ export async function startGame(elements: GameElements): Promise<void> {
   };
   const renderDebugUi = createRenderDebugUi(elements.renderDebugUi, {
     getRenderDebugOptions: () => readDebugSnapshot().renderDebugOptions,
+    getPostProcessState: () => readDebugSnapshot().rendererStatus,
     setRenderDebugOptions: (options) => {
       runDebugCommand({
         type: "setRenderDebugOptions",
@@ -322,6 +323,57 @@ export async function startGame(elements: GameElements): Promise<void> {
     },
     resetRenderDebugOptions: () => {
       runDebugCommand({ type: "resetRenderDebugOptions" });
+    },
+    setPostProcessDebugView: (view) => {
+      runDebugCommand({
+        type: "setPostProcessDebugView",
+        view: validatePostProcessDebugView(view)
+      });
+    },
+    setPostProcessToneMapping: (enabled, exposure) => {
+      runDebugCommand({
+        type: "setPostProcessToneMapping",
+        enabled,
+        exposure: validatePostProcessExposure(exposure)
+      });
+    },
+    setPostProcessBloom: (enabled, threshold, intensity) => {
+      runDebugCommand({
+        type: "setPostProcessBloom",
+        enabled,
+        threshold: validatePostProcessBloomThreshold(threshold),
+        intensity: validatePostProcessBloomIntensity(intensity)
+      });
+    },
+    setPostProcessDepthOfField: (enabled, focusDistance, focusRange, maxBlurPixels) => {
+      runDebugCommand({
+        type: "setPostProcessDepthOfField",
+        enabled,
+        focusDistance: validatePostProcessDofFocusDistance(focusDistance),
+        focusRange: validatePostProcessDofFocusRange(focusRange),
+        maxBlurPixels: validatePostProcessDofMaxBlurPixels(maxBlurPixels)
+      });
+    },
+    resetPostProcess: () => {
+      runDebugCommand({
+        type: "setPostProcessToneMapping",
+        enabled: true,
+        exposure: 1
+      });
+      runDebugCommand({
+        type: "setPostProcessBloom",
+        enabled: true,
+        threshold: 1,
+        intensity: 0.08
+      });
+      runDebugCommand({
+        type: "setPostProcessDepthOfField",
+        enabled: false,
+        focusDistance: 30,
+        focusRange: 8,
+        maxBlurPixels: 6
+      });
+      runDebugCommand({ type: "setPostProcessDebugView", view: "final" });
     },
     resetPerfStats: () => {
       browserPerf.reset();

@@ -74,6 +74,41 @@
           <option value="lambert">Lambert</option>
         </select>
       </div>
+      <fieldset class="debug-panel-fieldset" id="post-debug-effects">
+        <legend>Post</legend>
+        <div class="render-debug-row">
+          <label for="post-debug-view">View</label>
+          <select id="post-debug-view">
+            <option value="final">Final</option>
+            <option value="sceneColor">Scene</option>
+            <option value="linearDepth">Depth</option>
+            <option value="postToneMap">Tone map</option>
+            <option value="bloom">Bloom</option>
+            <option value="dofCoc">DoF CoC</option>
+            <option value="dofBlurred">DoF blur</option>
+          </select>
+        </div>
+        <div class="render-debug-grid">
+          <label><input id="post-tone-mapping" type="checkbox" /> Tone map</label>
+          <label><input id="post-bloom" type="checkbox" /> Bloom</label>
+          <label><input id="post-dof" type="checkbox" /> DoF</label>
+        </div>
+        <div class="render-debug-number-grid">
+          <label for="post-exposure">Exposure</label>
+          <input id="post-exposure" type="number" min="0" max="16" step="0.05" />
+          <label for="post-bloom-threshold">Bloom th</label>
+          <input id="post-bloom-threshold" type="number" min="0" max="64" step="0.05" />
+          <label for="post-bloom-intensity">Bloom int</label>
+          <input id="post-bloom-intensity" type="number" min="0" max="4" step="0.01" />
+          <label for="post-dof-focus">Focus</label>
+          <input id="post-dof-focus" type="number" min="0.1" max="512" step="0.1" />
+          <label for="post-dof-range">Range</label>
+          <input id="post-dof-range" type="number" min="0.1" max="256" step="0.1" />
+          <label for="post-dof-blur">Blur px</label>
+          <input id="post-dof-blur" type="number" min="0" max="32" step="0.5" />
+        </div>
+        <button id="post-debug-reset" type="button">Reset post</button>
+      </fieldset>
       <div class="render-debug-actions">
         <button id="render-debug-reset" type="button">Reset</button>
         <button id="perf-debug-reset" type="button">Reset perf</button>

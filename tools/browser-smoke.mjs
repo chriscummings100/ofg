@@ -199,6 +199,10 @@ async function runBrowserSmoke(url) {
     assertNoBrowserFailures(consoleMessages);
     const renderDebugUiReset = await readDebugContract(page);
     assertDebugContract(renderDebugUiReset);
+    const postProcessUi = await exercisePostProcessUi(page);
+    assertNoBrowserFailures(consoleMessages);
+    const postProcessUiReset = await readDebugContract(page);
+    assertDebugContract(postProcessUiReset);
     const perfOverlayUi = await exercisePerfOverlayUi(page);
     assertNoBrowserFailures(consoleMessages);
 
@@ -291,6 +295,8 @@ async function runBrowserSmoke(url) {
       renderDebugReset,
       renderDebugUi,
       renderDebugUiReset,
+      postProcessUi,
+      postProcessUiReset,
       perfOverlayUi,
       toggledDebug,
       reloadedDebug,
@@ -513,6 +519,95 @@ async function exerciseRenderDebugUi(page) {
   };
 }
 
+/// Exercises visible post-process debug controls and verifies Rust-owned state changes.
+async function exercisePostProcessUi(page) {
+  await page.click("#render-debug-panel-toggle");
+  await page.waitForFunction(() =>
+    document.querySelector("#render-debug-panel")?.hidden === false
+  );
+  const startingFrameIndex = await rendererFrameIndex(page);
+  await page.selectOption("#post-debug-view", "bloom");
+  await page.uncheck("#post-tone-mapping");
+  await fillAndCommit(page, "#post-exposure", "0.75");
+  await page.uncheck("#post-bloom");
+  await fillAndCommit(page, "#post-bloom-threshold", "0.2");
+  await fillAndCommit(page, "#post-bloom-intensity", "0.6");
+  await page.check("#post-dof");
+  await fillAndCommit(page, "#post-dof-focus", "8");
+  await fillAndCommit(page, "#post-dof-range", "1");
+  await fillAndCommit(page, "#post-dof-blur", "12");
+
+  const expected = {
+    postProcessDebugView: "bloom",
+    postProcessToneMappingEnabled: false,
+    postProcessExposure: 0.75,
+    postProcessBloomEnabled: false,
+    postProcessBloomThreshold: 0.2,
+    postProcessBloomIntensity: 0.6,
+    postProcessDofEnabled: true,
+    postProcessDofFocusDistance: 8,
+    postProcessDofFocusRange: 1,
+    postProcessDofMaxBlurPixels: 12
+  };
+  await waitForPostProcessSettings(page, expected, startingFrameIndex);
+  const enabledState = await page.evaluate(() => {
+    const status = window.__ofgDebug?.getRendererStatus?.();
+    return {
+      panelHidden: document.querySelector("#render-debug-panel")?.hidden,
+      postDebugView: document.querySelector("#post-debug-view")?.value,
+      toneMappingChecked: document.querySelector("#post-tone-mapping")?.checked,
+      bloomChecked: document.querySelector("#post-bloom")?.checked,
+      dofChecked: document.querySelector("#post-dof")?.checked,
+      status: status === undefined
+        ? undefined
+        : {
+            postProcessDebugView: status.postProcessDebugView,
+            postProcessToneMappingEnabled: status.postProcessToneMappingEnabled,
+            postProcessExposure: status.postProcessExposure,
+            postProcessBloomEnabled: status.postProcessBloomEnabled,
+            postProcessBloomThreshold: status.postProcessBloomThreshold,
+            postProcessBloomIntensity: status.postProcessBloomIntensity,
+            postProcessDofEnabled: status.postProcessDofEnabled,
+            postProcessDofFocusDistance: status.postProcessDofFocusDistance,
+            postProcessDofFocusRange: status.postProcessDofFocusRange,
+            postProcessDofMaxBlurPixels: status.postProcessDofMaxBlurPixels
+          }
+    };
+  });
+
+  const resetFrameIndex = await rendererFrameIndex(page);
+  await page.click("#post-debug-reset");
+  await waitForPostProcessSettings(page, defaultPostProcessSettings(), resetFrameIndex);
+  await page.click("#render-debug-panel-toggle");
+  await page.waitForFunction(() =>
+    document.querySelector("#render-debug-panel")?.hidden === true
+  );
+
+  return {
+    enabledState,
+    resetStatus: await page.evaluate(() => {
+      const status = window.__ofgDebug?.getRendererStatus?.();
+      return status === undefined
+        ? undefined
+        : {
+            postProcessDebugView: status.postProcessDebugView,
+            postProcessToneMappingEnabled: status.postProcessToneMappingEnabled,
+            postProcessExposure: status.postProcessExposure,
+            postProcessBloomEnabled: status.postProcessBloomEnabled,
+            postProcessBloomThreshold: status.postProcessBloomThreshold,
+            postProcessBloomIntensity: status.postProcessBloomIntensity,
+            postProcessDofEnabled: status.postProcessDofEnabled,
+            postProcessDofFocusDistance: status.postProcessDofFocusDistance,
+            postProcessDofFocusRange: status.postProcessDofFocusRange,
+            postProcessDofMaxBlurPixels: status.postProcessDofMaxBlurPixels
+          };
+    }),
+    panelHiddenAfterClose: await page.evaluate(() =>
+      document.querySelector("#render-debug-panel")?.hidden
+    )
+  };
+}
+
 /// Exercises the visible live perf overlay toggle and verifies metric text.
 async function exercisePerfOverlayUi(page) {
   await page.click("#perf-overlay-toggle");
@@ -541,11 +636,35 @@ async function exercisePerfOverlayUi(page) {
   };
 }
 
+/// Fills an input and dispatches change so the app receives the committed value.
+async function fillAndCommit(page, selector, value) {
+  await page.fill(selector, value);
+  await page.dispatchEvent(selector, "change");
+}
+
 /// Reads the current Rust/wgpu renderer frame index.
 async function rendererFrameIndex(page) {
   return page.evaluate(() =>
     window.__ofgDebug?.getRendererStatus?.()?.frameIndex ?? 0
   );
+}
+
+/// Waits for expected post-process settings through renderer status.
+async function waitForPostProcessSettings(page, expectedSettings, startingFrameIndex) {
+  await page.waitForFunction(({ expected, frameIndex }) => {
+    const status = window.__ofgDebug?.getRendererStatus?.();
+    if (status === undefined || status.frameIndex <= frameIndex) {
+      return false;
+    }
+
+    return Object.entries(expected).every(([key, expectedValue]) => {
+      const actual = status[key];
+      if (typeof expectedValue === "number") {
+        return Math.abs(actual - expectedValue) < 0.0001;
+      }
+      return actual === expectedValue;
+    });
+  }, { expected: expectedSettings, frameIndex: startingFrameIndex }, { timeout: 10000 });
 }
 
 /// Waits for expected render debug options through both debug and renderer status.
@@ -650,6 +769,16 @@ async function readDebugContract(page) {
           document.querySelector("#perf-overlay-toggle") instanceof HTMLButtonElement,
         hasPerfOverlay:
           document.querySelector("#perf-overlay") instanceof HTMLElement,
+        hasPostDebugView:
+          document.querySelector("#post-debug-view") instanceof HTMLSelectElement,
+        hasPostToneMapping:
+          document.querySelector("#post-tone-mapping") instanceof HTMLInputElement,
+        hasPostBloom:
+          document.querySelector("#post-bloom") instanceof HTMLInputElement,
+        hasPostDof:
+          document.querySelector("#post-dof") instanceof HTMLInputElement,
+        hasPostReset:
+          document.querySelector("#post-debug-reset") instanceof HTMLButtonElement,
         renderDebugPanelHidden: document.querySelector("#render-debug-panel")?.hidden,
         perfOverlayHidden: document.querySelector("#perf-overlay")?.hidden
       },
@@ -742,14 +871,16 @@ function assertHud(hud, expectedMode, consoleMessages) {
 function assertDebugContract(debug, expectations = {}) {
   const {
     shadowDebugView = "off",
-    postProcessDebugView = "final",
-    postProcessExposure = 1.0,
-    bloomThreshold = 1.0,
-    bloomIntensity = 0.08,
-    dofEnabled = false,
-    dofFocusDistance = 30,
-    dofFocusRange = 8,
-    dofMaxBlurPixels = 6,
+    postProcessDebugView = defaultPostProcessSettings().postProcessDebugView,
+    toneMappingEnabled = defaultPostProcessSettings().postProcessToneMappingEnabled,
+    postProcessExposure = defaultPostProcessSettings().postProcessExposure,
+    bloomEnabled = defaultPostProcessSettings().postProcessBloomEnabled,
+    bloomThreshold = defaultPostProcessSettings().postProcessBloomThreshold,
+    bloomIntensity = defaultPostProcessSettings().postProcessBloomIntensity,
+    dofEnabled = defaultPostProcessSettings().postProcessDofEnabled,
+    dofFocusDistance = defaultPostProcessSettings().postProcessDofFocusDistance,
+    dofFocusRange = defaultPostProcessSettings().postProcessDofFocusRange,
+    dofMaxBlurPixels = defaultPostProcessSettings().postProcessDofMaxBlurPixels,
     renderDebugOptions = defaultRenderDebugOptions()
   } = expectations;
   if (!debug.hasDebug) {
@@ -767,7 +898,12 @@ function assertDebugContract(debug, expectations = {}) {
     debug.debugUi?.hasRenderDebugPanelToggle !== true ||
     debug.debugUi?.hasRenderDebugPanel !== true ||
     debug.debugUi?.hasPerfOverlayToggle !== true ||
-    debug.debugUi?.hasPerfOverlay !== true
+    debug.debugUi?.hasPerfOverlay !== true ||
+    debug.debugUi?.hasPostDebugView !== true ||
+    debug.debugUi?.hasPostToneMapping !== true ||
+    debug.debugUi?.hasPostBloom !== true ||
+    debug.debugUi?.hasPostDof !== true ||
+    debug.debugUi?.hasPostReset !== true
   ) {
     throw new Error(`Perf/debug UI is missing: ${JSON.stringify(debug.debugUi)}`);
   }
@@ -871,10 +1007,10 @@ function assertDebugContract(debug, expectations = {}) {
     status.postProcessRuntime !== "rust-wgpu" ||
     status.postProcessDebugView !== postProcessDebugView ||
     debug.postProcessDebugView !== postProcessDebugView ||
-    status.postProcessToneMappingEnabled !== true ||
+    status.postProcessToneMappingEnabled !== toneMappingEnabled ||
     !Number.isFinite(status.postProcessExposure) ||
     Math.abs(status.postProcessExposure - postProcessExposure) > 0.0001 ||
-    status.postProcessBloomEnabled !== true ||
+    status.postProcessBloomEnabled !== bloomEnabled ||
     !Number.isFinite(status.postProcessBloomThreshold) ||
     Math.abs(status.postProcessBloomThreshold - bloomThreshold) > 0.0001 ||
     !Number.isFinite(status.postProcessBloomIntensity) ||
@@ -943,6 +1079,22 @@ function defaultRenderDebugOptions() {
     shadowSunMode: "production",
     whiteTexturesEnabled: false,
     materialMode: "full"
+  };
+}
+
+/// Returns production post-process defaults expected after reset.
+function defaultPostProcessSettings() {
+  return {
+    postProcessDebugView: "final",
+    postProcessToneMappingEnabled: true,
+    postProcessExposure: 1.0,
+    postProcessBloomEnabled: true,
+    postProcessBloomThreshold: 1.0,
+    postProcessBloomIntensity: 0.08,
+    postProcessDofEnabled: false,
+    postProcessDofFocusDistance: 30,
+    postProcessDofFocusRange: 8,
+    postProcessDofMaxBlurPixels: 6
   };
 }
 

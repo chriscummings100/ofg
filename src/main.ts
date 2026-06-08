@@ -93,6 +93,21 @@ function readRenderDebugUi(): GameRenderDebugUiElements | null {
   const materialModeSelect = document.querySelector<HTMLSelectElement>(
     "#render-debug-material"
   );
+  const postDebugViewSelect = document.querySelector<HTMLSelectElement>("#post-debug-view");
+  const postToneMappingCheckbox = document.querySelector<HTMLInputElement>("#post-tone-mapping");
+  const postExposureInput = document.querySelector<HTMLInputElement>("#post-exposure");
+  const postBloomCheckbox = document.querySelector<HTMLInputElement>("#post-bloom");
+  const postBloomThresholdInput = document.querySelector<HTMLInputElement>(
+    "#post-bloom-threshold"
+  );
+  const postBloomIntensityInput = document.querySelector<HTMLInputElement>(
+    "#post-bloom-intensity"
+  );
+  const postDofCheckbox = document.querySelector<HTMLInputElement>("#post-dof");
+  const postDofFocusInput = document.querySelector<HTMLInputElement>("#post-dof-focus");
+  const postDofRangeInput = document.querySelector<HTMLInputElement>("#post-dof-range");
+  const postDofBlurInput = document.querySelector<HTMLInputElement>("#post-dof-blur");
+  const postResetButton = document.querySelector<HTMLButtonElement>("#post-debug-reset");
   const resetButton = document.querySelector<HTMLButtonElement>("#render-debug-reset");
   const resetPerfButton = document.querySelector<HTMLButtonElement>("#perf-debug-reset");
   const perfOverlay = document.querySelector<HTMLElement>("#perf-overlay");
@@ -109,6 +124,17 @@ function readRenderDebugUi(): GameRenderDebugUiElements | null {
     shadowSunModeSelect === null ||
     whiteTexturesCheckbox === null ||
     materialModeSelect === null ||
+    postDebugViewSelect === null ||
+    postToneMappingCheckbox === null ||
+    postExposureInput === null ||
+    postBloomCheckbox === null ||
+    postBloomThresholdInput === null ||
+    postBloomIntensityInput === null ||
+    postDofCheckbox === null ||
+    postDofFocusInput === null ||
+    postDofRangeInput === null ||
+    postDofBlurInput === null ||
+    postResetButton === null ||
     resetButton === null ||
     resetPerfButton === null ||
     perfOverlay === null
@@ -128,6 +154,17 @@ function readRenderDebugUi(): GameRenderDebugUiElements | null {
     shadowSunModeSelect,
     whiteTexturesCheckbox,
     materialModeSelect,
+    postDebugViewSelect,
+    postToneMappingCheckbox,
+    postExposureInput,
+    postBloomCheckbox,
+    postBloomThresholdInput,
+    postBloomIntensityInput,
+    postDofCheckbox,
+    postDofFocusInput,
+    postDofRangeInput,
+    postDofBlurInput,
+    postResetButton,
     resetButton,
     resetPerfButton,
     perfOverlay

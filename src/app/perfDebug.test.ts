@@ -61,6 +61,7 @@ describe("perf debug helpers", () => {
     ok(lines.some((line) => line.includes("Frame br")));
     ok(lines.some((line) => line.includes("LOD 0:d2/v100/t60 1:d1/v40/t20")));
     ok(lines.some((line) => line.includes("Casc 0:on/d3/c1/v120")));
+    ok(lines.some((line) => line.includes("Post view=final tone=on exp=1")));
     ok(lines.some((line) => line.includes("Debug lod=11111111")));
   });
 });

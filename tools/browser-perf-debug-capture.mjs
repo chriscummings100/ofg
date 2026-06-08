@@ -86,6 +86,26 @@ const experiments = [
     options: { materialMode: "lambert" }
   },
   {
+    id: "tone-map-off",
+    label: "Tone mapping disabled",
+    options: {},
+    postProcess: { toneMapping: { enabled: false, exposure: 1 } }
+  },
+  {
+    id: "bloom-off",
+    label: "Bloom disabled",
+    options: {},
+    postProcess: { bloom: { enabled: false, threshold: 1, intensity: 0.08 } }
+  },
+  {
+    id: "dof-on",
+    label: "Depth of field enabled",
+    options: {},
+    postProcess: {
+      dof: { enabled: true, focusDistance: 8, focusRange: 1, maxBlurPixels: 12 }
+    }
+  },
+  {
     id: "terrain-lod-0",
     label: "Only terrain LOD 0 rendered",
     options: { terrainLodMask: 0b000001 }
@@ -195,6 +215,7 @@ async function runPerfCapture(url) {
     await page.evaluate(() => {
       window.__ofgDebug?.resetRenderDebugOptions?.();
     });
+    await resetPostProcessDefaults(page);
 
     return {
       kind: "browser-perf-debug-capture",
@@ -219,10 +240,14 @@ async function captureExperiment(page, experiment, consoleMessages) {
     window.__ofgDebug?.resetRenderDebugOptions?.();
     window.__ofgDebug?.resetPerfStats?.();
   });
+  await resetPostProcessDefaults(page);
   if (Object.keys(experiment.options).length > 0) {
     await page.evaluate((options) => {
       window.__ofgDebug?.setRenderDebugOptions?.(options);
     }, experiment.options);
+  }
+  if (experiment.postProcess !== undefined) {
+    await applyPostProcessExperiment(page, experiment.postProcess);
   }
 
   await waitForFrames(page, warmupFrames);
@@ -240,6 +265,7 @@ async function captureExperiment(page, experiment, consoleMessages) {
       id: selectedExperiment.id,
       label: selectedExperiment.label,
       requestedOptions: selectedExperiment.options,
+      requestedPostProcess: selectedExperiment.postProcess,
       capturedAt: new Date().toISOString(),
       perfStats,
       renderDebugOptions: debug?.getRenderDebugOptions?.(),
@@ -303,7 +329,22 @@ function summarizeExperiment(sample) {
     id: sample.id,
     label: sample.label,
     requestedOptions: sample.requestedOptions,
+    requestedPostProcess: sample.requestedPostProcess,
     activeOptions: sample.renderDebugOptions,
+    activePostProcess: renderer === undefined
+      ? undefined
+      : {
+          debugView: renderer.postProcessDebugView,
+          toneMappingEnabled: renderer.postProcessToneMappingEnabled,
+          exposure: renderer.postProcessExposure,
+          bloomEnabled: renderer.postProcessBloomEnabled,
+          bloomThreshold: renderer.postProcessBloomThreshold,
+          bloomIntensity: renderer.postProcessBloomIntensity,
+          dofEnabled: renderer.postProcessDofEnabled,
+          dofFocusDistance: renderer.postProcessDofFocusDistance,
+          dofFocusRange: renderer.postProcessDofFocusRange,
+          dofMaxBlurPixels: renderer.postProcessDofMaxBlurPixels
+        },
     browserSampleCount: stats?.browserCpu?.sampleCount ?? 0,
     rustSampleCount: stats?.rustPerfSampleCount ?? stats?.latest?.frameIndex ?? 0,
     gpuTimerStatus: gpu?.timerStatus,
@@ -355,6 +396,16 @@ function summarizeExperiment(sample) {
       frameSubmittedVertexCount: renderer?.frameSubmittedVertexCount,
       frameSubmittedIndexCount: renderer?.frameSubmittedIndexCount,
       frameSubmittedTriangleCount: renderer?.frameSubmittedTriangleCount,
+      postProcessDebugView: renderer?.postProcessDebugView,
+      postProcessToneMappingEnabled: renderer?.postProcessToneMappingEnabled,
+      postProcessExposure: renderer?.postProcessExposure,
+      postProcessBloomEnabled: renderer?.postProcessBloomEnabled,
+      postProcessBloomThreshold: renderer?.postProcessBloomThreshold,
+      postProcessBloomIntensity: renderer?.postProcessBloomIntensity,
+      postProcessDofEnabled: renderer?.postProcessDofEnabled,
+      postProcessDofFocusDistance: renderer?.postProcessDofFocusDistance,
+      postProcessDofFocusRange: renderer?.postProcessDofFocusRange,
+      postProcessDofMaxBlurPixels: renderer?.postProcessDofMaxBlurPixels,
       shadowMaxDistanceMeters: renderer?.shadowMaxDistanceMeters,
       shadowStrength: renderer?.shadowStrength,
       shadowEffectiveSunElevation: renderer?.shadowEffectiveSunElevation,
@@ -409,6 +460,46 @@ function formatSummaryText(summary) {
   }
 
   return lines.join("\n");
+}
+
+/// Restores the Rust-owned post-process settings used for production captures.
+async function resetPostProcessDefaults(page) {
+  await page.evaluate(() => {
+    window.__ofgDebug?.setPostProcessToneMapping?.(true, 1);
+    window.__ofgDebug?.setPostProcessBloom?.(true, 1, 0.08);
+    window.__ofgDebug?.setPostProcessDepthOfField?.(false, 30, 8, 6);
+    window.__ofgDebug?.setPostProcessDebugView?.("final");
+  });
+}
+
+/// Applies one post-process diagnostic experiment through Rust-owned commands.
+async function applyPostProcessExperiment(page, postProcess) {
+  await page.evaluate((settings) => {
+    if (settings.toneMapping !== undefined) {
+      window.__ofgDebug?.setPostProcessToneMapping?.(
+        settings.toneMapping.enabled,
+        settings.toneMapping.exposure
+      );
+    }
+    if (settings.bloom !== undefined) {
+      window.__ofgDebug?.setPostProcessBloom?.(
+        settings.bloom.enabled,
+        settings.bloom.threshold,
+        settings.bloom.intensity
+      );
+    }
+    if (settings.dof !== undefined) {
+      window.__ofgDebug?.setPostProcessDepthOfField?.(
+        settings.dof.enabled,
+        settings.dof.focusDistance,
+        settings.dof.focusRange,
+        settings.dof.maxBlurPixels
+      );
+    }
+    if (settings.debugView !== undefined) {
+      window.__ofgDebug?.setPostProcessDebugView?.(settings.debugView);
+    }
+  }, postProcess);
 }
 
 /// Waits until the browser shell has rendered a Rust/wgpu frame.

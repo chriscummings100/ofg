@@ -172,6 +172,11 @@ export function buildPerfOverlayLines(stats: CombinedPerfStats): string[] {
       `tri ${formatCount(counters.submittedTriangleCount.latest)}`,
     `LOD ${formatTerrainLodCounters(stats.terrainLodCounters)}`,
     `Casc ${formatShadowCascadeCounters(stats.shadowCascadeCounters)}`,
+    `Post view=${stats.rendererStatus.postProcessDebugView} ` +
+      `tone=${formatOnOff(stats.rendererStatus.postProcessToneMappingEnabled)} ` +
+      `exp=${round(stats.rendererStatus.postProcessExposure)} ` +
+      `bloom=${formatOnOff(stats.rendererStatus.postProcessBloomEnabled)} ` +
+      `dof=${formatOnOff(stats.rendererStatus.postProcessDofEnabled)}`,
     `Debug ${formatRenderDebugOptions(stats.renderDebugOptions)}`
   ];
 }

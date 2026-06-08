@@ -302,7 +302,10 @@ Current hook categories:
   a toggleable live perf overlay. These are UI wrappers around the same
   `game.command(...)`, `debugSnapshot()`, and `getPerfStats()` lanes; they must
   not compute terrain visibility, culling, material selection, GPU pass behavior,
-  or LOD policy in TypeScript.
+  post-process behavior, or LOD policy in TypeScript. The same panel may expose
+  post-process debug controls for debug view, tone mapping, bloom, depth of
+  field, and numeric post-process settings by forwarding the existing
+  post-process commands.
 - Shadow debug view state from Rust `debugSnapshot()` as `shadowDebugView`, plus
   the browser-only `setShadowDebugView(...)` debug hook. Supported debug view
   names are `off`, `cascadeIndex`, `shadowVisibility`, and

@@ -4,9 +4,11 @@
 
 import { buildPerfOverlayText, type CombinedPerfStats } from "./perfDebug.js";
 import type {
+  PostProcessDebugView,
   RenderDebugOptions,
   RenderDebugOptionsUpdate
 } from "../engine/web/browserGameTypes.js";
+import type { EngineWebRendererStatus } from "../engine/web/engineWebWasm.js";
 
 export type RenderDebugUiElements = {
   readonly panelToggle: HTMLButtonElement;
@@ -20,15 +22,55 @@ export type RenderDebugUiElements = {
   readonly shadowSunModeSelect: HTMLSelectElement;
   readonly whiteTexturesCheckbox: HTMLInputElement;
   readonly materialModeSelect: HTMLSelectElement;
+  readonly postDebugViewSelect: HTMLSelectElement;
+  readonly postToneMappingCheckbox: HTMLInputElement;
+  readonly postExposureInput: HTMLInputElement;
+  readonly postBloomCheckbox: HTMLInputElement;
+  readonly postBloomThresholdInput: HTMLInputElement;
+  readonly postBloomIntensityInput: HTMLInputElement;
+  readonly postDofCheckbox: HTMLInputElement;
+  readonly postDofFocusInput: HTMLInputElement;
+  readonly postDofRangeInput: HTMLInputElement;
+  readonly postDofBlurInput: HTMLInputElement;
+  readonly postResetButton: HTMLButtonElement;
   readonly resetButton: HTMLButtonElement;
   readonly resetPerfButton: HTMLButtonElement;
   readonly perfOverlay: HTMLElement;
 };
 
+export type PostProcessDebugState = Pick<
+  EngineWebRendererStatus,
+  | "postProcessDebugView"
+  | "postProcessExposure"
+  | "postProcessToneMappingEnabled"
+  | "postProcessBloomEnabled"
+  | "postProcessBloomThreshold"
+  | "postProcessBloomIntensity"
+  | "postProcessDofEnabled"
+  | "postProcessDofFocusDistance"
+  | "postProcessDofFocusRange"
+  | "postProcessDofMaxBlurPixels"
+>;
+
 export type RenderDebugUiCallbacks = {
   readonly getRenderDebugOptions: () => RenderDebugOptions;
+  readonly getPostProcessState: () => PostProcessDebugState;
   readonly setRenderDebugOptions: (options: RenderDebugOptionsUpdate) => void;
   readonly resetRenderDebugOptions: () => void;
+  readonly setPostProcessDebugView: (view: PostProcessDebugView) => void;
+  readonly setPostProcessToneMapping: (enabled: boolean, exposure: number) => void;
+  readonly setPostProcessBloom: (
+    enabled: boolean,
+    threshold: number,
+    intensity: number
+  ) => void;
+  readonly setPostProcessDepthOfField: (
+    enabled: boolean,
+    focusDistance: number,
+    focusRange: number,
+    maxBlurPixels: number
+  ) => void;
+  readonly resetPostProcess: () => void;
   readonly resetPerfStats: () => void;
   readonly focusCanvas: () => void;
 };
@@ -102,6 +144,100 @@ export function createRenderDebugUi(
       materialMode: elements.materialModeSelect.value as RenderDebugOptions["materialMode"]
     });
   });
+  elements.postDebugViewSelect.addEventListener("change", () => {
+    callbacks.setPostProcessDebugView(
+      elements.postDebugViewSelect.value as PostProcessDebugView
+    );
+    callbacks.focusCanvas();
+  });
+  elements.postToneMappingCheckbox.addEventListener("change", () => {
+    const state = callbacks.getPostProcessState();
+    callbacks.setPostProcessToneMapping(
+      elements.postToneMappingCheckbox.checked,
+      readNumberInput(elements.postExposureInput, state.postProcessExposure)
+    );
+    callbacks.focusCanvas();
+  });
+  elements.postExposureInput.addEventListener("change", () => {
+    const state = callbacks.getPostProcessState();
+    callbacks.setPostProcessToneMapping(
+      state.postProcessToneMappingEnabled,
+      readNumberInput(elements.postExposureInput, state.postProcessExposure)
+    );
+    callbacks.focusCanvas();
+  });
+  elements.postBloomCheckbox.addEventListener("change", () => {
+    const state = callbacks.getPostProcessState();
+    callbacks.setPostProcessBloom(
+      elements.postBloomCheckbox.checked,
+      readNumberInput(elements.postBloomThresholdInput, state.postProcessBloomThreshold),
+      readNumberInput(elements.postBloomIntensityInput, state.postProcessBloomIntensity)
+    );
+    callbacks.focusCanvas();
+  });
+  elements.postBloomThresholdInput.addEventListener("change", () => {
+    const state = callbacks.getPostProcessState();
+    callbacks.setPostProcessBloom(
+      state.postProcessBloomEnabled,
+      readNumberInput(elements.postBloomThresholdInput, state.postProcessBloomThreshold),
+      state.postProcessBloomIntensity
+    );
+    callbacks.focusCanvas();
+  });
+  elements.postBloomIntensityInput.addEventListener("change", () => {
+    const state = callbacks.getPostProcessState();
+    callbacks.setPostProcessBloom(
+      state.postProcessBloomEnabled,
+      state.postProcessBloomThreshold,
+      readNumberInput(elements.postBloomIntensityInput, state.postProcessBloomIntensity)
+    );
+    callbacks.focusCanvas();
+  });
+  elements.postDofCheckbox.addEventListener("change", () => {
+    const state = callbacks.getPostProcessState();
+    callbacks.setPostProcessDepthOfField(
+      elements.postDofCheckbox.checked,
+      readNumberInput(elements.postDofFocusInput, state.postProcessDofFocusDistance),
+      readNumberInput(elements.postDofRangeInput, state.postProcessDofFocusRange),
+      readNumberInput(elements.postDofBlurInput, state.postProcessDofMaxBlurPixels)
+    );
+    callbacks.focusCanvas();
+  });
+  elements.postDofFocusInput.addEventListener("change", () => {
+    const state = callbacks.getPostProcessState();
+    callbacks.setPostProcessDepthOfField(
+      state.postProcessDofEnabled,
+      readNumberInput(elements.postDofFocusInput, state.postProcessDofFocusDistance),
+      state.postProcessDofFocusRange,
+      state.postProcessDofMaxBlurPixels
+    );
+    callbacks.focusCanvas();
+  });
+  elements.postDofRangeInput.addEventListener("change", () => {
+    const state = callbacks.getPostProcessState();
+    callbacks.setPostProcessDepthOfField(
+      state.postProcessDofEnabled,
+      state.postProcessDofFocusDistance,
+      readNumberInput(elements.postDofRangeInput, state.postProcessDofFocusRange),
+      state.postProcessDofMaxBlurPixels
+    );
+    callbacks.focusCanvas();
+  });
+  elements.postDofBlurInput.addEventListener("change", () => {
+    const state = callbacks.getPostProcessState();
+    callbacks.setPostProcessDepthOfField(
+      state.postProcessDofEnabled,
+      state.postProcessDofFocusDistance,
+      state.postProcessDofFocusRange,
+      readNumberInput(elements.postDofBlurInput, state.postProcessDofMaxBlurPixels)
+    );
+    callbacks.focusCanvas();
+  });
+  elements.postResetButton.addEventListener("click", () => {
+    callbacks.resetPostProcess();
+    syncPostProcessControls(elements, callbacks.getPostProcessState());
+    callbacks.focusCanvas();
+  });
   elements.resetButton.addEventListener("click", () => {
     callbacks.resetRenderDebugOptions();
     syncControls(elements, callbacks.getRenderDebugOptions());
@@ -113,12 +249,14 @@ export function createRenderDebugUi(
   });
 
   syncControls(elements, callbacks.getRenderDebugOptions());
+  syncPostProcessControls(elements, callbacks.getPostProcessState());
   setPanelVisible(elements, false);
   setPerfOverlayVisible(elements, false);
 
   return {
     update(stats) {
       syncControls(elements, stats.renderDebugOptions);
+      syncPostProcessControls(elements, stats.rendererStatus);
       if (!elements.perfOverlay.hidden) {
         elements.perfOverlay.textContent = buildPerfOverlayText(stats);
       }
@@ -189,6 +327,23 @@ function syncControls(elements: RenderDebugUiElements, options: RenderDebugOptio
   });
 }
 
+/// Synchronizes DOM controls from the latest Rust-owned post-process state.
+function syncPostProcessControls(
+  elements: RenderDebugUiElements,
+  state: PostProcessDebugState
+): void {
+  elements.postDebugViewSelect.value = state.postProcessDebugView;
+  elements.postToneMappingCheckbox.checked = state.postProcessToneMappingEnabled;
+  elements.postBloomCheckbox.checked = state.postProcessBloomEnabled;
+  elements.postDofCheckbox.checked = state.postProcessDofEnabled;
+  setNumberInputValue(elements.postExposureInput, state.postProcessExposure);
+  setNumberInputValue(elements.postBloomThresholdInput, state.postProcessBloomThreshold);
+  setNumberInputValue(elements.postBloomIntensityInput, state.postProcessBloomIntensity);
+  setNumberInputValue(elements.postDofFocusInput, state.postProcessDofFocusDistance);
+  setNumberInputValue(elements.postDofRangeInput, state.postProcessDofFocusRange);
+  setNumberInputValue(elements.postDofBlurInput, state.postProcessDofMaxBlurPixels);
+}
+
 /// Shows or hides the render-debug controls panel.
 function setPanelVisible(elements: RenderDebugUiElements, visible: boolean): void {
   elements.panel.hidden = !visible;
@@ -211,4 +366,19 @@ function isTerrainLodMode(mode: string): mode is TerrainLodUiMode {
     mode === "lod2" ||
     mode === "lod3plus" ||
     mode === "custom";
+}
+
+/// Reads a finite numeric input value, falling back to the current Rust state.
+function readNumberInput(input: HTMLInputElement, fallback: number): number {
+  const value = Number(input.value);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+/// Updates a number input without interrupting in-progress keyboard edits.
+function setNumberInputValue(input: HTMLInputElement, value: number): void {
+  if (document.activeElement === input) {
+    return;
+  }
+
+  input.value = Number.isFinite(value) ? String(value) : "0";
 }
