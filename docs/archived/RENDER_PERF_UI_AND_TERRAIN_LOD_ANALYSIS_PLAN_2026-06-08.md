@@ -1,5 +1,7 @@
 # Render Perf UI And Terrain LOD Cost Analysis
 
+Archived note: this completed plan was replaced as the active performance source of truth by `C:\dev\ofg\docs\TERRAIN_SKY_FILL_RATE_OPTIMIZATION_PLAN.md`, which plans the next fill-rate and terrain shader optimization phase.
+
 This ExecPlan is a living document. The sections Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective must stay up to date as work proceeds.
 
 Once this plan is started, proceed independently for as long as possible. Return to the user only for critical input that cannot be safely inferred, or when the plan is complete.
