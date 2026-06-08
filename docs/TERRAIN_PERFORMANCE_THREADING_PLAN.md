@@ -151,8 +151,30 @@ patches, parent/child visible overlap, or TypeScript-owned terrain scheduling.
   local contract, code-quality, legacy, correctness, and validation passes were
   performed. Required findings were fixed before marking the milestone
   complete.
-- [ ] Milestone 4: add browser stutter/performance validation that proves worker
+- [x] Milestone 4: add browser stutter/performance validation that proves worker
   generation is active and records frame-time/upload behavior during movement.
+- [x] (2026-06-08 01:00+01:00) Added Rust-owned terrain update diagnostics to
+  renderer status: latest update CPU time, upserted/removed mesh counts, and
+  uploaded terrain vertex/index counts.
+- [x] (2026-06-08 01:00+01:00) Added a browser smoke movement-performance pass.
+  It starts from settled terrain, holds run-forward input for 360 animation
+  frames, writes full samples to `movement-performance-samples.json`, and
+  asserts worker completions, no worker failures/stale completions, no
+  synchronous builds, settled missing-node count 0, LOD4 cover, frame-delta
+  bounds, and terrain-update/upload bounds.
+- [x] (2026-06-08 01:05+01:00) Final browser smoke for this milestone wrote
+  `artifacts/browser-smoke/2026-06-08T00-03-01-474Z/report.json`. Movement
+  summary: 360 samples, 359 frame advance, mean frame delta 44.335 ms,
+  p95 83.425 ms, max 116.770 ms, 223.945 m movement, 272 worker completions,
+  0 failed/stale/synchronous builds, max 12 in-flight workers, max completion
+  burst 12, max terrain update 14 ms, 130 upserted meshes, 134 removed meshes,
+  13,186,608 uploaded vertex floats, 694,032 uploaded indices, and settled
+  missing-node count 0.
+- [x] (2026-06-08 01:05+01:00) Milestone 4 review complete. Sub-agent review
+  was not used because the user did not explicitly request delegated reviewers;
+  local contract, code-quality, legacy, correctness, and validation passes were
+  performed. Required findings were fixed before marking the milestone
+  complete.
 - [ ] Milestone 5: run full validation, update contracts/docs, run
   `milestone-review`, and archive or supersede this plan when complete.
 
@@ -252,6 +274,28 @@ patches, parent/child visible overlap, or TypeScript-owned terrain scheduling.
   and uploads/prunes renderer meshes during later frame ticks. Browser smoke
   proves worker generation is active, but it does not yet measure completion
   burst cost or GPU upload cost during movement deltas.
+- Observation: browser debug polling can collide with an in-progress
+  wasm-bindgen mutable borrow if every debug getter calls Rust directly.
+  Evidence: the first Milestone 4 browser smoke attempt hit
+  `recursive use of an object detected which would lead to unsafe aliasing in rust`
+  while `page.waitForFunction` polled `getRendererStatus`. The browser app now
+  caches the latest successful Rust debug snapshot once per frame and debug
+  hooks read the cache.
+- Observation: `std::time::Instant::now` is not usable in the current browser
+  wasm target.
+  Evidence: the first terrain update timing implementation panicked with
+  `time not implemented on this platform` from
+  `library/std/src/sys/pal/wasm/../unsupported/time.rs`. The final
+  implementation uses `js_sys::Date::now()` on wasm and `Instant` only for
+  native builds.
+- Observation: the first movement-performance smoke shows terrain generation is
+  off-thread, while remaining frame cost is more likely renderer/update side
+  than worker execution.
+  Evidence:
+  `artifacts/browser-smoke/2026-06-08T00-03-01-474Z/report.json` recorded
+  272 worker completions during a 223.945 m run, no failed/stale/synchronous
+  builds, max terrain update 14 ms, frame p95 83.425 ms, and max frame delta
+  116.770 ms.
 
 ## Decision Log
 
@@ -361,10 +405,24 @@ patches, parent/child visible overlap, or TypeScript-owned terrain scheduling.
   performance smoke with frame deltas, worker queue depth, completion bursts,
   and upload timing.
   Date/Author: 2026-06-08 / Codex.
+- Decision: expose terrain update/upload diagnostics through Rust renderer
+  status.
+  Rationale: browser smoke should record the CPU-side terrain update section
+  that still runs on the main thread: removed/upserted mesh counts, uploaded
+  vertex/index counts, and elapsed update time. TypeScript records and asserts
+  these values but does not derive terrain scheduling decisions from them.
+  Date/Author: 2026-06-08 / Codex.
+- Decision: cache the Rust debug snapshot once per browser frame for debug
+  hooks.
+  Rationale: smoke and debug UI may poll multiple getters while a frame is
+  being processed. Reading a cached Rust-assembled snapshot avoids transient
+  wasm-bindgen recursive borrow failures without moving state ownership into
+  TypeScript.
+  Date/Author: 2026-06-08 / Codex.
 
 ## Outcomes & Retrospective
 
-Milestones 1 through 3 are complete. The overall plan remains active. Current
+Milestones 1 through 4 are complete. The overall plan remains active. Current
 outcomes:
 
 - Default terrain now uses additional LOD3 and LOD4 far bands and reaches a
@@ -377,10 +435,9 @@ outcomes:
   frame path. The playable browser path reports `"browser-worker"` with 12
   workers on the validated machine, 770 completed worker builds, 0 failed/stale
   completions, and `synchronousBuildCount: 0` in the final smoke report.
-- Browser smoke now records worker generation and stale/failure counters.
-  A dedicated performance smoke still needs to record frame timing, completion
-  bursts, and upload behavior during movement.
-  This remains Milestone 4 work.
+- Browser smoke now records worker generation, stale/failure counters, movement
+  frame timing, completion bursts, and terrain update/upload behavior during
+  a running movement delta.
 
 ## Contract and Quality Baseline
 
@@ -727,6 +784,38 @@ Milestone 3 review, 2026-06-08 / Codex:
   synchronous, but it does not yet measure stutter during running movement,
   completion bursts, transfer/copy overhead, or GPU upload spikes. That is
   Milestone 4.
+
+Milestone 4 review, 2026-06-08 / Codex:
+
+- Scope: browser movement-performance smoke and terrain update diagnostics;
+  changed Rust/wgpu renderer status, TypeScript renderer status types and fake
+  snapshots, browser debug hook snapshot caching, browser smoke report fields,
+  the new movement-performance smoke module, generated engine_web WASM
+  artifacts, and active docs/contracts.
+- Reviewers: contract, code quality, legacy, correctness, and validation passes
+  were done locally. Sub-agent review was skipped because delegated reviewers
+  were not explicitly requested by the user.
+- Required findings fixed: `std::time::Instant` was replaced with a
+  platform-specific timing helper after it panicked on browser wasm; browser
+  debug hooks now read a cached once-per-frame Rust snapshot to avoid
+  wasm-bindgen recursive borrow failures during smoke polling; and the
+  movement sampler was split into `tools/browser-smoke-movement-performance.mjs`
+  after inlining it pushed `tools/browser-smoke.mjs` over 1000 lines.
+- Follow-ups recorded: `crates/engine_web/src/wgpu_renderer.rs` remains far
+  over the preferred size and should be split before more renderer/status glue
+  lands; the movement smoke now records CPU-side terrain update/upload metrics
+  but does not separate typed-array transfer copy, Rust completion parsing, and
+  GPU buffer creation timings.
+- Rejected findings: none.
+- Validation rerun after review fixes: `cargo fmt --all --check`,
+  `cargo test -p engine_web worker --no-fail-fast`, `npm run test:ts`,
+  `npm test`, `npm run check:wasm`, `node --check tools/browser-smoke.mjs`,
+  `node --check tools/browser-smoke-movement-performance.mjs`,
+  `npm run smoke:browser`, and
+  `git -c safe.directory=C:/dev/ofg diff --check`.
+- Remaining risk: the smoke thresholds are intentionally generous to avoid
+  machine-specific flakes. The latest report is useful baseline evidence, not a
+  final performance budget.
 
 ## Validation and Acceptance
 

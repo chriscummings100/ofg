@@ -282,8 +282,8 @@ pass. Browser TypeScript may expose debug/smoke sky values from
 - Browser smoke tests cover browser integration only: WebGPU canvas rendering,
   wasm-bindgen loading, browser asset fetch/decode, HUD state, reload behavior,
   browser isolation headers, DOM input forwarding, Rust runtime sentinel strings,
-  Rust/wgpu renderer status, terrain worker transport counters, and
-  post-process debug view selection.
+  Rust/wgpu renderer status, terrain worker transport counters, movement-delta
+  frame/worker/upload telemetry, and post-process debug view selection.
 - Rust terrain tests cover height/density determinism, density chunk fill, mesh
   buffers, retained stores, stream scheduling, and worker-pool fixtures. The
   removed TypeScript terrain ownership adapters must not be recreated for test

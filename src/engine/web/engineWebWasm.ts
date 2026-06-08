@@ -27,6 +27,11 @@ export type EngineWebRendererStatus = {
   readonly frameDrawCount: number;
   readonly frameVisibleDrawCount: number;
   readonly frameShadowDrawCount: number;
+  readonly terrainUpdateTotalMs: number;
+  readonly terrainUpdateUpsertedMeshCount: number;
+  readonly terrainUpdateRemovedMeshCount: number;
+  readonly terrainUpdateUploadedVertexFloatCount: number;
+  readonly terrainUpdateUploadedIndexCount: number;
   readonly shadowCascadeCount: number;
   readonly shadowMapSize: number;
   readonly postProcessRuntime: "rust-wgpu";

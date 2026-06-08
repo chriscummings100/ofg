@@ -133,6 +133,15 @@ and the selected post-process debug view:
     rendererStatus.postProcessDofFocusDistance: number
     rendererStatus.postProcessDofFocusRange: number
     rendererStatus.postProcessDofMaxBlurPixels: number
+    rendererStatus.terrainUpdateTotalMs: number
+    rendererStatus.terrainUpdateUpsertedMeshCount: number
+    rendererStatus.terrainUpdateRemovedMeshCount: number
+    rendererStatus.terrainUpdateUploadedVertexFloatCount: number
+    rendererStatus.terrainUpdateUploadedIndexCount: number
+
+The terrain update fields are Rust-owned CPU-side diagnostics for the latest
+terrain stream update on the browser game tick. They are intended for smoke and
+performance reports, not for browser-side terrain scheduling decisions.
 
 Terrain debug state currently includes LOD0 compatibility keys
 `loadedTerrainChunkKeys` and `terrainChunkKeys`, plus explicit multi-resolution

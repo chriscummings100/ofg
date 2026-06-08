@@ -125,104 +125,114 @@ export async function startGame(elements: GameElements): Promise<void> {
   const input = new InputTracker();
   const descriptor = readWorldDescriptor();
   const game = await createRustBrowserGameRuntime(elements.canvas, descriptor);
+  let latestDebugSnapshot = game.debugSnapshot();
+  const readDebugSnapshot = () => latestDebugSnapshot;
+  const runDebugCommand = (command: Parameters<RustBrowserGameRuntime["command"]>[0]) => {
+    game.command(command);
+    latestDebugSnapshot = game.debugSnapshot();
+  };
   window.__ofgDebug = {
-    getLoadedTerrainChunkKeys: () => game.debugSnapshot().loadedTerrainChunkKeys,
-    getLoadedTerrainNodeKeys: () => game.debugSnapshot().loadedTerrainNodeKeys,
-    getTerrainChunkKeys: () => game.debugSnapshot().terrainChunkKeys,
-    getTerrainNodeKeys: () => game.debugSnapshot().terrainNodeKeys,
-    getTerrainPreset: () => game.debugSnapshot().terrainPreset,
-    getTerrainSeed: () => game.debugSnapshot().terrainSeed,
-    getTerrainStreamStatus: () => game.debugSnapshot().terrainStreamStatus,
-    getTerrainStreamerRuntime: () => game.debugSnapshot().terrainStreamerRuntime,
-    getTerrainStreamSchedulerRuntime: () => game.debugSnapshot().terrainStreamSchedulerRuntime,
-    getTerrainDensityStoreRuntime: () => game.debugSnapshot().terrainDensityStoreRuntime,
-    getTerrainWorkerPoolRuntime: () => game.debugSnapshot().terrainWorkerPoolRuntime,
-    getRenderPacketRuntime: () => game.debugSnapshot().renderPacketRuntime,
-    getTerrainRenderPacketRuntime: () => game.debugSnapshot().terrainRenderPacketRuntime,
-    getRendererRuntime: () => game.debugSnapshot().rendererRuntime,
-    getRendererStatus: () => game.debugSnapshot().rendererStatus,
-    getShadowDebugView: () => game.debugSnapshot().shadowDebugView,
-    getSkyRuntime: () => game.debugSnapshot().skyRuntime,
-    getSkyDayPhase: () => game.debugSnapshot().skyDayPhase,
-    getSkySunElevation: () => game.debugSnapshot().skySunElevation,
-    getSkyCloudCoverage: () => game.debugSnapshot().skyCloudCoverage,
-    getSkyStarIntensity: () => game.debugSnapshot().skyStarIntensity,
-    getPostProcessDebugView: () => game.debugSnapshot().rendererStatus.postProcessDebugView,
-    getPostProcessExposure: () => game.debugSnapshot().rendererStatus.postProcessExposure,
+    getLoadedTerrainChunkKeys: () => readDebugSnapshot().loadedTerrainChunkKeys,
+    getLoadedTerrainNodeKeys: () => readDebugSnapshot().loadedTerrainNodeKeys,
+    getTerrainChunkKeys: () => readDebugSnapshot().terrainChunkKeys,
+    getTerrainNodeKeys: () => readDebugSnapshot().terrainNodeKeys,
+    getTerrainPreset: () => readDebugSnapshot().terrainPreset,
+    getTerrainSeed: () => readDebugSnapshot().terrainSeed,
+    getTerrainStreamStatus: () => readDebugSnapshot().terrainStreamStatus,
+    getTerrainStreamerRuntime: () => readDebugSnapshot().terrainStreamerRuntime,
+    getTerrainStreamSchedulerRuntime: () => readDebugSnapshot().terrainStreamSchedulerRuntime,
+    getTerrainDensityStoreRuntime: () => readDebugSnapshot().terrainDensityStoreRuntime,
+    getTerrainWorkerPoolRuntime: () => readDebugSnapshot().terrainWorkerPoolRuntime,
+    getRenderPacketRuntime: () => readDebugSnapshot().renderPacketRuntime,
+    getTerrainRenderPacketRuntime: () => readDebugSnapshot().terrainRenderPacketRuntime,
+    getRendererRuntime: () => readDebugSnapshot().rendererRuntime,
+    getRendererStatus: () => readDebugSnapshot().rendererStatus,
+    getShadowDebugView: () => readDebugSnapshot().shadowDebugView,
+    getSkyRuntime: () => readDebugSnapshot().skyRuntime,
+    getSkyDayPhase: () => readDebugSnapshot().skyDayPhase,
+    getSkySunElevation: () => readDebugSnapshot().skySunElevation,
+    getSkyCloudCoverage: () => readDebugSnapshot().skyCloudCoverage,
+    getSkyStarIntensity: () => readDebugSnapshot().skyStarIntensity,
+    getPostProcessDebugView: () => readDebugSnapshot().rendererStatus.postProcessDebugView,
+    getPostProcessExposure: () => readDebugSnapshot().rendererStatus.postProcessExposure,
     getPostProcessToneMappingEnabled: () =>
-      game.debugSnapshot().rendererStatus.postProcessToneMappingEnabled,
-    getPostProcessBloomEnabled: () => game.debugSnapshot().rendererStatus.postProcessBloomEnabled,
+      readDebugSnapshot().rendererStatus.postProcessToneMappingEnabled,
+    getPostProcessBloomEnabled: () => readDebugSnapshot().rendererStatus.postProcessBloomEnabled,
     getPostProcessBloomThreshold: () =>
-      game.debugSnapshot().rendererStatus.postProcessBloomThreshold,
+      readDebugSnapshot().rendererStatus.postProcessBloomThreshold,
     getPostProcessBloomIntensity: () =>
-      game.debugSnapshot().rendererStatus.postProcessBloomIntensity,
-    getPostProcessDofEnabled: () => game.debugSnapshot().rendererStatus.postProcessDofEnabled,
+      readDebugSnapshot().rendererStatus.postProcessBloomIntensity,
+    getPostProcessDofEnabled: () => readDebugSnapshot().rendererStatus.postProcessDofEnabled,
     getPostProcessDofFocusDistance: () =>
-      game.debugSnapshot().rendererStatus.postProcessDofFocusDistance,
+      readDebugSnapshot().rendererStatus.postProcessDofFocusDistance,
     getPostProcessDofFocusRange: () =>
-      game.debugSnapshot().rendererStatus.postProcessDofFocusRange,
+      readDebugSnapshot().rendererStatus.postProcessDofFocusRange,
     getPostProcessDofMaxBlurPixels: () =>
-      game.debugSnapshot().rendererStatus.postProcessDofMaxBlurPixels,
-    getTerrainWorkerCount: () => game.debugSnapshot().terrainWorkerCount,
-    getPlayerControllerRuntime: () => game.debugSnapshot().playerControllerRuntime,
-    getPlayerCharacterId: () => game.debugSnapshot().playerCharacterId,
-    getPlayerCharacterLabel: () => game.debugSnapshot().playerCharacterLabel,
-    getPlayerCharacterRuntime: () => game.debugSnapshot().playerCharacterRuntime,
-    getPlayerCharacterVisible: () => game.debugSnapshot().playerCharacterVisible,
-    getPlayerCharacterFollowsPlayer: () => game.debugSnapshot().playerCharacterFollowsPlayer,
-    getDebugPlayerMarkerVisible: () => game.debugSnapshot().debugPlayerMarkerVisible,
-    getModelAnimationRuntime: () => game.debugSnapshot().modelAnimationRuntime,
-    getActiveModelAnimationClip: () => game.debugSnapshot().activeModelAnimationClip,
-    getNextModelAnimationClip: () => game.debugSnapshot().nextModelAnimationClip,
-    getModelAnimationTimeSeconds: () => game.debugSnapshot().modelAnimationTimeSeconds,
-    getModelAnimationDurationSeconds: () => game.debugSnapshot().modelAnimationDurationSeconds,
-    getModelAnimationBlendWeight: () => game.debugSnapshot().modelAnimationBlendWeight,
-    getModelAnimationWalkRunBlendWeight: () => game.debugSnapshot().modelAnimationWalkRunBlendWeight,
-    getModelAnimationPlaybackScale: () => game.debugSnapshot().modelAnimationPlaybackScale,
+      readDebugSnapshot().rendererStatus.postProcessDofMaxBlurPixels,
+    getTerrainWorkerCount: () => readDebugSnapshot().terrainWorkerCount,
+    getPlayerControllerRuntime: () => readDebugSnapshot().playerControllerRuntime,
+    getPlayerCharacterId: () => readDebugSnapshot().playerCharacterId,
+    getPlayerCharacterLabel: () => readDebugSnapshot().playerCharacterLabel,
+    getPlayerCharacterRuntime: () => readDebugSnapshot().playerCharacterRuntime,
+    getPlayerCharacterVisible: () => readDebugSnapshot().playerCharacterVisible,
+    getPlayerCharacterFollowsPlayer: () => readDebugSnapshot().playerCharacterFollowsPlayer,
+    getDebugPlayerMarkerVisible: () => readDebugSnapshot().debugPlayerMarkerVisible,
+    getModelAnimationRuntime: () => readDebugSnapshot().modelAnimationRuntime,
+    getActiveModelAnimationClip: () => readDebugSnapshot().activeModelAnimationClip,
+    getNextModelAnimationClip: () => readDebugSnapshot().nextModelAnimationClip,
+    getModelAnimationTimeSeconds: () => readDebugSnapshot().modelAnimationTimeSeconds,
+    getModelAnimationDurationSeconds: () => readDebugSnapshot().modelAnimationDurationSeconds,
+    getModelAnimationBlendWeight: () => readDebugSnapshot().modelAnimationBlendWeight,
+    getModelAnimationWalkRunBlendWeight: () =>
+      readDebugSnapshot().modelAnimationWalkRunBlendWeight,
+    getModelAnimationPlaybackScale: () => readDebugSnapshot().modelAnimationPlaybackScale,
     getModelAnimationLocomotionSpeedMetersPerSecond: () =>
-      game.debugSnapshot().modelAnimationLocomotionSpeedMetersPerSecond,
+      readDebugSnapshot().modelAnimationLocomotionSpeedMetersPerSecond,
     getModelAnimationWalkSpeedMetersPerSecond: () =>
-      game.debugSnapshot().modelAnimationWalkSpeedMetersPerSecond,
+      readDebugSnapshot().modelAnimationWalkSpeedMetersPerSecond,
     getModelAnimationRunSpeedMetersPerSecond: () =>
-      game.debugSnapshot().modelAnimationRunSpeedMetersPerSecond,
+      readDebugSnapshot().modelAnimationRunSpeedMetersPerSecond,
     getModelAnimationIdlePlaybackScale: () =>
-      game.debugSnapshot().modelAnimationIdlePlaybackScale,
+      readDebugSnapshot().modelAnimationIdlePlaybackScale,
     getModelAnimationWalkPlaybackScale: () =>
-      game.debugSnapshot().modelAnimationWalkPlaybackScale,
+      readDebugSnapshot().modelAnimationWalkPlaybackScale,
     getModelAnimationRunPlaybackScale: () =>
-      game.debugSnapshot().modelAnimationRunPlaybackScale,
-    getModelPrimitiveCount: () => game.debugSnapshot().modelPrimitiveCount,
-    getModelMaterialCount: () => game.debugSnapshot().modelMaterialCount,
-    getModelTextureCount: () => game.debugSnapshot().modelTextureCount,
+      readDebugSnapshot().modelAnimationRunPlaybackScale,
+    getModelPrimitiveCount: () => readDebugSnapshot().modelPrimitiveCount,
+    getModelMaterialCount: () => readDebugSnapshot().modelMaterialCount,
+    getModelTextureCount: () => readDebugSnapshot().modelTextureCount,
     getModelNonFallbackAlbedoPartCount: () =>
-      game.debugSnapshot().modelNonFallbackAlbedoPartCount,
-    getModelSkinningRuntime: () => game.debugSnapshot().modelSkinningRuntime,
-    getModelSkinningJointCount: () => game.debugSnapshot().modelSkinningJointCount,
-    getPlayerPosition: () => game.debugSnapshot().playerPosition,
+      readDebugSnapshot().modelNonFallbackAlbedoPartCount,
+    getModelSkinningRuntime: () => readDebugSnapshot().modelSkinningRuntime,
+    getModelSkinningJointCount: () => readDebugSnapshot().modelSkinningJointCount,
+    getPlayerPosition: () => readDebugSnapshot().playerPosition,
     resetTerrainStreaming() {
-      game.command({ type: "resetStreaming" });
+      runDebugCommand({ type: "resetStreaming" });
     },
     setCameraMode(mode) {
-      game.command({ type: "setPlayerMode", mode: validatePlayerMode(mode) });
+      runDebugCommand({ type: "setPlayerMode", mode: validatePlayerMode(mode) });
     },
     setDebugCamera(x, y, z, yaw, pitch) {
-      game.command({ type: "setDebugCamera", x, y, z, yaw, pitch });
+      runDebugCommand({ type: "setDebugCamera", x, y, z, yaw, pitch });
     },
     setShadowDebugView(view) {
-      game.command({ type: "setShadowDebugView", view: validateShadowDebugView(view) });
+      runDebugCommand({ type: "setShadowDebugView", view: validateShadowDebugView(view) });
     },
     setPostProcessDebugView(view) {
-      game.command({ type: "setPostProcessDebugView", view: validatePostProcessDebugView(view) });
+      runDebugCommand({
+        type: "setPostProcessDebugView",
+        view: validatePostProcessDebugView(view)
+      });
     },
     setPostProcessToneMapping(enabled, exposure) {
-      game.command({
+      runDebugCommand({
         type: "setPostProcessToneMapping",
         enabled,
         exposure: validatePostProcessExposure(exposure)
       });
     },
     setPostProcessBloom(enabled, threshold, intensity) {
-      game.command({
+      runDebugCommand({
         type: "setPostProcessBloom",
         enabled,
         threshold: validatePostProcessBloomThreshold(threshold),
@@ -230,7 +240,7 @@ export async function startGame(elements: GameElements): Promise<void> {
       });
     },
     setPostProcessDepthOfField(enabled, focusDistance, focusRange, maxBlurPixels) {
-      game.command({
+      runDebugCommand({
         type: "setPostProcessDepthOfField",
         enabled,
         focusDistance: validatePostProcessDofFocusDistance(focusDistance),
@@ -239,32 +249,35 @@ export async function startGame(elements: GameElements): Promise<void> {
       });
     },
     setPlayerAnimationTuning(tuning) {
-      game.command({
+      runDebugCommand({
         type: "setPlayerAnimationTuning",
-        ...playerAnimationTuningFromSnapshot(game.debugSnapshot(), tuning)
+        ...playerAnimationTuningFromSnapshot(readDebugSnapshot(), tuning)
       });
     },
     setPlayerCharacter(character) {
-      game.command({ type: "setPlayerCharacter", character: validatePlayerCharacterId(character) });
+      runDebugCommand({
+        type: "setPlayerCharacter",
+        character: validatePlayerCharacterId(character)
+      });
     },
     setPlayerPosition(x, z) {
-      game.command({ type: "setPlayerPosition", x, z });
+      runDebugCommand({ type: "setPlayerPosition", x, z });
     },
     togglePlayerCharacter() {
-      game.command({ type: "togglePlayerCharacter" });
+      runDebugCommand({ type: "togglePlayerCharacter" });
     }
   };
 
   elements.characterToggle.addEventListener("click", () => {
-    game.command({ type: "togglePlayerCharacter" });
-    updateCharacterToggle(elements.characterToggle, game.debugSnapshot());
+    runDebugCommand({ type: "togglePlayerCharacter" });
+    updateCharacterToggle(elements.characterToggle, latestDebugSnapshot);
     elements.canvas.focus({ preventScroll: true });
   });
   elements.touchControls.cameraToggle.addEventListener("click", () => {
-    game.command({ type: "togglePlayerMode" });
+    runDebugCommand({ type: "togglePlayerMode" });
     elements.canvas.focus({ preventScroll: true });
   });
-  updateCharacterToggle(elements.characterToggle, game.debugSnapshot());
+  updateCharacterToggle(elements.characterToggle, latestDebugSnapshot);
   input.attach(elements.canvas, document, elements.touchControls);
 
   let lastTimestamp = performance.now();
@@ -282,7 +295,8 @@ export async function startGame(elements: GameElements): Promise<void> {
 
     game.tick(frameInput);
 
-    const debugSnapshot = game.debugSnapshot();
+    latestDebugSnapshot = game.debugSnapshot();
+    const debugSnapshot = latestDebugSnapshot;
     const playerMode = debugSnapshot.playerMode;
     elements.cameraMode.textContent = cameraModeLabel(playerMode);
     elements.cameraMode.dataset.mode = playerMode;

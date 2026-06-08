@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { PNG } from "pngjs";
 import { runMobileTouchSmoke } from "./browser-smoke-mobile-touch.mjs";
+import { runMovementPerformanceSmoke } from "./browser-smoke-movement-performance.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const preferredPort = Number.parseInt(process.env.OFG_SMOKE_PORT ?? "5174", 10);
@@ -198,6 +199,19 @@ async function runBrowserSmoke(url) {
     const reloadedImage = await saveScreenshot(page, "browser-reloaded.png");
     assertPixelStats(reloadedImage.pixelStats, "browser reload", consoleMessages);
 
+    const movementPerformance = await runMovementPerformanceSmoke({
+      page,
+      artifactDir,
+      consoleMessages,
+      waitForBrowserFrame,
+      waitForTerrainLodFrame,
+      assertNoBrowserFailures,
+      readDebugContract,
+      assertDebugContract
+    });
+    const movementImage = await saveScreenshot(page, "browser-movement-performance.png");
+    assertPixelStats(movementImage.pixelStats, "browser movement performance", consoleMessages);
+
     const mobileTouch = await runMobileTouchSmoke({
       browser,
       url,
@@ -230,6 +244,7 @@ async function runBrowserSmoke(url) {
         dofBlurredImage,
         toggledImage,
         reloadedImage,
+        movementImage,
         mobileTouch.image
       ],
       firstHud,
@@ -247,6 +262,7 @@ async function runBrowserSmoke(url) {
       dofBlurredDebug,
       toggledDebug,
       reloadedDebug,
+      movementPerformance,
       mobileTouch,
       consoleMessages
     };
@@ -479,6 +495,11 @@ async function readDebugContract(page) {
             frameDrawCount: status.frameDrawCount,
             frameVisibleDrawCount: status.frameVisibleDrawCount,
             frameShadowDrawCount: status.frameShadowDrawCount,
+            terrainUpdateTotalMs: status.terrainUpdateTotalMs,
+            terrainUpdateUpsertedMeshCount: status.terrainUpdateUpsertedMeshCount,
+            terrainUpdateRemovedMeshCount: status.terrainUpdateRemovedMeshCount,
+            terrainUpdateUploadedVertexFloatCount: status.terrainUpdateUploadedVertexFloatCount,
+            terrainUpdateUploadedIndexCount: status.terrainUpdateUploadedIndexCount,
             shadowCascadeCount: status.shadowCascadeCount,
             shadowMapSize: status.shadowMapSize,
             postProcessRuntime: status.postProcessRuntime,
@@ -665,6 +686,16 @@ function assertDebugContract(debug, expectations = {}) {
     status.frameDrawCount <= 0 ||
     status.frameVisibleDrawCount <= 0 ||
     status.frameShadowDrawCount <= 0 ||
+    !Number.isFinite(status.terrainUpdateTotalMs) ||
+    status.terrainUpdateTotalMs < 0 ||
+    !Number.isFinite(status.terrainUpdateUpsertedMeshCount) ||
+    status.terrainUpdateUpsertedMeshCount < 0 ||
+    !Number.isFinite(status.terrainUpdateRemovedMeshCount) ||
+    status.terrainUpdateRemovedMeshCount < 0 ||
+    !Number.isFinite(status.terrainUpdateUploadedVertexFloatCount) ||
+    status.terrainUpdateUploadedVertexFloatCount < 0 ||
+    !Number.isFinite(status.terrainUpdateUploadedIndexCount) ||
+    status.terrainUpdateUploadedIndexCount < 0 ||
     status.shadowCascadeCount !== 4 ||
     status.shadowMapSize !== 1024 ||
     status.meshCount <= 0 ||

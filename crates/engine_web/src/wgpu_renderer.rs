@@ -2,6 +2,10 @@
 // submission, and render-facing GLTF model resources for the playable browser path.
 use std::borrow::Cow;
 use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::OnceLock;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
 
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -75,6 +79,7 @@ pub struct RustBrowserGame {
     player_characters: Vec<PlayerCharacterSlot>,
     active_player_character_id: PlayerCharacterId,
     model_skinning_runtime: Option<&'static str>,
+    last_terrain_update_stats: TerrainUpdateStats,
 }
 
 #[derive(Debug)]
@@ -92,6 +97,11 @@ struct RustBrowserGameStatus {
     frame_draw_count: u32,
     frame_visible_draw_count: u32,
     frame_shadow_draw_count: u32,
+    terrain_update_total_ms: f64,
+    terrain_update_upserted_mesh_count: u32,
+    terrain_update_removed_mesh_count: u32,
+    terrain_update_uploaded_vertex_float_count: u32,
+    terrain_update_uploaded_index_count: u32,
     shadow_cascade_count: u32,
     shadow_map_size: u32,
     post_process_debug_view: PostProcessDebugView,
@@ -104,6 +114,15 @@ struct RustBrowserGameStatus {
     post_process_dof_focus_distance: f32,
     post_process_dof_focus_range: f32,
     post_process_dof_max_blur_pixels: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct TerrainUpdateStats {
+    total_ms: f64,
+    upserted_mesh_count: u32,
+    removed_mesh_count: u32,
+    uploaded_vertex_float_count: u32,
+    uploaded_index_count: u32,
 }
 
 struct BrowserWgpuRenderer {
@@ -394,6 +413,7 @@ impl RustBrowserGame {
             player_characters,
             active_player_character_id,
             model_skinning_runtime: Some("rust-cpu"),
+            last_terrain_update_stats: TerrainUpdateStats::default(),
         };
         game.install_terrain_textures(terrain_texture_arrays)?;
 
@@ -646,7 +666,7 @@ impl RustBrowserGame {
         set_js_property(
             &snapshot,
             "rendererStatus",
-            renderer_status_to_js(self.renderer.status())?,
+            renderer_status_to_js(self.renderer.status(self.last_terrain_update_stats))?,
         )?;
         let sky_snapshot = self.game_state.sky_snapshot();
         set_js_property(
@@ -1063,20 +1083,39 @@ impl RustBrowserGame {
     }
 
     fn update_terrain_stream(&mut self) -> Result<(), JsValue> {
+        let started_at_ms = terrain_update_now_ms();
+        let mut removed_mesh_count = 0_u32;
+        let mut upserted_mesh_count = 0_u32;
+        let mut uploaded_vertex_float_count = 0_u32;
+        let mut uploaded_index_count = 0_u32;
         let player_position = self.game_state.player_position().map_err(js_error)?;
         let update = self.terrain_stream.tick_for_workers(player_position);
 
         for key in update.removed_nodes {
             self.destroy_terrain_mesh(key)?;
+            removed_mesh_count = removed_mesh_count.saturating_add(1);
         }
 
         for mesh_update in update.upserted_meshes {
+            uploaded_vertex_float_count = uploaded_vertex_float_count
+                .saturating_add(mesh_update.mesh.vertices.len().min(u32::MAX as usize) as u32);
+            uploaded_index_count = uploaded_index_count
+                .saturating_add(mesh_update.mesh.indices.len().min(u32::MAX as usize) as u32);
             self.upsert_terrain_mesh(
                 mesh_update.key,
                 &mesh_update.mesh.vertices,
                 &mesh_update.mesh.indices,
             )?;
+            upserted_mesh_count = upserted_mesh_count.saturating_add(1);
         }
+
+        self.last_terrain_update_stats = TerrainUpdateStats {
+            total_ms: terrain_update_now_ms() - started_at_ms,
+            upserted_mesh_count,
+            removed_mesh_count,
+            uploaded_vertex_float_count,
+            uploaded_index_count,
+        };
 
         Ok(())
     }
@@ -2058,7 +2097,7 @@ impl BrowserWgpuRenderer {
         self.shadow_debug_view.js_name()
     }
 
-    fn status(&self) -> RustBrowserGameStatus {
+    fn status(&self, terrain_update_stats: TerrainUpdateStats) -> RustBrowserGameStatus {
         let shadow_cascade_count = self
             .shadow_resources
             .layer_views
@@ -2080,6 +2119,12 @@ impl BrowserWgpuRenderer {
             frame_draw_count: self.frame_draw_count,
             frame_visible_draw_count: self.frame_visible_draw_count,
             frame_shadow_draw_count: self.frame_shadow_draw_count,
+            terrain_update_total_ms: terrain_update_stats.total_ms,
+            terrain_update_upserted_mesh_count: terrain_update_stats.upserted_mesh_count,
+            terrain_update_removed_mesh_count: terrain_update_stats.removed_mesh_count,
+            terrain_update_uploaded_vertex_float_count: terrain_update_stats
+                .uploaded_vertex_float_count,
+            terrain_update_uploaded_index_count: terrain_update_stats.uploaded_index_count,
             shadow_cascade_count,
             shadow_map_size: SHADOW_MAP_SIZE,
             post_process_debug_view: self.post_process_settings.debug_view(),
@@ -2740,6 +2785,31 @@ fn renderer_status_to_js(status: RustBrowserGameStatus) -> Result<JsValue, JsVal
     )?;
     set_js_property(
         &object,
+        "terrainUpdateTotalMs",
+        JsValue::from_f64(status.terrain_update_total_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainUpdateUpsertedMeshCount",
+        JsValue::from_f64(status.terrain_update_upserted_mesh_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "terrainUpdateRemovedMeshCount",
+        JsValue::from_f64(status.terrain_update_removed_mesh_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "terrainUpdateUploadedVertexFloatCount",
+        JsValue::from_f64(status.terrain_update_uploaded_vertex_float_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "terrainUpdateUploadedIndexCount",
+        JsValue::from_f64(status.terrain_update_uploaded_index_count as f64),
+    )?;
+    set_js_property(
+        &object,
         "shadowCascadeCount",
         JsValue::from_f64(status.shadow_cascade_count as f64),
     )?;
@@ -2805,6 +2875,17 @@ fn renderer_status_to_js(status: RustBrowserGameStatus) -> Result<JsValue, JsVal
     )?;
 
     Ok(object.into())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn terrain_update_now_ms() -> f64 {
+    js_sys::Date::now()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn terrain_update_now_ms() -> f64 {
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_secs_f64() * 1000.0
 }
 
 fn terrain_build_requests_to_js(
