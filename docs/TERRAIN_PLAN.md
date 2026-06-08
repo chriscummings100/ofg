@@ -1,8 +1,9 @@
 # Multi-Resolution Terrain View Distance
 
 This completed terrain view-distance plan records the LOD0 through LOD2
-migration history. Current follow-up distance, benchmarking, and worker-thread
-work lives in `docs/TERRAIN_PERFORMANCE_THREADING_PLAN.md`.
+migration history. Follow-up distance, benchmarking, and worker-thread work is
+complete and archived in
+`docs/archived/TERRAIN_PERFORMANCE_THREADING_PLAN_2026-06-08.md`.
 
 This ExecPlan is a living document. The sections Progress, Surprises &
 Discoveries, Decision Log, and Outcomes & Retrospective must stay up to date as
@@ -63,10 +64,12 @@ detail is generated and is the basis for smooth streaming transitions.
   LOD-boundary Rust image smoke scenarios, extended smoke and benchmark reports
   with multi-LOD node counts, verified browser smoke/benchmark/coverage gates,
   and recorded final review evidence.
-- [x] (2026-06-07 23:55+01:00) Follow-up distance tuning moved to
-  `docs/TERRAIN_PERFORMANCE_THREADING_PLAN.md`: the default playable stream now
-  includes LOD3/LOD4 far bands and reports a settled visible span above 4 km in
-  X and Z.
+- [x] (2026-06-08 01:20+01:00) Follow-up distance, benchmarking, and threaded
+  generation work completed and moved to
+  `docs/archived/TERRAIN_PERFORMANCE_THREADING_PLAN_2026-06-08.md`: the default
+  playable stream now includes LOD3/LOD4 far bands, reports a settled visible
+  span above 4 km in X and Z, benchmarks realistic terrain-node generation
+  populations, and uses browser workers for terrain node builds.
 
 ## Surprises & Discoveries
 

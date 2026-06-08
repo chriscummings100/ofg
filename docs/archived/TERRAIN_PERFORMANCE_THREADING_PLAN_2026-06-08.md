@@ -175,8 +175,21 @@ patches, parent/child visible overlap, or TypeScript-owned terrain scheduling.
   local contract, code-quality, legacy, correctness, and validation passes were
   performed. Required findings were fixed before marking the milestone
   complete.
-- [ ] Milestone 5: run full validation, update contracts/docs, run
+- [x] Milestone 5: run full validation, update contracts/docs, run
   `milestone-review`, and archive or supersede this plan when complete.
+- [x] (2026-06-08 01:20+01:00) Archived this completed follow-up plan at
+  `docs/archived/TERRAIN_PERFORMANCE_THREADING_PLAN_2026-06-08.md` and updated
+  `docs/TERRAIN_PLAN.md` to point at the archived source of truth.
+- [x] (2026-06-08 01:25+01:00) Added a focused benchmark coverage test for
+  invalid benchmark inputs, class labels, empty/sparse/heavy/complex node
+  classification, and the benchmark helper guard paths.
+- [x] (2026-06-08 01:30+01:00) Final Rust coverage validation with
+  `npm run coverage:rust` passed with no implementation files in the default
+  filtered below-90% attention list. Coverage artifacts were written under
+  `artifacts/coverage/rust/`.
+- [x] (2026-06-08 01:35+01:00) Final tree validation reran `npm test`,
+  `npm run check:wasm`, and `npm run smoke:browser`. The fresh browser smoke
+  report is `artifacts/browser-smoke/2026-06-08T00-29-26-575Z/report.json`.
 
 ## Surprises & Discoveries
 
@@ -216,6 +229,13 @@ patches, parent/child visible overlap, or TypeScript-owned terrain scheduling.
   328 profiled node samples, 2 seeds, 4 presets, 9 sources, 3 LODs, and class
   counts for empty air, solid, surface sparse, surface heavy, and surface
   complex nodes.
+- Observation: the final LOD4 benchmark population still needs distribution
+  reporting rather than a single terrain-chunk number.
+  Evidence: `artifacts/terrain-bench/run-1780872880-562/report.json` reports
+  200 profiled nodes across five LODs, multiple seeds, presets, stream sources,
+  and terrain classes. The useful values are the population mean, median, p95,
+  max, per-LOD breakdowns, and phase shares, because different chunks can have
+  drastically different density and mesh costs.
 - Observation: density generation is the dominant cost across the sampled node
   population.
   Evidence: the corrected full improved benchmark reported profiled cold-node
@@ -419,11 +439,17 @@ patches, parent/child visible overlap, or TypeScript-owned terrain scheduling.
   wasm-bindgen recursive borrow failures without moving state ownership into
   TypeScript.
   Date/Author: 2026-06-08 / Codex.
+- Decision: archive this plan and leave terrain seam/apron work to a separate
+  follow-up.
+  Rationale: the plan's requested distance, benchmark distribution, browser
+  worker generation, and movement-performance smoke work is complete. Thin
+  cross-LOD cracks are a different mesh-continuity problem and should not be
+  blurred with the scheduler/threading fix.
+  Date/Author: 2026-06-08 / Codex.
 
 ## Outcomes & Retrospective
 
-Milestones 1 through 4 are complete. The overall plan remains active. Current
-outcomes:
+This plan is complete and archived. Outcomes:
 
 - Default terrain now uses additional LOD3 and LOD4 far bands and reaches a
   settled visible span of 4608 meters by 4608 meters in the release terrain
@@ -438,6 +464,12 @@ outcomes:
 - Browser smoke now records worker generation, stale/failure counters, movement
   frame timing, completion bursts, and terrain update/upload behavior during
   a running movement delta.
+- Final coverage validation reports no modified implementation files below the
+  default 90% Rust coverage attention threshold.
+- Remaining work is deliberately outside this plan: thin cross-LOD seams still
+  need aprons, movement smoke thresholds are baseline guardrails rather than a
+  final performance budget, and later optimization should split transfer,
+  completion parsing, GPU buffer creation, and renderer upload costs.
 
 ## Contract and Quality Baseline
 
@@ -816,6 +848,32 @@ Milestone 4 review, 2026-06-08 / Codex:
 - Remaining risk: the smoke thresholds are intentionally generous to avoid
   machine-specific flakes. The latest report is useful baseline evidence, not a
   final performance budget.
+
+Milestone 5 review, 2026-06-08 / Codex:
+
+- Scope: final validation, coverage attention cleanup, plan archive, and active
+  terrain-plan pointer update.
+- Reviewers: contract, code quality, legacy, correctness, and validation passes
+  were done locally. Sub-agent review was skipped because delegated reviewers
+  were not explicitly requested by the user.
+- Required findings fixed: `crates/terrain_core/src/benchmark.rs` appeared in
+  the filtered Rust coverage attention list at 89.1% line coverage after the
+  earlier milestones, so a focused benchmark helper test now covers invalid
+  inputs, class labels, and representative node classifications. The completed
+  plan is archived and `docs/TERRAIN_PLAN.md` now points at the archive.
+- Follow-ups recorded: cross-LOD seams remain apron work; movement-performance
+  smoke thresholds are intentionally generous; future performance work should
+  split transfer, Rust completion parsing, GPU buffer creation, and renderer
+  upload timings; `crates/engine_web/src/wgpu_renderer.rs` remains oversized.
+- Rejected findings: none.
+- Validation rerun after review fixes:
+  `cargo test -p terrain_core --features benchmark benchmark --no-fail-fast`,
+  `npm run coverage:rust`, `npm test`, `npm run check:wasm`,
+  `npm run smoke:browser`, and
+  `git -c safe.directory=C:/dev/ofg diff --check`.
+- Remaining risk: the final archive/coverage delta does not re-run every heavy
+  visual benchmark from earlier milestones; the most recent runtime smoke and
+  benchmark artifacts remain the Milestone 2 through 4 reports named above.
 
 ## Validation and Acceptance
 

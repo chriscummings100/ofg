@@ -421,6 +421,78 @@ mod tests {
     }
 
     #[test]
+    fn benchmark_helpers_cover_invalid_inputs_and_class_names() {
+        let _lock = crate::test_lock();
+        reset_density_store();
+        let key = TerrainNodeKey {
+            lod: 0,
+            coord: TerrainChunkCoord { x: 0, y: 0, z: 0 },
+        };
+        let bounds = DensityWindowBounds {
+            min_x: 0,
+            min_y: 0,
+            min_z: 0,
+            max_x: 0,
+            max_y: 0,
+            max_z: 0,
+        };
+
+        assert_eq!(TerrainNodeBuildClass::EmptyAir.as_str(), "emptyAir");
+        assert_eq!(TerrainNodeBuildClass::Solid.as_str(), "solid");
+        assert_eq!(
+            TerrainNodeBuildClass::SurfaceSparse.as_str(),
+            "surfaceSparse"
+        );
+        assert_eq!(TerrainNodeBuildClass::SurfaceHeavy.as_str(), "surfaceHeavy");
+        assert_eq!(
+            TerrainNodeBuildClass::SurfaceComplex.as_str(),
+            "surfaceComplex"
+        );
+        assert!(fill_density_chunk(0x0F6, 1, key.coord, 0.0).is_empty());
+        assert_eq!(prepare_density_chunk_window(0x0F6, 1, bounds, 0.0), 0);
+
+        let empty = profile_node_mesh_build(0x0F6, 1, key, 0.0);
+        assert_eq!(empty.class, TerrainNodeBuildClass::EmptyAir);
+        assert_eq!(empty.cell_size, 0.0);
+        assert_eq!(empty.vertex_count, 0);
+        assert_eq!(empty.index_count, 0);
+
+        let empty_mesh = MeshData {
+            vertices: Vec::new(),
+            indices: Vec::new(),
+        };
+        assert_eq!(
+            classify_profiled_node(&[], key.coord, &empty_mesh),
+            TerrainNodeBuildClass::EmptyAir
+        );
+        let mixed_chunk = TerrainDensityChunk {
+            coord: key.coord,
+            cell_size: 1.0,
+            densities: vec![-1.0, 1.0],
+        };
+        assert_eq!(
+            classify_profiled_node(&[mixed_chunk], key.coord, &empty_mesh),
+            TerrainNodeBuildClass::SurfaceSparse
+        );
+        let heavy_mesh = MeshData {
+            vertices: Vec::new(),
+            indices: vec![0; 2_000],
+        };
+        assert_eq!(
+            classify_profiled_node(&[], key.coord, &heavy_mesh),
+            TerrainNodeBuildClass::SurfaceHeavy
+        );
+        let complex_mesh = MeshData {
+            vertices: Vec::new(),
+            indices: vec![0; 6_000],
+        };
+        assert_eq!(
+            classify_profiled_node(&[], key.coord, &complex_mesh),
+            TerrainNodeBuildClass::SurfaceComplex
+        );
+    }
+
+    #[test]
     fn benchmark_profile_records_phase_timings_and_buffers() {
         let _lock = crate::test_lock();
         reset_density_store();
