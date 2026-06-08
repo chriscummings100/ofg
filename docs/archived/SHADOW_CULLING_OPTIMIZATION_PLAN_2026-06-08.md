@@ -4,7 +4,11 @@ This ExecPlan is a living document. The sections Progress, Surprises & Discoveri
 
 Once this plan is started, proceed independently for as long as possible. Return to the user only for critical input that cannot be safely inferred, or when the plan is complete.
 
-This document follows `PLANS.md` in this repository. It is the active source of truth for reducing the measured shadow-map cost discovered by the completed diagnostic plan archived at `docs/archived/PERF_DEBUGGING_PLAN_2026-06-08.md`.
+Archived on 2026-06-08 after completion. The active source of truth for the next
+performance debugging, UI, and terrain LOD cost analysis work moved to
+`docs/RENDER_PERF_UI_AND_TERRAIN_LOD_ANALYSIS_PLAN.md`.
+
+This document follows `PLANS.md` in this repository. It was the active source of truth for reducing the measured shadow-map cost discovered by the completed diagnostic plan archived at `docs/archived/PERF_DEBUGGING_PLAN_2026-06-08.md`.
 
 ## Purpose / Big Picture
 

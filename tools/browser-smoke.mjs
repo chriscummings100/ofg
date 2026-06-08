@@ -195,6 +195,12 @@ async function runBrowserSmoke(url) {
     assertNoBrowserFailures(consoleMessages);
     const renderDebugReset = await readDebugContract(page);
     assertDebugContract(renderDebugReset);
+    const renderDebugUi = await exerciseRenderDebugUi(page);
+    assertNoBrowserFailures(consoleMessages);
+    const renderDebugUiReset = await readDebugContract(page);
+    assertDebugContract(renderDebugUiReset);
+    const perfOverlayUi = await exercisePerfOverlayUi(page);
+    assertNoBrowserFailures(consoleMessages);
 
     await page.keyboard.press("KeyC");
     await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "THIRD");
@@ -283,6 +289,9 @@ async function runBrowserSmoke(url) {
       dofBlurredDebug,
       renderDebugDisabled,
       renderDebugReset,
+      renderDebugUi,
+      renderDebugUiReset,
+      perfOverlayUi,
       toggledDebug,
       reloadedDebug,
       movementPerformance,
@@ -434,54 +443,123 @@ async function setPostProcessDepthOfField(
 
 /// Updates render diagnostic options and waits for Rust/wgpu to report them.
 async function setRenderDebugOptions(page, options) {
-  const startingFrameIndex = await page.evaluate(() =>
-    window.__ofgDebug?.getRendererStatus?.()?.frameIndex ?? 0
-  );
+  const startingFrameIndex = await rendererFrameIndex(page);
   await page.evaluate((selectedOptions) => {
     window.__ofgDebug?.setRenderDebugOptions?.(selectedOptions);
   }, options);
-  await page.waitForFunction(({ expectedOptions, frameIndex }) => {
-    const status = window.__ofgDebug?.getRendererStatus?.();
-    const activeOptions = window.__ofgDebug?.getRenderDebugOptions?.();
-    const matches = (actual) => actual !== undefined &&
-      Object.entries(expectedOptions).every(([key, expected]) => actual[key] === expected);
-    return status !== undefined &&
-      status.frameIndex > frameIndex &&
-      matches(activeOptions) &&
-      matches(status.renderDebugOptions);
-  }, { expectedOptions: options, frameIndex: startingFrameIndex }, { timeout: 10000 });
+  await waitForRenderDebugOptions(page, options, startingFrameIndex);
   await page.waitForTimeout(250);
 }
 
 /// Resets render diagnostic options and waits for production defaults.
 async function resetRenderDebugOptions(page) {
-  const startingFrameIndex = await page.evaluate(() =>
-    window.__ofgDebug?.getRendererStatus?.()?.frameIndex ?? 0
-  );
+  const startingFrameIndex = await rendererFrameIndex(page);
   await page.evaluate(() => {
     window.__ofgDebug?.resetRenderDebugOptions?.();
   });
-  await page.waitForFunction((frameIndex) => {
+  await waitForRenderDebugOptions(page, defaultRenderDebugOptions(), startingFrameIndex);
+  await page.waitForTimeout(250);
+}
+
+/// Exercises the visible render-debug controls and verifies Rust-owned state changes.
+async function exerciseRenderDebugUi(page) {
+  await page.click("#render-debug-panel-toggle");
+  await page.waitForFunction(() =>
+    document.querySelector("#render-debug-panel")?.hidden === false
+  );
+  const startingFrameIndex = await rendererFrameIndex(page);
+  await page.selectOption("#render-debug-terrain-lod", "lod2");
+  await page.uncheck("#render-debug-sky");
+  await page.uncheck("#render-debug-shadow-pass");
+  await page.uncheck("#render-debug-shadow-sampling");
+  await page.check("#render-debug-white-textures");
+  await page.selectOption("#render-debug-sun", "overhead");
+  await page.selectOption("#render-debug-material", "lambert");
+  await page.uncheck('[data-shadow-cascade="1"]');
+  await page.uncheck('[data-shadow-cascade="2"]');
+  await page.uncheck('[data-shadow-cascade="3"]');
+
+  const expectedOptions = {
+    terrainLodMask: 0b000100,
+    skyEnabled: false,
+    shadowPassEnabled: false,
+    shadowCascadeMask: 0b0001,
+    shadowSamplingEnabled: false,
+    shadowSunMode: "overhead",
+    whiteTexturesEnabled: true,
+    materialMode: "lambert"
+  };
+  await waitForRenderDebugOptions(page, expectedOptions, startingFrameIndex);
+  const enabledState = await page.evaluate(() => ({
+    panelHidden: document.querySelector("#render-debug-panel")?.hidden,
+    terrainLodMode: document.querySelector("#render-debug-terrain-lod")?.value,
+    activeOptions: window.__ofgDebug?.getRenderDebugOptions?.()
+  }));
+
+  const resetFrameIndex = await rendererFrameIndex(page);
+  await page.click("#render-debug-reset");
+  await waitForRenderDebugOptions(page, defaultRenderDebugOptions(), resetFrameIndex);
+  await page.click("#render-debug-panel-toggle");
+  await page.waitForFunction(() =>
+    document.querySelector("#render-debug-panel")?.hidden === true
+  );
+
+  return {
+    enabledState,
+    resetOptions: await page.evaluate(() => window.__ofgDebug?.getRenderDebugOptions?.()),
+    panelHiddenAfterClose: await page.evaluate(() =>
+      document.querySelector("#render-debug-panel")?.hidden
+    )
+  };
+}
+
+/// Exercises the visible live perf overlay toggle and verifies metric text.
+async function exercisePerfOverlayUi(page) {
+  await page.click("#perf-overlay-toggle");
+  await page.waitForFunction(() => {
+    const overlay = document.querySelector("#perf-overlay");
+    const text = overlay?.textContent ?? "";
+    return overlay?.hidden === false &&
+      text.includes("Frame br") &&
+      text.includes("LOD") &&
+      text.includes("Casc") &&
+      text.includes("Debug");
+  }, null, { timeout: 10000 });
+  const visibleText = await page.evaluate(() =>
+    document.querySelector("#perf-overlay")?.textContent?.slice(0, 600) ?? ""
+  );
+  await page.click("#perf-overlay-toggle");
+  await page.waitForFunction(() =>
+    document.querySelector("#perf-overlay")?.hidden === true
+  );
+
+  return {
+    visibleText,
+    hiddenAfterToggle: await page.evaluate(() =>
+      document.querySelector("#perf-overlay")?.hidden
+    )
+  };
+}
+
+/// Reads the current Rust/wgpu renderer frame index.
+async function rendererFrameIndex(page) {
+  return page.evaluate(() =>
+    window.__ofgDebug?.getRendererStatus?.()?.frameIndex ?? 0
+  );
+}
+
+/// Waits for expected render debug options through both debug and renderer status.
+async function waitForRenderDebugOptions(page, expectedOptions, startingFrameIndex) {
+  await page.waitForFunction(({ expected, frameIndex }) => {
     const status = window.__ofgDebug?.getRendererStatus?.();
     const activeOptions = window.__ofgDebug?.getRenderDebugOptions?.();
-    const expectedOptions = {
-      terrainLodMask: 0xFFFFFFFF,
-      skyEnabled: true,
-      shadowPassEnabled: true,
-      shadowCascadeMask: 0b1111,
-      shadowSamplingEnabled: true,
-      shadowSunMode: "production",
-      whiteTexturesEnabled: false,
-      materialMode: "full"
-    };
     const matches = (actual) => actual !== undefined &&
-      Object.entries(expectedOptions).every(([key, expected]) => actual[key] === expected);
+      Object.entries(expected).every(([key, expectedValue]) => actual[key] === expectedValue);
     return status !== undefined &&
       status.frameIndex > frameIndex &&
       matches(activeOptions) &&
       matches(status.renderDebugOptions);
-  }, startingFrameIndex, { timeout: 10000 });
-  await page.waitForTimeout(250);
+  }, { expected: expectedOptions, frameIndex: startingFrameIndex }, { timeout: 10000 });
 }
 
 /// Waits until Rust terrain streaming exposes a settled mixed-LOD frame.
@@ -563,6 +641,18 @@ async function readDebugContract(page) {
       postProcessDebugView: debug?.getPostProcessDebugView?.() ?? "missing",
       perfStats,
       renderDebugOptions,
+      debugUi: {
+        hasRenderDebugPanelToggle:
+          document.querySelector("#render-debug-panel-toggle") instanceof HTMLButtonElement,
+        hasRenderDebugPanel:
+          document.querySelector("#render-debug-panel") instanceof HTMLElement,
+        hasPerfOverlayToggle:
+          document.querySelector("#perf-overlay-toggle") instanceof HTMLButtonElement,
+        hasPerfOverlay:
+          document.querySelector("#perf-overlay") instanceof HTMLElement,
+        renderDebugPanelHidden: document.querySelector("#render-debug-panel")?.hidden,
+        perfOverlayHidden: document.querySelector("#perf-overlay")?.hidden
+      },
       rendererStatus: status === undefined
         ? undefined
         : {
@@ -672,6 +762,14 @@ function assertDebugContract(debug, expectations = {}) {
     !debug.hasResetRenderDebugOptions
   ) {
     throw new Error(`Perf/debug hooks are missing: ${JSON.stringify(debug)}`);
+  }
+  if (
+    debug.debugUi?.hasRenderDebugPanelToggle !== true ||
+    debug.debugUi?.hasRenderDebugPanel !== true ||
+    debug.debugUi?.hasPerfOverlayToggle !== true ||
+    debug.debugUi?.hasPerfOverlay !== true
+  ) {
+    throw new Error(`Perf/debug UI is missing: ${JSON.stringify(debug.debugUi)}`);
   }
 
   const expectedRustSentinels = {

@@ -104,6 +104,26 @@ const experiments = [
     id: "terrain-lod-3-plus",
     label: "Only terrain LOD 3+ rendered",
     options: { terrainLodMask: 0xFFFFFFF8 }
+  },
+  {
+    id: "terrain-lod-0-shadow-off",
+    label: "Only terrain LOD 0 rendered, shadows disabled",
+    options: { terrainLodMask: 0b000001, shadowPassEnabled: false }
+  },
+  {
+    id: "terrain-lod-1-shadow-off",
+    label: "Only terrain LOD 1 rendered, shadows disabled",
+    options: { terrainLodMask: 0b000010, shadowPassEnabled: false }
+  },
+  {
+    id: "terrain-lod-2-shadow-off",
+    label: "Only terrain LOD 2 rendered, shadows disabled",
+    options: { terrainLodMask: 0b000100, shadowPassEnabled: false }
+  },
+  {
+    id: "terrain-lod-3-plus-shadow-off",
+    label: "Only terrain LOD 3+ rendered, shadows disabled",
+    options: { terrainLodMask: 0xFFFFFFF8, shadowPassEnabled: false }
   }
 ];
 
@@ -239,15 +259,21 @@ function summarizeCapture(capture) {
       browserCpuAverageMs: delta(row.browserCpuAverageMs, baseline.browserCpuAverageMs),
       rustCpuAverageMs: delta(row.rustCpuAverageMs, baseline.rustCpuAverageMs),
       gpuTotalAverageMs: delta(row.gpuTotalAverageMs, baseline.gpuTotalAverageMs),
+      gpuSceneAverageMs: delta(row.gpuSceneAverageMs, baseline.gpuSceneAverageMs),
       visibleDrawAverage: delta(row.visibleDrawAverage, baseline.visibleDrawAverage),
       shadowDrawAverage: delta(row.shadowDrawAverage, baseline.shadowDrawAverage),
       submittedVertexAverage: delta(
         row.submittedVertexAverage,
         baseline.submittedVertexAverage
       ),
-      submittedIndexAverage: delta(row.submittedIndexAverage, baseline.submittedIndexAverage)
+      submittedIndexAverage: delta(row.submittedIndexAverage, baseline.submittedIndexAverage),
+      submittedTriangleAverage: delta(
+        row.submittedTriangleAverage,
+        baseline.submittedTriangleAverage
+      )
     }
   }));
+  const terrainLodAnalysis = analyzeTerrainLodCosts(rowsWithDelta);
 
   return {
     kind: "browser-perf-debug-summary",
@@ -259,6 +285,7 @@ function summarizeCapture(capture) {
     warmupFrames: capture.warmupFrames,
     sampleFrames: capture.sampleFrames,
     gpuTimerStatus: baseline?.gpuTimerStatus,
+    terrainLodAnalysis,
     experiments: rowsWithDelta
   };
 }
@@ -306,7 +333,11 @@ function summarizeExperiment(sample) {
     submittedIndexAverage: round(summaryAverage(counters?.submittedIndexCount)),
     submittedTriangleAverage: round(summaryAverage(counters?.submittedTriangleCount)),
     terrainLodCounters: stats?.terrainLodCounters ?? [],
+    terrainLodBreakdown: summarizeTerrainLodCounters(stats?.terrainLodCounters ?? []),
+    dominantTerrainLodByVertices: dominantLod(stats?.terrainLodCounters ?? [], "vertexCount"),
+    dominantTerrainLodByTriangles: dominantLod(stats?.terrainLodCounters ?? [], "triangleCount"),
     shadowCascadeCounters: stats?.shadowCascadeCounters ?? [],
+    shadowCascadeBreakdown: summarizeShadowCascadeCounters(stats?.shadowCascadeCounters ?? []),
     shadowMaxDistanceMeters: renderer?.shadowMaxDistanceMeters,
     shadowStrength: renderer?.shadowStrength,
     shadowEffectiveSunElevation: renderer?.shadowEffectiveSunElevation,
@@ -354,6 +385,27 @@ function formatSummaryText(summary) {
       `shadowStrength=${experiment.shadowStrength}, ` +
       `vertices=${experiment.submittedVertexAverage}${deltaSuffix}`
     );
+  }
+  const analysis = summary.terrainLodAnalysis;
+  lines.push("");
+  lines.push("Baseline terrain LOD breakdown:");
+  for (const lod of analysis.baselineTerrainLodBreakdown) {
+    lines.push(
+      `lod${lod.lod}: draws=${lod.drawCount}, vertices=${lod.vertexCount} ` +
+      `(${lod.vertexSharePercent}%), triangles=${lod.triangleCount} ` +
+      `(${lod.triangleSharePercent}%)`
+    );
+  }
+  lines.push(
+    `Dominant terrain LOD by vertices: ${formatDominantLod(analysis.baselineDominantByVertices)}`
+  );
+  lines.push("LOD mask render cost:");
+  for (const lodExperiment of analysis.lodMaskExperiments) {
+    lines.push(formatLodExperiment(lodExperiment));
+  }
+  lines.push("LOD mask scene-only cost with shadows disabled:");
+  for (const lodExperiment of analysis.sceneOnlyLodMaskExperiments) {
+    lines.push(formatLodExperiment(lodExperiment));
   }
 
   return lines.join("\n");
@@ -580,4 +632,113 @@ function formatDelta(value) {
     return "0";
   }
   return value >= 0 ? `+${value}` : `${value}`;
+}
+
+/// Builds terrain LOD analysis from summarized experiment rows.
+function analyzeTerrainLodCosts(rows) {
+  const baseline = rows.find((row) => row.id === "baseline");
+  const lodMaskExperiments = rows
+    .filter((row) => row.id.startsWith("terrain-lod-") && !row.id.endsWith("-shadow-off"))
+    .map(projectLodCostRow);
+  const sceneOnlyLodMaskExperiments = rows
+    .filter((row) => row.id.startsWith("terrain-lod-") && row.id.endsWith("-shadow-off"))
+    .map(projectLodCostRow);
+
+  return {
+    baselineTerrainLodBreakdown: baseline?.terrainLodBreakdown ?? [],
+    baselineDominantByVertices: baseline?.dominantTerrainLodByVertices,
+    baselineDominantByTriangles: baseline?.dominantTerrainLodByTriangles,
+    lodMaskExperiments,
+    sceneOnlyLodMaskExperiments
+  };
+}
+
+/// Returns a compact row for comparing terrain LOD mask experiment costs.
+function projectLodCostRow(row) {
+  return {
+    id: row.id,
+    label: row.label,
+    gpuTotalAverageMs: row.gpuTotalAverageMs,
+    gpuSceneAverageMs: row.gpuSceneAverageMs,
+    rustRenderFrameAverageMs: row.rustRenderFrameAverageMs,
+    visibleDrawAverage: row.visibleDrawAverage,
+    shadowDrawAverage: row.shadowDrawAverage,
+    submittedVertexAverage: row.submittedVertexAverage,
+    submittedTriangleAverage: row.submittedTriangleAverage,
+    dominantTerrainLodByVertices: row.dominantTerrainLodByVertices,
+    terrainLodBreakdown: row.terrainLodBreakdown,
+    deltaVsBaseline: row.deltaVsBaseline
+  };
+}
+
+/// Summarizes per-LOD terrain counters with share percentages.
+function summarizeTerrainLodCounters(counters) {
+  const totalVertices = counters.reduce((sum, counter) => sum + counter.vertexCount, 0);
+  const totalTriangles = counters.reduce((sum, counter) => sum + counter.triangleCount, 0);
+
+  return counters.map((counter) => ({
+    ...counter,
+    vertexSharePercent: percent(counter.vertexCount, totalVertices),
+    triangleSharePercent: percent(counter.triangleCount, totalTriangles)
+  }));
+}
+
+/// Summarizes per-cascade counters with share percentages.
+function summarizeShadowCascadeCounters(counters) {
+  const totalVertices = counters.reduce((sum, counter) => sum + counter.vertexCount, 0);
+  const totalTriangles = counters.reduce((sum, counter) => sum + counter.triangleCount, 0);
+
+  return counters.map((counter) => ({
+    ...counter,
+    vertexSharePercent: percent(counter.vertexCount, totalVertices),
+    triangleSharePercent: percent(counter.triangleCount, totalTriangles)
+  }));
+}
+
+/// Finds the terrain LOD with the largest selected counter.
+function dominantLod(counters, key) {
+  if (counters.length === 0) {
+    return undefined;
+  }
+
+  const dominant = counters.reduce((best, counter) =>
+    counter[key] > best[key] ? counter : best
+  );
+  return {
+    lod: dominant.lod,
+    drawCount: dominant.drawCount,
+    vertexCount: dominant.vertexCount,
+    triangleCount: dominant.triangleCount
+  };
+}
+
+/// Formats a terrain LOD experiment for terminal summaries.
+function formatLodExperiment(experiment) {
+  const delta = experiment.deltaVsBaseline;
+  return `${experiment.id}: gpu=${experiment.gpuTotalAverageMs}ms ` +
+    `scene=${experiment.gpuSceneAverageMs}ms ` +
+    `draws=${experiment.visibleDrawAverage} shadows=${experiment.shadowDrawAverage} ` +
+    `vertices=${experiment.submittedVertexAverage} triangles=${experiment.submittedTriangleAverage}` +
+    (delta === undefined
+      ? ""
+      : `, gpuDelta=${formatDelta(delta.gpuTotalAverageMs)}ms` +
+        `, vertexDelta=${formatDelta(delta.submittedVertexAverage)}`);
+}
+
+/// Formats a dominant LOD object for terminal summaries.
+function formatDominantLod(lod) {
+  if (lod === undefined) {
+    return "none";
+  }
+
+  return `lod${lod.lod} vertices=${lod.vertexCount} triangles=${lod.triangleCount}`;
+}
+
+/// Returns a rounded percentage while handling empty totals.
+function percent(value, total) {
+  if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) {
+    return 0;
+  }
+
+  return round((value / total) * 100);
 }

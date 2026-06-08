@@ -10,6 +10,10 @@ import {
   buildPerfStats,
   dumpPerfStats
 } from "./perfDebug.js";
+import {
+  createRenderDebugUi,
+  type RenderDebugUiElements
+} from "./renderDebugUi.js";
 import type { EngineWebRendererStatus } from "../engine/web/engineWebWasm.js";
 import {
   createRustBrowserGameRuntime,
@@ -37,12 +41,15 @@ export type GameTouchControlElements = TouchControlElements & {
   readonly cameraToggle: HTMLButtonElement;
 };
 
+export type GameRenderDebugUiElements = RenderDebugUiElements;
+
 type GameElements = {
   readonly canvas: HTMLCanvasElement;
   readonly cameraMode: HTMLElement;
   readonly characterToggle: HTMLButtonElement;
   readonly frameTime: HTMLElement;
   readonly touchControls: GameTouchControlElements;
+  readonly renderDebugUi: GameRenderDebugUiElements;
 };
 
 declare global {
@@ -305,6 +312,25 @@ export async function startGame(elements: GameElements): Promise<void> {
       runDebugCommand({ type: "togglePlayerCharacter" });
     }
   };
+  const renderDebugUi = createRenderDebugUi(elements.renderDebugUi, {
+    getRenderDebugOptions: () => readDebugSnapshot().renderDebugOptions,
+    setRenderDebugOptions: (options) => {
+      runDebugCommand({
+        type: "setRenderDebugOptions",
+        ...validateRenderDebugOptionsUpdate(options)
+      });
+    },
+    resetRenderDebugOptions: () => {
+      runDebugCommand({ type: "resetRenderDebugOptions" });
+    },
+    resetPerfStats: () => {
+      browserPerf.reset();
+      runDebugCommand({ type: "resetPerfStats" });
+    },
+    focusCanvas: () => {
+      elements.canvas.focus({ preventScroll: true });
+    }
+  });
 
   elements.characterToggle.addEventListener("click", () => {
     runDebugCommand({ type: "togglePlayerCharacter" });
@@ -327,6 +353,12 @@ export async function startGame(elements: GameElements): Promise<void> {
 
     if (input.consumePress("KeyC") || input.consumePress("F1")) {
       game.command({ type: "togglePlayerMode" });
+    }
+    if (input.consumePress("F8")) {
+      renderDebugUi.togglePanel();
+    }
+    if (input.consumePress("F9")) {
+      renderDebugUi.togglePerfOverlay();
     }
 
     const inputStartedAt = performance.now();
@@ -356,6 +388,7 @@ export async function startGame(elements: GameElements): Promise<void> {
       debugSnapshotMs,
       hudUpdateMs
     });
+    renderDebugUi.update(buildPerfStats(browserPerf.summary(), debugSnapshot));
 
     requestAnimationFrame(frame);
   }

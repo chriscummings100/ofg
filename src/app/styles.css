@@ -82,6 +82,11 @@ body {
   outline: none;
 }
 
+#hud button[data-active="true"] {
+  color: #9ff0cf;
+  border-color: rgb(159 240 207 / 58%);
+}
+
 #character-toggle[data-character="male"] {
   color: #b8dcff;
   border-color: rgb(139 194 235 / 48%);
@@ -105,6 +110,127 @@ body {
 #camera-mode[data-mode="thirdPerson"] {
   color: #b7e7a2;
   border-color: rgb(183 231 162 / 48%);
+}
+
+#render-debug-panel {
+  position: fixed;
+  top: 58px;
+  left: 14px;
+  width: min(340px, calc(100vw - 28px));
+  max-height: calc(100vh - 76px);
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid rgb(242 238 230 / 24%);
+  border-radius: 6px;
+  background: rgb(16 18 18 / 88%);
+  color: #f2eee6;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  pointer-events: auto;
+  text-rendering: geometricPrecision;
+}
+
+#render-debug-panel label,
+#render-debug-panel legend {
+  color: rgb(242 238 230 / 82%);
+}
+
+#render-debug-panel select,
+#render-debug-panel button {
+  min-height: 30px;
+  border: 1px solid rgb(242 238 230 / 22%);
+  border-radius: 6px;
+  background: rgb(31 35 34 / 92%);
+  color: #f2eee6;
+  font: inherit;
+}
+
+#render-debug-panel select {
+  width: 100%;
+  padding: 4px 8px;
+}
+
+#render-debug-panel button {
+  padding: 4px 9px;
+  cursor: pointer;
+}
+
+#render-debug-panel input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #9ff0cf;
+}
+
+#render-debug-panel select:focus-visible,
+#render-debug-panel button:focus-visible,
+#render-debug-panel input:focus-visible {
+  border-color: rgb(159 240 207 / 72%);
+  outline: none;
+}
+
+.render-debug-row {
+  display: grid;
+  grid-template-columns: 98px 1fr;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.render-debug-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.render-debug-grid label,
+#render-debug-cascades label {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+
+#render-debug-cascades {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0 0 8px;
+  padding: 8px;
+  border: 1px solid rgb(242 238 230 / 16%);
+  border-radius: 6px;
+}
+
+#render-debug-cascades legend {
+  padding: 0 4px;
+}
+
+.render-debug-actions {
+  display: flex;
+  gap: 8px;
+}
+
+#perf-overlay {
+  position: fixed;
+  right: 14px;
+  top: 14px;
+  width: min(520px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  overflow: auto;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid rgb(159 240 207 / 28%);
+  border-radius: 6px;
+  background: rgb(11 14 15 / 84%);
+  color: #e6fff4;
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  letter-spacing: 0;
+  pointer-events: none;
+  white-space: pre-wrap;
+  text-rendering: geometricPrecision;
 }
 
 #touch-controls {

@@ -147,6 +147,40 @@ export function dumpPerfStats(
   return stats;
 }
 
+/// Builds compact live-overlay lines from browser and Rust-owned perf stats.
+export function buildPerfOverlayLines(stats: CombinedPerfStats): string[] {
+  const browserFrame = stats.browserCpu.browserCpu.totalFrameMs;
+  const rustFrame = stats.rustCpu.totalFrameMs;
+  const rustRender = stats.rustCpu.renderFrameMs;
+  const gpuTotal = stats.gpu.totalMeasuredMs;
+  const gpuScene = stats.gpu.sceneMs;
+  const gpuShadowAverage = stats.gpu.shadowCascadeMs.reduce(
+    (sum, summary) => sum + summary.average,
+    0
+  );
+  const counters = stats.rendererCounters;
+
+  return [
+    `Frame br ${formatSummary(browserFrame)} | rust ${formatSummary(rustFrame)}`,
+    `Render cpu ${formatSummary(rustRender)} | gpu ${formatSummary(gpuTotal)}`,
+    `GPU scene avg ${formatMs(gpuScene.average)} | shadow avg ${formatMs(gpuShadowAverage)}`,
+    `Draws vis ${formatCount(counters.frameVisibleDrawCount.latest)} ` +
+      `cull ${formatCount(counters.frameCulledCount.latest)} ` +
+      `shadow ${formatCount(counters.frameShadowDrawCount.latest)}`,
+    `Submit v ${formatCount(counters.submittedVertexCount.latest)} ` +
+      `i ${formatCount(counters.submittedIndexCount.latest)} ` +
+      `tri ${formatCount(counters.submittedTriangleCount.latest)}`,
+    `LOD ${formatTerrainLodCounters(stats.terrainLodCounters)}`,
+    `Casc ${formatShadowCascadeCounters(stats.shadowCascadeCounters)}`,
+    `Debug ${formatRenderDebugOptions(stats.renderDebugOptions)}`
+  ];
+}
+
+/// Builds the live-overlay text block shown in the browser UI.
+export function buildPerfOverlayText(stats: CombinedPerfStats): string {
+  return buildPerfOverlayLines(stats).join("\n");
+}
+
 function summarize(values: readonly number[]): NumericPerfSummary {
   const finite = values.filter((value) => Number.isFinite(value));
   if (finite.length === 0) {
@@ -211,4 +245,84 @@ function gpuSummaryTable(
 
 function round(value: number): number {
   return Number.isFinite(value) ? Number(value.toFixed(3)) : 0;
+}
+
+/// Formats a timing summary as latest/average/min/max/p95 milliseconds.
+function formatSummary(summary: NumericPerfSummary): string {
+  return `${formatMs(summary.latest)} avg ${formatMs(summary.average)} ` +
+    `min ${formatMs(summary.min)} max ${formatMs(summary.max)} p95 ${formatMs(summary.p95)}`;
+}
+
+/// Formats a millisecond value for dense debug display.
+function formatMs(value: number): string {
+  return `${round(value).toFixed(3)}ms`;
+}
+
+/// Formats a count without hiding large terrain vertex magnitudes.
+function formatCount(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+  if (Math.abs(value) >= 1_000_000) {
+    return `${round(value / 1_000_000)}m`;
+  }
+  if (Math.abs(value) >= 1_000) {
+    return `${round(value / 1_000)}k`;
+  }
+  return `${round(value)}`;
+}
+
+/// Formats the latest Rust-owned per-LOD terrain counters.
+function formatTerrainLodCounters(
+  counters: CombinedPerfStats["terrainLodCounters"]
+): string {
+  if (counters.length === 0) {
+    return "none";
+  }
+
+  return counters
+    .map((counter) =>
+      `${counter.lod}:d${counter.drawCount}/v${formatCount(counter.vertexCount)}` +
+      `/t${formatCount(counter.triangleCount)}`
+    )
+    .join(" ");
+}
+
+/// Formats the latest Rust-owned per-cascade shadow counters.
+function formatShadowCascadeCounters(
+  counters: CombinedPerfStats["shadowCascadeCounters"]
+): string {
+  if (counters.length === 0) {
+    return "none";
+  }
+
+  return counters
+    .map((counter) =>
+      `${counter.cascadeIndex}:${counter.enabled ? "on" : "off"}` +
+      `/d${counter.drawCount}/c${counter.culledCount}` +
+      `/v${formatCount(counter.vertexCount)}`
+    )
+    .join(" ");
+}
+
+/// Formats the active Rust-owned render debug state for the overlay.
+function formatRenderDebugOptions(options: RenderDebugOptions): string {
+  return `lod=${formatMask(options.terrainLodMask, 8)} ` +
+    `sky=${formatOnOff(options.skyEnabled)} ` +
+    `shPass=${formatOnOff(options.shadowPassEnabled)} ` +
+    `shSamp=${formatOnOff(options.shadowSamplingEnabled)} ` +
+    `casc=${formatMask(options.shadowCascadeMask, 4)} ` +
+    `sun=${options.shadowSunMode} ` +
+    `tex=${options.whiteTexturesEnabled ? "white" : "full"} ` +
+    `mat=${options.materialMode}`;
+}
+
+/// Formats a low-bit mask for dense debug display.
+function formatMask(mask: number, width: number): string {
+  return (mask >>> 0).toString(2).padStart(width, "0").slice(-width);
+}
+
+/// Formats a boolean option as a compact on/off token.
+function formatOnOff(value: boolean): string {
+  return value ? "on" : "off";
 }

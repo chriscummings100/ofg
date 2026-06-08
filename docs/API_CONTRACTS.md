@@ -298,6 +298,11 @@ Current hook categories:
   forces a vertical sun for tight culling probes, `angled` forces a non-vertical
   daylight sun, and `low` forces a near-horizon sun that should fade/disable
   shadows rather than expand caster search indefinitely.
+- The browser app exposes those diagnostics through a DOM render-debug panel and
+  a toggleable live perf overlay. These are UI wrappers around the same
+  `game.command(...)`, `debugSnapshot()`, and `getPerfStats()` lanes; they must
+  not compute terrain visibility, culling, material selection, GPU pass behavior,
+  or LOD policy in TypeScript.
 - Shadow debug view state from Rust `debugSnapshot()` as `shadowDebugView`, plus
   the browser-only `setShadowDebugView(...)` debug hook. Supported debug view
   names are `off`, `cascadeIndex`, `shadowVisibility`, and

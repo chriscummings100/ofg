@@ -1,22 +1,35 @@
-import { startGame, type GameTouchControlElements } from "./app/game.js";
+import {
+  startGame,
+  type GameRenderDebugUiElements,
+  type GameTouchControlElements
+} from "./app/game.js";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game-canvas");
 const cameraMode = document.querySelector<HTMLElement>("#camera-mode");
 const characterToggle = document.querySelector<HTMLButtonElement>("#character-toggle");
 const frameTime = document.querySelector<HTMLElement>("#frame-time");
 const touchControls = readTouchControls();
+const renderDebugUi = readRenderDebugUi();
 
 if (
   canvas === null ||
   cameraMode === null ||
   characterToggle === null ||
   frameTime === null ||
-  touchControls === null
+  touchControls === null ||
+  renderDebugUi === null
 ) {
   throw new Error("OFG could not find its root DOM elements.");
 }
 
-startGame({ canvas, cameraMode, characterToggle, frameTime, touchControls }).catch((error: unknown) => {
+startGame({
+  canvas,
+  cameraMode,
+  characterToggle,
+  frameTime,
+  touchControls,
+  renderDebugUi
+}).catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
   cameraMode.textContent = "WEBGPU";
   frameTime.textContent = "Unavailable";
@@ -56,5 +69,67 @@ function readTouchControls(): GameTouchControlElements | null {
     lookBase,
     lookThumb,
     cameraToggle
+  };
+}
+
+/// Reads the render-debug controls and live perf overlay DOM elements.
+function readRenderDebugUi(): GameRenderDebugUiElements | null {
+  const panelToggle = document.querySelector<HTMLButtonElement>("#render-debug-panel-toggle");
+  const perfToggle = document.querySelector<HTMLButtonElement>("#perf-overlay-toggle");
+  const panel = document.querySelector<HTMLElement>("#render-debug-panel");
+  const terrainLodSelect = document.querySelector<HTMLSelectElement>("#render-debug-terrain-lod");
+  const skyCheckbox = document.querySelector<HTMLInputElement>("#render-debug-sky");
+  const shadowPassCheckbox = document.querySelector<HTMLInputElement>("#render-debug-shadow-pass");
+  const shadowCascadeCheckboxes = Array.from(
+    document.querySelectorAll<HTMLInputElement>("[data-shadow-cascade]")
+  );
+  const shadowSamplingCheckbox = document.querySelector<HTMLInputElement>(
+    "#render-debug-shadow-sampling"
+  );
+  const shadowSunModeSelect = document.querySelector<HTMLSelectElement>("#render-debug-sun");
+  const whiteTexturesCheckbox = document.querySelector<HTMLInputElement>(
+    "#render-debug-white-textures"
+  );
+  const materialModeSelect = document.querySelector<HTMLSelectElement>(
+    "#render-debug-material"
+  );
+  const resetButton = document.querySelector<HTMLButtonElement>("#render-debug-reset");
+  const resetPerfButton = document.querySelector<HTMLButtonElement>("#perf-debug-reset");
+  const perfOverlay = document.querySelector<HTMLElement>("#perf-overlay");
+
+  if (
+    panelToggle === null ||
+    perfToggle === null ||
+    panel === null ||
+    terrainLodSelect === null ||
+    skyCheckbox === null ||
+    shadowPassCheckbox === null ||
+    shadowCascadeCheckboxes.length !== 4 ||
+    shadowSamplingCheckbox === null ||
+    shadowSunModeSelect === null ||
+    whiteTexturesCheckbox === null ||
+    materialModeSelect === null ||
+    resetButton === null ||
+    resetPerfButton === null ||
+    perfOverlay === null
+  ) {
+    return null;
+  }
+
+  return {
+    panelToggle,
+    perfToggle,
+    panel,
+    terrainLodSelect,
+    skyCheckbox,
+    shadowPassCheckbox,
+    shadowCascadeCheckboxes,
+    shadowSamplingCheckbox,
+    shadowSunModeSelect,
+    whiteTexturesCheckbox,
+    materialModeSelect,
+    resetButton,
+    resetPerfButton,
+    perfOverlay
   };
 }

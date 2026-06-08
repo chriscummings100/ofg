@@ -16,7 +16,70 @@
         Male
       </button>
       <span id="frame-time">0.0 ms</span>
+      <button
+        id="render-debug-panel-toggle"
+        type="button"
+        aria-label="Toggle render debug controls"
+        aria-expanded="false"
+      >
+        DBG
+      </button>
+      <button
+        id="perf-overlay-toggle"
+        type="button"
+        aria-label="Toggle live performance metrics"
+        aria-pressed="false"
+      >
+        PERF
+      </button>
     </div>
+    <section id="render-debug-panel" aria-label="Render debug controls" hidden>
+      <div class="render-debug-row">
+        <label for="render-debug-terrain-lod">Terrain LOD</label>
+        <select id="render-debug-terrain-lod">
+          <option value="all">All</option>
+          <option value="lod0">LOD0</option>
+          <option value="lod1">LOD1</option>
+          <option value="lod2">LOD2</option>
+          <option value="lod3plus">LOD3+</option>
+          <option value="custom" disabled>Custom</option>
+        </select>
+      </div>
+      <div class="render-debug-grid">
+        <label><input id="render-debug-sky" type="checkbox" /> Sky</label>
+        <label><input id="render-debug-shadow-pass" type="checkbox" /> Shadow pass</label>
+        <label><input id="render-debug-shadow-sampling" type="checkbox" /> Shadow sample</label>
+        <label><input id="render-debug-white-textures" type="checkbox" /> White tex</label>
+      </div>
+      <fieldset id="render-debug-cascades">
+        <legend>Cascades</legend>
+        <label><input type="checkbox" data-shadow-cascade="0" /> 0</label>
+        <label><input type="checkbox" data-shadow-cascade="1" /> 1</label>
+        <label><input type="checkbox" data-shadow-cascade="2" /> 2</label>
+        <label><input type="checkbox" data-shadow-cascade="3" /> 3</label>
+      </fieldset>
+      <div class="render-debug-row">
+        <label for="render-debug-sun">Sun</label>
+        <select id="render-debug-sun">
+          <option value="production">Production</option>
+          <option value="overhead">Overhead</option>
+          <option value="angled">Angled</option>
+          <option value="low">Low</option>
+        </select>
+      </div>
+      <div class="render-debug-row">
+        <label for="render-debug-material">Material</label>
+        <select id="render-debug-material">
+          <option value="full">Full</option>
+          <option value="lambert">Lambert</option>
+        </select>
+      </div>
+      <div class="render-debug-actions">
+        <button id="render-debug-reset" type="button">Reset</button>
+        <button id="perf-debug-reset" type="button">Reset perf</button>
+      </div>
+    </section>
+    <pre id="perf-overlay" aria-label="Live performance metrics" hidden></pre>
     <div id="touch-controls" aria-hidden="false">
       <div id="touch-move-zone">
         <div id="touch-move-base">

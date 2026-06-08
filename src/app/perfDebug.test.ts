@@ -1,6 +1,7 @@
 import { equal, deepEqual, ok } from "node:assert/strict";
 import {
   BrowserPerfTracker,
+  buildPerfOverlayLines,
   buildPerfStats,
   dumpPerfStats,
   type BrowserCpuFrameSample
@@ -51,6 +52,17 @@ describe("perf debug helpers", () => {
     ok(logs.length >= 1);
     equal(tables.length, 6);
   });
+
+  it("formats live overlay lines with timing, LOD, cascade, and debug state", () => {
+    const stats = buildPerfStats(new BrowserPerfTracker(1).summary(), fakeSnapshot());
+
+    const lines = buildPerfOverlayLines(stats);
+
+    ok(lines.some((line) => line.includes("Frame br")));
+    ok(lines.some((line) => line.includes("LOD 0:d2/v100/t60 1:d1/v40/t20")));
+    ok(lines.some((line) => line.includes("Casc 0:on/d3/c1/v120")));
+    ok(lines.some((line) => line.includes("Debug lod=11111111")));
+  });
 });
 
 function sample(totalFrameMs: number): BrowserCpuFrameSample {
@@ -84,6 +96,34 @@ function fakeSnapshot(): RustBrowserGameDebugSnapshot {
     submittedIndexCount: numeric,
     submittedTriangleCount: numeric
   };
+  const terrainLodCounters = [
+    { lod: 0, drawCount: 2, vertexCount: 100, indexCount: 180, triangleCount: 60 },
+    { lod: 1, drawCount: 1, vertexCount: 40, indexCount: 60, triangleCount: 20 }
+  ];
+  const shadowCascadeCounters = [
+    {
+      cascadeIndex: 0,
+      enabled: true,
+      candidateCount: 4,
+      visibleCount: 3,
+      culledCount: 1,
+      drawCount: 3,
+      vertexCount: 120,
+      indexCount: 180,
+      triangleCount: 60
+    },
+    {
+      cascadeIndex: 1,
+      enabled: false,
+      candidateCount: 4,
+      visibleCount: 0,
+      culledCount: 4,
+      drawCount: 0,
+      vertexCount: 0,
+      indexCount: 0,
+      triangleCount: 0
+    }
+  ];
   const renderCounterSample = {
     frameCandidateCount: 4,
     frameVisibleDrawCount: 3,
@@ -96,8 +136,8 @@ function fakeSnapshot(): RustBrowserGameDebugSnapshot {
     submittedVertexCount: 100,
     submittedIndexCount: 180,
     submittedTriangleCount: 60,
-    terrainLodCounters: [],
-    shadowCascadeCounters: []
+    terrainLodCounters,
+    shadowCascadeCounters
   };
 
   return {
@@ -259,8 +299,8 @@ function fakeSnapshot(): RustBrowserGameDebugSnapshot {
           totalMeasuredMs: null
         }
       },
-      terrainLodCounters: [],
-      shadowCascadeCounters: []
+      terrainLodCounters,
+      shadowCascadeCounters
     },
     renderDebugOptions: renderDebugOptions(),
     shadowDebugView: "off",
