@@ -4,6 +4,11 @@
 // uploaded by Rust.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::OnceLock;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
 
 use engine_core::Vec3;
 use terrain_core::{
@@ -96,13 +101,25 @@ pub struct BrowserTerrainStreamStatus {
 
 pub struct BrowserTerrainMeshUpdate {
     pub key: TerrainNodeKey,
-    pub mesh: MeshData,
+    pub mesh: Arc<MeshData>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BrowserTerrainStreamTickTimings {
+    pub sync_around_ms: f64,
+    pub scheduler_tick_ms: f64,
+    pub worker_request_queue_ms: f64,
+    pub visibility_sync_ms: f64,
+    pub visibility_select_ms: f64,
+    pub visibility_status_ms: f64,
+    pub visibility_apply_ms: f64,
 }
 
 #[derive(Default)]
 pub struct BrowserTerrainStreamUpdate {
     pub removed_nodes: Vec<TerrainNodeKey>,
     pub upserted_meshes: Vec<BrowserTerrainMeshUpdate>,
+    pub timings: BrowserTerrainStreamTickTimings,
 }
 
 pub struct BrowserTerrainStream {
@@ -111,8 +128,10 @@ pub struct BrowserTerrainStream {
     cell_size: f64,
     scheduler: TerrainStreamScheduler,
     last_center_coord: Option<TerrainChunkCoord>,
-    mesh_cache: BTreeMap<TerrainNodeKey, MeshData>,
+    desired_mesh_nodes_cache: BTreeSet<TerrainNodeKey>,
+    mesh_cache: BTreeMap<TerrainNodeKey, Arc<MeshData>>,
     visible_nodes: BTreeSet<TerrainNodeKey>,
+    visibility_dirty: bool,
     next_worker_request_id: u64,
     queued_worker_requests: VecDeque<BrowserTerrainBuildRequest>,
     in_flight_worker_requests: BTreeMap<u64, BrowserTerrainBuildRequest>,
@@ -150,8 +169,10 @@ impl BrowserTerrainStream {
             cell_size: DEFAULT_TERRAIN_CELL_SIZE,
             scheduler,
             last_center_coord: None,
+            desired_mesh_nodes_cache: BTreeSet::new(),
             mesh_cache: BTreeMap::new(),
             visible_nodes: BTreeSet::new(),
+            visibility_dirty: true,
             next_worker_request_id: 1,
             queued_worker_requests: VecDeque::new(),
             in_flight_worker_requests: BTreeMap::new(),
@@ -183,40 +204,68 @@ impl BrowserTerrainStream {
         let center_coord = self.coord_containing_position(center);
         self.scheduler.reset(center_coord);
         self.last_center_coord = Some(center_coord);
+        self.refresh_desired_mesh_nodes_cache();
+        self.visibility_dirty = true;
 
         removed_nodes
     }
 
     pub fn tick(&mut self, center: Vec3) -> BrowserTerrainStreamUpdate {
         let mut update = BrowserTerrainStreamUpdate::default();
+        let sync_started_at_ms = terrain_stream_now_ms();
         self.sync_around(center);
+        update.timings.sync_around_ms = terrain_stream_now_ms() - sync_started_at_ms;
 
-        for job in self.scheduler.tick() {
+        let scheduler_started_at_ms = terrain_stream_now_ms();
+        let jobs = self.scheduler.tick();
+        update.timings.scheduler_tick_ms = terrain_stream_now_ms() - scheduler_started_at_ms;
+
+        let queue_started_at_ms = terrain_stream_now_ms();
+        for job in jobs {
             match job {
                 TerrainStreamJob::BuildNode { generation, key } => {
                     self.complete_node_job(generation, key);
                 }
             }
         }
+        update.timings.worker_request_queue_ms = terrain_stream_now_ms() - queue_started_at_ms;
 
-        self.sync_visible_meshes(&mut update);
+        if self.visibility_dirty {
+            let visibility_started_at_ms = terrain_stream_now_ms();
+            self.sync_visible_meshes(&mut update);
+            update.timings.visibility_sync_ms = terrain_stream_now_ms() - visibility_started_at_ms;
+            self.visibility_dirty = false;
+        }
 
         update
     }
 
     pub fn tick_for_workers(&mut self, center: Vec3) -> BrowserTerrainStreamUpdate {
         let mut update = BrowserTerrainStreamUpdate::default();
+        let sync_started_at_ms = terrain_stream_now_ms();
         self.sync_around(center);
+        update.timings.sync_around_ms = terrain_stream_now_ms() - sync_started_at_ms;
 
-        for job in self.scheduler.tick() {
+        let scheduler_started_at_ms = terrain_stream_now_ms();
+        let jobs = self.scheduler.tick();
+        update.timings.scheduler_tick_ms = terrain_stream_now_ms() - scheduler_started_at_ms;
+
+        let queue_started_at_ms = terrain_stream_now_ms();
+        for job in jobs {
             match job {
                 TerrainStreamJob::BuildNode { generation, key } => {
                     self.queue_worker_build_request(generation, key);
                 }
             }
         }
+        update.timings.worker_request_queue_ms = terrain_stream_now_ms() - queue_started_at_ms;
 
-        self.sync_visible_meshes(&mut update);
+        if self.visibility_dirty {
+            let visibility_started_at_ms = terrain_stream_now_ms();
+            self.sync_visible_meshes(&mut update);
+            update.timings.visibility_sync_ms = terrain_stream_now_ms() - visibility_started_at_ms;
+            self.visibility_dirty = false;
+        }
 
         update
     }
@@ -246,15 +295,21 @@ impl BrowserTerrainStream {
 
         if request.generation != completion.generation || request.key != completion.key {
             self.terrain_worker_stale_completion_count += 1;
-            self.scheduler.fail_node(request.generation, request.key);
+            if self.scheduler.fail_node(request.generation, request.key) {
+                self.visibility_dirty = true;
+            }
             return false;
         }
 
         if completion.failed {
             self.terrain_worker_failed_count += 1;
-            return self
+            let failed = self
                 .scheduler
                 .fail_node(completion.generation, completion.key);
+            if failed {
+                self.visibility_dirty = true;
+            }
+            return failed;
         }
 
         let empty = completion.indices.is_empty();
@@ -277,16 +332,17 @@ impl BrowserTerrainStream {
             index_count: completion.indices.len(),
         });
         self.terrain_worker_completed_count += 1;
+        self.visibility_dirty = true;
 
         if empty {
             self.mesh_cache.remove(&completion.key);
         } else {
             self.mesh_cache.insert(
                 completion.key,
-                MeshData {
+                Arc::new(MeshData {
                     vertices: completion.vertices,
                     indices: completion.indices,
-                },
+                }),
             );
         }
 
@@ -393,20 +449,24 @@ impl BrowserTerrainStream {
         if self.last_center_coord != Some(center_coord) {
             self.scheduler.sync_center(center_coord);
             self.last_center_coord = Some(center_coord);
+            self.refresh_desired_mesh_nodes_cache();
+            self.visibility_dirty = true;
+            self.retain_desired_meshes();
         }
-
-        self.retain_desired_meshes();
     }
 
     fn retain_desired_meshes(&mut self) {
-        let desired = self
+        let desired = &self.desired_mesh_nodes_cache;
+        self.mesh_cache
+            .retain(|key, _mesh| desired.contains(key) || self.visible_nodes.contains(key));
+    }
+
+    fn refresh_desired_mesh_nodes_cache(&mut self) {
+        self.desired_mesh_nodes_cache = self
             .scheduler
             .desired_mesh_nodes()
             .into_iter()
             .collect::<BTreeSet<_>>();
-
-        self.mesh_cache
-            .retain(|key, _mesh| desired.contains(key) || self.visible_nodes.contains(key));
     }
 
     fn queue_worker_build_request(&mut self, generation: u64, key: TerrainNodeKey) {
@@ -438,6 +498,7 @@ impl BrowserTerrainStream {
         }
 
         self.synchronous_build_count += 1;
+        self.visibility_dirty = true;
 
         self.last_density_job_stats = Some(TerrainJobStats {
             total_ms: 0.0,
@@ -455,19 +516,32 @@ impl BrowserTerrainStream {
             return;
         }
 
-        self.mesh_cache.insert(key, mesh);
+        self.mesh_cache.insert(key, Arc::new(mesh));
     }
 
     fn sync_visible_meshes(&mut self, update: &mut BrowserTerrainStreamUpdate) {
+        let select_started_at_ms = terrain_stream_now_ms();
         let desired_visible = self.select_visible_nodes();
-        let stream_pending = is_stream_pending(&self.scheduler.status());
+        update.timings.visibility_select_ms = terrain_stream_now_ms() - select_started_at_ms;
+
+        let status_started_at_ms = terrain_stream_now_ms();
+        let status = self.scheduler.status();
+        let stream_pending = is_stream_pending(&status);
+        update.timings.visibility_status_ms = terrain_stream_now_ms() - status_started_at_ms;
+
+        let apply_started_at_ms = terrain_stream_now_ms();
+        let desired_visible_ancestors = visible_ancestor_set(&desired_visible);
         let removed = self
             .visible_nodes
             .iter()
             .filter(|key| {
                 !desired_visible.contains(key)
                     && (!stream_pending
-                        || hierarchy_conflicts_with_visible(**key, &desired_visible))
+                        || hierarchy_conflicts_with_visible(
+                            **key,
+                            &desired_visible,
+                            &desired_visible_ancestors,
+                        ))
             })
             .copied()
             .collect::<Vec<_>>();
@@ -488,18 +562,15 @@ impl BrowserTerrainStream {
             };
             update.upserted_meshes.push(BrowserTerrainMeshUpdate {
                 key,
-                mesh: mesh.clone(),
+                mesh: Arc::clone(mesh),
             });
             self.visible_nodes.insert(key);
         }
+        update.timings.visibility_apply_ms = terrain_stream_now_ms() - apply_started_at_ms;
     }
 
     fn select_visible_nodes(&self) -> BTreeSet<TerrainNodeKey> {
-        let desired = self
-            .scheduler
-            .desired_mesh_nodes()
-            .into_iter()
-            .collect::<BTreeSet<_>>();
+        let desired = &self.desired_mesh_nodes_cache;
         let roots = desired
             .iter()
             .filter(|key| match terrain_node_parent(**key) {
@@ -639,6 +710,7 @@ fn visible_world_span(nodes: &BTreeSet<TerrainNodeKey>, base_cell_size: f64) -> 
 fn hierarchy_conflicts_with_visible(
     key: TerrainNodeKey,
     desired_visible: &BTreeSet<TerrainNodeKey>,
+    desired_visible_ancestors: &BTreeSet<TerrainNodeKey>,
 ) -> bool {
     let mut ancestor = terrain_node_parent(key);
     while let Some(parent) = ancestor {
@@ -648,19 +720,30 @@ fn hierarchy_conflicts_with_visible(
         ancestor = terrain_node_parent(parent);
     }
 
-    desired_visible
-        .iter()
-        .any(|visible_key| is_ancestor_of(key, *visible_key))
+    desired_visible_ancestors.contains(&key)
 }
 
-fn is_ancestor_of(ancestor: TerrainNodeKey, child: TerrainNodeKey) -> bool {
-    let mut current = terrain_node_parent(child);
-    while let Some(parent) = current {
-        if parent == ancestor {
-            return true;
+fn visible_ancestor_set(visible_nodes: &BTreeSet<TerrainNodeKey>) -> BTreeSet<TerrainNodeKey> {
+    let mut ancestors = BTreeSet::new();
+
+    for key in visible_nodes {
+        let mut ancestor = terrain_node_parent(*key);
+        while let Some(parent) = ancestor {
+            ancestors.insert(parent);
+            ancestor = terrain_node_parent(parent);
         }
-        current = terrain_node_parent(parent);
     }
 
-    false
+    ancestors
+}
+
+#[cfg(target_arch = "wasm32")]
+fn terrain_stream_now_ms() -> f64 {
+    js_sys::Date::now()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn terrain_stream_now_ms() -> f64 {
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_secs_f64() * 1000.0
 }

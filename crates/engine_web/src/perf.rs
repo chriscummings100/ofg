@@ -24,7 +24,18 @@ pub struct RustCpuFrameTimings {
     pub input_parse_ms: f64,
     pub game_state_tick_ms: f64,
     pub player_character_update_ms: f64,
+    pub terrain_completion_ingest_ms: f64,
     pub terrain_stream_update_ms: f64,
+    pub terrain_stream_tick_ms: f64,
+    pub terrain_stream_sync_ms: f64,
+    pub terrain_stream_scheduler_ms: f64,
+    pub terrain_stream_worker_queue_ms: f64,
+    pub terrain_stream_visibility_ms: f64,
+    pub terrain_stream_visibility_select_ms: f64,
+    pub terrain_stream_visibility_status_ms: f64,
+    pub terrain_stream_visibility_apply_ms: f64,
+    pub terrain_mesh_destroy_ms: f64,
+    pub terrain_mesh_upload_ms: f64,
     pub render_frame_ms: f64,
     pub render_packet_build_ms: f64,
     pub renderer_prepare_ms: f64,
@@ -40,7 +51,18 @@ pub struct RustCpuFrameSummary {
     pub input_parse_ms: NumericSummary,
     pub game_state_tick_ms: NumericSummary,
     pub player_character_update_ms: NumericSummary,
+    pub terrain_completion_ingest_ms: NumericSummary,
     pub terrain_stream_update_ms: NumericSummary,
+    pub terrain_stream_tick_ms: NumericSummary,
+    pub terrain_stream_sync_ms: NumericSummary,
+    pub terrain_stream_scheduler_ms: NumericSummary,
+    pub terrain_stream_worker_queue_ms: NumericSummary,
+    pub terrain_stream_visibility_ms: NumericSummary,
+    pub terrain_stream_visibility_select_ms: NumericSummary,
+    pub terrain_stream_visibility_status_ms: NumericSummary,
+    pub terrain_stream_visibility_apply_ms: NumericSummary,
+    pub terrain_mesh_destroy_ms: NumericSummary,
+    pub terrain_mesh_upload_ms: NumericSummary,
     pub render_frame_ms: NumericSummary,
     pub render_packet_build_ms: NumericSummary,
     pub renderer_prepare_ms: NumericSummary,
@@ -623,10 +645,65 @@ fn summarize_rust_cpu(samples: &[&FramePerfSample]) -> RustCpuFrameSummary {
                 .iter()
                 .map(|sample| sample.rust_cpu.player_character_update_ms),
         ),
+        terrain_completion_ingest_ms: summarize_numeric(
+            samples
+                .iter()
+                .map(|sample| sample.rust_cpu.terrain_completion_ingest_ms),
+        ),
         terrain_stream_update_ms: summarize_numeric(
             samples
                 .iter()
                 .map(|sample| sample.rust_cpu.terrain_stream_update_ms),
+        ),
+        terrain_stream_tick_ms: summarize_numeric(
+            samples
+                .iter()
+                .map(|sample| sample.rust_cpu.terrain_stream_tick_ms),
+        ),
+        terrain_stream_sync_ms: summarize_numeric(
+            samples
+                .iter()
+                .map(|sample| sample.rust_cpu.terrain_stream_sync_ms),
+        ),
+        terrain_stream_scheduler_ms: summarize_numeric(
+            samples
+                .iter()
+                .map(|sample| sample.rust_cpu.terrain_stream_scheduler_ms),
+        ),
+        terrain_stream_worker_queue_ms: summarize_numeric(
+            samples
+                .iter()
+                .map(|sample| sample.rust_cpu.terrain_stream_worker_queue_ms),
+        ),
+        terrain_stream_visibility_ms: summarize_numeric(
+            samples
+                .iter()
+                .map(|sample| sample.rust_cpu.terrain_stream_visibility_ms),
+        ),
+        terrain_stream_visibility_select_ms: summarize_numeric(
+            samples
+                .iter()
+                .map(|sample| sample.rust_cpu.terrain_stream_visibility_select_ms),
+        ),
+        terrain_stream_visibility_status_ms: summarize_numeric(
+            samples
+                .iter()
+                .map(|sample| sample.rust_cpu.terrain_stream_visibility_status_ms),
+        ),
+        terrain_stream_visibility_apply_ms: summarize_numeric(
+            samples
+                .iter()
+                .map(|sample| sample.rust_cpu.terrain_stream_visibility_apply_ms),
+        ),
+        terrain_mesh_destroy_ms: summarize_numeric(
+            samples
+                .iter()
+                .map(|sample| sample.rust_cpu.terrain_mesh_destroy_ms),
+        ),
+        terrain_mesh_upload_ms: summarize_numeric(
+            samples
+                .iter()
+                .map(|sample| sample.rust_cpu.terrain_mesh_upload_ms),
         ),
         render_frame_ms: summarize_numeric(
             samples.iter().map(|sample| sample.rust_cpu.render_frame_ms),

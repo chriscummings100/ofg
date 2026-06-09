@@ -177,6 +177,22 @@ export type TerrainStreamStatus = {
   readonly lastChunkJobStats?: TerrainStreamJobStats;
 };
 
+export type BrowserTerrainFrameDiagnostics = {
+  readonly completionBudget: number;
+  readonly pendingCompletionCountBefore: number;
+  readonly pendingCompletionCountAfter: number;
+  readonly drainedCompletionCount: number;
+  readonly drainedCompletionVertexBytes: number;
+  readonly drainedCompletionIndexBytes: number;
+  readonly submittedRequestCount: number;
+  readonly workerInFlightRequestCount: number;
+  readonly takeCompletionsMs: number;
+  readonly completeTerrainBuildsMs: number;
+  readonly gameTickMs: number;
+  readonly takeRequestsMs: number;
+  readonly submitRequestsMs: number;
+};
+
 export type NumericPerfSummary = {
   readonly latest: number;
   readonly min: number;
@@ -190,7 +206,18 @@ export type RustCpuPerfSummary = {
   readonly inputParseMs: NumericPerfSummary;
   readonly gameStateTickMs: NumericPerfSummary;
   readonly playerCharacterUpdateMs: NumericPerfSummary;
+  readonly terrainCompletionIngestMs: NumericPerfSummary;
   readonly terrainStreamUpdateMs: NumericPerfSummary;
+  readonly terrainStreamTickMs: NumericPerfSummary;
+  readonly terrainStreamSyncMs: NumericPerfSummary;
+  readonly terrainStreamSchedulerMs: NumericPerfSummary;
+  readonly terrainStreamWorkerQueueMs: NumericPerfSummary;
+  readonly terrainStreamVisibilityMs: NumericPerfSummary;
+  readonly terrainStreamVisibilitySelectMs: NumericPerfSummary;
+  readonly terrainStreamVisibilityStatusMs: NumericPerfSummary;
+  readonly terrainStreamVisibilityApplyMs: NumericPerfSummary;
+  readonly terrainMeshDestroyMs: NumericPerfSummary;
+  readonly terrainMeshUploadMs: NumericPerfSummary;
   readonly renderFrameMs: NumericPerfSummary;
   readonly renderPacketBuildMs: NumericPerfSummary;
   readonly rendererPrepareMs: NumericPerfSummary;
@@ -205,7 +232,18 @@ export type RustCpuPerfSample = {
   readonly inputParseMs: number;
   readonly gameStateTickMs: number;
   readonly playerCharacterUpdateMs: number;
+  readonly terrainCompletionIngestMs: number;
   readonly terrainStreamUpdateMs: number;
+  readonly terrainStreamTickMs: number;
+  readonly terrainStreamSyncMs: number;
+  readonly terrainStreamSchedulerMs: number;
+  readonly terrainStreamWorkerQueueMs: number;
+  readonly terrainStreamVisibilityMs: number;
+  readonly terrainStreamVisibilitySelectMs: number;
+  readonly terrainStreamVisibilityStatusMs: number;
+  readonly terrainStreamVisibilityApplyMs: number;
+  readonly terrainMeshDestroyMs: number;
+  readonly terrainMeshUploadMs: number;
   readonly renderFrameMs: number;
   readonly renderPacketBuildMs: number;
   readonly rendererPrepareMs: number;
@@ -332,6 +370,7 @@ export type RustBrowserGameDebugSnapshot = {
   readonly skyCloudCoverage?: number;
   readonly skyStarIntensity?: number;
   readonly terrainWorkerCount: number;
+  readonly browserTerrainFrame?: BrowserTerrainFrameDiagnostics;
   readonly playerControllerRuntime: "rust";
   readonly playerCharacterId?: PlayerCharacterId;
   readonly playerCharacterLabel?: string;

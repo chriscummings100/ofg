@@ -5,6 +5,7 @@ import {
 } from "./engineWebWasm.js";
 import type { BrowserTextureAssetLoader } from "../browser/textureAssetLoader.js";
 import type {
+  BrowserTerrainFrameDiagnostics,
   BrowserFrameInput,
   PlayerCharacterId,
   PlayerMode,
@@ -14,10 +15,16 @@ import type {
 } from "./browserGameTypes.js";
 import { TerrainWorkerClient, type TerrainBuildCompletion } from "./terrainWorkerClient.js";
 
+const TERRAIN_COMPLETION_BUDGET_PER_FRAME = 6;
+
 export type TerrainWorkerBridge = {
   readonly workerCount: number;
-  takeCompletions(): TerrainBuildCompletion[];
+  takeCompletions(maxCount?: number): TerrainBuildCompletion[];
   submitRequests(requests: ReturnType<EngineWebBrowserGame["takeTerrainBuildRequests"]>): void;
+  status?(): {
+    readonly pendingCompletionCount: number;
+    readonly inFlightRequestCount: number;
+  };
   reset(): void;
 };
 
@@ -25,6 +32,7 @@ export class RustBrowserGameAdapter {
   readonly runtime = "rust-wgpu" as const;
   private width = 1;
   private height = 1;
+  private lastTerrainFrameDiagnostics = defaultBrowserTerrainFrameDiagnostics();
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -66,12 +74,41 @@ export class RustBrowserGameAdapter {
 
   tick(frame: BrowserFrameInput): void {
     this.resize();
-    const completions = this.terrainWorkers?.takeCompletions() ?? [];
-    if (completions.length > 0) {
-      this.game.completeTerrainBuilds(completions);
-    }
+    const pendingCompletionCountBefore =
+      this.terrainWorkers?.status?.().pendingCompletionCount ?? 0;
+    const takeCompletionsStartedAt = performance.now();
+    const completions = this.terrainWorkers?.takeCompletions(
+      TERRAIN_COMPLETION_BUDGET_PER_FRAME
+    ) ?? [];
+    const takeCompletionsMs = performance.now() - takeCompletionsStartedAt;
+    const completeTerrainBuildsStartedAt = performance.now();
+    this.game.completeTerrainBuilds(completions);
+    const completeTerrainBuildsMs = performance.now() - completeTerrainBuildsStartedAt;
+    const gameTickStartedAt = performance.now();
     this.game.tick(frame);
-    this.terrainWorkers?.submitRequests(this.game.takeTerrainBuildRequests());
+    const gameTickMs = performance.now() - gameTickStartedAt;
+    const takeRequestsStartedAt = performance.now();
+    const requests = this.game.takeTerrainBuildRequests();
+    const takeRequestsMs = performance.now() - takeRequestsStartedAt;
+    const submitRequestsStartedAt = performance.now();
+    this.terrainWorkers?.submitRequests(requests);
+    const submitRequestsMs = performance.now() - submitRequestsStartedAt;
+    const workerStatus = this.terrainWorkers?.status?.();
+    this.lastTerrainFrameDiagnostics = {
+      completionBudget: TERRAIN_COMPLETION_BUDGET_PER_FRAME,
+      pendingCompletionCountBefore,
+      pendingCompletionCountAfter: workerStatus?.pendingCompletionCount ?? 0,
+      drainedCompletionCount: completions.length,
+      drainedCompletionVertexBytes: completionVertexBytes(completions),
+      drainedCompletionIndexBytes: completionIndexBytes(completions),
+      submittedRequestCount: requests.length,
+      workerInFlightRequestCount: workerStatus?.inFlightRequestCount ?? 0,
+      takeCompletionsMs,
+      completeTerrainBuildsMs,
+      gameTickMs,
+      takeRequestsMs,
+      submitRequestsMs
+    };
   }
 
   command(command: RustBrowserGameCommand): void {
@@ -106,6 +143,7 @@ export class RustBrowserGameAdapter {
       terrainRenderPacketRuntime: snapshot.terrainRenderPacketRuntime,
       rendererRuntime: snapshot.rendererRuntime,
       terrainWorkerCount: snapshot.terrainWorkerCount,
+      browserTerrainFrame: this.lastTerrainFrameDiagnostics,
       playerControllerRuntime: snapshot.playerControllerRuntime,
       rendererStatus: snapshot.rendererStatus,
       rustPerfStats: snapshot.rustPerfStats,
@@ -156,6 +194,38 @@ export class RustBrowserGameAdapter {
       height: Math.max(1, Math.floor(this.canvas.clientHeight * pixelRatio))
     };
   }
+}
+
+function defaultBrowserTerrainFrameDiagnostics(): BrowserTerrainFrameDiagnostics {
+  return {
+    completionBudget: TERRAIN_COMPLETION_BUDGET_PER_FRAME,
+    pendingCompletionCountBefore: 0,
+    pendingCompletionCountAfter: 0,
+    drainedCompletionCount: 0,
+    drainedCompletionVertexBytes: 0,
+    drainedCompletionIndexBytes: 0,
+    submittedRequestCount: 0,
+    workerInFlightRequestCount: 0,
+    takeCompletionsMs: 0,
+    completeTerrainBuildsMs: 0,
+    gameTickMs: 0,
+    takeRequestsMs: 0,
+    submitRequestsMs: 0
+  };
+}
+
+function completionVertexBytes(completions: readonly TerrainBuildCompletion[]): number {
+  return completions.reduce(
+    (total, completion) => total + completion.vertices.byteLength,
+    0
+  );
+}
+
+function completionIndexBytes(completions: readonly TerrainBuildCompletion[]): number {
+  return completions.reduce(
+    (total, completion) => total + completion.indices.byteLength,
+    0
+  );
 }
 
 function validatePlayerMode(mode: PlayerMode): PlayerMode {

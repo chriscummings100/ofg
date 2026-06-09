@@ -175,6 +175,13 @@ upload, destroy, retain, clear, or render-frame method; `tick(frame)` advances
 player/camera state, advances terrain streaming, uploads/prunes terrain meshes,
 and submits the frame. Loaded chunk keys and terrain node keys are exposed only
 in the Rust-assembled debug snapshot.
+The browser worker bridge drains a bounded number of completions per frame.
+Inside Rust, terrain mesh upload/registration and mesh destruction are also
+budgeted, and `BrowserTerrainStream` caches the desired node set and recomputes
+visible cover only when the stream center or generated/empty node state changes.
+These smoothing mechanisms are Rust-owned runtime policy; TypeScript only
+routes opaque worker packets and displays/debug-captures reported timings and
+budget status.
 Runtime terrain meshes carry position, color, normal, uv, material layer indices,
 and material weights from Rust `terrain_core`. Rust/wgpu owns the actual GPU
 mesh handles, node-keyed object handles, and active draw set. The old compiled

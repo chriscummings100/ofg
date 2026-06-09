@@ -35,6 +35,15 @@ describe("RustBrowserGameAdapter", () => {
 
     deepEqual(fake.completedTerrainBuilds[0], [completion]);
     deepEqual(workers.submittedRequests[0], [request]);
+    equal(workers.lastTakeCompletionsMaxCount, 6);
+    const snapshot = adapter.getDebugSnapshot();
+    const terrainFrame = snapshot.browserTerrainFrame;
+    equal(terrainFrame?.drainedCompletionCount, 1);
+    equal(terrainFrame?.submittedRequestCount, 1);
+
+    withFakeWindow(() => adapter.tick(fakeFrameInput()));
+
+    deepEqual(fake.completedTerrainBuilds[1], []);
   });
 
   it("forwards browser frame input and player controls to the Rust game facade", () => {
@@ -129,6 +138,7 @@ describe("RustBrowserGameAdapter", () => {
     equal(snapshot.rendererStatus.gpuTimerAvailable, false);
     equal(snapshot.rustPerfStats.sampleCount, 1);
     equal(snapshot.renderDebugOptions.skyEnabled, true);
+    equal(snapshot.browserTerrainFrame?.completionBudget, 6);
     equal(snapshot.playerCharacterId, "female");
     equal(snapshot.playerCharacterLabel, "Female");
     equal(snapshot.modelAnimationRuntime, "rust");
@@ -258,6 +268,21 @@ function fakeBrowserGame(): FakeBrowserGame {
         renderDebugOptions: fakeRenderDebugOptions(),
         shadowDebugView: "shadowVisibility",
         terrainWorkerCount: 0,
+        browserTerrainFrame: {
+          completionBudget: 6,
+          pendingCompletionCountBefore: 0,
+          pendingCompletionCountAfter: 0,
+          drainedCompletionCount: 0,
+          drainedCompletionVertexBytes: 0,
+          drainedCompletionIndexBytes: 0,
+          submittedRequestCount: 0,
+          workerInFlightRequestCount: 0,
+          takeCompletionsMs: 0,
+          completeTerrainBuildsMs: 0,
+          gameTickMs: 0,
+          takeRequestsMs: 0,
+          submitRequestsMs: 0
+        },
         playerControllerRuntime: "rust",
         skyRuntime: "rust",
         skyDayPhase: 0.25,
@@ -293,15 +318,23 @@ function fakeBrowserGame(): FakeBrowserGame {
 
 function fakeTerrainWorkers(completions: TerrainBuildCompletion[]): TerrainWorkerBridge & {
   submittedRequests: TerrainBuildRequest[][];
+  lastTakeCompletionsMaxCount?: number;
 } {
   return {
     workerCount: 2,
     submittedRequests: [],
-    takeCompletions() {
-      return completions.splice(0);
+    takeCompletions(maxCount) {
+      this.lastTakeCompletionsMaxCount = maxCount;
+      return completions.splice(0, maxCount ?? completions.length);
     },
     submitRequests(requests) {
       this.submittedRequests.push([...requests]);
+    },
+    status() {
+      return {
+        pendingCompletionCount: completions.length,
+        inFlightRequestCount: 0
+      };
     },
     reset() {}
   };

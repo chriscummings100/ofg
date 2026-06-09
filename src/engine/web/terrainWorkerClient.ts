@@ -40,6 +40,11 @@ export type TerrainWorkerClientOptions = {
   readonly hardwareConcurrency?: number;
 };
 
+export type TerrainWorkerClientStatus = {
+  readonly pendingCompletionCount: number;
+  readonly inFlightRequestCount: number;
+};
+
 export class TerrainWorkerClient {
   readonly workerCount: number;
   private readonly host: BrowserWorkerHost<TerrainBuildRequest, TerrainBuildCompletion>;
@@ -78,10 +83,24 @@ export class TerrainWorkerClient {
     }
   }
 
-  takeCompletions(): TerrainBuildCompletion[] {
-    const completions = this.completions;
-    this.completions = [];
-    return completions;
+  takeCompletions(maxCount = Number.POSITIVE_INFINITY): TerrainBuildCompletion[] {
+    const count = Number.isFinite(maxCount)
+      ? Math.max(0, Math.floor(maxCount))
+      : this.completions.length;
+    if (count >= this.completions.length) {
+      const completions = this.completions;
+      this.completions = [];
+      return completions;
+    }
+
+    return this.completions.splice(0, count);
+  }
+
+  status(): TerrainWorkerClientStatus {
+    return {
+      pendingCompletionCount: this.completions.length,
+      inFlightRequestCount: this.requestsById.size
+    };
   }
 
   reset(): void {

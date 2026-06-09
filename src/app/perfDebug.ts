@@ -55,6 +55,7 @@ export type CombinedPerfStats = {
   readonly renderDebugOptions: RenderDebugOptions;
   readonly terrainStreamStatus: TerrainStreamStatus;
   readonly rendererStatus: EngineWebRendererStatus;
+  readonly browserTerrainFrame?: RustBrowserGameDebugSnapshot["browserTerrainFrame"];
   readonly latest?: RustBrowserGameDebugSnapshot["rustPerfStats"]["latest"];
 };
 
@@ -128,6 +129,7 @@ export function buildPerfStats(
     renderDebugOptions: snapshot.renderDebugOptions,
     terrainStreamStatus: snapshot.terrainStreamStatus,
     rendererStatus: snapshot.rendererStatus,
+    browserTerrainFrame: snapshot.browserTerrainFrame,
     latest: snapshot.rustPerfStats.latest
   };
 }

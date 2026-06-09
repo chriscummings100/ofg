@@ -2,7 +2,7 @@
 // submission, and render-facing GLTF model resources for the playable browser path.
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::OnceLock;
@@ -62,12 +62,13 @@ use crate::shadow_renderer::{
 };
 use crate::shadows::{
     build_shadow_cascades_with_max_distance, clamp_shadow_light_direction,
-    shadow_caster_intersects_cascade, shadow_strength_for_sun_elevation,
-    shadow_sun_mode_direction, ShadowCascadeSet, ShadowSunMode,
+    shadow_caster_intersects_cascade, shadow_strength_for_sun_elevation, shadow_sun_mode_direction,
+    ShadowCascadeSet, ShadowSunMode,
 };
 use crate::terrain_stream::{
-    BrowserTerrainBuildCompletion, BrowserTerrainBuildRequest, BrowserTerrainStream,
-    BrowserTerrainStreamStatus, TerrainJobStats, MAX_SAFE_TERRAIN_WORKER_REQUEST_ID,
+    BrowserTerrainBuildCompletion, BrowserTerrainBuildRequest, BrowserTerrainMeshUpdate,
+    BrowserTerrainStream, BrowserTerrainStreamStatus, TerrainJobStats,
+    MAX_SAFE_TERRAIN_WORKER_REQUEST_ID,
 };
 use crate::terrain_textures::{load_terrain_texture_arrays, TerrainTextureArrays};
 use crate::texture_mips::build_rgba8_mip_chain;
@@ -82,6 +83,9 @@ const SHADOW_NORMAL_BIAS: f32 = 0.0;
 const SHADOW_DEBUG_MATERIAL_MODE_OFFSET: usize = SHADOW_DEBUG_MODE_OFFSET + 1;
 const SHADOW_DEBUG_WHITE_TEXTURES_OFFSET: usize = SHADOW_DEBUG_MODE_OFFSET + 2;
 const GPU_TIMESTAMP_QUERY_COUNT: u32 = 16;
+const TERRAIN_UPLOAD_MAX_MESHES_PER_FRAME: u32 = 2;
+const TERRAIN_UPLOAD_MAX_VERTEX_FLOATS_PER_FRAME: u32 = 350_000;
+const TERRAIN_REMOVAL_MAX_MESHES_PER_FRAME: u32 = 4;
 
 #[wasm_bindgen]
 pub struct RustBrowserGame {
@@ -93,10 +97,14 @@ pub struct RustBrowserGame {
     object_handles_by_id: HashMap<String, ResourceHandle>,
     scene_mesh_handles_by_label: HashMap<String, ResourceHandle>,
     scene_material_resources_by_label: HashMap<String, SceneMaterialResource>,
+    pending_terrain_uploads: VecDeque<BrowserTerrainMeshUpdate>,
+    pending_terrain_removals: VecDeque<TerrainNodeKey>,
     player_characters: Vec<PlayerCharacterSlot>,
     active_player_character_id: PlayerCharacterId,
     model_skinning_runtime: Option<&'static str>,
     last_terrain_update_stats: TerrainUpdateStats,
+    last_terrain_completion_stats: TerrainCompletionStats,
+    last_terrain_request_stats: TerrainRequestStats,
     perf_history: FramePerfRing,
 }
 
@@ -116,10 +124,31 @@ struct RustBrowserGameStatus {
     frame_visible_draw_count: u32,
     frame_shadow_draw_count: u32,
     terrain_update_total_ms: f64,
+    terrain_completion_ingest_ms: f64,
+    terrain_worker_request_drain_ms: f64,
+    terrain_stream_tick_ms: f64,
+    terrain_stream_sync_ms: f64,
+    terrain_stream_scheduler_ms: f64,
+    terrain_stream_worker_queue_ms: f64,
+    terrain_stream_visibility_ms: f64,
+    terrain_stream_visibility_select_ms: f64,
+    terrain_stream_visibility_status_ms: f64,
+    terrain_stream_visibility_apply_ms: f64,
+    terrain_mesh_destroy_ms: f64,
+    terrain_mesh_upload_ms: f64,
+    terrain_completion_count: u32,
+    terrain_completion_accepted_count: u32,
+    terrain_completion_vertex_float_count: u32,
+    terrain_completion_index_count: u32,
+    terrain_worker_request_count: u32,
     terrain_update_upserted_mesh_count: u32,
     terrain_update_removed_mesh_count: u32,
     terrain_update_uploaded_vertex_float_count: u32,
     terrain_update_uploaded_index_count: u32,
+    terrain_update_deferred_upload_count: u32,
+    terrain_update_deferred_removal_count: u32,
+    terrain_update_upload_budget_hit: bool,
+    terrain_update_removal_budget_hit: bool,
     shadow_cascade_count: u32,
     shadow_map_size: u32,
     shadow_max_distance_meters: f32,
@@ -145,10 +174,39 @@ struct RustBrowserGameStatus {
 #[derive(Clone, Copy, Debug, Default)]
 struct TerrainUpdateStats {
     total_ms: f64,
+    stream_tick_ms: f64,
+    stream_sync_ms: f64,
+    stream_scheduler_ms: f64,
+    stream_worker_queue_ms: f64,
+    stream_visibility_ms: f64,
+    stream_visibility_select_ms: f64,
+    stream_visibility_status_ms: f64,
+    stream_visibility_apply_ms: f64,
+    mesh_destroy_ms: f64,
+    mesh_upload_ms: f64,
     upserted_mesh_count: u32,
     removed_mesh_count: u32,
     uploaded_vertex_float_count: u32,
     uploaded_index_count: u32,
+    deferred_upload_count: u32,
+    deferred_removal_count: u32,
+    upload_budget_hit: bool,
+    removal_budget_hit: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct TerrainCompletionStats {
+    total_ms: f64,
+    completion_count: u32,
+    accepted_count: u32,
+    vertex_float_count: u32,
+    index_count: u32,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct TerrainRequestStats {
+    total_ms: f64,
+    request_count: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -539,10 +597,14 @@ impl RustBrowserGame {
             object_handles_by_id: HashMap::new(),
             scene_mesh_handles_by_label,
             scene_material_resources_by_label,
+            pending_terrain_uploads: VecDeque::new(),
+            pending_terrain_removals: VecDeque::new(),
             player_characters,
             active_player_character_id,
             model_skinning_runtime: Some("rust-cpu"),
             last_terrain_update_stats: TerrainUpdateStats::default(),
+            last_terrain_completion_stats: TerrainCompletionStats::default(),
+            last_terrain_request_stats: TerrainRequestStats::default(),
             perf_history: FramePerfRing::default(),
         };
         game.install_terrain_textures(terrain_texture_arrays)?;
@@ -587,7 +649,26 @@ impl RustBrowserGame {
                 input_parse_ms,
                 game_state_tick_ms,
                 player_character_update_ms,
+                terrain_completion_ingest_ms: self.last_terrain_completion_stats.total_ms,
                 terrain_stream_update_ms,
+                terrain_stream_tick_ms: self.last_terrain_update_stats.stream_tick_ms,
+                terrain_stream_sync_ms: self.last_terrain_update_stats.stream_sync_ms,
+                terrain_stream_scheduler_ms: self.last_terrain_update_stats.stream_scheduler_ms,
+                terrain_stream_worker_queue_ms: self
+                    .last_terrain_update_stats
+                    .stream_worker_queue_ms,
+                terrain_stream_visibility_ms: self.last_terrain_update_stats.stream_visibility_ms,
+                terrain_stream_visibility_select_ms: self
+                    .last_terrain_update_stats
+                    .stream_visibility_select_ms,
+                terrain_stream_visibility_status_ms: self
+                    .last_terrain_update_stats
+                    .stream_visibility_status_ms,
+                terrain_stream_visibility_apply_ms: self
+                    .last_terrain_update_stats
+                    .stream_visibility_apply_ms,
+                terrain_mesh_destroy_ms: self.last_terrain_update_stats.mesh_destroy_ms,
+                terrain_mesh_upload_ms: self.last_terrain_update_stats.mesh_upload_ms,
                 render_frame_ms,
                 render_packet_build_ms: render_result.cpu_timings.render_packet_build_ms,
                 renderer_prepare_ms: render_result.cpu_timings.renderer_prepare_ms,
@@ -613,19 +694,43 @@ impl RustBrowserGame {
 
     #[wasm_bindgen(js_name = takeTerrainBuildRequests)]
     pub fn take_terrain_build_requests(&mut self) -> Result<JsValue, JsValue> {
-        terrain_build_requests_to_js(self.terrain_stream.take_worker_build_requests())
+        let started_at_ms = perf_now_ms();
+        let requests = self.terrain_stream.take_worker_build_requests();
+        let request_count = requests.len().min(u32::MAX as usize) as u32;
+        let result = terrain_build_requests_to_js(requests);
+        self.last_terrain_request_stats = TerrainRequestStats {
+            total_ms: perf_now_ms() - started_at_ms,
+            request_count,
+        };
+        result
     }
 
     #[wasm_bindgen(js_name = completeTerrainBuilds)]
     pub fn complete_terrain_builds(&mut self, completions: JsValue) -> Result<u32, JsValue> {
+        let started_at_ms = perf_now_ms();
         let array = js_sys::Array::from(&completions);
         let mut accepted_count = 0;
+        let mut completion_count = 0_u32;
+        let mut vertex_float_count = 0_u32;
+        let mut index_count = 0_u32;
         for value in array.iter() {
             let completion = terrain_build_completion_from_js(&value)?;
+            completion_count = completion_count.saturating_add(1);
+            vertex_float_count = vertex_float_count
+                .saturating_add(completion.vertices.len().min(u32::MAX as usize) as u32);
+            index_count =
+                index_count.saturating_add(completion.indices.len().min(u32::MAX as usize) as u32);
             if self.terrain_stream.complete_worker_build(completion) {
                 accepted_count += 1;
             }
         }
+        self.last_terrain_completion_stats = TerrainCompletionStats {
+            total_ms: perf_now_ms() - started_at_ms,
+            completion_count,
+            accepted_count,
+            vertex_float_count,
+            index_count,
+        };
 
         Ok(accepted_count)
     }
@@ -846,7 +951,11 @@ impl RustBrowserGame {
         set_js_property(
             &snapshot,
             "rendererStatus",
-            renderer_status_to_js(self.renderer.status(self.last_terrain_update_stats))?,
+            renderer_status_to_js(self.renderer.status(
+                self.last_terrain_update_stats,
+                self.last_terrain_completion_stats,
+                self.last_terrain_request_stats,
+            ))?,
         )?;
         set_js_property(
             &snapshot,
@@ -1294,18 +1403,43 @@ impl RustBrowserGame {
         let mut uploaded_vertex_float_count = 0_u32;
         let mut uploaded_index_count = 0_u32;
         let player_position = self.game_state.player_position().map_err(js_error)?;
+        let stream_tick_started_at_ms = terrain_update_now_ms();
         let update = self.terrain_stream.tick_for_workers(player_position);
+        let stream_tick_ms = terrain_update_now_ms() - stream_tick_started_at_ms;
+        let stream_timings = update.timings;
 
         for key in update.removed_nodes {
-            self.destroy_terrain_mesh(key)?;
-            removed_mesh_count = removed_mesh_count.saturating_add(1);
+            if !self.remove_pending_terrain_upload(key) {
+                self.pending_terrain_removals.push_back(key);
+            }
         }
 
         for mesh_update in update.upserted_meshes {
-            uploaded_vertex_float_count = uploaded_vertex_float_count
-                .saturating_add(mesh_update.mesh.vertices.len().min(u32::MAX as usize) as u32);
-            uploaded_index_count = uploaded_index_count
-                .saturating_add(mesh_update.mesh.indices.len().min(u32::MAX as usize) as u32);
+            self.remove_pending_terrain_upload(mesh_update.key);
+            self.pending_terrain_uploads.push_back(mesh_update);
+        }
+
+        let upload_started_at_ms = terrain_update_now_ms();
+        while let Some(mesh_update) = self.pending_terrain_uploads.front() {
+            let next_vertex_float_count =
+                mesh_update.mesh.vertices.len().min(u32::MAX as usize) as u32;
+            let next_index_count = mesh_update.mesh.indices.len().min(u32::MAX as usize) as u32;
+            let upload_count_budget_hit =
+                upserted_mesh_count >= TERRAIN_UPLOAD_MAX_MESHES_PER_FRAME;
+            let upload_vertex_budget_hit = upserted_mesh_count > 0
+                && uploaded_vertex_float_count.saturating_add(next_vertex_float_count)
+                    > TERRAIN_UPLOAD_MAX_VERTEX_FLOATS_PER_FRAME;
+            if upload_count_budget_hit || upload_vertex_budget_hit {
+                break;
+            }
+
+            let mesh_update = self
+                .pending_terrain_uploads
+                .pop_front()
+                .expect("front terrain upload exists");
+            uploaded_vertex_float_count =
+                uploaded_vertex_float_count.saturating_add(next_vertex_float_count);
+            uploaded_index_count = uploaded_index_count.saturating_add(next_index_count);
             self.upsert_terrain_mesh(
                 mesh_update.key,
                 &mesh_update.mesh.vertices,
@@ -1313,16 +1447,49 @@ impl RustBrowserGame {
             )?;
             upserted_mesh_count = upserted_mesh_count.saturating_add(1);
         }
+        let mesh_upload_ms = terrain_update_now_ms() - upload_started_at_ms;
+
+        let destroy_started_at_ms = terrain_update_now_ms();
+        while removed_mesh_count < TERRAIN_REMOVAL_MAX_MESHES_PER_FRAME {
+            let Some(key) = self.pending_terrain_removals.pop_front() else {
+                break;
+            };
+            self.destroy_terrain_mesh(key)?;
+            removed_mesh_count = removed_mesh_count.saturating_add(1);
+        }
+        let mesh_destroy_ms = terrain_update_now_ms() - destroy_started_at_ms;
 
         self.last_terrain_update_stats = TerrainUpdateStats {
             total_ms: terrain_update_now_ms() - started_at_ms,
+            stream_tick_ms,
+            stream_sync_ms: stream_timings.sync_around_ms,
+            stream_scheduler_ms: stream_timings.scheduler_tick_ms,
+            stream_worker_queue_ms: stream_timings.worker_request_queue_ms,
+            stream_visibility_ms: stream_timings.visibility_sync_ms,
+            stream_visibility_select_ms: stream_timings.visibility_select_ms,
+            stream_visibility_status_ms: stream_timings.visibility_status_ms,
+            stream_visibility_apply_ms: stream_timings.visibility_apply_ms,
+            mesh_destroy_ms,
+            mesh_upload_ms,
             upserted_mesh_count,
             removed_mesh_count,
             uploaded_vertex_float_count,
             uploaded_index_count,
+            deferred_upload_count: self.pending_terrain_uploads.len().min(u32::MAX as usize) as u32,
+            deferred_removal_count: self.pending_terrain_removals.len().min(u32::MAX as usize)
+                as u32,
+            upload_budget_hit: !self.pending_terrain_uploads.is_empty(),
+            removal_budget_hit: !self.pending_terrain_removals.is_empty(),
         };
 
         Ok(())
+    }
+
+    fn remove_pending_terrain_upload(&mut self, key: TerrainNodeKey) -> bool {
+        let original_len = self.pending_terrain_uploads.len();
+        self.pending_terrain_uploads
+            .retain(|mesh_update| mesh_update.key != key);
+        original_len != self.pending_terrain_uploads.len()
     }
 
     fn upsert_terrain_mesh(
@@ -1361,6 +1528,8 @@ impl RustBrowserGame {
     }
 
     fn clear_terrain_meshes(&mut self) -> Result<(), JsValue> {
+        self.pending_terrain_uploads.clear();
+        self.pending_terrain_removals.clear();
         let node_keys = sorted_terrain_node_keys(&self.terrain_mesh_handles_by_key);
         for node_key in node_keys {
             self.destroy_terrain_mesh_by_key(&node_key)?;
@@ -2290,10 +2459,13 @@ impl BrowserWgpuRenderer {
     ) -> Result<RenderFrameResult, JsValue> {
         let shadow_runtime =
             shadow_runtime_state_from_engine_snapshot(engine_snapshot, self.render_debug_options)?;
-        let effective_snapshot =
-            engine_snapshot_with_shadow_debug_light(engine_snapshot, self.render_debug_options, shadow_runtime)?;
-        let frame_packet =
-            build_frame_packet_from_engine_snapshot(&effective_snapshot, aspect).map_err(js_error)?;
+        let effective_snapshot = engine_snapshot_with_shadow_debug_light(
+            engine_snapshot,
+            self.render_debug_options,
+            shadow_runtime,
+        )?;
+        let frame_packet = build_frame_packet_from_engine_snapshot(&effective_snapshot, aspect)
+            .map_err(js_error)?;
         let shadow_cascades = build_shadow_cascades_from_engine_snapshot(
             &effective_snapshot,
             aspect,
@@ -2607,7 +2779,12 @@ impl BrowserWgpuRenderer {
             gpu_timers.pending_readbacks.len().min(u32::MAX as usize) as u32;
     }
 
-    fn status(&self, terrain_update_stats: TerrainUpdateStats) -> RustBrowserGameStatus {
+    fn status(
+        &self,
+        terrain_update_stats: TerrainUpdateStats,
+        terrain_completion_stats: TerrainCompletionStats,
+        terrain_request_stats: TerrainRequestStats,
+    ) -> RustBrowserGameStatus {
         let shadow_cascade_count = self
             .shadow_resources
             .layer_views
@@ -2630,11 +2807,32 @@ impl BrowserWgpuRenderer {
             frame_visible_draw_count: self.frame_visible_draw_count,
             frame_shadow_draw_count: self.frame_shadow_draw_count,
             terrain_update_total_ms: terrain_update_stats.total_ms,
+            terrain_completion_ingest_ms: terrain_completion_stats.total_ms,
+            terrain_worker_request_drain_ms: terrain_request_stats.total_ms,
+            terrain_stream_tick_ms: terrain_update_stats.stream_tick_ms,
+            terrain_stream_sync_ms: terrain_update_stats.stream_sync_ms,
+            terrain_stream_scheduler_ms: terrain_update_stats.stream_scheduler_ms,
+            terrain_stream_worker_queue_ms: terrain_update_stats.stream_worker_queue_ms,
+            terrain_stream_visibility_ms: terrain_update_stats.stream_visibility_ms,
+            terrain_stream_visibility_select_ms: terrain_update_stats.stream_visibility_select_ms,
+            terrain_stream_visibility_status_ms: terrain_update_stats.stream_visibility_status_ms,
+            terrain_stream_visibility_apply_ms: terrain_update_stats.stream_visibility_apply_ms,
+            terrain_mesh_destroy_ms: terrain_update_stats.mesh_destroy_ms,
+            terrain_mesh_upload_ms: terrain_update_stats.mesh_upload_ms,
+            terrain_completion_count: terrain_completion_stats.completion_count,
+            terrain_completion_accepted_count: terrain_completion_stats.accepted_count,
+            terrain_completion_vertex_float_count: terrain_completion_stats.vertex_float_count,
+            terrain_completion_index_count: terrain_completion_stats.index_count,
+            terrain_worker_request_count: terrain_request_stats.request_count,
             terrain_update_upserted_mesh_count: terrain_update_stats.upserted_mesh_count,
             terrain_update_removed_mesh_count: terrain_update_stats.removed_mesh_count,
             terrain_update_uploaded_vertex_float_count: terrain_update_stats
                 .uploaded_vertex_float_count,
             terrain_update_uploaded_index_count: terrain_update_stats.uploaded_index_count,
+            terrain_update_deferred_upload_count: terrain_update_stats.deferred_upload_count,
+            terrain_update_deferred_removal_count: terrain_update_stats.deferred_removal_count,
+            terrain_update_upload_budget_hit: terrain_update_stats.upload_budget_hit,
+            terrain_update_removal_budget_hit: terrain_update_stats.removal_budget_hit,
             shadow_cascade_count,
             shadow_map_size: SHADOW_MAP_SIZE,
             shadow_max_distance_meters: self.last_shadow_runtime.max_distance_meters,
@@ -2709,16 +2907,19 @@ fn shadow_runtime_state_from_engine_snapshot(
 
     let production_direction = RenderVec3::new(snapshot[11], snapshot[12], snapshot[13]);
     let light_direction = shadow_sun_mode_direction(options.shadow_sun_mode, production_direction)
-        .ok_or_else(|| js_error("Rust WebGPU renderer received an invalid shadow sun direction."))?;
+        .ok_or_else(|| {
+            js_error("Rust WebGPU renderer received an invalid shadow sun direction.")
+        })?;
     let sun_elevation = if options.shadow_sun_mode == ShadowSunMode::Production {
         snapshot[21]
     } else {
         light_direction.y
     };
     let strength = shadow_strength_for_sun_elevation(sun_elevation);
-    let cascade_light_direction = clamp_shadow_light_direction(light_direction).ok_or_else(|| {
-        js_error("Rust WebGPU renderer could not build a bounded shadow light direction.")
-    })?;
+    let cascade_light_direction =
+        clamp_shadow_light_direction(light_direction).ok_or_else(|| {
+            js_error("Rust WebGPU renderer could not build a bounded shadow light direction.")
+        })?;
 
     Ok(ShadowRuntimeState {
         light_direction,
@@ -3548,6 +3749,91 @@ fn renderer_status_to_js(status: RustBrowserGameStatus) -> Result<JsValue, JsVal
     )?;
     set_js_property(
         &object,
+        "terrainCompletionIngestMs",
+        JsValue::from_f64(status.terrain_completion_ingest_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainWorkerRequestDrainMs",
+        JsValue::from_f64(status.terrain_worker_request_drain_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamTickMs",
+        JsValue::from_f64(status.terrain_stream_tick_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamSyncMs",
+        JsValue::from_f64(status.terrain_stream_sync_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamSchedulerMs",
+        JsValue::from_f64(status.terrain_stream_scheduler_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamWorkerQueueMs",
+        JsValue::from_f64(status.terrain_stream_worker_queue_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamVisibilityMs",
+        JsValue::from_f64(status.terrain_stream_visibility_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamVisibilitySelectMs",
+        JsValue::from_f64(status.terrain_stream_visibility_select_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamVisibilityStatusMs",
+        JsValue::from_f64(status.terrain_stream_visibility_status_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamVisibilityApplyMs",
+        JsValue::from_f64(status.terrain_stream_visibility_apply_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainMeshDestroyMs",
+        JsValue::from_f64(status.terrain_mesh_destroy_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainMeshUploadMs",
+        JsValue::from_f64(status.terrain_mesh_upload_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainCompletionCount",
+        JsValue::from_f64(status.terrain_completion_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "terrainCompletionAcceptedCount",
+        JsValue::from_f64(status.terrain_completion_accepted_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "terrainCompletionVertexFloatCount",
+        JsValue::from_f64(status.terrain_completion_vertex_float_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "terrainCompletionIndexCount",
+        JsValue::from_f64(status.terrain_completion_index_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "terrainWorkerRequestCount",
+        JsValue::from_f64(status.terrain_worker_request_count as f64),
+    )?;
+    set_js_property(
+        &object,
         "terrainUpdateUpsertedMeshCount",
         JsValue::from_f64(status.terrain_update_upserted_mesh_count as f64),
     )?;
@@ -3565,6 +3851,26 @@ fn renderer_status_to_js(status: RustBrowserGameStatus) -> Result<JsValue, JsVal
         &object,
         "terrainUpdateUploadedIndexCount",
         JsValue::from_f64(status.terrain_update_uploaded_index_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "terrainUpdateDeferredUploadCount",
+        JsValue::from_f64(status.terrain_update_deferred_upload_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "terrainUpdateDeferredRemovalCount",
+        JsValue::from_f64(status.terrain_update_deferred_removal_count as f64),
+    )?;
+    set_js_property(
+        &object,
+        "terrainUpdateUploadBudgetHit",
+        JsValue::from_bool(status.terrain_update_upload_budget_hit),
+    )?;
+    set_js_property(
+        &object,
+        "terrainUpdateRemovalBudgetHit",
+        JsValue::from_bool(status.terrain_update_removal_budget_hit),
     )?;
     set_js_property(
         &object,
@@ -3824,8 +4130,63 @@ fn rust_cpu_summary_to_js(summary: &crate::perf::RustCpuFrameSummary) -> Result<
     )?;
     set_js_property(
         &object,
+        "terrainCompletionIngestMs",
+        numeric_summary_to_js(summary.terrain_completion_ingest_ms)?,
+    )?;
+    set_js_property(
+        &object,
         "terrainStreamUpdateMs",
         numeric_summary_to_js(summary.terrain_stream_update_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamTickMs",
+        numeric_summary_to_js(summary.terrain_stream_tick_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamSyncMs",
+        numeric_summary_to_js(summary.terrain_stream_sync_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamSchedulerMs",
+        numeric_summary_to_js(summary.terrain_stream_scheduler_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamWorkerQueueMs",
+        numeric_summary_to_js(summary.terrain_stream_worker_queue_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamVisibilityMs",
+        numeric_summary_to_js(summary.terrain_stream_visibility_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamVisibilitySelectMs",
+        numeric_summary_to_js(summary.terrain_stream_visibility_select_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamVisibilityStatusMs",
+        numeric_summary_to_js(summary.terrain_stream_visibility_status_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamVisibilityApplyMs",
+        numeric_summary_to_js(summary.terrain_stream_visibility_apply_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "terrainMeshDestroyMs",
+        numeric_summary_to_js(summary.terrain_mesh_destroy_ms)?,
+    )?;
+    set_js_property(
+        &object,
+        "terrainMeshUploadMs",
+        numeric_summary_to_js(summary.terrain_mesh_upload_ms)?,
     )?;
     set_js_property(
         &object,
@@ -3889,8 +4250,63 @@ fn rust_cpu_timings_to_js(timings: &RustCpuFrameTimings) -> Result<JsValue, JsVa
     )?;
     set_js_property(
         &object,
+        "terrainCompletionIngestMs",
+        JsValue::from_f64(timings.terrain_completion_ingest_ms),
+    )?;
+    set_js_property(
+        &object,
         "terrainStreamUpdateMs",
         JsValue::from_f64(timings.terrain_stream_update_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamTickMs",
+        JsValue::from_f64(timings.terrain_stream_tick_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamSyncMs",
+        JsValue::from_f64(timings.terrain_stream_sync_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamSchedulerMs",
+        JsValue::from_f64(timings.terrain_stream_scheduler_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamWorkerQueueMs",
+        JsValue::from_f64(timings.terrain_stream_worker_queue_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamVisibilityMs",
+        JsValue::from_f64(timings.terrain_stream_visibility_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamVisibilitySelectMs",
+        JsValue::from_f64(timings.terrain_stream_visibility_select_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamVisibilityStatusMs",
+        JsValue::from_f64(timings.terrain_stream_visibility_status_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainStreamVisibilityApplyMs",
+        JsValue::from_f64(timings.terrain_stream_visibility_apply_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainMeshDestroyMs",
+        JsValue::from_f64(timings.terrain_mesh_destroy_ms),
+    )?;
+    set_js_property(
+        &object,
+        "terrainMeshUploadMs",
+        JsValue::from_f64(timings.terrain_mesh_upload_ms),
     )?;
     set_js_property(
         &object,

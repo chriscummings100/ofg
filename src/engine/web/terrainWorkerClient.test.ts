@@ -47,6 +47,43 @@ describe("TerrainWorkerClient", () => {
     deepEqual(client.takeCompletions(), []);
   });
 
+  it("drains completed terrain builds by caller budget", () => {
+    const workers: FakeWorker[] = [];
+    const client = new TerrainWorkerClient({
+      workerCount: 1,
+      workerFactory: () => {
+        const worker = new FakeWorker();
+        workers.push(worker);
+        return worker as unknown as Worker;
+      }
+    });
+    const firstRequest = fakeRequest(1);
+    const secondRequest = fakeRequest(2);
+    const thirdRequest = fakeRequest(3);
+    client.submitRequests([firstRequest, secondRequest, thirdRequest]);
+    workers[0].emitMessage({
+      type: "complete",
+      requestId: 1,
+      payload: fakeCompletion(firstRequest)
+    });
+    workers[0].emitMessage({
+      type: "complete",
+      requestId: 2,
+      payload: fakeCompletion(secondRequest)
+    });
+    workers[0].emitMessage({
+      type: "complete",
+      requestId: 3,
+      payload: fakeCompletion(thirdRequest)
+    });
+
+    equal(client.status().pendingCompletionCount, 3);
+    deepEqual(client.takeCompletions(2).map((completion) => completion.requestId), [1, 2]);
+    equal(client.status().pendingCompletionCount, 1);
+    deepEqual(client.takeCompletions(2).map((completion) => completion.requestId), [3]);
+    deepEqual(client.takeCompletions(0), []);
+  });
+
   it("turns worker errors into failed completions so Rust can retry", () => {
     const workers: FakeWorker[] = [];
     const client = new TerrainWorkerClient({

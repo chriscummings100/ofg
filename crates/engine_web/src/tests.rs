@@ -1721,6 +1721,32 @@ fn browser_terrain_stream_queues_worker_requests_without_sync_building() {
 }
 
 #[test]
+fn browser_terrain_stream_skips_visibility_resync_when_unchanged() {
+    let mut stream = BrowserTerrainStream::new_with_lod_bands(
+        0x0F6,
+        1,
+        vec![TerrainLodBand {
+            lod: 0,
+            horizontal_radius: 0,
+            vertical_chunk_offsets: vec![0],
+        }],
+    )
+    .unwrap();
+    let origin = Vec3::new(0.0, 0.0, 0.0);
+    stream.reset_around(origin);
+
+    let first = stream.tick(origin);
+    assert_eq!(first.upserted_meshes.len(), 1);
+    assert!(first.timings.visibility_sync_ms >= 0.0);
+
+    let second = stream.tick(origin);
+
+    assert!(second.removed_nodes.is_empty());
+    assert!(second.upserted_meshes.is_empty());
+    assert_eq!(second.timings.visibility_sync_ms, 0.0);
+}
+
+#[test]
 fn browser_terrain_stream_rejects_stale_worker_completions_and_retries() {
     let mut stream = BrowserTerrainStream::new_with_lod_bands(
         0x0F6,

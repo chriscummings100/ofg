@@ -474,7 +474,7 @@ fn apply_stream_update(
         meshes_by_node.remove(&key);
     }
     for mesh_update in update.upserted_meshes {
-        meshes_by_node.insert(mesh_update.key, mesh_update.mesh);
+        meshes_by_node.insert(mesh_update.key, (*mesh_update.mesh).clone());
     }
 }
 

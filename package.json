@@ -13,6 +13,7 @@
     "check:engine-web-wasm": "node tools/build-engine-web-wasm.mjs --check",
     "bench:terrain:rust": "cargo run -p ofg_test_harness --release --bin ofg-terrain-bench --",
     "perf:debug:capture": "node tools/browser-perf-debug-capture.mjs",
+    "perf:terrain-stream-cpu": "node tools/browser-terrain-stream-cpu-capture.mjs",
     "coverage:rust": "node tools/rust-coverage.mjs",
     "build": "npm run clean && npm run build:shaders && npm run build:wasm && tsc -p tsconfig.app.json",
     "build:cloudflare": "node tools/cloudflare-build.mjs",

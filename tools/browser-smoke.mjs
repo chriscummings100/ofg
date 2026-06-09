@@ -807,10 +807,31 @@ async function readDebugContract(page) {
             frameSubmittedIndexCount: status.frameSubmittedIndexCount,
             frameSubmittedTriangleCount: status.frameSubmittedTriangleCount,
             terrainUpdateTotalMs: status.terrainUpdateTotalMs,
+            terrainCompletionIngestMs: status.terrainCompletionIngestMs,
+            terrainWorkerRequestDrainMs: status.terrainWorkerRequestDrainMs,
+            terrainStreamTickMs: status.terrainStreamTickMs,
+            terrainStreamSyncMs: status.terrainStreamSyncMs,
+            terrainStreamSchedulerMs: status.terrainStreamSchedulerMs,
+            terrainStreamWorkerQueueMs: status.terrainStreamWorkerQueueMs,
+            terrainStreamVisibilityMs: status.terrainStreamVisibilityMs,
+            terrainStreamVisibilitySelectMs: status.terrainStreamVisibilitySelectMs,
+            terrainStreamVisibilityStatusMs: status.terrainStreamVisibilityStatusMs,
+            terrainStreamVisibilityApplyMs: status.terrainStreamVisibilityApplyMs,
+            terrainMeshDestroyMs: status.terrainMeshDestroyMs,
+            terrainMeshUploadMs: status.terrainMeshUploadMs,
+            terrainCompletionCount: status.terrainCompletionCount,
+            terrainCompletionAcceptedCount: status.terrainCompletionAcceptedCount,
+            terrainCompletionVertexFloatCount: status.terrainCompletionVertexFloatCount,
+            terrainCompletionIndexCount: status.terrainCompletionIndexCount,
+            terrainWorkerRequestCount: status.terrainWorkerRequestCount,
             terrainUpdateUpsertedMeshCount: status.terrainUpdateUpsertedMeshCount,
             terrainUpdateRemovedMeshCount: status.terrainUpdateRemovedMeshCount,
             terrainUpdateUploadedVertexFloatCount: status.terrainUpdateUploadedVertexFloatCount,
             terrainUpdateUploadedIndexCount: status.terrainUpdateUploadedIndexCount,
+            terrainUpdateDeferredUploadCount: status.terrainUpdateDeferredUploadCount,
+            terrainUpdateDeferredRemovalCount: status.terrainUpdateDeferredRemovalCount,
+            terrainUpdateUploadBudgetHit: status.terrainUpdateUploadBudgetHit,
+            terrainUpdateRemovalBudgetHit: status.terrainUpdateRemovalBudgetHit,
             shadowCascadeCount: status.shadowCascadeCount,
             shadowMapSize: status.shadowMapSize,
             gpuTimerAvailable: status.gpuTimerAvailable,
@@ -1041,6 +1062,40 @@ function assertDebugContract(debug, expectations = {}) {
     status.frameSubmittedTriangleCount <= 0 ||
     !Number.isFinite(status.terrainUpdateTotalMs) ||
     status.terrainUpdateTotalMs < 0 ||
+    !Number.isFinite(status.terrainCompletionIngestMs) ||
+    status.terrainCompletionIngestMs < 0 ||
+    !Number.isFinite(status.terrainWorkerRequestDrainMs) ||
+    status.terrainWorkerRequestDrainMs < 0 ||
+    !Number.isFinite(status.terrainStreamTickMs) ||
+    status.terrainStreamTickMs < 0 ||
+    !Number.isFinite(status.terrainStreamSyncMs) ||
+    status.terrainStreamSyncMs < 0 ||
+    !Number.isFinite(status.terrainStreamSchedulerMs) ||
+    status.terrainStreamSchedulerMs < 0 ||
+    !Number.isFinite(status.terrainStreamWorkerQueueMs) ||
+    status.terrainStreamWorkerQueueMs < 0 ||
+    !Number.isFinite(status.terrainStreamVisibilityMs) ||
+    status.terrainStreamVisibilityMs < 0 ||
+    !Number.isFinite(status.terrainStreamVisibilitySelectMs) ||
+    status.terrainStreamVisibilitySelectMs < 0 ||
+    !Number.isFinite(status.terrainStreamVisibilityStatusMs) ||
+    status.terrainStreamVisibilityStatusMs < 0 ||
+    !Number.isFinite(status.terrainStreamVisibilityApplyMs) ||
+    status.terrainStreamVisibilityApplyMs < 0 ||
+    !Number.isFinite(status.terrainMeshDestroyMs) ||
+    status.terrainMeshDestroyMs < 0 ||
+    !Number.isFinite(status.terrainMeshUploadMs) ||
+    status.terrainMeshUploadMs < 0 ||
+    !Number.isFinite(status.terrainCompletionCount) ||
+    status.terrainCompletionCount < 0 ||
+    !Number.isFinite(status.terrainCompletionAcceptedCount) ||
+    status.terrainCompletionAcceptedCount < 0 ||
+    !Number.isFinite(status.terrainCompletionVertexFloatCount) ||
+    status.terrainCompletionVertexFloatCount < 0 ||
+    !Number.isFinite(status.terrainCompletionIndexCount) ||
+    status.terrainCompletionIndexCount < 0 ||
+    !Number.isFinite(status.terrainWorkerRequestCount) ||
+    status.terrainWorkerRequestCount < 0 ||
     !Number.isFinite(status.terrainUpdateUpsertedMeshCount) ||
     status.terrainUpdateUpsertedMeshCount < 0 ||
     !Number.isFinite(status.terrainUpdateRemovedMeshCount) ||
@@ -1049,6 +1104,12 @@ function assertDebugContract(debug, expectations = {}) {
     status.terrainUpdateUploadedVertexFloatCount < 0 ||
     !Number.isFinite(status.terrainUpdateUploadedIndexCount) ||
     status.terrainUpdateUploadedIndexCount < 0 ||
+    !Number.isFinite(status.terrainUpdateDeferredUploadCount) ||
+    status.terrainUpdateDeferredUploadCount < 0 ||
+    !Number.isFinite(status.terrainUpdateDeferredRemovalCount) ||
+    status.terrainUpdateDeferredRemovalCount < 0 ||
+    typeof status.terrainUpdateUploadBudgetHit !== "boolean" ||
+    typeof status.terrainUpdateRemovalBudgetHit !== "boolean" ||
     status.shadowCascadeCount !== 4 ||
     status.shadowMapSize !== 1024 ||
     status.meshCount <= 0 ||

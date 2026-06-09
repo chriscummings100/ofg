@@ -26,7 +26,7 @@ decisions.
 |---|---|---|---|
 | OFG-API-001 | Browser shell to Rust browser game | Active | `src/engine/web/browserGameTypes.ts`, `src/engine/web/engineWebWasm.ts`, `crates/engine_web/src/perf.rs`, `crates/engine_web/src/wgpu_renderer.rs`, `crates/engine_web/src/post_process.rs` |
 | OFG-API-002 | Rust browser game to browser asset loader | Active | `src/engine/browser/textureAssetLoader.ts`, `crates/engine_web/src/terrain_textures.rs` |
-| OFG-API-003 | Debug and smoke-test hooks | Active | `src/app/game.ts`, `src/app/perfDebug.ts`, `src/engine/web/browserGameTypes.ts`, `tools/browser-smoke.mjs`, `tools/browser-perf-debug-capture.mjs` |
+| OFG-API-003 | Debug and smoke-test hooks | Active | `src/app/game.ts`, `src/app/perfDebug.ts`, `src/engine/web/browserGameTypes.ts`, `tools/browser-smoke.mjs`, `tools/browser-perf-debug-capture.mjs`, `tools/browser-terrain-stream-cpu-capture.mjs` |
 | OFG-API-004 | Terrain vertex and material layout | Active | `crates/terrain_core/src/constants.rs`, `crates/engine_web/src/config.rs`, `crates/engine_web/src/wgpu_renderer.rs`, `src/engine/render/shaders/UberShader.test.ts`, `src/engine/render/shaders/PostShader.test.ts` |
 | OFG-API-005 | Terrain presets and world descriptor codes | Active | `src/engine/world/terrainDescriptor.ts`, `src/engine/web/rustBrowserGameRuntime.ts`, `crates/terrain_core/src/presets.rs` |
 | OFG-API-006 | Standalone `terrain_core.wasm` artifact | Fixture | `tools/build-terrain-wasm.mjs`, `crates/terrain_core/src/facade.rs` |
@@ -141,10 +141,31 @@ and the selected post-process debug view:
     rendererStatus.postProcessDofFocusRange: number
     rendererStatus.postProcessDofMaxBlurPixels: number
     rendererStatus.terrainUpdateTotalMs: number
+    rendererStatus.terrainCompletionIngestMs: number
+    rendererStatus.terrainWorkerRequestDrainMs: number
+    rendererStatus.terrainStreamTickMs: number
+    rendererStatus.terrainStreamSyncMs: number
+    rendererStatus.terrainStreamSchedulerMs: number
+    rendererStatus.terrainStreamWorkerQueueMs: number
+    rendererStatus.terrainStreamVisibilityMs: number
+    rendererStatus.terrainStreamVisibilitySelectMs: number
+    rendererStatus.terrainStreamVisibilityStatusMs: number
+    rendererStatus.terrainStreamVisibilityApplyMs: number
+    rendererStatus.terrainMeshDestroyMs: number
+    rendererStatus.terrainMeshUploadMs: number
+    rendererStatus.terrainCompletionCount: number
+    rendererStatus.terrainCompletionAcceptedCount: number
+    rendererStatus.terrainCompletionVertexFloatCount: number
+    rendererStatus.terrainCompletionIndexCount: number
+    rendererStatus.terrainWorkerRequestCount: number
     rendererStatus.terrainUpdateUpsertedMeshCount: number
     rendererStatus.terrainUpdateRemovedMeshCount: number
     rendererStatus.terrainUpdateUploadedVertexFloatCount: number
     rendererStatus.terrainUpdateUploadedIndexCount: number
+    rendererStatus.terrainUpdateDeferredUploadCount: number
+    rendererStatus.terrainUpdateDeferredRemovalCount: number
+    rendererStatus.terrainUpdateUploadBudgetHit: boolean
+    rendererStatus.terrainUpdateRemovalBudgetHit: boolean
     rendererStatus.frameCulledDrawCount: number
     rendererStatus.frameSubmittedVertexCount: number
     rendererStatus.frameSubmittedIndexCount: number
@@ -167,8 +188,13 @@ The root debug snapshot also includes:
     renderDebugOptions
 
 The terrain update fields are Rust-owned CPU-side diagnostics for the latest
-terrain stream update on the browser game tick. They are intended for smoke and
-performance reports, not for browser-side terrain scheduling decisions.
+terrain stream update on the browser game tick. The stream timing split covers
+completion ingest, request draining, scheduler ticking, desired-center sync,
+worker request queueing, visibility selection/status/apply, deferred mesh
+destruction, and GPU mesh upload/registration. Budget fields report whether
+mesh upload or removal work remains queued after the current frame. These
+fields are intended for smoke and performance reports, not for browser-side
+terrain scheduling decisions.
 
 `rustPerfStats` is Rust-owned frame-history data. It summarizes recent Rust CPU
 timing spans, renderer counters, latest terrain LOD counters, shadow cascade
@@ -285,9 +311,13 @@ Current hook categories:
   vertices/indices/triangles, GPU timer availability, latest render counters,
   active render debug options, and latest GPU pass timings when available.
 - Browser CPU frame-loop perf summaries from `src/app/perfDebug.ts`, combined
-  with Rust-provided `rustPerfStats` only for DevTools dumps and capture
-  artifacts. Current debug hooks are `getPerfStats()`, `dumpPerfStats()`, and
-  `resetPerfStats()`.
+  with Rust-provided `rustPerfStats` and browser worker-bridge timings only for
+  DevTools dumps and capture artifacts. The browser worker bridge may report
+  completion budget, pending/drained completion counts, drained vertex/index
+  bytes, submitted request count, worker in-flight count, and browser-side
+  timing around completion drain, Rust completion ingest, Rust tick, request
+  drain, and worker request submission. Current debug hooks are
+  `getPerfStats()`, `dumpPerfStats()`, and `resetPerfStats()`.
 - Render diagnostic controls through `setRenderDebugOptions(...)`,
   `getRenderDebugOptions()`, and `resetRenderDebugOptions()`. Options can
   filter submitted terrain LODs, disable sky draws, disable procedural sky
