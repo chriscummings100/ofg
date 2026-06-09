@@ -66,8 +66,8 @@ use crate::shadows::{
     ShadowCascadeSet, ShadowSunMode,
 };
 use crate::terrain_stream::{
-    BrowserTerrainBuildCompletion, BrowserTerrainBuildRequest, BrowserTerrainMeshUpdate,
-    BrowserTerrainStream, BrowserTerrainStreamStatus, TerrainJobStats,
+    pop_ready_terrain_removal, BrowserTerrainBuildCompletion, BrowserTerrainBuildRequest,
+    BrowserTerrainMeshUpdate, BrowserTerrainStream, BrowserTerrainStreamStatus, TerrainJobStats,
     MAX_SAFE_TERRAIN_WORKER_REQUEST_ID,
 };
 use crate::terrain_textures::{load_terrain_texture_arrays, TerrainTextureArrays};
@@ -1451,7 +1451,10 @@ impl RustBrowserGame {
 
         let destroy_started_at_ms = terrain_update_now_ms();
         while removed_mesh_count < TERRAIN_REMOVAL_MAX_MESHES_PER_FRAME {
-            let Some(key) = self.pending_terrain_removals.pop_front() else {
+            let Some(key) = pop_ready_terrain_removal(
+                &mut self.pending_terrain_removals,
+                &self.pending_terrain_uploads,
+            ) else {
                 break;
             };
             self.destroy_terrain_mesh(key)?;
