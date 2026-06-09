@@ -177,6 +177,7 @@ async function runBrowserSmoke(url) {
 
     const diagnosticRenderOptions = {
       skyEnabled: false,
+      skyCloudNoiseEnabled: false,
       shadowCascadeMask: 0b0001,
       shadowSamplingEnabled: false,
       whiteTexturesEnabled: true,
@@ -476,6 +477,7 @@ async function exerciseRenderDebugUi(page) {
   const startingFrameIndex = await rendererFrameIndex(page);
   await page.selectOption("#render-debug-terrain-lod", "lod2");
   await page.uncheck("#render-debug-sky");
+  await page.uncheck("#render-debug-sky-cloud-noise");
   await page.uncheck("#render-debug-shadow-pass");
   await page.uncheck("#render-debug-shadow-sampling");
   await page.check("#render-debug-white-textures");
@@ -488,6 +490,7 @@ async function exerciseRenderDebugUi(page) {
   const expectedOptions = {
     terrainLodMask: 0b000100,
     skyEnabled: false,
+    skyCloudNoiseEnabled: false,
     shadowPassEnabled: false,
     shadowCascadeMask: 0b0001,
     shadowSamplingEnabled: false,
@@ -771,6 +774,8 @@ async function readDebugContract(page) {
           document.querySelector("#perf-overlay") instanceof HTMLElement,
         hasPostDebugView:
           document.querySelector("#post-debug-view") instanceof HTMLSelectElement,
+        hasSkyCloudNoise:
+          document.querySelector("#render-debug-sky-cloud-noise") instanceof HTMLInputElement,
         hasPostToneMapping:
           document.querySelector("#post-tone-mapping") instanceof HTMLInputElement,
         hasPostBloom:
@@ -900,6 +905,7 @@ function assertDebugContract(debug, expectations = {}) {
     debug.debugUi?.hasPerfOverlayToggle !== true ||
     debug.debugUi?.hasPerfOverlay !== true ||
     debug.debugUi?.hasPostDebugView !== true ||
+    debug.debugUi?.hasSkyCloudNoise !== true ||
     debug.debugUi?.hasPostToneMapping !== true ||
     debug.debugUi?.hasPostBloom !== true ||
     debug.debugUi?.hasPostDof !== true ||
@@ -1073,6 +1079,7 @@ function defaultRenderDebugOptions() {
   return {
     terrainLodMask: 0xFFFFFFFF,
     skyEnabled: true,
+    skyCloudNoiseEnabled: true,
     shadowPassEnabled: true,
     shadowCascadeMask: 0b1111,
     shadowSamplingEnabled: true,

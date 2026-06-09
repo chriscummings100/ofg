@@ -52,8 +52,9 @@ use crate::render_packets::{
 };
 use crate::render_uniforms::{
     build_frame_uniform_values, build_object_uniform_values, build_shadow_uniform_values,
-    FRAME_PACKET_FLOATS, FRAME_UNIFORM_FLOATS, MATERIAL_PACKET_FLOATS, OBJECT_UNIFORM_FLOATS,
-    SHADOW_DEBUG_MODE_OFFSET, SHADOW_STRENGTH_OFFSET, WORLD_MATRIX_FLOATS,
+    FRAME_PACKET_FLOATS, FRAME_UNIFORM_FLOATS, FRAME_UNIFORM_SKY_CLOUD_COVERAGE_OFFSET,
+    MATERIAL_PACKET_FLOATS, OBJECT_UNIFORM_FLOATS, SHADOW_DEBUG_MODE_OFFSET,
+    SHADOW_STRENGTH_OFFSET, WORLD_MATRIX_FLOATS,
 };
 use crate::resources::{ResourceHandle, ResourceStore};
 use crate::shadow_renderer::{
@@ -1925,7 +1926,10 @@ impl BrowserWgpuRenderer {
         view_projection.copy_from_slice(&frame_packet[0..WORLD_MATRIX_FLOATS]);
         let camera_frustum = frustum_from_view_projection(&view_projection)
             .ok_or_else(|| js_error("Rust WebGPU renderer received an invalid camera frustum."))?;
-        let frame_uniforms = build_frame_uniform_values(frame_packet).map_err(js_error)?;
+        let mut frame_uniforms = build_frame_uniform_values(frame_packet).map_err(js_error)?;
+        if !self.render_debug_options.sky_cloud_noise_enabled {
+            frame_uniforms[FRAME_UNIFORM_SKY_CLOUD_COVERAGE_OFFSET] = 0.0;
+        }
 
         let frame = match self.surface.get_current_texture() {
             Ok(frame) => frame,
@@ -3233,6 +3237,11 @@ fn render_debug_options_update_from_js(
     Ok(RenderDebugOptionsUpdate {
         terrain_lod_mask: js_optional_u32(command, "terrainLodMask", "command.terrainLodMask")?,
         sky_enabled: js_optional_bool(command, "skyEnabled", "command.skyEnabled")?,
+        sky_cloud_noise_enabled: js_optional_bool(
+            command,
+            "skyCloudNoiseEnabled",
+            "command.skyCloudNoiseEnabled",
+        )?,
         shadow_pass_enabled: js_optional_bool(
             command,
             "shadowPassEnabled",
@@ -4179,6 +4188,11 @@ fn render_debug_options_to_js(options: RenderDebugOptions) -> Result<JsValue, Js
         &object,
         "skyEnabled",
         JsValue::from_bool(options.sky_enabled),
+    )?;
+    set_js_property(
+        &object,
+        "skyCloudNoiseEnabled",
+        JsValue::from_bool(options.sky_cloud_noise_enabled),
     )?;
     set_js_property(
         &object,

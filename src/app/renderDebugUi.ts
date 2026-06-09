@@ -16,6 +16,7 @@ export type RenderDebugUiElements = {
   readonly panel: HTMLElement;
   readonly terrainLodSelect: HTMLSelectElement;
   readonly skyCheckbox: HTMLInputElement;
+  readonly skyCloudNoiseCheckbox: HTMLInputElement;
   readonly shadowPassCheckbox: HTMLInputElement;
   readonly shadowCascadeCheckboxes: readonly HTMLInputElement[];
   readonly shadowSamplingCheckbox: HTMLInputElement;
@@ -110,6 +111,11 @@ export function createRenderDebugUi(
   });
   elements.skyCheckbox.addEventListener("change", () => {
     applyDebugUpdate(callbacks, { skyEnabled: elements.skyCheckbox.checked });
+  });
+  elements.skyCloudNoiseCheckbox.addEventListener("change", () => {
+    applyDebugUpdate(callbacks, {
+      skyCloudNoiseEnabled: elements.skyCloudNoiseCheckbox.checked
+    });
   });
   elements.shadowPassCheckbox.addEventListener("change", () => {
     applyDebugUpdate(callbacks, { shadowPassEnabled: elements.shadowPassCheckbox.checked });
@@ -316,6 +322,7 @@ function syncControls(elements: RenderDebugUiElements, options: RenderDebugOptio
   const terrainMode = terrainLodMaskToMode(options.terrainLodMask);
   elements.terrainLodSelect.value = terrainMode;
   elements.skyCheckbox.checked = options.skyEnabled;
+  elements.skyCloudNoiseCheckbox.checked = options.skyCloudNoiseEnabled;
   elements.shadowPassCheckbox.checked = options.shadowPassEnabled;
   elements.shadowSamplingCheckbox.checked = options.shadowSamplingEnabled;
   elements.shadowSunModeSelect.value = options.shadowSunMode;

@@ -167,6 +167,7 @@ pub enum RenderMaterialDebugMode {
 pub struct RenderDebugOptions {
     pub terrain_lod_mask: u32,
     pub sky_enabled: bool,
+    pub sky_cloud_noise_enabled: bool,
     pub shadow_pass_enabled: bool,
     pub shadow_cascade_mask: u32,
     pub shadow_sampling_enabled: bool,
@@ -179,6 +180,7 @@ pub struct RenderDebugOptions {
 pub struct RenderDebugOptionsUpdate {
     pub terrain_lod_mask: Option<u32>,
     pub sky_enabled: Option<bool>,
+    pub sky_cloud_noise_enabled: Option<bool>,
     pub shadow_pass_enabled: Option<bool>,
     pub shadow_cascade_mask: Option<u32>,
     pub shadow_sampling_enabled: Option<bool>,
@@ -247,6 +249,7 @@ impl Default for RenderDebugOptions {
         Self {
             terrain_lod_mask: DEFAULT_TERRAIN_LOD_MASK,
             sky_enabled: true,
+            sky_cloud_noise_enabled: true,
             shadow_pass_enabled: true,
             shadow_cascade_mask: default_shadow_cascade_mask(),
             shadow_sampling_enabled: true,
@@ -528,6 +531,9 @@ impl RenderDebugOptions {
         }
         if let Some(enabled) = update.sky_enabled {
             self.sky_enabled = enabled;
+        }
+        if let Some(enabled) = update.sky_cloud_noise_enabled {
+            self.sky_cloud_noise_enabled = enabled;
         }
         if let Some(enabled) = update.shadow_pass_enabled {
             self.shadow_pass_enabled = enabled;

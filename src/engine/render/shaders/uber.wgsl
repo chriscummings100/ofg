@@ -648,6 +648,9 @@ fn cloudLayer(ray: vec3<f32>, sunDirection: vec3<f32>, skyColor: vec3<f32>) -> v
   let rayHeight = max(ray.y, 0.0);
   let horizonFade = smoothstep(0.03, 0.20, rayHeight);
   let coverage = clamp(camera.skyAtmosphereAndCloud.y, 0.0, 1.0);
+  if (coverage <= 0.0001) {
+    return skyColor;
+  }
   let speed = camera.skyAtmosphereAndCloud.z;
   let scale = camera.skyAtmosphereAndCloud.w;
   let softness = max(camera.skyCloudAndNight.x, 0.01);

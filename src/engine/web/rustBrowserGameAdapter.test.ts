@@ -88,6 +88,7 @@ describe("RustBrowserGameAdapter", () => {
     adapter.command({
       type: "setRenderDebugOptions",
       skyEnabled: false,
+      skyCloudNoiseEnabled: false,
       materialMode: "lambert"
     });
     adapter.command({ type: "resetRenderDebugOptions" });

@@ -117,6 +117,7 @@ describe("uber shader build", () => {
     ok(UBER_SHADER_SOURCE.includes("fn analyticSkyColor"));
     ok(UBER_SHADER_SOURCE.includes("fn sunRadiance"));
     ok(UBER_SHADER_SOURCE.includes("fn cloudLayer"));
+    ok(UBER_SHADER_SOURCE.includes("if (coverage <= 0.0001)"));
     ok(UBER_SHADER_SOURCE.includes("fn nightSkyColor"));
     ok(UBER_SHADER_SOURCE.includes("fn starField"));
   });

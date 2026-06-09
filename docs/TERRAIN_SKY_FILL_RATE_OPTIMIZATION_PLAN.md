@@ -18,9 +18,9 @@ The user-visible outcome is not just faster rendering. It is a factual diagnosis
 - [x] (2026-06-08 23:47Z) Archived the completed render-debug analysis plan at `C:\dev\ofg\docs\archived\RENDER_PERF_UI_AND_TERRAIN_LOD_ANALYSIS_PLAN_2026-06-08.md`.
 - [ ] Milestone 1: Re-run and record a clean baseline capture with the current debug controls before changing shader cost.
 - [ ] Milestone 2: Add Rust-owned render-debug controls and status for terrain material sample count by LOD and terrain roughness-map sampling by LOD.
-- [ ] Milestone 3: Gate procedural cloud noise behind a real Rust-owned debug option and keep the clear analytic sky path available.
+- [x] (2026-06-09 06:42Z) Milestone 3: Added Rust-owned `skyCloudNoiseEnabled`, forced scene-pass sky cloud coverage to zero when disabled, and made `cloudLayer(...)` return before fBm noise at zero coverage.
 - [ ] Milestone 4: Generate and sample mipmaps for terrain texture arrays.
-- [ ] Milestone 5: Extend browser UI, live overlay, smoke tests, and capture scenarios for the new fill-rate controls.
+- [ ] Milestone 5: Extend browser UI, live overlay, smoke tests, and capture scenarios for the new fill-rate controls. Cloud-noise UI, overlay text, smoke coverage, and capture scenario are complete; terrain material sample and roughness controls remain.
 - [ ] Milestone 6: Run post-change captures, compare against baseline, and record a data-backed conclusion.
 - [ ] Milestone 7: Run milestone review, coverage, smoke, and final documentation cleanup.
 
@@ -43,6 +43,18 @@ The user-visible outcome is not just faster rendering. It is a factual diagnosis
 
 - Observation: Terrain texture arrays currently have no mipmaps.
   Evidence: `create_texture(...)` in `C:\dev\ofg\crates\engine_web\src\wgpu_renderer.rs` creates renderer texture arrays with `mip_level_count: 1`, and `C:\dev\ofg\src\engine\browser\textureAssetLoader.ts` returns only mip-0 RGBA bytes.
+
+- Observation: Disabling procedural cloud noise produced a larger total GPU reduction than disabling the whole sky in one 120-frame capture, but this should be repeated before changing production defaults.
+  Evidence: `C:\dev\ofg\artifacts\perf-debug\2026-06-09T05-29-47-678Z\summary.json` reports baseline `gpuTotalAverageMs=9.869`, `sky-off=9.284` (`-0.585ms`), and `cloud-noise-off=8.752` (`-1.117ms`) with the same visible draw count and submitted vertex count.
+
+- Observation: The sky currently renders as a full-screen triangle before terrain, so looking at the floor still pays the sky shader for the whole render target when `skyEnabled` is true.
+  Evidence: `C:\dev\ofg\crates\engine_web\src\wgpu_renderer.rs` begins the scene render pass, binds `sky_pipeline`, draws `0..3`, then draws terrain/model items; `C:\dev\ofg\src\engine\render\shaders\uber.wgsl` runs `skyFragmentMain(...)` for that sky draw.
+
+- Observation: The current capture summary labels `gpuTotalAverageMs` as total measured GPU time, but that total is the sum of all timed GPU passes, including shadow cascades. It is not only scene plus post/resolve overhead.
+  Evidence: `GpuPassTimings::from_timestamp_pairs(...)` in `C:\dev\ofg\crates\engine_web\src\perf.rs` adds every `GpuTimedPass`, including `ShadowCascade(index)`, to `total_measured_ms`.
+
+- Observation: Manual local testing reported two unresolved numbers that need dedicated frame-graph instrumentation: an all-features-off black-screen view still costs about 4ms GPU, and a direct-down terrain-only view costs about 5ms scene GPU even when only part of the screen contains LOD0 terrain.
+  Evidence: User reported these measurements on 2026-06-09 after testing the debug controls. The current capture script does not yet have null-frame, clear-only, sky-after-terrain, or terrain-depth/area probe scenarios to isolate this floor.
 
 ## Decision Log
 
@@ -72,7 +84,16 @@ The user-visible outcome is not just faster rendering. It is a factual diagnosis
 
 ## Outcomes & Retrospective
 
-This section is intentionally blank at plan creation. As work proceeds, record what shipped, the before/after measurements, which hypotheses were confirmed or rejected, and any follow-up needed for terrain LOD mesh resolution or a baked sky/cloud cubemap.
+Milestone 3 shipped a real cloud-noise toggle without changing production defaults. `skyCloudNoiseEnabled` defaults true, resets with `resetRenderDebugOptions`, appears in Rust renderer status and TypeScript debug types, is visible in the browser render-debug panel as `Cloud noise`, and appears in the live perf overlay as `cloud=on/off`. When disabled, Rust writes zero cloud coverage into the scene camera uniform and WGSL returns from `cloudLayer(...)` before running procedural fBm cloud noise.
+
+Milestone review:
+- Scope: Rust render debug option, scene camera-uniform override, WGSL early return, browser UI/debug hooks, smoke/capture automation, shader/WASM artifacts, and API contract docs for `skyCloudNoiseEnabled`.
+- Reviewers: contract, code quality, legacy, correctness, and validation were run locally. Sub-agent tools were available, but their tool contract only permits spawning when the user explicitly asks for sub-agents or delegation.
+- Required findings fixed: moved the sky cloud coverage uniform offset into `render_uniforms` and exported it so the renderer does not own a hidden layout magic number; reran the focused Rust test and confirmed the warning was gone.
+- Follow-ups recorded: add null-frame / clear-only / scene-without-sky / post-disabled capture scenarios and consider rendering sky after opaque terrain or using depth to avoid paying sky over floor pixels.
+- Rejected findings: none.
+- Validation rerun: `cargo test -p engine_web perf_tests`, `npm run check:shaders`, `npm run test:ts`, `npm run smoke:browser`, `node tools/browser-perf-debug-capture.mjs`, `npm run coverage:rust`, `npm run check:wasm`, `git -c safe.directory=C:/dev/ofg diff --check`, and `npm test` all passed.
+- Remaining risk: `cloud-noise-off` improved the measured capture, but the user-observed 4ms black-frame floor and 5ms terrain-only scene cost are not explained by this milestone and need more granular frame-graph toggles/timers before production optimization choices.
 
 ## Contract and Quality Baseline
 

@@ -31,6 +31,11 @@ const experiments = [
     options: { skyEnabled: false }
   },
   {
+    id: "cloud-noise-off",
+    label: "Sky cloud noise disabled",
+    options: { skyCloudNoiseEnabled: false }
+  },
+  {
     id: "shadow-pass-off",
     label: "Shadow-map passes disabled",
     options: { shadowPassEnabled: false }

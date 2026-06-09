@@ -58,6 +58,7 @@ describe("RustBrowserGameRuntime", () => {
     runtime.command({
       type: "setRenderDebugOptions",
       skyEnabled: false,
+      skyCloudNoiseEnabled: false,
       shadowSamplingEnabled: false,
       materialMode: "lambert"
     });
@@ -94,6 +95,7 @@ describe("RustBrowserGameRuntime", () => {
     deepEqual(renderer.commandCalls[7], {
       type: "setRenderDebugOptions",
       skyEnabled: false,
+      skyCloudNoiseEnabled: false,
       shadowSamplingEnabled: false,
       materialMode: "lambert"
     });

@@ -32,6 +32,7 @@ export type ShadowSunMode = "production" | "overhead" | "angled" | "low";
 export type RenderDebugOptions = {
   readonly terrainLodMask: number;
   readonly skyEnabled: boolean;
+  readonly skyCloudNoiseEnabled: boolean;
   readonly shadowPassEnabled: boolean;
   readonly shadowCascadeMask: number;
   readonly shadowSamplingEnabled: boolean;

@@ -599,6 +599,12 @@ function validateRenderDebugOptionsUpdate(
   if (options.skyEnabled !== undefined) {
     update.skyEnabled = validateBoolean(options.skyEnabled, "skyEnabled");
   }
+  if (options.skyCloudNoiseEnabled !== undefined) {
+    update.skyCloudNoiseEnabled = validateBoolean(
+      options.skyCloudNoiseEnabled,
+      "skyCloudNoiseEnabled"
+    );
+  }
   if (options.shadowPassEnabled !== undefined) {
     update.shadowPassEnabled = validateBoolean(options.shadowPassEnabled, "shadowPassEnabled");
   }
@@ -640,6 +646,7 @@ function validateRenderDebugOptionsUpdate(
 type MutableRenderDebugOptionsUpdate = {
   terrainLodMask?: RenderDebugOptions["terrainLodMask"];
   skyEnabled?: RenderDebugOptions["skyEnabled"];
+  skyCloudNoiseEnabled?: RenderDebugOptions["skyCloudNoiseEnabled"];
   shadowPassEnabled?: RenderDebugOptions["shadowPassEnabled"];
   shadowCascadeMask?: RenderDebugOptions["shadowCascadeMask"];
   shadowSamplingEnabled?: RenderDebugOptions["shadowSamplingEnabled"];

@@ -79,6 +79,9 @@ function readRenderDebugUi(): GameRenderDebugUiElements | null {
   const panel = document.querySelector<HTMLElement>("#render-debug-panel");
   const terrainLodSelect = document.querySelector<HTMLSelectElement>("#render-debug-terrain-lod");
   const skyCheckbox = document.querySelector<HTMLInputElement>("#render-debug-sky");
+  const skyCloudNoiseCheckbox = document.querySelector<HTMLInputElement>(
+    "#render-debug-sky-cloud-noise"
+  );
   const shadowPassCheckbox = document.querySelector<HTMLInputElement>("#render-debug-shadow-pass");
   const shadowCascadeCheckboxes = Array.from(
     document.querySelectorAll<HTMLInputElement>("[data-shadow-cascade]")
@@ -118,6 +121,7 @@ function readRenderDebugUi(): GameRenderDebugUiElements | null {
     panel === null ||
     terrainLodSelect === null ||
     skyCheckbox === null ||
+    skyCloudNoiseCheckbox === null ||
     shadowPassCheckbox === null ||
     shadowCascadeCheckboxes.length !== 4 ||
     shadowSamplingCheckbox === null ||
@@ -148,6 +152,7 @@ function readRenderDebugUi(): GameRenderDebugUiElements | null {
     panel,
     terrainLodSelect,
     skyCheckbox,
+    skyCloudNoiseCheckbox,
     shadowPassCheckbox,
     shadowCascadeCheckboxes,
     shadowSamplingCheckbox,

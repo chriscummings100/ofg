@@ -19,6 +19,7 @@ export function fakeRenderDebugOptions(
   return {
     terrainLodMask: 0xFFFFFFFF,
     skyEnabled: true,
+    skyCloudNoiseEnabled: true,
     shadowPassEnabled: true,
     shadowCascadeMask: 0b1111,
     shadowSamplingEnabled: true,

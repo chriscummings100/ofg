@@ -107,9 +107,9 @@ pub use render_packets::{
 };
 pub use render_uniforms::{
     build_frame_uniform_values, build_object_uniform_values, build_shadow_uniform_values,
-    RenderUniformError, FRAME_PACKET_FLOATS, FRAME_UNIFORM_FLOATS, MATERIAL_PACKET_FLOATS,
-    OBJECT_UNIFORM_FLOATS, SHADOW_DEBUG_MODE_OFFSET, SHADOW_STRENGTH_OFFSET, SHADOW_UNIFORM_FLOATS,
-    WORLD_MATRIX_FLOATS,
+    RenderUniformError, FRAME_PACKET_FLOATS, FRAME_UNIFORM_FLOATS,
+    FRAME_UNIFORM_SKY_CLOUD_COVERAGE_OFFSET, MATERIAL_PACKET_FLOATS, OBJECT_UNIFORM_FLOATS,
+    SHADOW_DEBUG_MODE_OFFSET, SHADOW_STRENGTH_OFFSET, SHADOW_UNIFORM_FLOATS, WORLD_MATRIX_FLOATS,
 };
 pub use renderer::{
     MeshResource, RendererResourceCounts, RendererState, RendererStateError, TextureResource,

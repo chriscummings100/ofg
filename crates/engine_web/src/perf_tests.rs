@@ -148,6 +148,7 @@ fn debug_options_validate_masks_and_partial_updates() {
         .apply_update(RenderDebugOptionsUpdate {
             terrain_lod_mask: Some(0b101),
             sky_enabled: Some(false),
+            sky_cloud_noise_enabled: Some(false),
             shadow_cascade_mask: Some(0b0011),
             shadow_sun_mode: Some(ShadowSunMode::Overhead),
             material_mode: Some(RenderMaterialDebugMode::Lambert),
@@ -159,6 +160,7 @@ fn debug_options_validate_masks_and_partial_updates() {
     assert!(!updated.terrain_lod_enabled(1));
     assert!(updated.terrain_lod_enabled(2));
     assert!(!updated.sky_enabled);
+    assert!(!updated.sky_cloud_noise_enabled);
     assert!(updated.shadow_cascade_enabled(1));
     assert!(!updated.shadow_cascade_enabled(3));
     assert_eq!(updated.shadow_sun_mode, ShadowSunMode::Overhead);

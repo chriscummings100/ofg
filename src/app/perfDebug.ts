@@ -314,6 +314,7 @@ function formatShadowCascadeCounters(
 function formatRenderDebugOptions(options: RenderDebugOptions): string {
   return `lod=${formatMask(options.terrainLodMask, 8)} ` +
     `sky=${formatOnOff(options.skyEnabled)} ` +
+    `cloud=${formatOnOff(options.skyCloudNoiseEnabled)} ` +
     `shPass=${formatOnOff(options.shadowPassEnabled)} ` +
     `shSamp=${formatOnOff(options.shadowSamplingEnabled)} ` +
     `casc=${formatMask(options.shadowCascadeMask, 4)} ` +

@@ -106,7 +106,8 @@ smoke tests. Current commands are:
     { type: "setPostProcessDepthOfField", enabled, focusDistance,
       focusRange, maxBlurPixels }
     { type: "setRenderDebugOptions", terrainLodMask?, skyEnabled?,
-      shadowPassEnabled?, shadowCascadeMask?, shadowSamplingEnabled?,
+      skyCloudNoiseEnabled?, shadowPassEnabled?, shadowCascadeMask?,
+      shadowSamplingEnabled?,
       shadowSunMode?: "production" | "overhead" | "angled" | "low",
       whiteTexturesEnabled?, materialMode?: "full" | "lambert" }
     { type: "resetRenderDebugOptions" }
@@ -288,7 +289,8 @@ Current hook categories:
   `resetPerfStats()`.
 - Render diagnostic controls through `setRenderDebugOptions(...)`,
   `getRenderDebugOptions()`, and `resetRenderDebugOptions()`. Options can
-  filter submitted terrain LODs, disable sky draws, disable shadow-map passes,
+  filter submitted terrain LODs, disable sky draws, disable procedural sky
+  cloud noise while keeping the analytic sky visible, disable shadow-map passes,
   choose active shadow cascades, disable shadow sampling, force deterministic
   shadow sun modes for capture diagnostics, force diagnostic white texture
   sampling, and use a basic Lambert material mode. These controls must default
