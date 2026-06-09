@@ -23,6 +23,8 @@ mod shadow_renderer;
 mod shadows;
 mod terrain_stream;
 mod terrain_textures;
+#[cfg(any(test, target_arch = "wasm32"))]
+mod texture_mips;
 #[cfg(target_arch = "wasm32")]
 mod wgpu_renderer;
 

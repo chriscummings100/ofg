@@ -70,6 +70,7 @@ use crate::terrain_stream::{
     BrowserTerrainStreamStatus, TerrainJobStats, MAX_SAFE_TERRAIN_WORKER_REQUEST_ID,
 };
 use crate::terrain_textures::{load_terrain_texture_arrays, TerrainTextureArrays};
+use crate::texture_mips::build_rgba8_mip_chain;
 use crate::ENGINE_WEB_VERSION;
 use engine_core::{PlayerConfig, PlayerMode, Vec3};
 use terrain_core::{terrain_node_key, TerrainChunkCoord, TerrainNodeKey, DEFAULT_TERRAIN_PRESET};
@@ -1500,6 +1501,7 @@ impl BrowserWgpuRenderer {
             address_mode_v: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
         let object_bind_group_layout =
@@ -2057,11 +2059,6 @@ impl BrowserWgpuRenderer {
                 occlusion_query_set: None,
             });
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            if self.render_debug_options.sky_enabled {
-                pass.set_pipeline(&self.sky_pipeline);
-                pass.draw(0..3, 0..1);
-                counters.record_sky_draw();
-            }
             pass.set_bind_group(2, &self.shadow_resources.bind_group, &[]);
 
             let mut active_vertex_layout = None;
@@ -2098,6 +2095,12 @@ impl BrowserWgpuRenderer {
                     item.terrain_lod,
                 );
                 visible_draw_count = visible_draw_count.saturating_add(1);
+            }
+            // Draw sky after opaque scene items so depth rejects covered pixels.
+            if self.render_debug_options.sky_enabled {
+                pass.set_pipeline(&self.sky_pipeline);
+                pass.draw(0..3, 0..1);
+                counters.record_sky_draw();
             }
             self.frame_visible_draw_count = visible_draw_count;
             self.frame_shadow_draw_count = shadow_draw_count;
@@ -2405,6 +2408,8 @@ impl BrowserWgpuRenderer {
         layers: u32,
         data: &[u8],
     ) -> Result<ResourceHandle, JsValue> {
+        let mip_chain = build_rgba8_mip_chain(width, height, layers, data).map_err(js_error)?;
+        let mip_level_count = mip_chain.len() as u32;
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("renderer texture array"),
             size: wgpu::Extent3d {
@@ -2412,46 +2417,50 @@ impl BrowserWgpuRenderer {
                 height,
                 depth_or_array_layers: layers,
             },
-            mip_level_count: 1,
+            mip_level_count,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        let bytes_per_layer = width as usize * height as usize * 4;
-        for layer in 0..layers {
-            let layer_start = layer as usize * bytes_per_layer;
-            let layer_end = layer_start + bytes_per_layer;
-            self.queue.write_texture(
-                wgpu::ImageCopyTexture {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d {
-                        x: 0,
-                        y: 0,
-                        z: layer,
+        for (mip_level, mip) in mip_chain.iter().enumerate() {
+            let bytes_per_layer = mip.width as usize * mip.height as usize * 4;
+            for layer in 0..layers {
+                let layer_start = layer as usize * bytes_per_layer;
+                let layer_end = layer_start + bytes_per_layer;
+                self.queue.write_texture(
+                    wgpu::ImageCopyTexture {
+                        texture: &texture,
+                        mip_level: mip_level as u32,
+                        origin: wgpu::Origin3d {
+                            x: 0,
+                            y: 0,
+                            z: layer,
+                        },
+                        aspect: wgpu::TextureAspect::All,
                     },
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &data[layer_start..layer_end],
-                wgpu::ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: Some(width * 4),
-                    rows_per_image: Some(height),
-                },
-                wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-            );
+                    &mip.data[layer_start..layer_end],
+                    wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(mip.width * 4),
+                        rows_per_image: Some(mip.height),
+                    },
+                    wgpu::Extent3d {
+                        width: mip.width,
+                        height: mip.height,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            }
         }
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
             label: Some("renderer texture array view"),
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             base_array_layer: 0,
             array_layer_count: Some(layers),
+            base_mip_level: 0,
+            mip_level_count: Some(mip_level_count),
             ..Default::default()
         });
 
@@ -2911,7 +2920,7 @@ fn create_sky_pipeline(
         depth_stencil: Some(wgpu::DepthStencilState {
             format: DEPTH_FORMAT,
             depth_write_enabled: false,
-            depth_compare: wgpu::CompareFunction::Always,
+            depth_compare: wgpu::CompareFunction::LessEqual,
             stencil: Default::default(),
             bias: Default::default(),
         }),

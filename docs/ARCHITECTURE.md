@@ -236,8 +236,10 @@ not reinterpreted as glTF metallic-roughness.
 
 Rust interprets the checked-in terrain texture manifest, requests generic
 browser RGBA texture arrays, validates the returned arrays, and installs the GPU
-texture handles. Rust/wgpu builds compact frame packets from its Rust-owned
-browser game state, owns shader material packets and material-to-texture
+texture handles. Browser TypeScript returns only mip-0 RGBA bytes; Rust/wgpu
+derives deterministic RGBA8 mip chains and uses mip-filtered texture sampling.
+Rust/wgpu builds compact frame packets from its Rust-owned browser game state,
+owns shader material packets and material-to-texture
 selection, keeps the low-level debug player marker in `engine_core` rather than
 the browser renderer path, validates per-chunk terrain draw transforms inside
 the browser game facade, consumes scene mesh world matrices extracted by
@@ -262,7 +264,7 @@ not yet applied to lighting. Imported glTF normal textures are likewise recorded
 and uploaded when present, but tangent-space normal-map lighting is deferred
 until tangents are imported or generated.
 
-The sky is also shader-driven. Rust/wgpu draws a full-screen sky pass before
+The sky is also shader-driven. Rust/wgpu draws a depth-tested sky pass after
 terrain and scene mesh geometry, reconstructs world rays from the inverse
 view-projection matrix, and renders a Hosek/Wilkie-inspired analytic sky with
 sun glow, moon glow, procedural stars, and a moving procedural cloud layer.

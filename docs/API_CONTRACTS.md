@@ -215,8 +215,9 @@ Contract rules:
 ## OFG-API-002: Rust Game To Browser Asset Loader
 
 Rust owns terrain texture manifest interpretation, layer ordering, texture
-array IDs, texture-array shape validation, and GPU texture installation.
-TypeScript only decodes Rust-provided URL lists into RGBA bytes.
+array IDs, texture-array shape validation, mip generation, sampler filtering,
+and GPU texture installation. TypeScript only decodes Rust-provided URL lists
+into mip-0 RGBA bytes.
 
 The active terrain texture path calls:
 

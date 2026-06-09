@@ -19,10 +19,12 @@ The user-visible outcome is not just faster rendering. It is a factual diagnosis
 - [ ] Milestone 1: Re-run and record a clean baseline capture with the current debug controls before changing shader cost.
 - [ ] Milestone 2: Add Rust-owned render-debug controls and status for terrain material sample count by LOD and terrain roughness-map sampling by LOD.
 - [x] (2026-06-09 06:42Z) Milestone 3: Added Rust-owned `skyCloudNoiseEnabled`, forced scene-pass sky cloud coverage to zero when disabled, and made `cloudLayer(...)` return before fBm noise at zero coverage.
-- [ ] Milestone 4: Generate and sample mipmaps for terrain texture arrays.
+- [x] (2026-06-09 06:35Z) Milestone 4: Generate and sample mipmaps for terrain texture arrays. Rust now derives deterministic RGBA8 mip chains from browser-provided mip-0 bytes, uploads all mip levels, and uses linear mip filtering.
+- [x] (2026-06-09 06:36Z) Ran the Milestone 4 local milestone review, fixed the checked byte-size finding in the mip builder, reran the relevant Rust/TypeScript/WASM/browser/coverage gates, and recorded the latest perf capture.
 - [ ] Milestone 5: Extend browser UI, live overlay, smoke tests, and capture scenarios for the new fill-rate controls. Cloud-noise UI, overlay text, smoke coverage, and capture scenario are complete; terrain material sample and roughness controls remain.
 - [ ] Milestone 6: Run post-change captures, compare against baseline, and record a data-backed conclusion.
 - [ ] Milestone 7: Run milestone review, coverage, smoke, and final documentation cleanup.
+- [x] (2026-06-09 06:56Z) Reordered sky rendering after opaque scene draws with depth testing so covered floor/terrain pixels do not shade the sky; verified DoF remains production-default off.
 
 ## Surprises & Discoveries
 
@@ -38,17 +40,23 @@ The user-visible outcome is not just faster rendering. It is a factual diagnosis
 - Observation: Terrain normal maps are loaded as texture arrays but are not currently applied in terrain lighting.
   Evidence: `normalTexture` is bound in `uber.wgsl`, but the terrain path does not call `textureSample(normalTexture, ...)`; `C:\dev\ofg\docs\ARCHITECTURE.md` also states that terrain normal maps are loaded but not yet applied.
 
-- Observation: The sky shader computes procedural cloud noise every sky pixel, and the sky pass currently draws a full-screen triangle before terrain.
-  Evidence: `skyFragmentMain(...)` in `C:\dev\ofg\src\engine\render\shaders\uber.wgsl` calls `cloudLayer(...)`; `cloudLayer(...)` performs two `skyFbm2(...)` calls, each with five noise octaves. `C:\dev\ofg\crates\engine_web\src\wgpu_renderer.rs` draws the sky before terrain with the sky pipeline depth compare set to `Always`.
+- Observation: The sky shader computes procedural cloud noise every sky pixel where the sky pass shades, and before the 2026-06-09 sky-order fix the sky pass drew a full-screen triangle before terrain.
+  Evidence: `skyFragmentMain(...)` in `C:\dev\ofg\src\engine\render\shaders\uber.wgsl` calls `cloudLayer(...)`; `cloudLayer(...)` performs two `skyFbm2(...)` calls, each with five noise octaves. The current renderer draws sky after opaque terrain/model draws with depth testing, but pre-fix `C:\dev\ofg\crates\engine_web\src\wgpu_renderer.rs` drew sky before terrain with the sky pipeline depth compare set to `Always`.
 
-- Observation: Terrain texture arrays currently have no mipmaps.
-  Evidence: `create_texture(...)` in `C:\dev\ofg\crates\engine_web\src\wgpu_renderer.rs` creates renderer texture arrays with `mip_level_count: 1`, and `C:\dev\ofg\src\engine\browser\textureAssetLoader.ts` returns only mip-0 RGBA bytes.
+- Observation: Before the 2026-06-09 mipmap fix, terrain texture arrays had no mipmaps.
+  Evidence: `create_texture(...)` in `C:\dev\ofg\crates\engine_web\src\wgpu_renderer.rs` created renderer texture arrays with `mip_level_count: 1`, and `C:\dev\ofg\src\engine\browser\textureAssetLoader.ts` returned only mip-0 RGBA bytes. The current path keeps TypeScript returning mip-0 only, but Rust builds and uploads the derived mip chain.
+
+- Observation: After enabling mipmaps, a fresh capture still shows meaningful terrain and shadow cost; the mip fix addresses the confirmed shimmer/no-mip bug but does not explain all remaining terrain expense.
+  Evidence: `C:\dev\ofg\artifacts\perf-debug\2026-06-09T06-22-27-886Z\summary.json` reports baseline `gpuTotalAverageMs=8.604`, `shadow-pass-off=4.817`, `sky-off=7.569`, `cloud-noise-off=7.913`, and `white-textures=6.865`. The same capture reports baseline terrain vertices `550510`, with LOD1 dominant at `223746` vertices (`40.644%`). With shadows disabled, the LOD-mask scene costs were `terrain-lod-0-shadow-off scene=2.800ms`, `terrain-lod-1-shadow-off scene=4.170ms`, `terrain-lod-2-shadow-off scene=3.976ms`, and `terrain-lod-3-plus-shadow-off scene=3.771ms`.
 
 - Observation: Disabling procedural cloud noise produced a larger total GPU reduction than disabling the whole sky in one 120-frame capture, but this should be repeated before changing production defaults.
   Evidence: `C:\dev\ofg\artifacts\perf-debug\2026-06-09T05-29-47-678Z\summary.json` reports baseline `gpuTotalAverageMs=9.869`, `sky-off=9.284` (`-0.585ms`), and `cloud-noise-off=8.752` (`-1.117ms`) with the same visible draw count and submitted vertex count.
 
-- Observation: The sky currently renders as a full-screen triangle before terrain, so looking at the floor still pays the sky shader for the whole render target when `skyEnabled` is true.
-  Evidence: `C:\dev\ofg\crates\engine_web\src\wgpu_renderer.rs` begins the scene render pass, binds `sky_pipeline`, draws `0..3`, then draws terrain/model items; `C:\dev\ofg\src\engine\render\shaders\uber.wgsl` runs `skyFragmentMain(...)` for that sky draw.
+- Observation: Before the 2026-06-09 sky-order fix, the sky rendered as a full-screen triangle before terrain, so looking at the floor still paid the sky shader for the whole render target when `skyEnabled` was true.
+  Evidence: The user observed sky cost while looking at floor pixels on 2026-06-09. The current fix in `C:\dev\ofg\crates\engine_web\src\wgpu_renderer.rs` now draws sky after terrain/model items and uses a depth-tested sky pipeline so the old full-screen-before-opaque behavior is no longer expected.
+
+- Observation: DoF is production-default off, and should stay opt-in until it has a smarter implementation.
+  Evidence: `PostProcessSettings::new()` in `C:\dev\ofg\crates\engine_web\src\post_process.rs` sets `dof_enabled: false`, browser smoke `defaultPostProcessSettings()` expects `postProcessDofEnabled: false`, and the UI checkbox has no `checked` attribute.
 
 - Observation: The current capture summary labels `gpuTotalAverageMs` as total measured GPU time, but that total is the sum of all timed GPU passes, including shadow cascades. It is not only scene plus post/resolve overhead.
   Evidence: `GpuPassTimings::from_timestamp_pairs(...)` in `C:\dev\ofg\crates\engine_web\src\perf.rs` adds every `GpuTimedPass`, including `ShadowCascade(index)`, to `total_measured_ms`.
@@ -81,6 +89,10 @@ The user-visible outcome is not just faster rendering. It is a factual diagnosis
   Rationale: WebGPU does not automatically generate mipmaps. GPU generation avoids storing or transferring a larger CPU-side mip chain across the browser/Rust boundary. A fallback CPU path is acceptable only if it is deterministic, tested, and measured for startup impact.
   Date/Author: 2026-06-08 / Codex
 
+- Decision: Use a deterministic Rust CPU mip-chain builder for the first production mipmap slice.
+  Rationale: This fixes the confirmed no-mip terrain shimmer/perf bug without changing the browser asset-loader contract or adding a new GPU downsample pipeline during performance diagnosis. The generated mip chain is tested natively and can later be replaced by a GPU blit path if startup cost becomes measurable.
+  Date/Author: 2026-06-09 / Codex
+
 - Decision: Keep production defaults visually conservative.
   Rationale: These are optimization controls. Defaults should preserve current behavior except for mipmaps, which should be production-on once verified because they improve distant sampling quality and likely performance. Material sample reductions and cloud disabling should remain debug-tunable until captures justify production changes.
   Date/Author: 2026-06-08 / Codex
@@ -91,6 +103,12 @@ Milestone 3 shipped a real cloud-noise toggle without changing production defaul
 
 On 2026-06-09, the final post-process shader was also tightened after debug-view testing showed that `sceneColor` removed the unexplained overhead. The `final` shader path now computes the 9-tap DoF blur only when DoF is enabled or the selected debug view is `dofBlurred`. A follow-up capture at `C:\dev\ofg\artifacts\perf-debug\2026-06-09T05-50-08-634Z\summary.json` reported baseline `gpuTotalAverageMs=8.305`, `dof-on=8.828` (`+0.523ms`), and `tone-map-off=8.282`, which is consistent with DoF blur no longer being a hidden always-on cost.
 
+On 2026-06-09, sky draw order moved to after terrain/model scene draws. The sky pipeline now uses `LessEqual` depth compare with depth writes disabled, so it only shades pixels where the scene depth buffer remains at the far clear value. This preserves the `skyEnabled` debug option but stops the sky from consuming full-screen fragment time when opaque terrain already covers the view.
+
+On 2026-06-09, terrain texture mipmaps were enabled after high-exposure camera movement showed distant texture shimmer/noise and code inspection confirmed `mip_level_count: 1`. Rust now computes full RGBA8 mip chains for renderer texture arrays, uploads every mip level, and sets the terrain sampler `mipmap_filter` to linear. TypeScript still only decodes Rust-requested URL lists into mip-0 RGBA arrays, so terrain texture semantics remain Rust-owned.
+
+A follow-up capture at `C:\dev\ofg\artifacts\perf-debug\2026-06-09T06-22-27-886Z\summary.json` shows that mipmaps were necessary but not sufficient: terrain LOD1 remains the largest vertex bucket, shadow pass removal still saves about `3.787ms` measured GPU time, and terrain LOD masks with shadows disabled still cost roughly `2.800ms` to `4.170ms` in the scene pass. This keeps the next optimization question focused on terrain shader sample controls, far-LOD voxel resolution, and more precise frame-graph probes rather than assuming mipmaps alone solved the problem.
+
 Milestone review:
 - Scope: Rust render debug option, scene camera-uniform override, WGSL early return, browser UI/debug hooks, smoke/capture automation, shader/WASM artifacts, and API contract docs for `skyCloudNoiseEnabled`.
 - Reviewers: contract, code quality, legacy, correctness, and validation were run locally. Sub-agent tools were available, but their tool contract only permits spawning when the user explicitly asks for sub-agents or delegation.
@@ -99,6 +117,15 @@ Milestone review:
 - Rejected findings: none.
 - Validation rerun: `cargo test -p engine_web perf_tests`, `npm run check:shaders`, `npm run test:ts`, `npm run smoke:browser`, `node tools/browser-perf-debug-capture.mjs`, `npm run coverage:rust`, `npm run check:wasm`, `git -c safe.directory=C:/dev/ofg diff --check`, and `npm test` all passed.
 - Remaining risk: `cloud-noise-off` improved the measured capture, but the user-observed 4ms black-frame floor and 5ms terrain-only scene cost are not explained by this milestone and need more granular frame-graph toggles/timers before production optimization choices.
+
+Milestone 4 and sky-order review:
+- Scope: depth-tested sky draw reorder, DoF default verification, Rust CPU RGBA8 mip-chain generation, texture sampler/view/upload changes, generated engine-web WASM artifacts, API contract docs, architecture docs, and post-change perf evidence.
+- Reviewers: contract, code quality, legacy, correctness, and validation were run locally. Sub-agent tools were not used because the current tool contract only permits spawning them when the user explicitly asks for sub-agents or delegation.
+- Required findings fixed: changed mip byte-size calculation to checked multiplication and added an overflow-shaped invalid-input test so malformed browser-provided dimensions reject cleanly instead of risking a panic.
+- Follow-ups recorded: CPU mip generation startup cost has not been isolated separately; RGBA8 averaging is adequate for current albedo/material use, but normal-map mip generation should be revisited if terrain/model normal maps become lighting inputs.
+- Rejected findings: none.
+- Validation rerun: `cargo test -p engine_web texture_mips`, `cargo test -p engine_web`, `npm run check:wasm`, `npm run test:ts`, `npm run smoke:browser`, `npm run coverage:rust`, `node tools/browser-perf-debug-capture.mjs`, and `git -c safe.directory=C:/dev/ofg diff --check` all passed. The final browser smoke artifact is `C:\dev\ofg\artifacts\browser-smoke\2026-06-09T06-30-16-450Z`; the perf capture artifact is `C:\dev\ofg\artifacts\perf-debug\2026-06-09T06-22-27-886Z`; coverage reported no implementation files below the default 90% attention threshold.
+- Remaining risk: the latest capture still shows terrain scene cost and shadow cost after mips. The next milestone should add/finish terrain material sample count and roughness toggles, then use captures with camera angle and LOD controls to separate pixel-shader cost from terrain mesh density and shadow draw cost.
 
 ## Contract and Quality Baseline
 
