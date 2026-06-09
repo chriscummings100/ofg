@@ -62,4 +62,9 @@ describe("post shader build", () => {
     ok(POST_SHADER_SOURCE.includes("fn dofBlurredSceneColor"));
     ok(POST_SHADER_SOURCE.includes("dofSettings"));
   });
+
+  it("only computes the expensive DoF blur when enabled or explicitly debugged", () => {
+    ok(POST_SHADER_SOURCE.includes("let dofBlurredView"));
+    ok(POST_SHADER_SOURCE.includes("if (postProcess.dofSettings.x >= 0.5 || dofBlurredView)"));
+  });
 });

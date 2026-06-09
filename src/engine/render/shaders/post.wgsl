@@ -193,25 +193,25 @@ fn postFragmentMain(input: PostVertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(max(sceneColor, vec3<f32>(0.0)), 1.0);
   }
 
-  let bloomColor = textureSample(bloomTexture, postSampler, input.uv).rgb;
   if (abs(debugView - POST_DEBUG_BLOOM) < 0.5) {
+    let bloomColor = textureSample(bloomTexture, postSampler, input.uv).rgb;
     return vec4<f32>(max(bloomColor * postProcess.bloomSettings.z, vec3<f32>(0.0)), 1.0);
   }
 
-  let linearDepth = linearDepthAtPixel(input.clipPosition.xy);
-  let dofRadiusPixels = dofCocPixels(linearDepth);
   if (abs(debugView - POST_DEBUG_DOF_COC) < 0.5) {
     return vec4<f32>(dofCocDebug(input.clipPosition.xy), 1.0);
   }
 
   let sceneBloomColor = sceneColor + bloomContribution(input.uv);
-  let dofSceneColor = dofBlurredSceneColor(input.uv, dofRadiusPixels);
-  if (abs(debugView - POST_DEBUG_DOF_BLURRED) < 0.5) {
-    return vec4<f32>(applyToneMap(dofSceneColor), 1.0);
-  }
-
+  let dofBlurredView = abs(debugView - POST_DEBUG_DOF_BLURRED) < 0.5;
   var postEffectColor = sceneBloomColor;
-  if (postProcess.dofSettings.x >= 0.5) {
+  if (postProcess.dofSettings.x >= 0.5 || dofBlurredView) {
+    let linearDepth = linearDepthAtPixel(input.clipPosition.xy);
+    let dofRadiusPixels = dofCocPixels(linearDepth);
+    let dofSceneColor = dofBlurredSceneColor(input.uv, dofRadiusPixels);
+    if (dofBlurredView) {
+      return vec4<f32>(applyToneMap(dofSceneColor), 1.0);
+    }
     postEffectColor = dofSceneColor;
   }
 

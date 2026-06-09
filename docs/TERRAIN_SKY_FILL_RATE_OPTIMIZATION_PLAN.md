@@ -56,6 +56,9 @@ The user-visible outcome is not just faster rendering. It is a factual diagnosis
 - Observation: Manual local testing reported two unresolved numbers that need dedicated frame-graph instrumentation: an all-features-off black-screen view still costs about 4ms GPU, and a direct-down terrain-only view costs about 5ms scene GPU even when only part of the screen contains LOD0 terrain.
   Evidence: User reported these measurements on 2026-06-09 after testing the debug controls. The current capture script does not yet have null-frame, clear-only, sky-after-terrain, or terrain-depth/area probe scenarios to isolate this floor.
 
+- Observation: Switching the post-process debug view from `final` to `sceneColor` made the missing milliseconds disappear, and the shader showed that `final` was computing the DoF blurred scene unconditionally even when DoF was disabled.
+  Evidence: User reported the `sceneColor` result on 2026-06-09. `postFragmentMain(...)` in `C:\dev\ofg\src\engine\render\shaders\post.wgsl` returned immediately for `POST_DEBUG_SCENE_COLOR`, but the `final` path previously computed `dofBlurredSceneColor(...)` before checking whether DoF was enabled.
+
 ## Decision Log
 
 - Decision: Keep all new render behavior Rust-owned and use TypeScript only for controls, status display, generic browser asset decoding, and smoke/capture automation.
@@ -85,6 +88,8 @@ The user-visible outcome is not just faster rendering. It is a factual diagnosis
 ## Outcomes & Retrospective
 
 Milestone 3 shipped a real cloud-noise toggle without changing production defaults. `skyCloudNoiseEnabled` defaults true, resets with `resetRenderDebugOptions`, appears in Rust renderer status and TypeScript debug types, is visible in the browser render-debug panel as `Cloud noise`, and appears in the live perf overlay as `cloud=on/off`. When disabled, Rust writes zero cloud coverage into the scene camera uniform and WGSL returns from `cloudLayer(...)` before running procedural fBm cloud noise.
+
+On 2026-06-09, the final post-process shader was also tightened after debug-view testing showed that `sceneColor` removed the unexplained overhead. The `final` shader path now computes the 9-tap DoF blur only when DoF is enabled or the selected debug view is `dofBlurred`. A follow-up capture at `C:\dev\ofg\artifacts\perf-debug\2026-06-09T05-50-08-634Z\summary.json` reported baseline `gpuTotalAverageMs=8.305`, `dof-on=8.828` (`+0.523ms`), and `tone-map-off=8.282`, which is consistent with DoF blur no longer being a hidden always-on cost.
 
 Milestone review:
 - Scope: Rust render debug option, scene camera-uniform override, WGSL early return, browser UI/debug hooks, smoke/capture automation, shader/WASM artifacts, and API contract docs for `skyCloudNoiseEnabled`.
