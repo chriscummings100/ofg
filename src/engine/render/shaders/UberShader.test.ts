@@ -90,6 +90,8 @@ describe("uber shader build", () => {
     ok(UBER_SHADER_SOURCE.includes("fn sampleTerrainRoughness"));
     ok(UBER_SHADER_SOURCE.includes("input.materialIndices"));
     ok(UBER_SHADER_SOURCE.includes("input.materialWeights"));
+    ok(UBER_SHADER_SOURCE.includes("fn terrainLayerAlbedoTint"));
+    ok(UBER_SHADER_SOURCE.includes("layerIndex == 0"));
     ok(UBER_SHADER_SOURCE.includes("worldPosition.zy * textureScale"));
     ok(UBER_SHADER_SOURCE.includes("worldPosition.xz * textureScale"));
     ok(UBER_SHADER_SOURCE.includes("worldPosition.xy * textureScale"));

@@ -46,6 +46,7 @@ body {
   position: fixed;
   top: 14px;
   left: 14px;
+  z-index: 30;
   display: flex;
   gap: 8px;
   align-items: center;
@@ -116,6 +117,7 @@ body {
   position: fixed;
   top: 58px;
   left: 14px;
+  z-index: 20;
   width: min(340px, calc(100vw - 28px));
   max-height: calc(100vh - 76px);
   overflow: auto;
@@ -131,15 +133,40 @@ body {
   text-rendering: geometricPrecision;
 }
 
+#terrain-variant-panel {
+  position: fixed;
+  top: 58px;
+  left: 14px;
+  z-index: 20;
+  width: min(300px, calc(100vw - 28px));
+  max-height: min(560px, calc(100vh - 76px));
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid rgb(244 210 141 / 28%);
+  border-radius: 6px;
+  background: #111211;
+  color: #f2eee6;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  pointer-events: auto;
+  text-rendering: geometricPrecision;
+}
+
 #render-debug-panel label,
-#render-debug-panel legend {
+#render-debug-panel legend,
+#terrain-variant-panel label {
   color: rgb(242 238 230 / 82%);
 }
 
 #render-debug-panel select,
 #render-debug-panel input[type="number"],
-#render-debug-panel button {
-  min-height: 30px;
+#render-debug-panel button,
+#terrain-variant-panel select,
+#terrain-variant-panel input,
+#terrain-variant-panel button,
+#terrain-variant-panel textarea {
+  min-height: 28px;
   border: 1px solid rgb(242 238 230 / 22%);
   border-radius: 6px;
   background: rgb(31 35 34 / 92%);
@@ -147,18 +174,22 @@ body {
   font: inherit;
 }
 
-#render-debug-panel select {
+#render-debug-panel select,
+#terrain-variant-panel select,
+#terrain-variant-panel input[type="text"] {
   width: 100%;
-  padding: 4px 8px;
+  padding: 3px 7px;
 }
 
-#render-debug-panel input[type="number"] {
+#render-debug-panel input[type="number"],
+#terrain-variant-panel input[type="number"] {
   width: 100%;
-  padding: 4px 7px;
+  padding: 3px 6px;
 }
 
-#render-debug-panel button {
-  padding: 4px 9px;
+#render-debug-panel button,
+#terrain-variant-panel button {
+  padding: 3px 7px;
   cursor: pointer;
 }
 
@@ -169,10 +200,21 @@ body {
   accent-color: #9ff0cf;
 }
 
+#water-debug-status {
+  color: rgb(242 238 230 / 68%);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 #render-debug-panel select:focus-visible,
 #render-debug-panel button:focus-visible,
 #render-debug-panel input[type="number"]:focus-visible,
-#render-debug-panel input:focus-visible {
+#render-debug-panel input:focus-visible,
+#terrain-variant-panel select:focus-visible,
+#terrain-variant-panel button:focus-visible,
+#terrain-variant-panel input:focus-visible,
+#terrain-variant-panel textarea:focus-visible {
   border-color: rgb(159 240 207 / 72%);
   outline: none;
 }
@@ -183,6 +225,50 @@ body {
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;
+}
+
+.terrain-variant-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.terrain-variant-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.terrain-variant-number-grid {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 64px minmax(0, 1fr);
+  gap: 5px 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+#terrain-variant-json {
+  width: 100%;
+  min-height: 58px;
+  padding: 6px;
+  margin-bottom: 6px;
+  resize: vertical;
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+#terrain-variant-status {
+  padding: 5px 7px;
+  border: 1px solid rgb(159 240 207 / 22%);
+  border-radius: 6px;
+  color: #cceee2;
+  background: rgb(14 24 22 / 62%);
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
 }
 
 .render-debug-grid {
@@ -243,6 +329,7 @@ body {
   position: fixed;
   right: 14px;
   top: 14px;
+  z-index: 20;
   width: min(520px, calc(100vw - 28px));
   max-height: calc(100vh - 28px);
   overflow: auto;
@@ -422,5 +509,15 @@ body {
 @media (any-pointer: coarse), (pointer: coarse) {
   #touch-controls {
     display: block;
+  }
+}
+
+@media (max-width: 760px) {
+  #terrain-variant-panel {
+    left: 14px;
+  }
+
+  .terrain-variant-number-grid {
+    grid-template-columns: 64px minmax(0, 1fr);
   }
 }

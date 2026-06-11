@@ -13,6 +13,10 @@ fn scenario_filter_parses_and_matches_expected_groups() {
         ScenarioFilter::Presets
     );
     assert_eq!(
+        ScenarioFilter::parse("variants").unwrap(),
+        ScenarioFilter::Variants
+    );
+    assert_eq!(
         ScenarioFilter::parse("seams").unwrap(),
         ScenarioFilter::Seams
     );
@@ -21,13 +25,14 @@ fn scenario_filter_parses_and_matches_expected_groups() {
 
     assert!(ScenarioFilter::All.matches(ScenarioFilter::Boot));
     assert!(ScenarioFilter::All.matches(ScenarioFilter::Presets));
+    assert!(ScenarioFilter::All.matches(ScenarioFilter::Variants));
     assert!(ScenarioFilter::All.matches(ScenarioFilter::Lods));
     assert!(ScenarioFilter::Boot.matches(ScenarioFilter::Boot));
     assert!(!ScenarioFilter::Boot.matches(ScenarioFilter::Seams));
 }
 
 #[test]
-fn scenarios_cover_boot_preset_seam_and_lod_groups() {
+fn scenarios_cover_boot_preset_variant_seam_and_lod_groups() {
     let scenarios = scenarios();
 
     assert_eq!(
@@ -43,6 +48,13 @@ fn scenarios_cover_boot_preset_seam_and_lod_groups() {
             .filter(|scenario| ScenarioFilter::Presets.matches(scenario.group))
             .count(),
         4
+    );
+    assert_eq!(
+        scenarios
+            .iter()
+            .filter(|scenario| ScenarioFilter::Variants.matches(scenario.group))
+            .count(),
+        2
     );
     assert_eq!(
         scenarios
@@ -76,6 +88,12 @@ fn scenarios_cover_boot_preset_seam_and_lod_groups() {
     assert!(scenarios
         .iter()
         .any(|scenario| scenario.name == "running-stream-delta" && scenario.movement.is_some()));
+    assert!(scenarios
+        .iter()
+        .any(|scenario| scenario.name == "variant-low-rolling"));
+    assert!(scenarios
+        .iter()
+        .any(|scenario| scenario.name == "variant-ridge-heavy"));
     assert_eq!(
         scenarios
             .iter()
@@ -112,6 +130,23 @@ fn builds_boot_scenario_terrain_with_debug_metadata() {
         .all(|key| key.starts_with("lod0:")));
     assert!(terrain.camera.eye.x.is_finite());
     assert!(terrain.camera.target.y.is_finite());
+}
+
+#[test]
+fn variant_scenario_terrain_uses_custom_descriptor_metadata() {
+    let scenario = scenarios()
+        .into_iter()
+        .find(|scenario| scenario.name == "variant-ridge-heavy")
+        .expect("variant scenario should exist");
+
+    let terrain = build_scenario_terrain(scenario).expect("variant scenario should build terrain");
+
+    assert!(!terrain.meshes.is_empty());
+    assert_eq!(terrain.debug.terrain_preset, "variant-ridge-heavy");
+    assert_eq!(terrain.debug.terrain_preset_code, 2);
+    assert_eq!(terrain.debug.max_rendered_lod, 0);
+    assert!(terrain.debug.vertex_count > 0);
+    assert!(terrain.debug.index_count > 0);
 }
 
 #[test]

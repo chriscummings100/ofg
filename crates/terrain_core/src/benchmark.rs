@@ -114,17 +114,32 @@ pub fn profile_node_mesh_build(
     let noise = SimplexNoise3D::new(seed);
     let preset_id = terrain_preset_index(preset);
     let preset = terrain_preset(preset_id);
+    let variant_cache_key = u64::from(preset_id);
     let cell_size = terrain_node_cell_size(base_cell_size, key.lod);
 
     let density_stats_before = density_store_stats();
     let density_started_at = Instant::now();
-    let chunks =
-        generate_neighbor_apron_chunks(&noise, preset, preset_id, seed, key.coord, cell_size);
+    let chunks = generate_neighbor_apron_chunks(
+        &noise,
+        preset,
+        preset_id,
+        variant_cache_key,
+        seed,
+        key.coord,
+        cell_size,
+    );
     let density_ms = elapsed_ms(density_started_at);
     let density_stats_after = density_store_stats();
 
     let contouring_started_at = Instant::now();
-    let raw_mesh = build_neighbor_aware_chunk_mesh_raw(&noise, preset, seed, &chunks, key.coord);
+    let raw_mesh = build_neighbor_aware_chunk_mesh_raw(
+        &noise,
+        preset,
+        TerrainMaterialBias::default(),
+        seed,
+        &chunks,
+        key.coord,
+    );
     let contouring_ms = elapsed_ms(contouring_started_at);
 
     let material_started_at = Instant::now();
@@ -138,7 +153,15 @@ pub fn profile_node_mesh_build(
     let copy_checksum = mesh_copy_checksum(&copied_vertices, &copied_indices);
     let copy_ms = elapsed_ms(copy_started_at);
     let cold_total_ms = elapsed_ms(total_started_at);
-    let prepared = profile_prepared_node_build(&noise, preset, preset_id, seed, key, cell_size);
+    let prepared = profile_prepared_node_build(
+        &noise,
+        preset,
+        preset_id,
+        variant_cache_key,
+        seed,
+        key,
+        cell_size,
+    );
 
     TerrainNodeBuildProfile {
         key,
@@ -218,12 +241,22 @@ pub fn prepare_density_chunk_window(
     let noise = SimplexNoise3D::new(seed);
     let preset_id = terrain_preset_index(preset);
     let preset = terrain_preset(preset_id);
+    let variant_cache_key = u64::from(preset_id);
 
     density_chunk_store()
         .lock()
         .expect("density chunk store lock poisoned")
         .retain_window(
-            seed, preset_id, cell_size, min_x, min_y, min_z, max_x, max_y, max_z,
+            seed,
+            preset_id,
+            variant_cache_key,
+            cell_size,
+            min_x,
+            min_y,
+            min_z,
+            max_x,
+            max_y,
+            max_z,
         );
 
     let mut prepared = 0;
@@ -234,6 +267,7 @@ pub fn prepare_density_chunk_window(
                     &noise,
                     preset,
                     preset_id,
+                    variant_cache_key,
                     seed,
                     TerrainChunkCoord { x, y, z },
                     cell_size,
@@ -293,6 +327,7 @@ fn profile_prepared_node_build(
     noise: &SimplexNoise3D,
     preset: TerrainPresetDefinition,
     preset_id: u32,
+    variant_cache_key: u64,
     seed: u32,
     key: TerrainNodeKey,
     cell_size: f64,
@@ -301,13 +336,27 @@ fn profile_prepared_node_build(
     let density_stats_before = density_store_stats();
 
     let density_started_at = Instant::now();
-    let chunks =
-        generate_neighbor_apron_chunks(noise, preset, preset_id, seed, key.coord, cell_size);
+    let chunks = generate_neighbor_apron_chunks(
+        noise,
+        preset,
+        preset_id,
+        variant_cache_key,
+        seed,
+        key.coord,
+        cell_size,
+    );
     let density_ms = elapsed_ms(density_started_at);
     let density_stats_after = density_store_stats();
 
     let contouring_started_at = Instant::now();
-    let raw_mesh = build_neighbor_aware_chunk_mesh_raw(noise, preset, seed, &chunks, key.coord);
+    let raw_mesh = build_neighbor_aware_chunk_mesh_raw(
+        noise,
+        preset,
+        TerrainMaterialBias::default(),
+        seed,
+        &chunks,
+        key.coord,
+    );
     let contouring_ms = elapsed_ms(contouring_started_at);
 
     let material_started_at = Instant::now();

@@ -14,6 +14,10 @@ import {
   createRenderDebugUi,
   type RenderDebugUiElements
 } from "./renderDebugUi.js";
+import {
+  createTerrainVariantEditor,
+  type TerrainVariantEditorElements
+} from "./terrainVariantEditor.js";
 import type { EngineWebRendererStatus } from "../engine/web/engineWebWasm.js";
 import {
   createRustBrowserGameRuntime,
@@ -34,7 +38,8 @@ import {
   type RenderDebugOptions,
   type RenderDebugOptionsUpdate,
   type ShadowDebugView,
-  type ShadowSunMode
+  type ShadowSunMode,
+  type WaterDebugView
 } from "../engine/web/browserGameTypes.js";
 
 export type GameTouchControlElements = TouchControlElements & {
@@ -42,6 +47,7 @@ export type GameTouchControlElements = TouchControlElements & {
 };
 
 export type GameRenderDebugUiElements = RenderDebugUiElements;
+export type GameTerrainVariantEditorElements = TerrainVariantEditorElements;
 
 type GameElements = {
   readonly canvas: HTMLCanvasElement;
@@ -50,6 +56,7 @@ type GameElements = {
   readonly frameTime: HTMLElement;
   readonly touchControls: GameTouchControlElements;
   readonly renderDebugUi: GameRenderDebugUiElements;
+  readonly terrainVariantEditor: GameTerrainVariantEditorElements;
 };
 
 declare global {
@@ -61,6 +68,9 @@ declare global {
       getTerrainNodeKeys: () => string[];
       getTerrainPreset: () => TerrainPresetId;
       getTerrainSeed: () => number;
+      getTerrainVariantRevision: () => number;
+      getTerrainVariant: () => readonly number[];
+      getTerrainPresetCatalog: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["terrainPresetCatalog"];
       getTerrainStreamStatus: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["terrainStreamStatus"];
       getTerrainStreamerRuntime: () => "rust";
       getTerrainStreamSchedulerRuntime: () => "rust";
@@ -86,6 +96,9 @@ declare global {
       getPostProcessDofFocusDistance: () => number;
       getPostProcessDofFocusRange: () => number;
       getPostProcessDofMaxBlurPixels: () => number;
+      getWaterDebugView: () => WaterDebugView;
+      getWaterEnabled: () => boolean;
+      getWaterReflectionEnabled: () => boolean;
       getTerrainWorkerCount: () => number;
       getPlayerControllerRuntime: () => "rust";
       getPlayerCharacterId: () => ReturnType<RustBrowserGameRuntime["debugSnapshot"]>["playerCharacterId"];
@@ -122,6 +135,10 @@ declare global {
       setRenderDebugOptions: (options: RenderDebugOptionsUpdate) => void;
       resetRenderDebugOptions: () => void;
       resetTerrainStreaming: () => void;
+      setTerrainVariant: (
+        terrainPreset: number,
+        terrainVariant: readonly number[]
+      ) => void;
       setCameraMode: (mode: PlayerMode) => void;
       setDebugCamera: (x: number, y: number, z: number, yaw: number, pitch: number) => void;
       setShadowDebugView: (view: ShadowDebugView) => void;
@@ -134,6 +151,8 @@ declare global {
         focusRange: number,
         maxBlurPixels: number
       ) => void;
+      setWaterDebugView: (view: WaterDebugView) => void;
+      setWaterOptions: (options: { enabled?: boolean; reflectionEnabled?: boolean }) => void;
       setPlayerAnimationTuning: (tuning: Partial<PlayerAnimationTuning>) => void;
       setPlayerCharacter: (character: PlayerCharacterId) => void;
       setPlayerPosition: (x: number, z: number) => void;
@@ -160,6 +179,9 @@ export async function startGame(elements: GameElements): Promise<void> {
     getTerrainNodeKeys: () => readDebugSnapshot().terrainNodeKeys,
     getTerrainPreset: () => readDebugSnapshot().terrainPreset,
     getTerrainSeed: () => readDebugSnapshot().terrainSeed,
+    getTerrainVariantRevision: () => readDebugSnapshot().terrainVariantRevision,
+    getTerrainVariant: () => readDebugSnapshot().terrainVariant,
+    getTerrainPresetCatalog: () => readDebugSnapshot().terrainPresetCatalog,
     getTerrainStreamStatus: () => readDebugSnapshot().terrainStreamStatus,
     getTerrainStreamerRuntime: () => readDebugSnapshot().terrainStreamerRuntime,
     getTerrainStreamSchedulerRuntime: () => readDebugSnapshot().terrainStreamSchedulerRuntime,
@@ -191,6 +213,9 @@ export async function startGame(elements: GameElements): Promise<void> {
       readDebugSnapshot().rendererStatus.postProcessDofFocusRange,
     getPostProcessDofMaxBlurPixels: () =>
       readDebugSnapshot().rendererStatus.postProcessDofMaxBlurPixels,
+    getWaterDebugView: () => readDebugSnapshot().rendererStatus.waterDebugView,
+    getWaterEnabled: () => readDebugSnapshot().rendererStatus.waterEnabled,
+    getWaterReflectionEnabled: () => readDebugSnapshot().rendererStatus.waterReflectionEnabled,
     getTerrainWorkerCount: () => readDebugSnapshot().terrainWorkerCount,
     getPlayerControllerRuntime: () => readDebugSnapshot().playerControllerRuntime,
     getPlayerCharacterId: () => readDebugSnapshot().playerCharacterId,
@@ -254,6 +279,14 @@ export async function startGame(elements: GameElements): Promise<void> {
     resetTerrainStreaming() {
       runDebugCommand({ type: "resetStreaming" });
     },
+    setTerrainVariant(terrainPreset, terrainVariant) {
+      runDebugCommand({
+        type: "setTerrainVariant",
+        terrainSeed: readDebugSnapshot().terrainSeed,
+        terrainPreset,
+        terrainVariant: [...terrainVariant]
+      });
+    },
     setCameraMode(mode) {
       runDebugCommand({ type: "setPlayerMode", mode: validatePlayerMode(mode) });
     },
@@ -293,6 +326,12 @@ export async function startGame(elements: GameElements): Promise<void> {
         maxBlurPixels: validatePostProcessDofMaxBlurPixels(maxBlurPixels)
       });
     },
+    setWaterDebugView(view) {
+      runDebugCommand({ type: "setWaterDebugView", view: validateWaterDebugView(view) });
+    },
+    setWaterOptions(options) {
+      runDebugCommand({ type: "setWaterOptions", ...options });
+    },
     setPlayerAnimationTuning(tuning) {
       runDebugCommand({
         type: "setPlayerAnimationTuning",
@@ -315,6 +354,7 @@ export async function startGame(elements: GameElements): Promise<void> {
   const renderDebugUi = createRenderDebugUi(elements.renderDebugUi, {
     getRenderDebugOptions: () => readDebugSnapshot().renderDebugOptions,
     getPostProcessState: () => readDebugSnapshot().rendererStatus,
+    getWaterState: () => readDebugSnapshot().rendererStatus,
     setRenderDebugOptions: (options) => {
       runDebugCommand({
         type: "setRenderDebugOptions",
@@ -375,6 +415,18 @@ export async function startGame(elements: GameElements): Promise<void> {
       });
       runDebugCommand({ type: "setPostProcessDebugView", view: "final" });
     },
+    setWaterDebugView: (view) => {
+      runDebugCommand({
+        type: "setWaterDebugView",
+        view: validateWaterDebugView(view)
+      });
+    },
+    setWaterOptions: (options) => {
+      runDebugCommand({
+        type: "setWaterOptions",
+        ...options
+      });
+    },
     resetPerfStats: () => {
       browserPerf.reset();
       runDebugCommand({ type: "resetPerfStats" });
@@ -383,6 +435,13 @@ export async function startGame(elements: GameElements): Promise<void> {
       elements.canvas.focus({ preventScroll: true });
     }
   });
+  const terrainVariantEditor = createTerrainVariantEditor(elements.terrainVariantEditor, {
+    command: runDebugCommand,
+    focusCanvas: () => {
+      elements.canvas.focus({ preventScroll: true });
+    }
+  });
+  terrainVariantEditor.update(latestDebugSnapshot);
 
   elements.characterToggle.addEventListener("click", () => {
     runDebugCommand({ type: "togglePlayerCharacter" });
@@ -411,6 +470,9 @@ export async function startGame(elements: GameElements): Promise<void> {
     }
     if (input.consumePress("F9")) {
       renderDebugUi.togglePerfOverlay();
+    }
+    if (input.consumePress("F10")) {
+      terrainVariantEditor.togglePanel();
     }
 
     const inputStartedAt = performance.now();
@@ -441,6 +503,7 @@ export async function startGame(elements: GameElements): Promise<void> {
       hudUpdateMs
     });
     renderDebugUi.update(buildPerfStats(browserPerf.summary(), debugSnapshot));
+    terrainVariantEditor.update(debugSnapshot);
 
     requestAnimationFrame(frame);
   }
@@ -532,6 +595,20 @@ function validatePostProcessDebugView(view: string): PostProcessDebugView {
   }
 
   throw new Error(`Unknown post-process debug view '${view}'.`);
+}
+
+function validateWaterDebugView(view: string): WaterDebugView {
+  if (
+    view === "final" ||
+    view === "bottomDepth" ||
+    view === "pathLength" ||
+    view === "fresnel" ||
+    view === "reflection"
+  ) {
+    return view;
+  }
+
+  throw new Error(`Unknown water debug view '${view}'.`);
 }
 
 function validatePostProcessExposure(exposure: number): number {

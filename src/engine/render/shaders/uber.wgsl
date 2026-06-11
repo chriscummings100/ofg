@@ -285,7 +285,10 @@ fn sampleTerrainAlbedoLayer(uv: vec2<f32>, layer: f32) -> vec3<f32> {
   if (whiteTexturesEnabled()) {
     return vec3<f32>(1.0);
   }
-  return srgbToLinear(textureSample(albedoTexture, albedoSampler, fract(uv), i32(round(layer))).rgb);
+  return terrainLayerAlbedoTint(
+    srgbToLinear(textureSample(albedoTexture, albedoSampler, fract(uv), i32(round(layer))).rgb),
+    layer
+  );
 }
 
 fn sampleTerrainMaterialLayer(uv: vec2<f32>, layer: f32) -> vec4<f32> {
@@ -337,6 +340,22 @@ fn materialWorkflowIs(workflow: f32) -> bool {
 
 fn srgbToLinear(color: vec3<f32>) -> vec3<f32> {
   return pow(max(color, vec3<f32>(0.0)), vec3<f32>(2.2));
+}
+
+fn terrainLayerAlbedoTint(color: vec3<f32>, layer: f32) -> vec3<f32> {
+  let layerIndex = i32(round(layer));
+  if (layerIndex == 0) {
+    let luminance = clamp(dot(color, vec3<f32>(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+    let meadowGreen = vec3<f32>(0.14, 0.46, 0.08) * mix(0.7, 1.55, luminance);
+    return mix(color, meadowGreen, 0.82);
+  }
+  if (layerIndex == 13) {
+    let luminance = clamp(dot(color, vec3<f32>(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+    let mossGreen = vec3<f32>(0.11, 0.28, 0.08) * mix(0.75, 1.35, luminance);
+    return mix(color, mossGreen, 0.45);
+  }
+
+  return color;
 }
 
 fn terrainWeights(input: VertexOutput) -> vec4<f32> {

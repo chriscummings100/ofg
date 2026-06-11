@@ -25,6 +25,9 @@ mod terrain_stream;
 mod terrain_textures;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod texture_mips;
+mod water;
+#[cfg(any(test, target_arch = "wasm32"))]
+mod water_renderer;
 #[cfg(target_arch = "wasm32")]
 mod wgpu_renderer;
 
@@ -134,6 +137,11 @@ pub use terrain_textures::{
     RgbaTextureArrayAsset, TerrainTextureArrayRequest, TerrainTextureArrays, TerrainTextureError,
     TERRAIN_ALBEDO_TEXTURE_ARRAY_ID, TERRAIN_MATERIAL_TEXTURE_ARRAY_ID,
     TERRAIN_NORMAL_TEXTURE_ARRAY_ID,
+};
+pub use water::{
+    WaterBathymetryError, WaterDebugView, WaterSettings, WaterSettingsError, WaterSettingsUpdate,
+    WaterStatus, DEFAULT_WATER_BATHYMETRY_GRID_SIZE, DEFAULT_WATER_BATHYMETRY_WORLD_SPAN_METERS,
+    DEFAULT_WATER_OPEN_PATH_METERS, SEA_LEVEL_METERS, WATER_BATHYMETRY_RUNTIME, WATER_RUNTIME,
 };
 #[cfg(target_arch = "wasm32")]
 pub use wgpu_renderer::*;

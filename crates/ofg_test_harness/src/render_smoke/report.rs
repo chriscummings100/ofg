@@ -35,7 +35,22 @@ pub struct ImageReport {
     pub width: u32,
     pub height: u32,
     pub pixel_stats: PixelStats,
+    pub water: WaterImageReport,
     pub debug: ScenarioDebug,
+}
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WaterImageReport {
+    pub runtime: &'static str,
+    pub enabled: bool,
+    pub reflection_enabled: bool,
+    pub sea_level_meters: f32,
+    pub bathymetry_runtime: &'static str,
+    pub bathymetry_grid_size: u32,
+    pub bathymetry_world_span_meters: f32,
+    pub bathymetry_center_x: f32,
+    pub bathymetry_center_z: f32,
 }
 
 #[derive(Serialize)]
@@ -474,6 +489,17 @@ mod tests {
                     lower_center_sky_like_pixels: 0,
                     lower_center_sampled_pixels: 1,
                     lower_center_sky_like_ratio: 0.0,
+                },
+                water: WaterImageReport {
+                    runtime: "rust-wgpu",
+                    enabled: true,
+                    reflection_enabled: false,
+                    sea_level_meters: 0.0,
+                    bathymetry_runtime: "rust-heightfield",
+                    bathymetry_grid_size: 128,
+                    bathymetry_world_span_meters: 4096.0,
+                    bathymetry_center_x: 0.0,
+                    bathymetry_center_z: 0.0,
                 },
                 debug: ScenarioDebug {
                     terrain_seed: 246,

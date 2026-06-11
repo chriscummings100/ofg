@@ -2,10 +2,9 @@
 
 use crate::{
     build_shadow_cascades_with_max_distance, clamp_shadow_light_direction, compute_cascade_splits,
-    shadow_caster_intersects_cascade, shadow_strength_for_sun_elevation,
-    shadow_sun_mode_direction, Aabb, RenderVec3, ShadowSunMode, SHADOW_CASCADE_COUNT,
-    SHADOW_DISABLED_SUN_ELEVATION, SHADOW_FULL_STRENGTH_SUN_ELEVATION,
-    SHADOW_MIN_EFFECTIVE_SUN_ELEVATION,
+    shadow_caster_intersects_cascade, shadow_strength_for_sun_elevation, shadow_sun_mode_direction,
+    Aabb, RenderVec3, ShadowSunMode, SHADOW_CASCADE_COUNT, SHADOW_DISABLED_SUN_ELEVATION,
+    SHADOW_FULL_STRENGTH_SUN_ELEVATION, SHADOW_MIN_EFFECTIVE_SUN_ELEVATION,
 };
 
 #[test]
@@ -26,7 +25,10 @@ fn overhead_sun_culls_casters_outside_the_light_clip_volume() {
 
     assert!(shadow_caster_intersects_cascade(
         first,
-        aabb(RenderVec3::new(-0.5, 9.0, -3.0), RenderVec3::new(0.5, 11.0, -2.0))
+        aabb(
+            RenderVec3::new(-0.5, 9.0, -3.0),
+            RenderVec3::new(0.5, 11.0, -2.0)
+        )
     ));
     assert!(!shadow_caster_intersects_cascade(
         first,
@@ -81,7 +83,10 @@ fn invalid_caster_bounds_do_not_intersect_shadow_cascades() {
 
     assert!(!shadow_caster_intersects_cascade(
         cascades.cascades[0],
-        aabb(RenderVec3::new(1.0, 1.0, 1.0), RenderVec3::new(0.0, 0.0, 0.0))
+        aabb(
+            RenderVec3::new(1.0, 1.0, 1.0),
+            RenderVec3::new(0.0, 0.0, 0.0)
+        )
     ));
     assert!(!shadow_caster_intersects_cascade(
         cascades.cascades[0],

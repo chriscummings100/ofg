@@ -12,10 +12,13 @@ mod mesh_packet_store;
 mod node;
 mod noise;
 mod presets;
+mod probe;
 mod store;
 mod stream;
 mod stream_helpers;
 mod stream_types;
+mod variant;
+mod water;
 mod worker_pool;
 
 pub(crate) use chunk::*;
@@ -37,16 +40,36 @@ pub(crate) use worker_pool::*;
 
 pub use chunk::{terrain_chunk_coord_containing_position, terrain_chunk_key, TerrainChunkCoord};
 pub use constants::{DEFAULT_TERRAIN_PRESET, TERRAIN_CHUNK_CELLS_PER_AXIS};
-pub use field::height_at;
-pub use mesh::{build_chunk_mesh, build_node_mesh, MeshData};
+pub use field::{height_at, height_at_for_variant, height_at_with_shape};
+pub use mesh::{
+    build_chunk_mesh, build_chunk_mesh_for_variant, build_node_mesh, build_node_mesh_for_variant,
+    MeshData,
+};
 pub use node::{
     terrain_node_cell_size, terrain_node_children, terrain_node_coord_for_lod, terrain_node_key,
     terrain_node_parent, TerrainNodeKey,
+};
+pub use noise::{
+    CellularNoiseOptions, DomainWarpOptions, FractalNoiseOptions, RidgedFractalNoiseOptions,
+};
+pub use probe::{
+    terrain_variant_probe_summary, TerrainBiomeWeightsProbe, TerrainVariantProbeSummary,
 };
 pub use stream::TerrainStreamScheduler;
 pub use stream_types::{
     TerrainLodBand, TerrainLodStatus, TerrainStreamConfig, TerrainStreamError, TerrainStreamJob,
     TerrainStreamStatus,
+};
+pub use variant::{
+    terrain_preset_count, terrain_preset_metadata, terrain_variant_cache_key,
+    terrain_variant_flat_values, terrain_variant_for_preset, terrain_variant_from_flat_values,
+    TerrainMaterialBias, TerrainPresetMetadata, TerrainShapeParameters, TerrainVariantDescriptor,
+    TerrainVariantValidationError, TERRAIN_VARIANT_DESCRIPTOR_VERSION,
+    TERRAIN_VARIANT_FLAT_VALUE_COUNT,
+};
+pub use water::{
+    build_water_node_packet_for_variant, sea_depth_at_for_variant, WaterNodePacket,
+    SEA_LEVEL_METERS, WATER_NODE_BATHYMETRY_TEXEL_COUNT, WATER_NODE_MAX_RELEVANT_DEPTH_METERS,
 };
 
 #[cfg(test)]

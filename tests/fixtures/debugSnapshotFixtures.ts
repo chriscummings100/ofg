@@ -162,6 +162,18 @@ export function fakeRendererStatus(
     postProcessDofFocusDistance: 30,
     postProcessDofFocusRange: 8,
     postProcessDofMaxBlurPixels: 6,
+    waterRuntime: "rust-wgpu",
+    waterEnabled: true,
+    waterReflectionEnabled: false,
+    waterSeaLevelMeters: 0,
+    waterBathymetryRuntime: "rust-heightfield",
+    waterBathymetryGridSize: 32,
+    waterBathymetryWorldSpanMeters: 32,
+    waterBathymetryCenterX: 0,
+    waterBathymetryCenterZ: 0,
+    waterReflectionWidth: 320,
+    waterReflectionHeight: 180,
+    waterDebugView: "final",
     ...overrides
   };
 }

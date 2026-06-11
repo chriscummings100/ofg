@@ -11,6 +11,7 @@ import type {
   RenderCounterSample,
   RenderDebugOptions,
   RustBrowserGameCommand,
+  WaterDebugView,
   RustBrowserGameDebugSnapshot
 } from "./browserGameTypes.js";
 import type { TerrainBuildCompletion, TerrainBuildRequest } from "./terrainWorkerClient.js";
@@ -88,6 +89,18 @@ export type EngineWebRendererStatus = {
   readonly postProcessDofFocusDistance: number;
   readonly postProcessDofFocusRange: number;
   readonly postProcessDofMaxBlurPixels: number;
+  readonly waterRuntime: "rust-wgpu";
+  readonly waterEnabled: boolean;
+  readonly waterReflectionEnabled: boolean;
+  readonly waterSeaLevelMeters: number;
+  readonly waterBathymetryRuntime: "rust-heightfield";
+  readonly waterBathymetryGridSize: number;
+  readonly waterBathymetryWorldSpanMeters: number;
+  readonly waterBathymetryCenterX: number;
+  readonly waterBathymetryCenterZ: number;
+  readonly waterReflectionWidth: number;
+  readonly waterReflectionHeight: number;
+  readonly waterDebugView: WaterDebugView;
 };
 
 export type EngineWebBrowserGame = {

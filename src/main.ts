@@ -1,6 +1,7 @@
 import {
   startGame,
   type GameRenderDebugUiElements,
+  type GameTerrainVariantEditorElements,
   type GameTouchControlElements
 } from "./app/game.js";
 
@@ -10,6 +11,7 @@ const characterToggle = document.querySelector<HTMLButtonElement>("#character-to
 const frameTime = document.querySelector<HTMLElement>("#frame-time");
 const touchControls = readTouchControls();
 const renderDebugUi = readRenderDebugUi();
+const terrainVariantEditor = readTerrainVariantEditor();
 
 if (
   canvas === null ||
@@ -17,7 +19,8 @@ if (
   characterToggle === null ||
   frameTime === null ||
   touchControls === null ||
-  renderDebugUi === null
+  renderDebugUi === null ||
+  terrainVariantEditor === null
 ) {
   throw new Error("OFG could not find its root DOM elements.");
 }
@@ -28,7 +31,8 @@ startGame({
   characterToggle,
   frameTime,
   touchControls,
-  renderDebugUi
+  renderDebugUi,
+  terrainVariantEditor
 }).catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
   cameraMode.textContent = "WEBGPU";
@@ -72,6 +76,59 @@ function readTouchControls(): GameTouchControlElements | null {
   };
 }
 
+/// Reads the terrain variant editor DOM elements.
+function readTerrainVariantEditor(): GameTerrainVariantEditorElements | null {
+  const panelToggle = document.querySelector<HTMLButtonElement>("#terrain-variant-panel-toggle");
+  const panel = document.querySelector<HTMLElement>("#terrain-variant-panel");
+  const draftSelect = document.querySelector<HTMLSelectElement>("#terrain-variant-draft");
+  const draftNameInput = document.querySelector<HTMLInputElement>("#terrain-variant-name");
+  const fieldGrid = document.querySelector<HTMLElement>("#terrain-variant-fields");
+  const applyButton = document.querySelector<HTMLButtonElement>("#terrain-variant-apply");
+  const resetButton = document.querySelector<HTMLButtonElement>("#terrain-variant-reset");
+  const duplicateButton = document.querySelector<HTMLButtonElement>("#terrain-variant-duplicate");
+  const previewOriginButton = document.querySelector<HTMLButtonElement>(
+    "#terrain-variant-preview-origin"
+  );
+  const exportButton = document.querySelector<HTMLButtonElement>("#terrain-variant-export");
+  const importButton = document.querySelector<HTMLButtonElement>("#terrain-variant-import");
+  const jsonText = document.querySelector<HTMLTextAreaElement>("#terrain-variant-json");
+  const status = document.querySelector<HTMLElement>("#terrain-variant-status");
+
+  if (
+    panelToggle === null ||
+    panel === null ||
+    draftSelect === null ||
+    draftNameInput === null ||
+    fieldGrid === null ||
+    applyButton === null ||
+    resetButton === null ||
+    duplicateButton === null ||
+    previewOriginButton === null ||
+    exportButton === null ||
+    importButton === null ||
+    jsonText === null ||
+    status === null
+  ) {
+    return null;
+  }
+
+  return {
+    panelToggle,
+    panel,
+    draftSelect,
+    draftNameInput,
+    fieldGrid,
+    applyButton,
+    resetButton,
+    duplicateButton,
+    previewOriginButton,
+    exportButton,
+    importButton,
+    jsonText,
+    status
+  };
+}
+
 /// Reads the render-debug controls and live perf overlay DOM elements.
 function readRenderDebugUi(): GameRenderDebugUiElements | null {
   const panelToggle = document.querySelector<HTMLButtonElement>("#render-debug-panel-toggle");
@@ -111,6 +168,10 @@ function readRenderDebugUi(): GameRenderDebugUiElements | null {
   const postDofRangeInput = document.querySelector<HTMLInputElement>("#post-dof-range");
   const postDofBlurInput = document.querySelector<HTMLInputElement>("#post-dof-blur");
   const postResetButton = document.querySelector<HTMLButtonElement>("#post-debug-reset");
+  const waterDebugViewSelect = document.querySelector<HTMLSelectElement>("#water-debug-view");
+  const waterEnabledCheckbox = document.querySelector<HTMLInputElement>("#water-enabled");
+  const waterReflectionCheckbox = document.querySelector<HTMLInputElement>("#water-reflection");
+  const waterStatus = document.querySelector<HTMLElement>("#water-debug-status");
   const resetButton = document.querySelector<HTMLButtonElement>("#render-debug-reset");
   const resetPerfButton = document.querySelector<HTMLButtonElement>("#perf-debug-reset");
   const perfOverlay = document.querySelector<HTMLElement>("#perf-overlay");
@@ -139,6 +200,10 @@ function readRenderDebugUi(): GameRenderDebugUiElements | null {
     postDofRangeInput === null ||
     postDofBlurInput === null ||
     postResetButton === null ||
+    waterDebugViewSelect === null ||
+    waterEnabledCheckbox === null ||
+    waterReflectionCheckbox === null ||
+    waterStatus === null ||
     resetButton === null ||
     resetPerfButton === null ||
     perfOverlay === null
@@ -170,6 +235,10 @@ function readRenderDebugUi(): GameRenderDebugUiElements | null {
     postDofRangeInput,
     postDofBlurInput,
     postResetButton,
+    waterDebugViewSelect,
+    waterEnabledCheckbox,
+    waterReflectionCheckbox,
+    waterStatus,
     resetButton,
     resetPerfButton,
     perfOverlay

@@ -108,6 +108,8 @@ describe("TerrainWorkerClient", () => {
       equal(completion.message, "boom");
       equal(completion.vertices.length, 0);
       equal(completion.indices.length, 0);
+      equal(completion.waterTexelCount, 0);
+      equal(completion.waterDepths, undefined);
     }
     equal(workers[0].terminated, true);
     equal(workers[1].terminated, true);
@@ -115,6 +117,11 @@ describe("TerrainWorkerClient", () => {
     equal(workers[3].terminated, false);
   });
 });
+
+const FAKE_TERRAIN_VARIANT = Object.freeze([
+  1, 1, 3, 16, 4, 0.004, 2, 0.5, 3, 3, 0.009, 2.1, 0.48, 1, 1.8, 2,
+  0.004, 2, 0.5, 14, 0.018, 1.3, 3, 0.03, 2.05, 0.44, 3.2, 1, 1, 1, 1, 1
+]);
 
 function fakeRequest(requestId: number): TerrainBuildRequest {
   return {
@@ -126,6 +133,8 @@ function fakeRequest(requestId: number): TerrainBuildRequest {
     z: 4,
     seed: 0x0F6,
     preset: 1,
+    variantRevision: 3,
+    terrainVariant: FAKE_TERRAIN_VARIANT,
     cellSize: 2
   };
 }
@@ -138,9 +147,18 @@ function fakeCompletion(request: TerrainBuildRequest): TerrainBuildCompletion {
     x: request.x,
     y: request.y,
     z: request.z,
+    variantRevision: request.variantRevision,
     failed: false,
     vertices: new Float32Array([1, 2, 3]),
-    indices: new Uint32Array([0])
+    indices: new Uint32Array([0]),
+    waterTexelCount: 2,
+    waterOriginX: 0,
+    waterOriginZ: 32,
+    waterWorldSpanX: 32,
+    waterWorldSpanZ: 32,
+    waterSeaLevelMeters: 0,
+    waterMaxDepthMeters: 4,
+    waterDepths: new Float32Array([0, 1, 2, 4])
   };
 }
 

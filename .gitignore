@@ -1,5 +1,6 @@
 # Build outputs
 dist/
+dist-test/
 .deploy/
 coverage/
 artifacts/
@@ -16,6 +17,7 @@ Cargo.lock
 .env
 .env.*
 !.env.example
+.codex-remote-attachments/
 
 # Editors and OS metadata
 .idea/

@@ -1,40 +1,31 @@
+// Built-in terrain preset defaults. These values are tuned in world meters:
+// frequency is cycles per meter, so 0.001 means a roughly 1 km wavelength.
+
 use crate::*;
 
-#[derive(Clone, Copy)]
-pub(crate) struct TerrainPresetDefinition {
-    pub(crate) base_height: f64,
-    pub(crate) height_scale: f64,
-    pub(crate) large_feature_noise: FractalNoiseOptions,
-    pub(crate) ridge_height_scale: f64,
-    pub(crate) ridge_noise: RidgedFractalNoiseOptions,
-    pub(crate) warp: DomainWarpOptions,
-    pub(crate) cellular: CellularNoiseOptions,
-    pub(crate) cellular_height_scale: f64,
-    pub(crate) detail_noise: FractalNoiseOptions,
-    pub(crate) detail_amplitude: f64,
-}
+pub(crate) type TerrainPresetDefinition = TerrainShapeParameters;
 
 pub(crate) const SEED_LARGE_FEATURE_NOISE: FractalNoiseOptions = FractalNoiseOptions {
     octaves: 3,
-    frequency: 0.0065,
+    frequency: 0.0016,
     lacunarity: 2.0,
     persistence: 0.52,
 };
 pub(crate) const SEED_DENSITY_DETAIL_NOISE: FractalNoiseOptions = FractalNoiseOptions {
     octaves: 3,
-    frequency: 0.035,
+    frequency: 0.012,
     lacunarity: 2.15,
     persistence: 0.46,
 };
 pub(crate) const TERRAIN_PRESETS: [TerrainPresetDefinition; 4] = [
-    TerrainPresetDefinition {
+    TerrainShapeParameters {
         base_height: 2.0,
-        height_scale: 22.0,
+        height_scale: 34.0,
         large_feature_noise: SEED_LARGE_FEATURE_NOISE,
         ridge_height_scale: 0.0,
         ridge_noise: RidgedFractalNoiseOptions {
             octaves: 1,
-            frequency: 0.008,
+            frequency: 0.002,
             lacunarity: 2.0,
             persistence: 0.5,
             ridge_offset: 1.0,
@@ -42,120 +33,120 @@ pub(crate) const TERRAIN_PRESETS: [TerrainPresetDefinition; 4] = [
         },
         warp: DomainWarpOptions {
             octaves: 1,
-            frequency: 0.005,
+            frequency: 0.0015,
             lacunarity: 2.0,
             persistence: 0.5,
             amplitude: 0.0,
         },
-        cellular: CellularNoiseOptions { frequency: 0.015 },
+        cellular: CellularNoiseOptions { frequency: 0.0035 },
         cellular_height_scale: 0.0,
         detail_noise: SEED_DENSITY_DETAIL_NOISE,
-        detail_amplitude: 5.0,
+        detail_amplitude: 3.0,
     },
-    TerrainPresetDefinition {
-        base_height: 3.0,
-        height_scale: 16.0,
+    TerrainShapeParameters {
+        base_height: 4.0,
+        height_scale: 28.0,
         large_feature_noise: FractalNoiseOptions {
             octaves: 4,
-            frequency: 0.004,
+            frequency: 0.00105,
             lacunarity: 2.0,
-            persistence: 0.5,
-        },
-        ridge_height_scale: 3.0,
-        ridge_noise: RidgedFractalNoiseOptions {
-            octaves: 3,
-            frequency: 0.009,
-            lacunarity: 2.1,
             persistence: 0.48,
+        },
+        ridge_height_scale: 1.2,
+        ridge_noise: RidgedFractalNoiseOptions {
+            octaves: 2,
+            frequency: 0.0022,
+            lacunarity: 2.1,
+            persistence: 0.42,
             ridge_offset: 1.0,
-            ridge_sharpness: 1.8,
+            ridge_sharpness: 1.35,
         },
         warp: DomainWarpOptions {
             octaves: 2,
-            frequency: 0.004,
+            frequency: 0.001,
             lacunarity: 2.0,
             persistence: 0.5,
-            amplitude: 14.0,
+            amplitude: 110.0,
         },
-        cellular: CellularNoiseOptions { frequency: 0.018 },
-        cellular_height_scale: 1.3,
+        cellular: CellularNoiseOptions { frequency: 0.003 },
+        cellular_height_scale: 0.8,
         detail_noise: FractalNoiseOptions {
             octaves: 3,
-            frequency: 0.03,
-            lacunarity: 2.05,
-            persistence: 0.44,
-        },
-        detail_amplitude: 3.2,
-    },
-    TerrainPresetDefinition {
-        base_height: 2.0,
-        height_scale: 20.0,
-        large_feature_noise: FractalNoiseOptions {
-            octaves: 4,
-            frequency: 0.0028,
-            lacunarity: 2.0,
-            persistence: 0.53,
-        },
-        ridge_height_scale: 24.0,
-        ridge_noise: RidgedFractalNoiseOptions {
-            octaves: 4,
-            frequency: 0.0065,
-            lacunarity: 2.05,
-            persistence: 0.52,
-            ridge_offset: 1.0,
-            ridge_sharpness: 2.25,
-        },
-        warp: DomainWarpOptions {
-            octaves: 3,
-            frequency: 0.0032,
-            lacunarity: 2.0,
-            persistence: 0.5,
-            amplitude: 28.0,
-        },
-        cellular: CellularNoiseOptions { frequency: 0.012 },
-        cellular_height_scale: 2.0,
-        detail_noise: FractalNoiseOptions {
-            octaves: 3,
-            frequency: 0.026,
-            lacunarity: 2.1,
-            persistence: 0.45,
-        },
-        detail_amplitude: 4.5,
-    },
-    TerrainPresetDefinition {
-        base_height: 7.0,
-        height_scale: 18.0,
-        large_feature_noise: FractalNoiseOptions {
-            octaves: 4,
-            frequency: 0.0036,
-            lacunarity: 2.2,
-            persistence: 0.5,
-        },
-        ridge_height_scale: 11.0,
-        ridge_noise: RidgedFractalNoiseOptions {
-            octaves: 4,
             frequency: 0.011,
-            lacunarity: 2.2,
+            lacunarity: 2.05,
+            persistence: 0.42,
+        },
+        detail_amplitude: 2.0,
+    },
+    TerrainShapeParameters {
+        base_height: -4.0,
+        height_scale: 40.0,
+        large_feature_noise: FractalNoiseOptions {
+            octaves: 4,
+            frequency: 0.00055,
+            lacunarity: 2.0,
+            persistence: 0.5,
+        },
+        ridge_height_scale: 46.0,
+        ridge_noise: RidgedFractalNoiseOptions {
+            octaves: 4,
+            frequency: 0.00105,
+            lacunarity: 2.05,
             persistence: 0.5,
             ridge_offset: 1.0,
-            ridge_sharpness: 1.45,
+            ridge_sharpness: 2.1,
         },
         warp: DomainWarpOptions {
-            octaves: 2,
-            frequency: 0.0055,
-            lacunarity: 2.1,
-            persistence: 0.52,
-            amplitude: 18.0,
+            octaves: 3,
+            frequency: 0.00065,
+            lacunarity: 2.0,
+            persistence: 0.5,
+            amplitude: 220.0,
         },
-        cellular: CellularNoiseOptions { frequency: 0.02 },
+        cellular: CellularNoiseOptions { frequency: 0.0018 },
         cellular_height_scale: 6.0,
         detail_noise: FractalNoiseOptions {
+            octaves: 3,
+            frequency: 0.0075,
+            lacunarity: 2.1,
+            persistence: 0.42,
+        },
+        detail_amplitude: 5.5,
+    },
+    TerrainShapeParameters {
+        base_height: 8.0,
+        height_scale: 38.0,
+        large_feature_noise: FractalNoiseOptions {
             octaves: 4,
-            frequency: 0.038,
+            frequency: 0.00095,
+            lacunarity: 2.2,
+            persistence: 0.46,
+        },
+        ridge_height_scale: 34.0,
+        ridge_noise: RidgedFractalNoiseOptions {
+            octaves: 4,
+            frequency: 0.0024,
+            lacunarity: 2.2,
+            persistence: 0.46,
+            ridge_offset: 1.0,
+            ridge_sharpness: 1.55,
+        },
+        warp: DomainWarpOptions {
+            octaves: 2,
+            frequency: 0.0013,
+            lacunarity: 2.1,
+            persistence: 0.52,
+            amplitude: 180.0,
+        },
+        cellular: CellularNoiseOptions { frequency: 0.006 },
+        cellular_height_scale: 14.0,
+        detail_noise: FractalNoiseOptions {
+            octaves: 4,
+            frequency: 0.018,
             lacunarity: 2.2,
             persistence: 0.48,
         },
-        detail_amplitude: 6.5,
+        detail_amplitude: 8.5,
     },
 ];
 
@@ -175,6 +166,10 @@ pub(crate) fn terrain_preset(preset: u32) -> TerrainPresetDefinition {
 mod tests {
     use super::*;
 
+    fn wavelength_meters(frequency: f64) -> f64 {
+        1.0 / frequency
+    }
+
     #[test]
     fn terrain_preset_index_accepts_known_presets_and_defaults_unknown_values() {
         assert_eq!(terrain_preset_index(0), 0);
@@ -193,5 +188,29 @@ mod tests {
         assert_eq!(unknown.height_scale, default.height_scale);
         assert_eq!(unknown.detail_amplitude, default.detail_amplitude);
         assert_eq!(unknown.warp.amplitude, default.warp.amplitude);
+    }
+
+    #[test]
+    fn terrain_preset_wavelengths_are_landform_scaled() {
+        let seed = terrain_preset(0);
+        let rolling = terrain_preset(1);
+        let mountain = terrain_preset(2);
+        let highland = terrain_preset(3);
+
+        assert!(wavelength_meters(seed.large_feature_noise.frequency) >= 500.0);
+        assert!(wavelength_meters(seed.detail_noise.frequency) >= 60.0);
+
+        assert!(wavelength_meters(rolling.large_feature_noise.frequency) >= 800.0);
+        assert!(wavelength_meters(rolling.ridge_noise.frequency) >= 300.0);
+        assert!(wavelength_meters(rolling.detail_noise.frequency) >= 60.0);
+
+        assert!(wavelength_meters(mountain.large_feature_noise.frequency) >= 1_500.0);
+        assert!(wavelength_meters(mountain.ridge_noise.frequency) >= 700.0);
+        assert!(wavelength_meters(mountain.detail_noise.frequency) >= 100.0);
+
+        assert!(wavelength_meters(highland.large_feature_noise.frequency) >= 800.0);
+        assert!(wavelength_meters(highland.ridge_noise.frequency) >= 300.0);
+        assert!(wavelength_meters(highland.cellular.frequency) >= 120.0);
+        assert!(wavelength_meters(highland.detail_noise.frequency) >= 45.0);
     }
 }

@@ -46,6 +46,25 @@ describe("RustBrowserGameAdapter", () => {
     deepEqual(fake.completedTerrainBuilds[1], []);
   });
 
+  it("resets terrain workers before terrain-changing commands", () => {
+    const fake = fakeBrowserGame();
+    const workers = fakeTerrainWorkers([]);
+    const adapter = new RustBrowserGameAdapter(fakeCanvas(), fake, workers);
+
+    adapter.command({ type: "resetGame", terrainSeed: 0x0F6, terrainPreset: 1 });
+    adapter.command({
+      type: "setTerrainVariant",
+      terrainSeed: 0x0F6,
+      terrainPreset: 1,
+      terrainVariant: FAKE_TERRAIN_VARIANT
+    });
+    adapter.command({ type: "resetStreaming" });
+    adapter.command({ type: "togglePlayerMode" });
+
+    equal(workers.resetCount, 3);
+    equal(fake.commandCalls[1]?.type, "setTerrainVariant");
+  });
+
   it("forwards browser frame input and player controls to the Rust game facade", () => {
     const fake = fakeBrowserGame();
     const adapter = new RustBrowserGameAdapter(fakeCanvas(), fake);
@@ -94,6 +113,17 @@ describe("RustBrowserGameAdapter", () => {
       focusRange: 4,
       maxBlurPixels: 10
     });
+    adapter.command({ type: "setWaterDebugView", view: "bottomDepth" });
+    adapter.command({
+      type: "setWaterOptions",
+      enabled: true,
+      reflectionEnabled: false,
+      seaLevelMeters: 0.5,
+      shallowDepthMeters: 2.5,
+      deepDepthMeters: 36,
+      waveScale: 0.08,
+      waveStrength: 0.25
+    });
     adapter.command({
       type: "setRenderDebugOptions",
       skyEnabled: false,
@@ -121,9 +151,11 @@ describe("RustBrowserGameAdapter", () => {
     equal(fake.commandCalls[10]?.type, "setPostProcessToneMapping");
     equal(fake.commandCalls[11]?.type, "setPostProcessBloom");
     equal(fake.commandCalls[12]?.type, "setPostProcessDepthOfField");
-    equal(fake.commandCalls[13]?.type, "setRenderDebugOptions");
-    equal(fake.commandCalls[14]?.type, "resetRenderDebugOptions");
-    equal(fake.commandCalls[15]?.type, "resetPerfStats");
+    equal(fake.commandCalls[13]?.type, "setWaterDebugView");
+    equal(fake.commandCalls[14]?.type, "setWaterOptions");
+    equal(fake.commandCalls[15]?.type, "setRenderDebugOptions");
+    equal(fake.commandCalls[16]?.type, "resetRenderDebugOptions");
+    equal(fake.commandCalls[17]?.type, "resetPerfStats");
     equal(snapshot.playerMode, "firstPerson");
     equal(snapshot.playerPosition.x, 96);
     equal(snapshot.shadowDebugView, "shadowVisibility");
@@ -135,6 +167,8 @@ describe("RustBrowserGameAdapter", () => {
     equal(snapshot.rendererStatus.postProcessBloomThreshold, 1);
     equal(snapshot.rendererStatus.postProcessDofEnabled, false);
     equal(snapshot.rendererStatus.postProcessDofFocusDistance, 30);
+    equal(snapshot.rendererStatus.waterRuntime, "rust-wgpu");
+    equal(snapshot.rendererStatus.waterDebugView, "final");
     equal(snapshot.rendererStatus.gpuTimerAvailable, false);
     equal(snapshot.rustPerfStats.sampleCount, 1);
     equal(snapshot.renderDebugOptions.skyEnabled, true);
@@ -168,6 +202,11 @@ describe("RustBrowserGameAdapter", () => {
     equal(snapshot.skyStarIntensity, 0.08);
   });
 });
+
+const FAKE_TERRAIN_VARIANT = Object.freeze([
+  1, 1, 3, 16, 4, 0.004, 2, 0.5, 3, 3, 0.009, 2.1, 0.48, 1, 1.8, 2,
+  0.004, 2, 0.5, 14, 0.018, 1.3, 3, 0.03, 2.05, 0.44, 3.2, 1, 1, 1, 1, 1
+]);
 
 type FakeBrowserGame = EngineWebBrowserGame & {
   resizeCalls: Array<Parameters<EngineWebBrowserGame["resize"]>[0]>;
@@ -215,6 +254,10 @@ function fakeBrowserGame(): FakeBrowserGame {
         terrainNodeKeys: ["lod0:0,0,0"],
         terrainPreset: "rollingHills",
         terrainSeed: 0x0F6,
+        terrainVariantRevision: 2,
+        terrainVariant: FAKE_TERRAIN_VARIANT,
+        terrainPresetCatalog: fakeTerrainPresetCatalog(),
+        terrainVariantProbe: fakeTerrainVariantProbe(),
         terrainStreamStatus: {
           generation: 0,
           pending: false,
@@ -319,10 +362,12 @@ function fakeBrowserGame(): FakeBrowserGame {
 function fakeTerrainWorkers(completions: TerrainBuildCompletion[]): TerrainWorkerBridge & {
   submittedRequests: TerrainBuildRequest[][];
   lastTakeCompletionsMaxCount?: number;
+  resetCount: number;
 } {
   return {
     workerCount: 2,
     submittedRequests: [],
+    resetCount: 0,
     takeCompletions(maxCount) {
       this.lastTakeCompletionsMaxCount = maxCount;
       return completions.splice(0, maxCount ?? completions.length);
@@ -336,7 +381,46 @@ function fakeTerrainWorkers(completions: TerrainBuildCompletion[]): TerrainWorke
         inFlightRequestCount: 0
       };
     },
-    reset() {}
+    reset() {
+      this.resetCount += 1;
+    }
+  };
+}
+
+function fakeTerrainPresetCatalog() {
+  return [
+    {
+      code: 1,
+      id: "rollingHills" as const,
+      name: "Rolling Hills",
+      terrainVariant: FAKE_TERRAIN_VARIANT
+    }
+  ];
+}
+
+function fakeTerrainVariantProbe() {
+  return {
+    sampleCount: 5,
+    heightMin: 1,
+    heightMax: 8,
+    slopeMin: 0.1,
+    slopeMax: 0.6,
+    macroBaseElevation: 4,
+    mountainness: 0.35,
+    ridge: 0.42,
+    cellularEdge: 0.22,
+    materialIndices: [0, 11, 13, 15],
+    materialWeights: [0.5, 0.25, 0.15, 0.1],
+    biomeWeights: {
+      grassland: 0.4,
+      temperateForest: 0.2,
+      wetland: 0.1,
+      coastBeach: 0,
+      dryBadland: 0.1,
+      alpineMeadow: 0.1,
+      highMountainRock: 0.1,
+      snowTundra: 0
+    }
   };
 }
 
@@ -350,6 +434,8 @@ function fakeTerrainBuildRequest(requestId: number): TerrainBuildRequest {
     z: 0,
     seed: 0x0F6,
     preset: 1,
+    variantRevision: 2,
+    terrainVariant: FAKE_TERRAIN_VARIANT,
     cellSize: 1
   };
 }
@@ -362,9 +448,17 @@ function fakeTerrainBuildCompletion(requestId: number): TerrainBuildCompletion {
     x: 0,
     y: 0,
     z: 0,
+    variantRevision: 2,
     failed: false,
     vertices: new Float32Array([1, 2, 3]),
-    indices: new Uint32Array([0])
+    indices: new Uint32Array([0]),
+    waterTexelCount: 0,
+    waterOriginX: 0,
+    waterOriginZ: 0,
+    waterWorldSpanX: 0,
+    waterWorldSpanZ: 0,
+    waterSeaLevelMeters: 0,
+    waterMaxDepthMeters: 0
   };
 }
 

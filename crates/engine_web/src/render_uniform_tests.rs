@@ -3,8 +3,7 @@
 use crate::{
     build_shadow_cascades, build_shadow_uniform_values, RenderUniformError, RenderVec3,
     ENGINE_RENDER_SNAPSHOT_FLOATS, SHADOW_CASCADE_COUNT, SHADOW_STRENGTH_OFFSET,
-    SHADOW_UNIFORM_FLOATS,
-    WORLD_MATRIX_FLOATS,
+    SHADOW_UNIFORM_FLOATS, WORLD_MATRIX_FLOATS,
 };
 
 #[test]

@@ -23,8 +23,9 @@ use crate::{
 };
 use engine_core::{EngineError, MaterialId, MeshId, PlayerMode, TerrainComponent, Vec3};
 use terrain_core::{
-    build_node_mesh, height_at, terrain_node_cell_size, terrain_node_parent, TerrainLodBand,
-    TerrainNodeKey, DEFAULT_TERRAIN_PRESET, TERRAIN_CHUNK_CELLS_PER_AXIS,
+    build_node_mesh_for_variant, height_at, height_at_for_variant, terrain_node_cell_size,
+    terrain_node_parent, terrain_variant_for_preset, TerrainLodBand, TerrainNodeKey,
+    WaterNodePacket, DEFAULT_TERRAIN_PRESET, TERRAIN_CHUNK_CELLS_PER_AXIS,
 };
 
 const STATIC_BOX_GLB: &[u8] = include_bytes!("../../../assets/models/test-fixtures/static-box.glb");
@@ -1192,6 +1193,83 @@ fn browser_game_state_resets_with_a_rust_owned_grounded_player() {
 }
 
 #[test]
+fn browser_game_state_resets_with_custom_terrain_variant_height() {
+    let mut state = BrowserGameState::new();
+    let mut variant = terrain_variant_for_preset(1);
+    variant.shape.base_height += 6.0;
+
+    state.reset_game_with_variant(0x0F6, variant).unwrap();
+
+    let position = state.player_position().unwrap();
+    let expected_height = height_at_for_variant(0x0F6, variant, 0.0, 0.0).unwrap() as f32;
+
+    assert_close(position.y, expected_height);
+    assert_eq!(state.terrain_preset(), 1);
+    assert_eq!(state.terrain_variant(), variant);
+    assert_eq!(
+        state.terrain_component(),
+        Some(TerrainComponent {
+            seed: 0x0F6,
+            preset: 1
+        })
+    );
+}
+
+#[test]
+fn browser_game_state_sets_terrain_variant_without_resetting_debug_camera() {
+    let mut state = BrowserGameState::new();
+    state.reset_game(0x0F6, 1).unwrap();
+    let before_player = state.set_player_position_xz(12.0, -8.0).unwrap();
+
+    state.set_player_mode(PlayerMode::DebugFly).unwrap();
+    state
+        .set_debug_camera(Vec3::new(21.0, 14.0, -9.0), 0.7, -0.3)
+        .unwrap();
+
+    let mut variant = terrain_variant_for_preset(1);
+    variant.shape.base_height += 7.0;
+    state.set_terrain_variant(0x0F7, variant).unwrap();
+
+    assert_eq!(state.player_mode().unwrap(), PlayerMode::DebugFly);
+    assert_eq!(state.terrain_seed(), 0x0F7);
+    assert_eq!(state.terrain_preset(), 1);
+    assert_eq!(state.terrain_variant(), variant);
+    assert_eq!(
+        state.terrain_component(),
+        Some(TerrainComponent {
+            seed: 0x0F7,
+            preset: 1
+        })
+    );
+    assert_eq!(state.player_position().unwrap(), before_player);
+    let snapshot = state.render_snapshot_values().unwrap();
+    assert_close(snapshot[0], 21.0);
+    assert_close(snapshot[1], 14.0);
+    assert_close(snapshot[2], -9.0);
+    assert_close(snapshot[6], 0.7);
+    assert_close(snapshot[7], -0.3);
+}
+
+#[test]
+fn browser_game_state_sets_terrain_variant_and_regrounds_first_person_player() {
+    let mut state = BrowserGameState::new();
+    state.reset_game(0x0F6, 1).unwrap();
+    state.set_player_position_xz(32.0, -16.0).unwrap();
+
+    let mut variant = terrain_variant_for_preset(1);
+    variant.shape.base_height += 9.0;
+    state.set_terrain_variant(0x0F7, variant).unwrap();
+
+    let position = state.player_position().unwrap();
+    let expected_height = height_at_for_variant(0x0F7, variant, 32.0, -16.0).unwrap() as f32;
+
+    assert_eq!(state.player_mode().unwrap(), PlayerMode::FirstPerson);
+    assert_close(position.x, 32.0);
+    assert_close(position.y, expected_height);
+    assert_close(position.z, -16.0);
+}
+
+#[test]
 fn browser_game_state_attaches_configured_static_model_scene_item() {
     let mut state = BrowserGameState::new();
     state
@@ -1695,18 +1773,21 @@ fn browser_terrain_stream_queues_worker_requests_without_sync_building() {
     let request = requests[0];
     assert_eq!(request.seed, 0x0F6);
     assert_eq!(request.preset, 1);
+    assert!(request.variant_revision > 0);
     assert_eq!(request.key.lod, 0);
     assert_eq!(stream.status().terrain_worker_count, 2);
     assert_eq!(stream.status().terrain_worker_in_flight_count, 1);
     assert_eq!(stream.status().terrain_worker_queued_request_count, 0);
 
-    let mesh = build_node_mesh(request.seed, request.preset, request.key, 1.0);
+    let mesh = build_node_mesh_for_variant(request.seed, request.terrain_variant, request.key, 1.0);
     assert!(stream.complete_worker_build(BrowserTerrainBuildCompletion {
         request_id: request.request_id,
         generation: request.generation,
         key: request.key,
+        variant_revision: request.variant_revision,
         vertices: mesh.vertices,
         indices: mesh.indices,
+        water: None,
         failed: false,
     }));
 
@@ -1718,6 +1799,60 @@ fn browser_terrain_stream_queues_worker_requests_without_sync_building() {
     assert_eq!(status.terrain_worker_in_flight_count, 0);
     assert_eq!(status.synchronous_build_count, 0);
     assert_eq!(status.pending, false);
+}
+
+#[test]
+fn browser_terrain_stream_emits_water_for_generated_empty_sea_level_nodes() {
+    let mut stream = BrowserTerrainStream::new_with_lod_bands(
+        0x0F6,
+        1,
+        vec![TerrainLodBand {
+            lod: 0,
+            horizontal_radius: 0,
+            vertical_chunk_offsets: vec![0],
+        }],
+    )
+    .unwrap();
+    stream.configure_worker_runtime(1).unwrap();
+    let origin = Vec3::new(0.0, 0.0, 0.0);
+    stream.reset_around(origin);
+    stream.tick_for_workers(origin);
+    let request = stream.take_worker_build_requests()[0];
+
+    assert!(stream.complete_worker_build(BrowserTerrainBuildCompletion {
+        request_id: request.request_id,
+        generation: request.generation,
+        key: request.key,
+        variant_revision: request.variant_revision,
+        vertices: Vec::new(),
+        indices: Vec::new(),
+        water: Some(test_water_packet()),
+        failed: false,
+    }));
+
+    let update = stream.tick_for_workers(origin);
+
+    assert!(update.upserted_meshes.is_empty());
+    assert_eq!(update.upserted_water.len(), 1);
+    assert_eq!(update.upserted_water[0].key, request.key);
+    assert_eq!(update.upserted_water[0].water.max_depth_meters, 4.0);
+    assert!(update.removed_water_nodes.is_empty());
+    let status = stream.status();
+    assert_eq!(status.empty_node_count, 1);
+    assert_eq!(status.rendered_node_count, 0);
+}
+
+fn test_water_packet() -> WaterNodePacket {
+    WaterNodePacket {
+        texel_count: 2,
+        origin_x: 0.0,
+        origin_z: 0.0,
+        world_span_x: 32.0,
+        world_span_z: 32.0,
+        sea_level_meters: 0.0,
+        max_depth_meters: 4.0,
+        depths_meters: vec![0.0, 1.0, 2.0, 4.0],
+    }
 }
 
 #[test]
@@ -1777,8 +1912,10 @@ fn browser_terrain_stream_rejects_stale_worker_completions_and_retries() {
             request_id: request.request_id,
             generation: request.generation,
             key: wrong_key,
+            variant_revision: request.variant_revision,
             vertices: Vec::new(),
             indices: Vec::new(),
+            water: None,
             failed: false,
         })
     );
@@ -1788,6 +1925,45 @@ fn browser_terrain_stream_rejects_stale_worker_completions_and_retries() {
     let retry = stream.take_worker_build_requests();
     assert_eq!(retry.len(), 1);
     assert_eq!(retry[0].key, request.key);
+}
+
+#[test]
+fn browser_terrain_stream_rejects_worker_completions_for_stale_variant_revisions() {
+    let mut stream = BrowserTerrainStream::new_with_lod_bands(
+        0x0F6,
+        1,
+        vec![TerrainLodBand {
+            lod: 0,
+            horizontal_radius: 0,
+            vertical_chunk_offsets: vec![0],
+        }],
+    )
+    .unwrap();
+    stream.configure_worker_runtime(1).unwrap();
+    let origin = Vec3::new(0.0, 0.0, 0.0);
+    stream.reset_around(origin);
+    stream.tick_for_workers(origin);
+    let request = stream.take_worker_build_requests()[0];
+
+    assert!(
+        !stream.complete_worker_build(BrowserTerrainBuildCompletion {
+            request_id: request.request_id,
+            generation: request.generation,
+            key: request.key,
+            variant_revision: request.variant_revision + 1,
+            vertices: Vec::new(),
+            indices: Vec::new(),
+            water: None,
+            failed: false,
+        })
+    );
+    assert_eq!(stream.status().terrain_worker_stale_completion_count, 1);
+
+    stream.tick_for_workers(origin);
+    let retry = stream.take_worker_build_requests();
+    assert_eq!(retry.len(), 1);
+    assert_eq!(retry[0].key, request.key);
+    assert_eq!(retry[0].variant_revision, request.variant_revision);
 }
 
 #[test]
@@ -1814,8 +1990,10 @@ fn browser_terrain_stream_rejects_worker_completions_after_reset() {
             request_id: request.request_id,
             generation: request.generation,
             key: request.key,
+            variant_revision: request.variant_revision,
             vertices: Vec::new(),
             indices: Vec::new(),
+            water: None,
             failed: false,
         })
     );

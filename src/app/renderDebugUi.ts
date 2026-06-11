@@ -6,7 +6,9 @@ import { buildPerfOverlayText, type CombinedPerfStats } from "./perfDebug.js";
 import type {
   PostProcessDebugView,
   RenderDebugOptions,
-  RenderDebugOptionsUpdate
+  RenderDebugOptionsUpdate,
+  WaterDebugView,
+  WaterOptionsUpdate
 } from "../engine/web/browserGameTypes.js";
 import type { EngineWebRendererStatus } from "../engine/web/engineWebWasm.js";
 
@@ -34,6 +36,10 @@ export type RenderDebugUiElements = {
   readonly postDofRangeInput: HTMLInputElement;
   readonly postDofBlurInput: HTMLInputElement;
   readonly postResetButton: HTMLButtonElement;
+  readonly waterDebugViewSelect: HTMLSelectElement;
+  readonly waterEnabledCheckbox: HTMLInputElement;
+  readonly waterReflectionCheckbox: HTMLInputElement;
+  readonly waterStatus: HTMLElement;
   readonly resetButton: HTMLButtonElement;
   readonly resetPerfButton: HTMLButtonElement;
   readonly perfOverlay: HTMLElement;
@@ -53,9 +59,25 @@ export type PostProcessDebugState = Pick<
   | "postProcessDofMaxBlurPixels"
 >;
 
+export type WaterDebugState = Pick<
+  EngineWebRendererStatus,
+  | "waterEnabled"
+  | "waterReflectionEnabled"
+  | "waterSeaLevelMeters"
+  | "waterBathymetryRuntime"
+  | "waterBathymetryGridSize"
+  | "waterBathymetryWorldSpanMeters"
+  | "waterBathymetryCenterX"
+  | "waterBathymetryCenterZ"
+  | "waterReflectionWidth"
+  | "waterReflectionHeight"
+  | "waterDebugView"
+>;
+
 export type RenderDebugUiCallbacks = {
   readonly getRenderDebugOptions: () => RenderDebugOptions;
   readonly getPostProcessState: () => PostProcessDebugState;
+  readonly getWaterState: () => WaterDebugState;
   readonly setRenderDebugOptions: (options: RenderDebugOptionsUpdate) => void;
   readonly resetRenderDebugOptions: () => void;
   readonly setPostProcessDebugView: (view: PostProcessDebugView) => void;
@@ -72,6 +94,8 @@ export type RenderDebugUiCallbacks = {
     maxBlurPixels: number
   ) => void;
   readonly resetPostProcess: () => void;
+  readonly setWaterDebugView: (view: WaterDebugView) => void;
+  readonly setWaterOptions: (options: WaterOptionsUpdate) => void;
   readonly resetPerfStats: () => void;
   readonly focusCanvas: () => void;
 };
@@ -244,6 +268,20 @@ export function createRenderDebugUi(
     syncPostProcessControls(elements, callbacks.getPostProcessState());
     callbacks.focusCanvas();
   });
+  elements.waterDebugViewSelect.addEventListener("change", () => {
+    callbacks.setWaterDebugView(elements.waterDebugViewSelect.value as WaterDebugView);
+    callbacks.focusCanvas();
+  });
+  elements.waterEnabledCheckbox.addEventListener("change", () => {
+    callbacks.setWaterOptions({ enabled: elements.waterEnabledCheckbox.checked });
+    callbacks.focusCanvas();
+  });
+  elements.waterReflectionCheckbox.addEventListener("change", () => {
+    callbacks.setWaterOptions({
+      reflectionEnabled: elements.waterReflectionCheckbox.checked
+    });
+    callbacks.focusCanvas();
+  });
   elements.resetButton.addEventListener("click", () => {
     callbacks.resetRenderDebugOptions();
     syncControls(elements, callbacks.getRenderDebugOptions());
@@ -256,6 +294,7 @@ export function createRenderDebugUi(
 
   syncControls(elements, callbacks.getRenderDebugOptions());
   syncPostProcessControls(elements, callbacks.getPostProcessState());
+  syncWaterControls(elements, callbacks.getWaterState());
   setPanelVisible(elements, false);
   setPerfOverlayVisible(elements, false);
 
@@ -263,6 +302,7 @@ export function createRenderDebugUi(
     update(stats) {
       syncControls(elements, stats.renderDebugOptions);
       syncPostProcessControls(elements, stats.rendererStatus);
+      syncWaterControls(elements, stats.rendererStatus);
       if (!elements.perfOverlay.hidden) {
         elements.perfOverlay.textContent = buildPerfOverlayText(stats);
       }
@@ -349,6 +389,21 @@ function syncPostProcessControls(
   setNumberInputValue(elements.postDofFocusInput, state.postProcessDofFocusDistance);
   setNumberInputValue(elements.postDofRangeInput, state.postProcessDofFocusRange);
   setNumberInputValue(elements.postDofBlurInput, state.postProcessDofMaxBlurPixels);
+}
+
+/// Synchronizes DOM controls from the latest Rust-owned water renderer state.
+function syncWaterControls(elements: RenderDebugUiElements, state: WaterDebugState): void {
+  elements.waterDebugViewSelect.value = state.waterDebugView;
+  elements.waterEnabledCheckbox.checked = state.waterEnabled;
+  elements.waterReflectionCheckbox.checked = state.waterReflectionEnabled;
+  elements.waterStatus.textContent = [
+    `sea ${state.waterSeaLevelMeters.toFixed(1)}m`,
+    `${state.waterBathymetryRuntime}`,
+    `${state.waterBathymetryGridSize}x${state.waterBathymetryGridSize}`,
+    `span ${Math.round(state.waterBathymetryWorldSpanMeters)}m`,
+    `center ${state.waterBathymetryCenterX.toFixed(0)}, ${state.waterBathymetryCenterZ.toFixed(0)}`,
+    `refl ${state.waterReflectionWidth}x${state.waterReflectionHeight}`
+  ].join(" | ");
 }
 
 /// Shows or hides the render-debug controls panel.

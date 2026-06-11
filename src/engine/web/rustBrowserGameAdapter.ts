@@ -112,7 +112,11 @@ export class RustBrowserGameAdapter {
   }
 
   command(command: RustBrowserGameCommand): void {
-    if (command.type === "resetGame" || command.type === "resetStreaming") {
+    if (
+      command.type === "resetGame" ||
+      command.type === "setTerrainVariant" ||
+      command.type === "resetStreaming"
+    ) {
       this.terrainWorkers?.reset();
     }
     this.game.command(command);
@@ -134,6 +138,20 @@ export class RustBrowserGameAdapter {
       terrainNodeKeys: [...snapshot.terrainNodeKeys],
       terrainPreset: snapshot.terrainPreset,
       terrainSeed: snapshot.terrainSeed,
+      terrainVariantRevision: snapshot.terrainVariantRevision,
+      terrainVariant: [...snapshot.terrainVariant],
+      terrainPresetCatalog: snapshot.terrainPresetCatalog.map((entry) => ({
+        code: entry.code,
+        id: entry.id,
+        name: entry.name,
+        terrainVariant: [...entry.terrainVariant]
+      })),
+      terrainVariantProbe: {
+        ...snapshot.terrainVariantProbe,
+        materialIndices: [...snapshot.terrainVariantProbe.materialIndices],
+        materialWeights: [...snapshot.terrainVariantProbe.materialWeights],
+        biomeWeights: { ...snapshot.terrainVariantProbe.biomeWeights }
+      },
       terrainStreamStatus: snapshot.terrainStreamStatus,
       terrainStreamerRuntime: snapshot.terrainStreamerRuntime,
       terrainStreamSchedulerRuntime: snapshot.terrainStreamSchedulerRuntime,

@@ -23,18 +23,31 @@ pub(crate) struct DensitySample {
 }
 
 pub fn height_at(seed: u32, preset: u32, x: f64, z: f64) -> f64 {
+    height_at_with_shape(seed, terrain_preset(preset), x, z)
+}
+
+pub fn height_at_for_variant(
+    seed: u32,
+    descriptor: TerrainVariantDescriptor,
+    x: f64,
+    z: f64,
+) -> Result<f64, TerrainVariantValidationError> {
+    descriptor.validate()?;
+    Ok(height_at_with_shape(seed, descriptor.shape, x, z))
+}
+
+pub fn height_at_with_shape(seed: u32, shape: TerrainShapeParameters, x: f64, z: f64) -> f64 {
     let noise = SimplexNoise3D::new(seed);
-    let preset = terrain_preset(preset);
     let mut upper_y = SURFACE_SEARCH_MAX_Y;
     let mut upper_density =
-        density_at_position(&noise, preset, seed, Vec3 { x, y: upper_y, z }).density;
+        density_at_position(&noise, shape, seed, Vec3 { x, y: upper_y, z }).density;
     let mut lower_y = upper_y - SURFACE_SEARCH_STEP;
 
     while lower_y >= SURFACE_SEARCH_MIN_Y {
         let lower_density =
-            density_at_position(&noise, preset, seed, Vec3 { x, y: lower_y, z }).density;
+            density_at_position(&noise, shape, seed, Vec3 { x, y: lower_y, z }).density;
         if lower_density <= 0.0 && upper_density > 0.0 {
-            return refine_surface_height(&noise, preset, seed, x, z, lower_y, upper_y);
+            return refine_surface_height(&noise, shape, seed, x, z, lower_y, upper_y);
         }
 
         upper_y = lower_y;
@@ -42,7 +55,7 @@ pub fn height_at(seed: u32, preset: u32, x: f64, z: f64) -> f64 {
         lower_y -= SURFACE_SEARCH_STEP;
     }
 
-    sample_macro_terrain(&noise, preset, seed, Vec3 { x, y: 0.0, z }).base_elevation
+    sample_macro_terrain(&noise, shape, seed, Vec3 { x, y: 0.0, z }).base_elevation
 }
 
 pub(crate) fn refine_surface_height(

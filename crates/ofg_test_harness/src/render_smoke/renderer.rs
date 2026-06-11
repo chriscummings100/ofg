@@ -7,14 +7,19 @@ use engine_core::{sky_state_at_elapsed_seconds, RenderCameraPacket, RenderSnapsh
 use engine_web::{
     build_frame_packet_from_engine_snapshot, build_frame_uniform_values,
     build_object_uniform_values, build_shadow_cascades, RenderVec3, ShadowCascadeSet,
-    REQUIRED_TEXTURE_ARRAY_LAYERS, SHADOW_CASCADE_COUNT, SHADOW_MAP_SIZE, SHADOW_UNIFORM_FLOATS,
-    TERRAIN_MATERIAL_PACKET, TERRAIN_VERTEX_FLOATS, WORLD_MATRIX_FLOATS,
+    WaterSettings, REQUIRED_TEXTURE_ARRAY_LAYERS, SHADOW_CASCADE_COUNT, SHADOW_MAP_SIZE,
+    SHADOW_UNIFORM_FLOATS, TERRAIN_MATERIAL_PACKET, TERRAIN_VERTEX_FLOATS,
+    WATER_BATHYMETRY_RUNTIME, WATER_RUNTIME, WORLD_MATRIX_FLOATS,
 };
-use terrain_core::MeshData;
+use terrain_core::{
+    build_water_node_packet_for_variant, MeshData, TerrainChunkCoord, TerrainNodeKey,
+    TerrainVariantDescriptor, WaterNodePacket, WATER_NODE_BATHYMETRY_TEXEL_COUNT,
+    WATER_NODE_MAX_RELEVANT_DEPTH_METERS,
+};
 use wgpu::util::DeviceExt;
 
 use super::error::{harness_error, HarnessResult};
-use super::report::RendererReport;
+use super::report::{RendererReport, WaterImageReport};
 use super::shadow_debug::{ShadowDebugOutput, ShadowDebugRenderer};
 
 pub const WIDTH: u32 = 960;
@@ -25,6 +30,14 @@ const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 const LINEAR_DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
 const SHADER_SOURCE: &str = include_str!("../../../../src/engine/render/shaders/uber.wgsl");
+const WATER_SHADER_SOURCE: &str = include_str!("../../../../src/engine/render/shaders/water.wgsl");
+const WATER_UNIFORM_FLOATS: usize = 48;
+const WATER_PATCH_INSTANCE_FLOATS: usize = 12;
+const SMOKE_WATER_ATLAS_TILES_PER_AXIS: u32 = 4;
+const SMOKE_WATER_ATLAS_TILE_COUNT: u32 =
+    SMOKE_WATER_ATLAS_TILES_PER_AXIS * SMOKE_WATER_ATLAS_TILES_PER_AXIS;
+const SMOKE_WATER_ATLAS_SIZE: u32 =
+    WATER_NODE_BATHYMETRY_TEXEL_COUNT * SMOKE_WATER_ATLAS_TILES_PER_AXIS;
 const IDENTITY_WORLD_MATRIX: [f32; WORLD_MATRIX_FLOATS] = [
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
 ];
@@ -41,12 +54,23 @@ pub struct OffscreenRenderer {
     _shadow_texture: wgpu::Texture,
     terrain_pipeline: wgpu::RenderPipeline,
     sky_pipeline: wgpu::RenderPipeline,
+    water_copy_pipeline: wgpu::RenderPipeline,
+    water_patch_pipeline: wgpu::RenderPipeline,
+    water_patch_instance_buffer: wgpu::Buffer,
+    water_bind_group_layout: wgpu::BindGroupLayout,
+    water_uniform_buffer: wgpu::Buffer,
+    water_sampler: wgpu::Sampler,
     shadow_debug_renderer: ShadowDebugRenderer,
 }
 
 pub struct CameraSetup {
     pub eye: Vec3,
     pub target: Vec3,
+}
+
+pub struct RenderedOffscreenFrame {
+    pub pixels: Vec<u8>,
+    pub water: WaterImageReport,
 }
 
 struct GpuMesh {
@@ -269,6 +293,10 @@ impl OffscreenRenderer {
             label: Some("smoke uber shader"),
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(SHADER_SOURCE)),
         });
+        let water_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("smoke water shader"),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(WATER_SHADER_SOURCE)),
+        });
         let terrain_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("smoke terrain pipeline layout"),
@@ -288,6 +316,37 @@ impl OffscreenRenderer {
             create_terrain_pipeline(&device, &terrain_pipeline_layout, &shader, COLOR_FORMAT);
         let sky_pipeline =
             create_sky_pipeline(&device, &sky_pipeline_layout, &shader, COLOR_FORMAT);
+        let water_bind_group_layout = create_water_bind_group_layout(&device);
+        let water_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("smoke water pipeline layout"),
+                bind_group_layouts: &[&camera_bind_group_layout, &water_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+        let water_copy_pipeline =
+            create_water_copy_pipeline(&device, &water_pipeline_layout, &water_shader);
+        let water_patch_pipeline =
+            create_water_patch_pipeline(&device, &water_pipeline_layout, &water_shader);
+        let water_patch_instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("smoke water patch instances"),
+            size: (SMOKE_WATER_ATLAS_TILE_COUNT as u64 * WATER_PATCH_INSTANCE_FLOATS as u64 * 4),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let water_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("smoke water uniforms"),
+            size: uniform_byte_len(WATER_UNIFORM_FLOATS),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let water_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("smoke water sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
         let shadow_debug_renderer = ShadowDebugRenderer::new(
             &device,
             &camera_bind_group_layout,
@@ -307,18 +366,45 @@ impl OffscreenRenderer {
             _shadow_texture: shadow_texture,
             terrain_pipeline,
             sky_pipeline,
+            water_copy_pipeline,
+            water_patch_pipeline,
+            water_patch_instance_buffer,
+            water_bind_group_layout,
+            water_uniform_buffer,
+            water_sampler,
             shadow_debug_renderer,
         })
     }
 
     /// Renders terrain meshes to CPU-readable RGBA pixels.
-    pub fn render(&self, camera: &CameraSetup, meshes: &[MeshData]) -> HarnessResult<Vec<u8>> {
+    pub fn render(
+        &self,
+        camera: &CameraSetup,
+        meshes: &[MeshData],
+        terrain_seed: u32,
+        terrain_variant: TerrainVariantDescriptor,
+    ) -> HarnessResult<RenderedOffscreenFrame> {
         self.write_common_uniforms(camera)?;
 
         let gpu_meshes = meshes
             .iter()
             .map(|mesh| self.create_gpu_mesh(mesh))
             .collect::<HarnessResult<Vec<_>>>()?;
+        let opaque_color = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("smoke opaque scene color"),
+            size: wgpu::Extent3d {
+                width: WIDTH,
+                height: HEIGHT,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: COLOR_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let opaque_color_view = opaque_color.create_view(&wgpu::TextureViewDescriptor::default());
         let output = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("smoke output texture"),
             size: wgpu::Extent3d {
@@ -336,6 +422,9 @@ impl OffscreenRenderer {
         let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
         let linear_depth = create_linear_depth_texture(&self.device, WIDTH, HEIGHT);
         let linear_depth_view = linear_depth.create_view(&wgpu::TextureViewDescriptor::default());
+        let final_linear_depth = create_linear_depth_texture(&self.device, WIDTH, HEIGHT);
+        let final_linear_depth_view =
+            final_linear_depth.create_view(&wgpu::TextureViewDescriptor::default());
         let depth = create_depth_texture(&self.device, WIDTH, HEIGHT);
         let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
         let unpadded_bytes_per_row = WIDTH * 4;
@@ -357,7 +446,7 @@ impl OffscreenRenderer {
         {
             let color_attachments = [
                 Some(wgpu::RenderPassColorAttachment {
-                    view: &output_view,
+                    view: &opaque_color_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -404,6 +493,75 @@ impl OffscreenRenderer {
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
         }
+        let mut water_settings = WaterSettings::default();
+        water_settings.reflection_enabled = false;
+        let water_packets =
+            build_smoke_water_packets(terrain_seed, terrain_variant, camera, water_settings)?;
+        let bathymetry_texture =
+            create_bathymetry_texture(&self.device, &self.queue, &water_packets);
+        let bathymetry_view =
+            bathymetry_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let water_instances = smoke_water_instance_values(&water_packets);
+        if !water_instances.is_empty() {
+            self.queue.write_buffer(
+                &self.water_patch_instance_buffer,
+                0,
+                f32_as_bytes(&water_instances),
+            );
+        }
+        self.queue.write_buffer(
+            &self.water_uniform_buffer,
+            0,
+            f32_as_bytes(&smoke_water_uniform_values(
+                water_settings,
+                water_packets.len() as u32,
+            )),
+        );
+        let water_bind_group = self.create_water_bind_group(
+            &opaque_color_view,
+            &linear_depth_view,
+            &bathymetry_view,
+            &opaque_color_view,
+        );
+        {
+            let color_attachments = [
+                Some(wgpu::RenderPassColorAttachment {
+                    view: &output_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                }),
+                Some(wgpu::RenderPassColorAttachment {
+                    view: &final_linear_depth_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                }),
+            ];
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("smoke water composite pass"),
+                color_attachments: &color_attachments,
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&self.water_copy_pipeline);
+            pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            pass.set_bind_group(1, &water_bind_group, &[]);
+            pass.draw(0..3, 0..1);
+            if water_settings.enabled && !water_instances.is_empty() {
+                let instance_count = (water_instances.len() / WATER_PATCH_INSTANCE_FLOATS) as u32;
+                pass.set_pipeline(&self.water_patch_pipeline);
+                pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                pass.set_bind_group(1, &water_bind_group, &[]);
+                pass.set_vertex_buffer(0, self.water_patch_instance_buffer.slice(..));
+                pass.draw(0..6, 0..instance_count);
+            }
+        }
         encoder.copy_texture_to_buffer(
             wgpu::ImageCopyTexture {
                 texture: &output,
@@ -427,14 +585,38 @@ impl OffscreenRenderer {
         );
         self.queue.submit(Some(encoder.finish()));
 
-        read_rgba_output(
+        let pixels = read_rgba_output(
             &self.device,
             &output_buffer,
             WIDTH,
             HEIGHT,
             unpadded_bytes_per_row,
             padded_bytes_per_row,
-        )
+        )?;
+
+        Ok(RenderedOffscreenFrame {
+            pixels,
+            water: WaterImageReport {
+                runtime: WATER_RUNTIME,
+                enabled: water_settings.enabled,
+                reflection_enabled: water_settings.reflection_enabled,
+                sea_level_meters: water_settings.sea_level_meters,
+                bathymetry_runtime: WATER_BATHYMETRY_RUNTIME,
+                bathymetry_grid_size: WATER_NODE_BATHYMETRY_TEXEL_COUNT,
+                bathymetry_world_span_meters: water_packets
+                    .first()
+                    .map(|packet| packet.world_span_x.max(packet.world_span_z))
+                    .unwrap_or(0.0),
+                bathymetry_center_x: water_packets
+                    .first()
+                    .map(|packet| packet.origin_x + packet.world_span_x * 0.5)
+                    .unwrap_or(0.0),
+                bathymetry_center_z: water_packets
+                    .first()
+                    .map(|packet| packet.origin_z + packet.world_span_z * 0.5)
+                    .unwrap_or(0.0),
+            },
+        })
     }
 
     /// Renders and visualizes CSM depth layers for the terrain smoke scene.
@@ -516,6 +698,45 @@ impl OffscreenRenderer {
             f32_as_bytes(&object_uniforms),
         );
         Ok(())
+    }
+
+    fn create_water_bind_group(
+        &self,
+        opaque_color: &wgpu::TextureView,
+        opaque_linear_depth: &wgpu::TextureView,
+        bathymetry: &wgpu::TextureView,
+        reflection_color: &wgpu::TextureView,
+    ) -> wgpu::BindGroup {
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("smoke water bind group"),
+            layout: &self.water_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(opaque_color),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(opaque_linear_depth),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(bathymetry),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(reflection_color),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&self.water_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: self.water_uniform_buffer.as_entire_binding(),
+                },
+            ],
+        })
     }
 }
 
@@ -817,6 +1038,119 @@ fn scene_render_targets(format: wgpu::TextureFormat) -> [Option<wgpu::ColorTarge
     ]
 }
 
+fn create_water_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("smoke water bind group layout"),
+        entries: &[
+            water_texture_binding(0, wgpu::TextureSampleType::Float { filterable: true }),
+            water_texture_binding(1, wgpu::TextureSampleType::Float { filterable: false }),
+            water_texture_binding(2, wgpu::TextureSampleType::Float { filterable: false }),
+            water_texture_binding(3, wgpu::TextureSampleType::Float { filterable: true }),
+            wgpu::BindGroupLayoutEntry {
+                binding: 4,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 5,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    })
+}
+
+fn create_water_copy_pipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    shader: &wgpu::ShaderModule,
+) -> wgpu::RenderPipeline {
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("smoke water copy pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: "waterCopyVertexMain",
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: "waterCopyFragmentMain",
+            compilation_options: Default::default(),
+            targets: &scene_render_targets(COLOR_FORMAT),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            cull_mode: None,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: Default::default(),
+        multiview: None,
+    })
+}
+
+fn create_water_patch_pipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    shader: &wgpu::ShaderModule,
+) -> wgpu::RenderPipeline {
+    const ATTRIBUTES: [wgpu::VertexAttribute; 3] = [
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x4,
+            offset: 0,
+            shader_location: 0,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x4,
+            offset: 16,
+            shader_location: 1,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x4,
+            offset: 32,
+            shader_location: 2,
+        },
+    ];
+    let instance_layout = [wgpu::VertexBufferLayout {
+        array_stride: (WATER_PATCH_INSTANCE_FLOATS * 4) as wgpu::BufferAddress,
+        step_mode: wgpu::VertexStepMode::Instance,
+        attributes: &ATTRIBUTES,
+    }];
+
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("smoke water patch pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: "waterPatchVertexMain",
+            compilation_options: Default::default(),
+            buffers: &instance_layout,
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: "waterPatchFragmentMain",
+            compilation_options: Default::default(),
+            targets: &scene_render_targets(COLOR_FORMAT),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            cull_mode: None,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: Default::default(),
+        multiview: None,
+    })
+}
+
 /// Returns the texture binding layout entry used by terrain material arrays.
 fn texture_binding(binding: u32) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
@@ -825,6 +1159,22 @@ fn texture_binding(binding: u32) -> wgpu::BindGroupLayoutEntry {
         ty: wgpu::BindingType::Texture {
             sample_type: wgpu::TextureSampleType::Float { filterable: true },
             view_dimension: wgpu::TextureViewDimension::D2Array,
+            multisampled: false,
+        },
+        count: None,
+    }
+}
+
+fn water_texture_binding(
+    binding: u32,
+    sample_type: wgpu::TextureSampleType,
+) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type,
+            view_dimension: wgpu::TextureViewDimension::D2,
             multisampled: false,
         },
         count: None,
@@ -844,9 +1194,193 @@ fn create_linear_depth_texture(device: &wgpu::Device, width: u32, height: u32) -
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: LINEAR_DEPTH_FORMAT,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         view_formats: &[],
     })
+}
+
+fn build_smoke_water_packets(
+    terrain_seed: u32,
+    terrain_variant: TerrainVariantDescriptor,
+    camera: &CameraSetup,
+    settings: WaterSettings,
+) -> HarnessResult<Vec<WaterNodePacket>> {
+    let node_size = WATER_NODE_BATHYMETRY_TEXEL_COUNT as f64;
+    let center_x = (f64::from(camera.target.x) / node_size).floor() as i32;
+    let center_z = (f64::from(camera.target.z) / node_size).floor() as i32;
+    let sea_y = (f64::from(settings.sea_level_meters) / node_size).floor() as i32;
+    let mut packets = Vec::new();
+
+    for z_offset in -1..=1 {
+        for x_offset in -1..=1 {
+            let key = TerrainNodeKey {
+                lod: 0,
+                coord: TerrainChunkCoord {
+                    x: center_x + x_offset,
+                    y: sea_y,
+                    z: center_z + z_offset,
+                },
+            };
+            let packet = build_water_node_packet_for_variant(
+                terrain_seed,
+                terrain_variant,
+                key,
+                1.0,
+                f64::from(settings.sea_level_meters),
+                WATER_NODE_MAX_RELEVANT_DEPTH_METERS,
+            )
+            .map_err(|error| {
+                harness_error(format!(
+                    "Rust smoke could not build water node packet: {error}"
+                ))
+            })?;
+            if let Some(packet) = packet {
+                packets.push(packet);
+            }
+        }
+    }
+
+    Ok(packets)
+}
+
+fn smoke_water_instance_values(packets: &[WaterNodePacket]) -> Vec<f32> {
+    let mut values = Vec::with_capacity(packets.len() * WATER_PATCH_INSTANCE_FLOATS);
+    for (index, packet) in packets.iter().enumerate() {
+        let tile_index = index as u32;
+        let tile_x =
+            (tile_index % SMOKE_WATER_ATLAS_TILES_PER_AXIS) * WATER_NODE_BATHYMETRY_TEXEL_COUNT;
+        let tile_y =
+            (tile_index / SMOKE_WATER_ATLAS_TILES_PER_AXIS) * WATER_NODE_BATHYMETRY_TEXEL_COUNT;
+        values.extend_from_slice(&[
+            packet.origin_x,
+            packet.origin_z,
+            packet.world_span_x,
+            packet.world_span_z,
+            tile_x as f32,
+            tile_y as f32,
+            packet.texel_count as f32,
+            packet.max_depth_meters,
+            packet.sea_level_meters,
+            0.0,
+            0.0,
+            0.0,
+        ]);
+    }
+    values
+}
+
+fn create_bathymetry_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    packets: &[WaterNodePacket],
+) -> wgpu::Texture {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("smoke water bathymetry atlas"),
+        size: wgpu::Extent3d {
+            width: SMOKE_WATER_ATLAS_SIZE,
+            height: SMOKE_WATER_ATLAS_SIZE,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::R32Float,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    for (index, packet) in packets.iter().enumerate() {
+        let tile_index = index as u32;
+        let tile_x =
+            (tile_index % SMOKE_WATER_ATLAS_TILES_PER_AXIS) * WATER_NODE_BATHYMETRY_TEXEL_COUNT;
+        let tile_y =
+            (tile_index / SMOKE_WATER_ATLAS_TILES_PER_AXIS) * WATER_NODE_BATHYMETRY_TEXEL_COUNT;
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: tile_x,
+                    y: tile_y,
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            f32_as_bytes(&packet.depths_meters),
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(packet.texel_count * 4),
+                rows_per_image: Some(packet.texel_count),
+            },
+            wgpu::Extent3d {
+                width: packet.texel_count,
+                height: packet.texel_count,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+    texture
+}
+
+fn smoke_water_uniform_values(
+    settings: WaterSettings,
+    patch_count: u32,
+) -> [f32; WATER_UNIFORM_FLOATS] {
+    let mut values = [
+        if settings.enabled { 1.0 } else { 0.0 },
+        if settings.reflection_enabled {
+            1.0
+        } else {
+            0.0
+        },
+        settings.sea_level_meters,
+        0.0,
+        settings.shallow_depth_meters,
+        settings.deep_depth_meters,
+        settings.open_water_path_meters,
+        settings.debug_view.shader_code(),
+        settings.absorption_rgb[0],
+        settings.absorption_rgb[1],
+        settings.absorption_rgb[2],
+        0.0,
+        settings.shallow_color[0],
+        settings.shallow_color[1],
+        settings.shallow_color[2],
+        0.0,
+        settings.deep_color[0],
+        settings.deep_color[1],
+        settings.deep_color[2],
+        0.0,
+        settings.wave_scale,
+        settings.wave_strength,
+        WIDTH as f32,
+        HEIGHT as f32,
+        SMOKE_WATER_ATLAS_SIZE as f32,
+        SMOKE_WATER_ATLAS_SIZE as f32,
+        1.0 / SMOKE_WATER_ATLAS_SIZE as f32,
+        patch_count as f32,
+        WIDTH as f32,
+        HEIGHT as f32,
+        1.0 / WIDTH as f32,
+        1.0 / HEIGHT as f32,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+    ];
+    values[32..48].copy_from_slice(&IDENTITY_WORLD_MATRIX);
+    values
 }
 
 /// Creates a depth texture for offscreen rendering.

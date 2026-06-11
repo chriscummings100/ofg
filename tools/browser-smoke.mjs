@@ -175,6 +175,24 @@ async function runBrowserSmoke(url) {
     await setPostProcessDepthOfField(page, false, 30, 8, 6);
     await setPostProcessDebugView(page, "final");
 
+    await setWaterVisibleDebugCamera(page);
+    assertNoBrowserFailures(consoleMessages);
+    const waterFinalDebug = await readDebugContract(page);
+    assertDebugContract(waterFinalDebug);
+    const waterFinalImage = await saveScreenshot(page, "browser-water-final.png");
+    assertPixelStats(waterFinalImage.pixelStats, "browser water final", consoleMessages);
+    assertWaterFinalPixels(waterFinalImage.pixelStats, consoleMessages);
+
+    await setWaterDebugView(page, "bottomDepth");
+    assertNoBrowserFailures(consoleMessages);
+    const waterBottomDepthDebug = await readDebugContract(page);
+    assertDebugContract(waterBottomDepthDebug, { waterDebugView: "bottomDepth" });
+    const waterBottomDepthImage = await saveScreenshot(page, "browser-water-bottom-depth.png");
+    assertPixelStats(waterBottomDepthImage.pixelStats, "browser water bottom depth", consoleMessages);
+    assertWaterBottomDepthPixels(waterBottomDepthImage.pixelStats, consoleMessages);
+    await setWaterDebugView(page, "final");
+    assertNoBrowserFailures(consoleMessages);
+
     const diagnosticRenderOptions = {
       skyEnabled: false,
       skyCloudNoiseEnabled: false,
@@ -204,9 +222,14 @@ async function runBrowserSmoke(url) {
     assertNoBrowserFailures(consoleMessages);
     const postProcessUiReset = await readDebugContract(page);
     assertDebugContract(postProcessUiReset);
+    const waterDebugUi = await exerciseWaterDebugUi(page);
+    assertNoBrowserFailures(consoleMessages);
+    const waterDebugUiReset = await readDebugContract(page);
+    assertDebugContract(waterDebugUiReset);
     const perfOverlayUi = await exercisePerfOverlayUi(page);
     assertNoBrowserFailures(consoleMessages);
 
+    await setCameraMode(page, "firstPerson", "FIRST");
     await page.keyboard.press("KeyC");
     await page.waitForFunction(() => document.querySelector("#camera-mode")?.textContent === "THIRD");
     await waitForBrowserFrame(page);
@@ -274,6 +297,8 @@ async function runBrowserSmoke(url) {
         postToneMapImage,
         dofCocImage,
         dofBlurredImage,
+        waterFinalImage,
+        waterBottomDepthImage,
         toggledImage,
         reloadedImage,
         movementImage,
@@ -292,12 +317,16 @@ async function runBrowserSmoke(url) {
       postToneMapDebug,
       dofCocDebug,
       dofBlurredDebug,
+      waterFinalDebug,
       renderDebugDisabled,
       renderDebugReset,
       renderDebugUi,
       renderDebugUiReset,
       postProcessUi,
       postProcessUiReset,
+      waterBottomDepthDebug,
+      waterDebugUi,
+      waterDebugUiReset,
       perfOverlayUi,
       toggledDebug,
       reloadedDebug,
@@ -446,6 +475,65 @@ async function setPostProcessDepthOfField(
     frameIndex: startingFrameIndex
   }, { timeout: 10000 });
   await page.waitForTimeout(250);
+}
+
+/// Selects a Rust-owned water debug view and waits for the renderer status.
+async function setWaterDebugView(page, view) {
+  const startingFrameIndex = await rendererFrameIndex(page);
+  await page.evaluate((selectedView) => {
+    window.__ofgDebug?.setWaterDebugView?.(selectedView);
+  }, view);
+  await waitForWaterSettings(page, { waterDebugView: view }, startingFrameIndex);
+  await page.waitForTimeout(250);
+}
+
+/// Updates Rust-owned water options and waits for renderer status.
+async function setWaterOptions(page, options) {
+  const startingFrameIndex = await rendererFrameIndex(page);
+  await page.evaluate((selectedOptions) => {
+    window.__ofgDebug?.setWaterOptions?.(selectedOptions);
+  }, options);
+  await waitForWaterSettings(page, options, startingFrameIndex);
+  await page.waitForTimeout(250);
+}
+
+/// Sets a Rust-owned camera mode and waits for the HUD to reflect it.
+async function setCameraMode(page, mode, hudLabel) {
+  const startingFrameIndex = await rendererFrameIndex(page);
+  await page.evaluate((selectedMode) => {
+    window.__ofgDebug?.setCameraMode?.(selectedMode);
+  }, mode);
+  await page.waitForFunction(({ frameIndex, expectedLabel }) => {
+    const status = window.__ofgDebug?.getRendererStatus?.();
+    return status?.frameIndex > frameIndex &&
+      document.querySelector("#camera-mode")?.textContent === expectedLabel;
+  }, {
+    frameIndex: startingFrameIndex,
+    expectedLabel: hudLabel
+  }, { timeout: 10000 });
+  await page.waitForTimeout(250);
+}
+
+/// Places the Rust debug-fly camera at a deterministic coastal view with visible sea.
+async function setWaterVisibleDebugCamera(page) {
+  const startingFrameIndex = await rendererFrameIndex(page);
+  await page.evaluate(({ x, y, z, yaw, pitch }) => {
+    window.__ofgDebug?.setCameraMode?.("debugFly");
+    window.__ofgDebug?.setDebugCamera?.(x, y, z, yaw, pitch);
+  }, {
+    x: 48.0,
+    y: 48.214722,
+    z: 62.0,
+    yaw: -2.4827867,
+    pitch: -0.43042037
+  });
+  await page.waitForFunction((frameIndex) => {
+    const status = window.__ofgDebug?.getRendererStatus?.();
+    return status?.frameIndex > frameIndex &&
+      document.querySelector("#camera-mode")?.textContent === "FLY";
+  }, startingFrameIndex, { timeout: 10000 });
+  await waitForTerrainLodFrame(page);
+  await page.waitForTimeout(350);
 }
 
 /// Updates render diagnostic options and waits for Rust/wgpu to report them.
@@ -611,6 +699,69 @@ async function exercisePostProcessUi(page) {
   };
 }
 
+/// Exercises visible water debug controls and verifies Rust-owned state changes.
+async function exerciseWaterDebugUi(page) {
+  await page.click("#render-debug-panel-toggle");
+  await page.waitForFunction(() =>
+    document.querySelector("#render-debug-panel")?.hidden === false
+  );
+  const startingFrameIndex = await rendererFrameIndex(page);
+  await page.selectOption("#water-debug-view", "fresnel");
+  await page.check("#water-reflection");
+
+  const expected = {
+    waterDebugView: "fresnel",
+    waterReflectionEnabled: true
+  };
+  await waitForWaterSettings(page, expected, startingFrameIndex);
+  const enabledState = await page.evaluate(() => {
+    const status = window.__ofgDebug?.getRendererStatus?.();
+    return {
+      panelHidden: document.querySelector("#render-debug-panel")?.hidden,
+      waterDebugView: document.querySelector("#water-debug-view")?.value,
+      waterEnabledChecked: document.querySelector("#water-enabled")?.checked,
+      waterReflectionChecked: document.querySelector("#water-reflection")?.checked,
+      waterStatusText: document.querySelector("#water-debug-status")?.textContent ?? "",
+      status: status === undefined
+        ? undefined
+        : {
+            waterDebugView: status.waterDebugView,
+            waterEnabled: status.waterEnabled,
+            waterReflectionEnabled: status.waterReflectionEnabled,
+            waterBathymetryRuntime: status.waterBathymetryRuntime,
+            waterBathymetryGridSize: status.waterBathymetryGridSize
+          }
+    };
+  });
+
+  const resetFrameIndex = await rendererFrameIndex(page);
+  await page.selectOption("#water-debug-view", "final");
+  await page.check("#water-enabled");
+  await page.uncheck("#water-reflection");
+  await waitForWaterSettings(page, defaultWaterSettings(), resetFrameIndex);
+  await page.click("#render-debug-panel-toggle");
+  await page.waitForFunction(() =>
+    document.querySelector("#render-debug-panel")?.hidden === true
+  );
+
+  return {
+    enabledState,
+    resetStatus: await page.evaluate(() => {
+      const status = window.__ofgDebug?.getRendererStatus?.();
+      return status === undefined
+        ? undefined
+        : {
+            waterDebugView: status.waterDebugView,
+            waterEnabled: status.waterEnabled,
+            waterReflectionEnabled: status.waterReflectionEnabled
+          };
+    }),
+    panelHiddenAfterClose: await page.evaluate(() =>
+      document.querySelector("#render-debug-panel")?.hidden
+    )
+  };
+}
+
 /// Exercises the visible live perf overlay toggle and verifies metric text.
 async function exercisePerfOverlayUi(page) {
   await page.click("#perf-overlay-toggle");
@@ -668,6 +819,34 @@ async function waitForPostProcessSettings(page, expectedSettings, startingFrameI
       return actual === expectedValue;
     });
   }, { expected: expectedSettings, frameIndex: startingFrameIndex }, { timeout: 10000 });
+}
+
+/// Waits for expected water settings through renderer status.
+async function waitForWaterSettings(page, expectedSettings, startingFrameIndex) {
+  const normalized = Object.fromEntries(
+    Object.entries(expectedSettings).map(([key, value]) => [
+      key === "enabled"
+        ? "waterEnabled"
+        : key === "reflectionEnabled"
+          ? "waterReflectionEnabled"
+          : key,
+      value
+    ])
+  );
+  await page.waitForFunction(({ expected, frameIndex }) => {
+    const status = window.__ofgDebug?.getRendererStatus?.();
+    if (status === undefined || status.frameIndex <= frameIndex) {
+      return false;
+    }
+
+    return Object.entries(expected).every(([key, expectedValue]) => {
+      const actual = status[key];
+      if (typeof expectedValue === "number") {
+        return Math.abs(actual - expectedValue) < 0.0001;
+      }
+      return actual === expectedValue;
+    });
+  }, { expected: normalized, frameIndex: startingFrameIndex }, { timeout: 10000 });
 }
 
 /// Waits for expected render debug options through both debug and renderer status.
@@ -784,6 +963,14 @@ async function readDebugContract(page) {
           document.querySelector("#post-dof") instanceof HTMLInputElement,
         hasPostReset:
           document.querySelector("#post-debug-reset") instanceof HTMLButtonElement,
+        hasWaterDebugView:
+          document.querySelector("#water-debug-view") instanceof HTMLSelectElement,
+        hasWaterEnabled:
+          document.querySelector("#water-enabled") instanceof HTMLInputElement,
+        hasWaterReflection:
+          document.querySelector("#water-reflection") instanceof HTMLInputElement,
+        hasWaterStatus:
+          document.querySelector("#water-debug-status") instanceof HTMLElement,
         renderDebugPanelHidden: document.querySelector("#render-debug-panel")?.hidden,
         perfOverlayHidden: document.querySelector("#perf-overlay")?.hidden
       },
@@ -852,6 +1039,18 @@ async function readDebugContract(page) {
             postProcessDofFocusDistance: status.postProcessDofFocusDistance,
             postProcessDofFocusRange: status.postProcessDofFocusRange,
             postProcessDofMaxBlurPixels: status.postProcessDofMaxBlurPixels,
+            waterRuntime: status.waterRuntime,
+            waterEnabled: status.waterEnabled,
+            waterReflectionEnabled: status.waterReflectionEnabled,
+            waterSeaLevelMeters: status.waterSeaLevelMeters,
+            waterBathymetryRuntime: status.waterBathymetryRuntime,
+            waterBathymetryGridSize: status.waterBathymetryGridSize,
+            waterBathymetryWorldSpanMeters: status.waterBathymetryWorldSpanMeters,
+            waterBathymetryCenterX: status.waterBathymetryCenterX,
+            waterBathymetryCenterZ: status.waterBathymetryCenterZ,
+            waterReflectionWidth: status.waterReflectionWidth,
+            waterReflectionHeight: status.waterReflectionHeight,
+            waterDebugView: status.waterDebugView,
             requiredTextureArrayLayers: status.requiredTextureArrayLayers,
             maxTextureArrayLayers: status.maxTextureArrayLayers
           }
@@ -907,6 +1106,9 @@ function assertDebugContract(debug, expectations = {}) {
     dofFocusDistance = defaultPostProcessSettings().postProcessDofFocusDistance,
     dofFocusRange = defaultPostProcessSettings().postProcessDofFocusRange,
     dofMaxBlurPixels = defaultPostProcessSettings().postProcessDofMaxBlurPixels,
+    waterDebugView = defaultWaterSettings().waterDebugView,
+    waterEnabled = defaultWaterSettings().waterEnabled,
+    waterReflectionEnabled = defaultWaterSettings().waterReflectionEnabled,
     renderDebugOptions = defaultRenderDebugOptions()
   } = expectations;
   if (!debug.hasDebug) {
@@ -930,7 +1132,11 @@ function assertDebugContract(debug, expectations = {}) {
     debug.debugUi?.hasPostToneMapping !== true ||
     debug.debugUi?.hasPostBloom !== true ||
     debug.debugUi?.hasPostDof !== true ||
-    debug.debugUi?.hasPostReset !== true
+    debug.debugUi?.hasPostReset !== true ||
+    debug.debugUi?.hasWaterDebugView !== true ||
+    debug.debugUi?.hasWaterEnabled !== true ||
+    debug.debugUi?.hasWaterReflection !== true ||
+    debug.debugUi?.hasWaterStatus !== true
   ) {
     throw new Error(`Perf/debug UI is missing: ${JSON.stringify(debug.debugUi)}`);
   }
@@ -1049,6 +1255,21 @@ function assertDebugContract(debug, expectations = {}) {
     Math.abs(status.postProcessDofFocusRange - dofFocusRange) > 0.0001 ||
     !Number.isFinite(status.postProcessDofMaxBlurPixels) ||
     Math.abs(status.postProcessDofMaxBlurPixels - dofMaxBlurPixels) > 0.0001 ||
+    status.waterRuntime !== "rust-wgpu" ||
+    status.waterEnabled !== waterEnabled ||
+    status.waterReflectionEnabled !== waterReflectionEnabled ||
+    status.waterSeaLevelMeters !== 0 ||
+    status.waterBathymetryRuntime !== "rust-heightfield" ||
+    status.waterBathymetryGridSize !== 32 ||
+    !Number.isFinite(status.waterBathymetryWorldSpanMeters) ||
+    status.waterBathymetryWorldSpanMeters < 0 ||
+    !Number.isFinite(status.waterBathymetryCenterX) ||
+    !Number.isFinite(status.waterBathymetryCenterZ) ||
+    !Number.isFinite(status.waterReflectionWidth) ||
+    status.waterReflectionWidth <= 0 ||
+    !Number.isFinite(status.waterReflectionHeight) ||
+    status.waterReflectionHeight <= 0 ||
+    status.waterDebugView !== waterDebugView ||
     status.frameDrawCount <= 0 ||
     status.frameVisibleDrawCount <= 0 ||
     status.frameShadowDrawCount <= 0 ||
@@ -1163,6 +1384,15 @@ function defaultPostProcessSettings() {
     postProcessDofFocusDistance: 30,
     postProcessDofFocusRange: 8,
     postProcessDofMaxBlurPixels: 6
+  };
+}
+
+/// Returns production water defaults expected after load/reset.
+function defaultWaterSettings() {
+  return {
+    waterDebugView: "final",
+    waterEnabled: true,
+    waterReflectionEnabled: false
   };
 }
 
@@ -1306,6 +1536,8 @@ function analyzePng(buffer) {
   const buckets = new Map();
   let sampledPixels = 0;
   let opaquePixels = 0;
+  let waterLikePixels = 0;
+  let bottomDepthDebugPixels = 0;
   let sumR = 0;
   let sumG = 0;
   let sumB = 0;
@@ -1327,6 +1559,12 @@ function analyzePng(buffer) {
       if (a > 0) {
         opaquePixels += 1;
       }
+      if (isWaterLikePixel(r, g, b)) {
+        waterLikePixels += 1;
+      }
+      if (isBottomDepthDebugPixel(r, g, b)) {
+        bottomDepthDebugPixels += 1;
+      }
       sumR += r;
       sumG += g;
       sumB += b;
@@ -1339,6 +1577,8 @@ function analyzePng(buffer) {
     height: png.height,
     sampledPixels,
     opaquePixels,
+    waterLikePixels,
+    bottomDepthDebugPixels,
     uniqueColorBuckets: buckets.size,
     dominantColorRatio: dominantBucketCount / sampledPixels,
     meanColor: {
@@ -1347,6 +1587,25 @@ function analyzePng(buffer) {
       b: sumB / sampledPixels
     }
   };
+}
+
+/// Returns true for the darker blue/cyan water range while excluding bright sky.
+function isWaterLikePixel(r, g, b) {
+  const mean = (r + g + b) / 3;
+  return b > 70 &&
+    g > 55 &&
+    b > r + 18 &&
+    g > r + 10 &&
+    mean < 190;
+}
+
+/// Returns true for grayscale water bottom-depth debug pixels.
+function isBottomDepthDebugPixel(r, g, b) {
+  const maxChannel = Math.max(r, g, b);
+  const minChannel = Math.min(r, g, b);
+  return maxChannel - minChannel <= 6 &&
+    maxChannel >= 24 &&
+    maxChannel <= 245;
 }
 
 /// Fails when a screenshot looks blank, transparent, or solid.
@@ -1367,6 +1626,28 @@ function assertPixelStats(stats, label, consoleMessages = []) {
     throw new Error(
       `${label} screenshot looks like a solid fill: ${JSON.stringify(stats)} ` +
       `console=${JSON.stringify(consoleMessages)}`
+    );
+  }
+}
+
+/// Fails if the final water capture does not contain a meaningful water-colored region.
+function assertWaterFinalPixels(stats, consoleMessages = []) {
+  const ratio = stats.waterLikePixels / stats.sampledPixels;
+  if (ratio < 0.08) {
+    throw new Error(
+      `browser water final screenshot does not contain enough water-like pixels: ` +
+      `${JSON.stringify({ ratio, stats })} console=${JSON.stringify(consoleMessages)}`
+    );
+  }
+}
+
+/// Fails if the bottom-depth debug view does not contain grayscale water debug pixels.
+function assertWaterBottomDepthPixels(stats, consoleMessages = []) {
+  const ratio = stats.bottomDepthDebugPixels / stats.sampledPixels;
+  if (ratio < 0.04) {
+    throw new Error(
+      `browser water bottom-depth screenshot does not contain enough depth-debug pixels: ` +
+      `${JSON.stringify({ ratio, stats })} console=${JSON.stringify(consoleMessages)}`
     );
   }
 }

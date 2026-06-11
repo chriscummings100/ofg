@@ -14,6 +14,8 @@ export type ShaderMetadata = {
   readonly fragmentEntryPoint: string;
   readonly skyVertexEntryPoint?: string;
   readonly skyFragmentEntryPoint?: string;
+  readonly waterPatchVertexEntryPoint?: string;
+  readonly waterPatchFragmentEntryPoint?: string;
 };
 
 export const POST_SHADER_METADATA: ShaderMetadata = Object.freeze({

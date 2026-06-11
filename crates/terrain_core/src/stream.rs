@@ -325,6 +325,16 @@ impl TerrainStreamScheduler {
         }
     }
 
+    pub fn pending(&self) -> bool {
+        self.nodes
+            .values()
+            .any(|record| matches!(record.stage, NodeStage::InFlight { .. }))
+            || self
+                .desired_nodes
+                .iter()
+                .any(|key| self.should_submit_node(*key))
+    }
+
     fn build_desired_nodes(&self, center_coord: TerrainChunkCoord) -> BTreeSet<TerrainNodeKey> {
         let mut nodes = BTreeSet::new();
 

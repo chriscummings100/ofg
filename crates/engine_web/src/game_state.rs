@@ -5,7 +5,10 @@ use engine_core::{
     MeshRendererComponent, PlayerMode, PlayerMovementIntent, Quat, TerrainComponent, Vec3,
     RENDER_SNAPSHOT_FLOAT_COUNT,
 };
-use terrain_core::{height_at, DEFAULT_TERRAIN_PRESET};
+use terrain_core::{
+    height_at_for_variant, terrain_variant_for_preset, TerrainVariantDescriptor,
+    TerrainVariantValidationError, DEFAULT_TERRAIN_PRESET,
+};
 
 use crate::model_animation::ModelAnimationClip;
 use crate::model_assets::{ModelAssetError, ModelNodeTransform};
@@ -39,6 +42,7 @@ pub struct BrowserGameInput {
 #[derive(Clone, Debug, PartialEq)]
 pub enum BrowserGameStateError {
     Engine(EngineError),
+    TerrainVariant(TerrainVariantValidationError),
     ModelAnimation(ModelAssetError),
     InvalidTerrainHeight { x: f32, z: f32 },
     InvalidModelSceneScale(f32),
@@ -86,6 +90,7 @@ pub struct BrowserGameState {
     engine: Engine,
     terrain_seed: u32,
     terrain_preset: u32,
+    terrain_variant: TerrainVariantDescriptor,
     static_model_scene: Option<StaticModelSceneConfig>,
     static_model_scene_state: Option<ModelSceneState>,
     static_model_animation_time_seconds: f32,
@@ -140,6 +145,7 @@ impl BrowserGameState {
             engine: Engine::new(),
             terrain_seed: 0,
             terrain_preset: DEFAULT_TERRAIN_PRESET,
+            terrain_variant: terrain_variant_for_preset(DEFAULT_TERRAIN_PRESET),
             static_model_scene: None,
             static_model_scene_state: None,
             static_model_animation_time_seconds: 0.0,
@@ -153,9 +159,21 @@ impl BrowserGameState {
         terrain_seed: u32,
         terrain_preset: u32,
     ) -> Result<(), BrowserGameStateError> {
+        self.reset_game_with_variant(terrain_seed, terrain_variant_for_preset(terrain_preset))
+    }
+
+    pub fn reset_game_with_variant(
+        &mut self,
+        terrain_seed: u32,
+        terrain_variant: TerrainVariantDescriptor,
+    ) -> Result<(), BrowserGameStateError> {
+        terrain_variant
+            .validate()
+            .map_err(BrowserGameStateError::TerrainVariant)?;
         self.engine = Engine::new();
         self.terrain_seed = terrain_seed;
-        self.terrain_preset = terrain_preset;
+        self.terrain_preset = terrain_variant.preset;
+        self.terrain_variant = terrain_variant;
         self.static_model_scene_state = None;
         self.static_model_animation_time_seconds = 0.0;
         self.player_character_scene_state = None;
@@ -169,7 +187,7 @@ impl BrowserGameState {
                 .map_err(EngineError::from)?;
             entity.add_terrain(TerrainComponent {
                 seed: terrain_seed,
-                preset: terrain_preset,
+                preset: terrain_variant.preset,
             });
         }
         self.engine
@@ -198,6 +216,37 @@ impl BrowserGameState {
         self.engine.set_player_mode(PlayerMode::FirstPerson)?;
         self.spawn_configured_static_model()?;
         self.spawn_configured_player_character()?;
+
+        Ok(())
+    }
+
+    pub fn set_terrain_variant(
+        &mut self,
+        terrain_seed: u32,
+        terrain_variant: TerrainVariantDescriptor,
+    ) -> Result<(), BrowserGameStateError> {
+        terrain_variant
+            .validate()
+            .map_err(BrowserGameStateError::TerrainVariant)?;
+        if self.engine.player_rig().is_none() {
+            return self.reset_game_with_variant(terrain_seed, terrain_variant);
+        }
+
+        self.terrain_seed = terrain_seed;
+        self.terrain_preset = terrain_variant.preset;
+        self.terrain_variant = terrain_variant;
+        self.update_terrain_component()?;
+
+        if matches!(
+            self.player_mode()?,
+            PlayerMode::FirstPerson | PlayerMode::ThirdPerson
+        ) {
+            let position = self.engine.player_position()?;
+            let height = self.terrain_height_at(position.x, position.z)?;
+            self.engine
+                .set_player_position(Vec3::new(position.x, height, position.z))?;
+        }
+        self.sync_player_character_scene()?;
 
         Ok(())
     }
@@ -377,6 +426,10 @@ impl BrowserGameState {
         self.terrain_preset
     }
 
+    pub fn terrain_variant(&self) -> TerrainVariantDescriptor {
+        self.terrain_variant
+    }
+
     pub fn set_player_position_xz(
         &mut self,
         x: f32,
@@ -504,7 +557,26 @@ impl BrowserGameState {
             return Ok(());
         }
 
-        self.reset_game(self.terrain_seed, self.terrain_preset)
+        self.reset_game_with_variant(self.terrain_seed, self.terrain_variant)
+    }
+
+    fn update_terrain_component(&mut self) -> Result<(), BrowserGameStateError> {
+        let mut entity = self
+            .engine
+            .scene_mut()
+            .terrain_mut()
+            .map_err(EngineError::from)?;
+        if let Some(component) = entity.terrain_mut() {
+            component.seed = self.terrain_seed;
+            component.preset = self.terrain_preset;
+        } else {
+            entity.add_terrain(TerrainComponent {
+                seed: self.terrain_seed,
+                preset: self.terrain_preset,
+            });
+        }
+
+        Ok(())
     }
 
     fn remove_debug_player_marker_renderer(&mut self) -> Result<(), BrowserGameStateError> {
@@ -867,12 +939,13 @@ impl BrowserGameState {
     }
 
     fn terrain_height_at(&self, x: f32, z: f32) -> Result<f32, BrowserGameStateError> {
-        let height = height_at(
+        let height = height_at_for_variant(
             self.terrain_seed,
-            self.terrain_preset,
+            self.terrain_variant,
             f64::from(x),
             f64::from(z),
-        ) as f32;
+        )
+        .map_err(BrowserGameStateError::TerrainVariant)? as f32;
         if !height.is_finite() {
             return Err(BrowserGameStateError::InvalidTerrainHeight { x, z });
         }
@@ -897,6 +970,12 @@ impl std::fmt::Display for BrowserGameStateError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Engine(error) => write!(formatter, "Rust browser game engine error: {error:?}"),
+            Self::TerrainVariant(error) => {
+                write!(
+                    formatter,
+                    "Rust browser game terrain variant error: {error:?}"
+                )
+            }
             Self::ModelAnimation(error) => {
                 write!(
                     formatter,

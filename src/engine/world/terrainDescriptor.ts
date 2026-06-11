@@ -1,11 +1,9 @@
-export const TERRAIN_PRESET_IDS = [
-  "seed",
-  "rollingHills",
-  "mountainValley",
-  "rockyHighland"
-] as const;
+import {
+  TERRAIN_PRESET_IDS,
+  type TerrainPresetId
+} from "../../generated/world/terrainPresets.js";
 
-export type TerrainPresetId = typeof TERRAIN_PRESET_IDS[number];
+export { TERRAIN_PRESET_IDS, type TerrainPresetId };
 export type ClimatePresetId = "temperate";
 export type TerrainMaterialPaletteId = "seed";
 

@@ -18,7 +18,7 @@ mod shadow_debug;
 pub use error::{HarnessError, HarnessResult};
 
 use error::harness_error;
-use renderer::{OffscreenRenderer, HEIGHT, WIDTH};
+use renderer::{OffscreenRenderer, RenderedOffscreenFrame, HEIGHT, WIDTH};
 use report::{
     analyze_pixels, analyze_shadow_debug_pixels, assert_no_large_lower_center_sky_hole,
     assert_pixel_stats, assert_shadow_debug_layers, path_string, ImageReport, ShadowImageReport,
@@ -121,7 +121,7 @@ where
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: ofg-render-smoke [--out artifacts/rust-smoke] [--scenario all|boot|presets|seams|lods]"
+                    "Usage: ofg-render-smoke [--out artifacts/rust-smoke] [--scenario all|boot|presets|variants|seams|lods]"
                 );
                 std::process::exit(0);
             }
@@ -143,7 +143,12 @@ fn render_scenario(
     run_dir: &Path,
 ) -> HarnessResult<RenderedScenario> {
     let terrain = build_scenario_terrain(scenario)?;
-    let pixels = renderer.render(&terrain.camera, &terrain.meshes)?;
+    let RenderedOffscreenFrame { pixels, water } = renderer.render(
+        &terrain.camera,
+        &terrain.meshes,
+        terrain.seed,
+        terrain.terrain_variant,
+    )?;
     let stats = analyze_pixels(&pixels, WIDTH, HEIGHT);
     assert_pixel_stats(stats, scenario.name)?;
     if scenario.stream_mode == ScenarioStreamMode::MultiLod {
@@ -169,6 +174,7 @@ fn render_scenario(
             width: WIDTH,
             height: HEIGHT,
             pixel_stats: stats,
+            water,
             debug: terrain.debug,
         },
         shadow_images,
@@ -253,6 +259,7 @@ mod tests {
         assert_eq!(defaults.out_root, PathBuf::from("artifacts/rust-smoke"));
         assert!(defaults.scenario.matches(ScenarioFilter::Boot));
         assert!(defaults.scenario.matches(ScenarioFilter::Presets));
+        assert!(defaults.scenario.matches(ScenarioFilter::Variants));
         assert!(defaults.scenario.matches(ScenarioFilter::Seams));
 
         let explicit = parse_args_from([

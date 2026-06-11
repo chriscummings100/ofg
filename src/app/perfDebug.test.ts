@@ -150,6 +150,45 @@ function fakeSnapshot(): RustBrowserGameDebugSnapshot {
     terrainNodeKeys: [],
     terrainPreset: "rollingHills",
     terrainSeed: 1,
+    terrainVariantRevision: 2,
+    terrainVariant: [
+      1, 1, 3, 16, 4, 0.004, 2, 0.5, 3, 3, 0.009, 2.1, 0.48, 1, 1.8, 2,
+      0.004, 2, 0.5, 14, 0.018, 1.3, 3, 0.03, 2.05, 0.44, 3.2, 1, 1, 1, 1, 1
+    ],
+    terrainPresetCatalog: [
+      {
+        code: 1,
+        id: "rollingHills",
+        name: "Rolling Hills",
+        terrainVariant: [
+          1, 1, 3, 16, 4, 0.004, 2, 0.5, 3, 3, 0.009, 2.1, 0.48, 1, 1.8, 2,
+          0.004, 2, 0.5, 14, 0.018, 1.3, 3, 0.03, 2.05, 0.44, 3.2, 1, 1, 1, 1, 1
+        ]
+      }
+    ],
+    terrainVariantProbe: {
+      sampleCount: 5,
+      heightMin: 1,
+      heightMax: 8,
+      slopeMin: 0.1,
+      slopeMax: 0.6,
+      macroBaseElevation: 4,
+      mountainness: 0.35,
+      ridge: 0.42,
+      cellularEdge: 0.22,
+      materialIndices: [0, 11, 13, 15],
+      materialWeights: [0.5, 0.25, 0.15, 0.1],
+      biomeWeights: {
+        grassland: 0.4,
+        temperateForest: 0.2,
+        wetland: 0.1,
+        coastBeach: 0,
+        dryBadland: 0.1,
+        alpineMeadow: 0.1,
+        highMountainRock: 0.1,
+        snowTundra: 0
+      }
+    },
     terrainStreamStatus: {
       generation: 1,
       pending: false,
@@ -263,7 +302,19 @@ function fakeSnapshot(): RustBrowserGameDebugSnapshot {
       postProcessDofEnabled: false,
       postProcessDofFocusDistance: 30,
       postProcessDofFocusRange: 8,
-      postProcessDofMaxBlurPixels: 6
+      postProcessDofMaxBlurPixels: 6,
+      waterRuntime: "rust-wgpu",
+      waterEnabled: true,
+      waterReflectionEnabled: false,
+      waterSeaLevelMeters: 0,
+      waterBathymetryRuntime: "rust-heightfield",
+      waterBathymetryGridSize: 32,
+      waterBathymetryWorldSpanMeters: 32,
+      waterBathymetryCenterX: 0,
+      waterBathymetryCenterZ: 0,
+      waterReflectionWidth: 320,
+      waterReflectionHeight: 180,
+      waterDebugView: "final"
     },
     rustPerfStats: {
       sampleCount: 1,

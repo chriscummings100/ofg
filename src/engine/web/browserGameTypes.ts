@@ -2,6 +2,9 @@ import type { Vec3 } from "../math/vec3.js";
 import type { TerrainChunkKey } from "../world/terrainChunk.js";
 import type { TerrainPresetId } from "../world/terrainDescriptor.js";
 import type { EngineWebRendererStatus } from "./engineWebWasm.js";
+import type { TerrainVariantFlatValues } from "./terrainWorkerClient.js";
+
+export type { TerrainVariantFlatValues } from "./terrainWorkerClient.js";
 
 export type PlayerMode = "firstPerson" | "thirdPerson" | "debugFly";
 
@@ -25,6 +28,8 @@ export type PostProcessDebugView =
   | "dofCoc"
   | "dofBlurred";
 
+export type WaterDebugView = "final" | "bottomDepth" | "pathLength" | "fresnel" | "reflection";
+
 export type RenderMaterialDebugMode = "full" | "lambert";
 
 export type ShadowSunMode = "production" | "overhead" | "angled" | "low";
@@ -42,6 +47,16 @@ export type RenderDebugOptions = {
 };
 
 export type RenderDebugOptionsUpdate = Partial<RenderDebugOptions>;
+
+export type WaterOptionsUpdate = {
+  readonly enabled?: boolean;
+  readonly reflectionEnabled?: boolean;
+  readonly seaLevelMeters?: number;
+  readonly shallowDepthMeters?: number;
+  readonly deepDepthMeters?: number;
+  readonly waveScale?: number;
+  readonly waveStrength?: number;
+};
 
 export type PlayerAnimationTuning = {
   readonly walkSpeedMetersPerSecond: number;
@@ -110,15 +125,24 @@ export type GameCommand =
       readonly focusRange: number;
       readonly maxBlurPixels: number;
     }
+  | { readonly type: "setWaterDebugView"; readonly view: WaterDebugView }
+  | ({ readonly type: "setWaterOptions" } & WaterOptionsUpdate)
   | ({ readonly type: "setRenderDebugOptions" } & RenderDebugOptionsUpdate)
   | { readonly type: "resetRenderDebugOptions" }
   | { readonly type: "resetPerfStats" }
+  | {
+      readonly type: "setTerrainVariant";
+      readonly terrainSeed: number;
+      readonly terrainPreset: number;
+      readonly terrainVariant: TerrainVariantFlatValues;
+    }
   | { readonly type: "resetStreaming" };
 
 export type RustBrowserGameResetCommand = {
   readonly type: "resetGame";
   readonly terrainSeed: number;
   readonly terrainPreset: number;
+  readonly terrainVariant?: TerrainVariantFlatValues;
 };
 
 export type RustBrowserGameCommand = RustBrowserGameResetCommand | GameCommand;
@@ -132,6 +156,39 @@ export type TerrainStreamJobStats = {
 export type TerrainWorkerPoolRuntime = "rust-sync" | "browser-worker";
 
 export type TerrainNodeKey = string;
+
+export type TerrainPresetCatalogEntry = {
+  readonly code: number;
+  readonly id: TerrainPresetId;
+  readonly name: string;
+  readonly terrainVariant: TerrainVariantFlatValues;
+};
+
+export type TerrainBiomeWeightsProbe = {
+  readonly grassland: number;
+  readonly temperateForest: number;
+  readonly wetland: number;
+  readonly coastBeach: number;
+  readonly dryBadland: number;
+  readonly alpineMeadow: number;
+  readonly highMountainRock: number;
+  readonly snowTundra: number;
+};
+
+export type TerrainVariantProbeSummary = {
+  readonly sampleCount: number;
+  readonly heightMin: number;
+  readonly heightMax: number;
+  readonly slopeMin: number;
+  readonly slopeMax: number;
+  readonly macroBaseElevation: number;
+  readonly mountainness: number;
+  readonly ridge: number;
+  readonly cellularEdge: number;
+  readonly materialIndices: readonly number[];
+  readonly materialWeights: readonly number[];
+  readonly biomeWeights: TerrainBiomeWeightsProbe;
+};
 
 export type TerrainLodSummary = {
   readonly lod: number;
@@ -352,6 +409,10 @@ export type RustBrowserGameDebugSnapshot = {
   readonly terrainNodeKeys: TerrainNodeKey[];
   readonly terrainPreset: TerrainPresetId;
   readonly terrainSeed: number;
+  readonly terrainVariantRevision: number;
+  readonly terrainVariant: TerrainVariantFlatValues;
+  readonly terrainPresetCatalog: TerrainPresetCatalogEntry[];
+  readonly terrainVariantProbe: TerrainVariantProbeSummary;
   readonly terrainStreamStatus: TerrainStreamStatus;
   readonly terrainStreamerRuntime: "rust";
   readonly terrainStreamSchedulerRuntime: "rust";

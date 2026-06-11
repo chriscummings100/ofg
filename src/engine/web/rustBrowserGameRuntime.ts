@@ -3,21 +3,14 @@
 // upload, and texture ownership live inside engine_web.wasm.
 
 import type { TerrainPresetId, WorldDescriptor } from "../world/terrainDescriptor.js";
+import { TERRAIN_PRESET_CODE_BY_ID } from "../../generated/world/terrainPresets.js";
 import type {
   BrowserFrameInput,
-  GameCommand,
   GameDebugSnapshot,
   RustBrowserGameCommand,
   RustBrowserGameDebugSnapshot
 } from "./browserGameTypes.js";
 import { RustBrowserGameAdapter } from "./rustBrowserGameAdapter.js";
-
-const TERRAIN_PRESET_CODES: Readonly<Record<TerrainPresetId, number>> = Object.freeze({
-  seed: 0,
-  rollingHills: 1,
-  mountainValley: 2,
-  rockyHighland: 3
-});
 
 export type RustBrowserGameRenderer = {
   readonly runtime: "rust-wgpu";
@@ -39,7 +32,7 @@ export class RustBrowserGameRuntime {
     this.dependencies.renderer.tick(frame);
   }
 
-  command(command: GameCommand): void {
+  command(command: RustBrowserGameCommand): void {
     this.dependencies.renderer.command(command);
   }
 
@@ -65,5 +58,5 @@ export async function createRustBrowserGameRuntime(
 }
 
 export function terrainPresetToWasmCode(preset: TerrainPresetId): number {
-  return TERRAIN_PRESET_CODES[preset];
+  return TERRAIN_PRESET_CODE_BY_ID[preset];
 }

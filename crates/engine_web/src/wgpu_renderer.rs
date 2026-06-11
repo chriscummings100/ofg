@@ -45,16 +45,16 @@ use crate::post_process::{
 };
 use crate::render_math::{
     aabb_from_vertex_positions, frustum_from_view_projection, frustum_intersects_aabb,
-    transform_aabb, Aabb, RenderVec3,
+    look_at_mat4, multiply_mat4, perspective_mat4, transform_aabb, Aabb, Frustum, RenderVec3,
 };
 use crate::render_packets::{
     build_frame_packet_from_engine_snapshot, ENGINE_RENDER_SNAPSHOT_FLOATS,
 };
 use crate::render_uniforms::{
     build_frame_uniform_values, build_object_uniform_values, build_shadow_uniform_values,
-    FRAME_PACKET_FLOATS, FRAME_UNIFORM_FLOATS, FRAME_UNIFORM_SKY_CLOUD_COVERAGE_OFFSET,
-    MATERIAL_PACKET_FLOATS, OBJECT_UNIFORM_FLOATS, SHADOW_DEBUG_MODE_OFFSET,
-    SHADOW_STRENGTH_OFFSET, WORLD_MATRIX_FLOATS,
+    inverse_mat4, FRAME_PACKET_FLOATS, FRAME_UNIFORM_FLOATS,
+    FRAME_UNIFORM_SKY_CLOUD_COVERAGE_OFFSET, MATERIAL_PACKET_FLOATS, OBJECT_UNIFORM_FLOATS,
+    SHADOW_DEBUG_MODE_OFFSET, SHADOW_STRENGTH_OFFSET, WORLD_MATRIX_FLOATS,
 };
 use crate::resources::{ResourceHandle, ResourceStore};
 use crate::shadow_renderer::{
@@ -72,9 +72,20 @@ use crate::terrain_stream::{
 };
 use crate::terrain_textures::{load_terrain_texture_arrays, TerrainTextureArrays};
 use crate::texture_mips::build_rgba8_mip_chain;
+use crate::water::{
+    WaterBathymetryError, WaterDebugView, WaterSettings, WaterSettingsError, WaterSettingsUpdate,
+    WaterStatus,
+};
+use crate::water_renderer::WaterRendererResources;
 use crate::ENGINE_WEB_VERSION;
 use engine_core::{PlayerConfig, PlayerMode, Vec3};
-use terrain_core::{terrain_node_key, TerrainChunkCoord, TerrainNodeKey, DEFAULT_TERRAIN_PRESET};
+use terrain_core::{
+    terrain_node_key, terrain_preset_count, terrain_preset_metadata, terrain_variant_flat_values,
+    terrain_variant_for_preset, terrain_variant_from_flat_values, terrain_variant_probe_summary,
+    TerrainBiomeWeightsProbe, TerrainChunkCoord, TerrainNodeKey, TerrainVariantDescriptor,
+    TerrainVariantProbeSummary, WaterNodePacket, DEFAULT_TERRAIN_PRESET,
+    TERRAIN_VARIANT_FLAT_VALUE_COUNT,
+};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
 const SHADER_SOURCE: &str = include_str!("../../../src/engine/render/shaders/uber.wgsl");
@@ -165,6 +176,7 @@ struct RustBrowserGameStatus {
     post_process_dof_focus_distance: f32,
     post_process_dof_focus_range: f32,
     post_process_dof_max_blur_pixels: f32,
+    water_status: WaterStatus,
     gpu_timer_status: GpuTimerStatus,
     render_debug_options: RenderDebugOptions,
     last_render_counters: RenderCounterSample,
@@ -262,10 +274,14 @@ struct BrowserWgpuRenderer {
     sky_pipeline: wgpu::RenderPipeline,
     pipeline: wgpu::RenderPipeline,
     model_pipeline: wgpu::RenderPipeline,
+    reflection_pipeline: wgpu::RenderPipeline,
+    reflection_model_pipeline: wgpu::RenderPipeline,
     shadow_pipelines: ShadowPipelines,
     shadow_debug_view: ShadowDebugView,
     post_process: PostProcessResources,
     post_process_settings: PostProcessSettings,
+    water_settings: WaterSettings,
+    water_renderer: WaterRendererResources,
     max_texture_array_layers: u32,
     meshes: ResourceStore<GpuMesh>,
     textures: ResourceStore<GpuTexture>,
@@ -743,13 +759,29 @@ impl RustBrowserGame {
                 let terrain_seed = js_required_u32(&command, "terrainSeed", "command.terrainSeed")?;
                 let terrain_preset =
                     js_required_u32(&command, "terrainPreset", "command.terrainPreset")?;
+                let terrain_variant = terrain_variant_from_reset_command(&command, terrain_preset)?;
                 self.game_state
-                    .reset_game(terrain_seed, terrain_preset)
+                    .reset_game_with_variant(terrain_seed, terrain_variant)
                     .map_err(js_error)?;
                 let player_position = self.game_state.player_position().map_err(js_error)?;
                 self.clear_terrain_meshes()?;
                 self.terrain_stream
-                    .reset_game(terrain_seed, terrain_preset, player_position);
+                    .reset_game_with_variant(terrain_seed, terrain_variant, player_position)
+                    .map_err(js_error)?;
+            }
+            "setTerrainVariant" => {
+                let terrain_seed = js_required_u32(&command, "terrainSeed", "command.terrainSeed")?;
+                let terrain_preset =
+                    js_required_u32(&command, "terrainPreset", "command.terrainPreset")?;
+                let terrain_variant = terrain_variant_from_reset_command(&command, terrain_preset)?;
+                self.game_state
+                    .set_terrain_variant(terrain_seed, terrain_variant)
+                    .map_err(js_error)?;
+                let player_position = self.game_state.player_position().map_err(js_error)?;
+                self.clear_terrain_meshes()?;
+                self.terrain_stream
+                    .reset_game_with_variant(terrain_seed, terrain_variant, player_position)
+                    .map_err(js_error)?;
             }
             "resetStreaming" => {
                 let player_position = self.game_state.player_position().map_err(js_error)?;
@@ -858,6 +890,19 @@ impl RustBrowserGame {
                     max_blur_pixels,
                 )?;
             }
+            "setWaterDebugView" => {
+                let view_name = js_required_string(&command, "view", "command.view")?;
+                let view = WaterDebugView::from_browser_name(&view_name).ok_or_else(|| {
+                    js_error(format!(
+                        "Rust WebGPU renderer received unknown water debug view '{view_name}'."
+                    ))
+                })?;
+                self.renderer.set_water_debug_view(view);
+            }
+            "setWaterOptions" => {
+                let update = water_settings_update_from_js(&command)?;
+                self.renderer.set_water_options(update).map_err(js_error)?;
+            }
             _ => {
                 return Err(js_error(format!(
                     "Rust browser game received unknown command '{command_type}'."
@@ -915,6 +960,35 @@ impl RustBrowserGame {
             &snapshot,
             "terrainPreset",
             JsValue::from_str(terrain_preset_to_js_name(self.game_state.terrain_preset())),
+        )?;
+        set_js_property(
+            &snapshot,
+            "terrainVariantRevision",
+            JsValue::from_f64(self.terrain_stream.terrain_variant_revision() as f64),
+        )?;
+        set_js_property(
+            &snapshot,
+            "terrainVariant",
+            terrain_variant_flat_values_to_js(self.game_state.terrain_variant()),
+        )?;
+        set_js_property(
+            &snapshot,
+            "terrainPresetCatalog",
+            terrain_preset_catalog_to_js()?,
+        )?;
+        set_js_property(
+            &snapshot,
+            "terrainVariantProbe",
+            terrain_variant_probe_summary_to_js(
+                terrain_variant_probe_summary(
+                    self.game_state.terrain_seed(),
+                    self.game_state.terrain_variant(),
+                    0.0,
+                    0.0,
+                    16.0,
+                )
+                .map_err(js_error)?,
+            )?,
         )?;
         set_js_property(
             &snapshot,
@@ -1227,6 +1301,8 @@ impl RustBrowserGame {
         let mut result = self.renderer.render_engine_frame(
             &engine_snapshot,
             aspect,
+            self.game_state.terrain_seed(),
+            self.game_state.terrain_variant(),
             &mesh_handles,
             &object_handles,
             &albedo_texture_handles,
@@ -1413,10 +1489,18 @@ impl RustBrowserGame {
                 self.pending_terrain_removals.push_back(key);
             }
         }
+        for key in update.removed_water_nodes {
+            self.renderer.remove_water_patch(key);
+        }
 
         for mesh_update in update.upserted_meshes {
             self.remove_pending_terrain_upload(mesh_update.key);
             self.pending_terrain_uploads.push_back(mesh_update);
+        }
+        for water_update in update.upserted_water {
+            self.renderer
+                .upsert_water_patch(water_update.key, &water_update.water)
+                .map_err(js_error)?;
         }
 
         let upload_started_at_ms = terrain_update_now_ms();
@@ -1514,6 +1598,7 @@ impl RustBrowserGame {
     }
 
     fn destroy_terrain_mesh(&mut self, key: TerrainNodeKey) -> Result<(), JsValue> {
+        self.renderer.remove_water_patch(key);
         self.destroy_terrain_mesh_by_key(&terrain_node_key(key))
     }
 
@@ -1533,6 +1618,7 @@ impl RustBrowserGame {
     fn clear_terrain_meshes(&mut self) -> Result<(), JsValue> {
         self.pending_terrain_uploads.clear();
         self.pending_terrain_removals.clear();
+        self.renderer.clear_water_patches();
         let node_keys = sorted_terrain_node_keys(&self.terrain_mesh_handles_by_key);
         for node_key in node_keys {
             self.destroy_terrain_mesh_by_key(&node_key)?;
@@ -1731,10 +1817,20 @@ impl BrowserWgpuRenderer {
             });
         let pipeline = create_main_pipeline(&device, &pipeline_layout, &shader);
         let model_pipeline = create_model_pipeline(&device, &pipeline_layout, &shader);
+        let reflection_pipeline =
+            create_reflection_main_pipeline(&device, &pipeline_layout, &shader);
+        let reflection_model_pipeline =
+            create_reflection_model_pipeline(&device, &pipeline_layout, &shader);
         let sky_pipeline = create_sky_pipeline(&device, &sky_pipeline_layout, &shader);
         let shadow_pipelines = create_shadow_pipelines(&device, &shadow_pipeline_layout, &shader);
         let post_process =
             PostProcessResources::new(&device, format, display_width, display_height);
+        let water_renderer = WaterRendererResources::new(
+            &device,
+            &camera_bind_group_layout,
+            display_width,
+            display_height,
+        );
         let gpu_timer_status = GpuTimerStatus {
             available: timestamp_query_supported,
             unavailable_reason: if timestamp_query_supported {
@@ -1769,10 +1865,14 @@ impl BrowserWgpuRenderer {
             sky_pipeline,
             pipeline,
             model_pipeline,
+            reflection_pipeline,
+            reflection_model_pipeline,
             shadow_pipelines,
             shadow_debug_view: ShadowDebugView::Off,
             post_process,
             post_process_settings: PostProcessSettings::default(),
+            water_settings: WaterSettings::default(),
+            water_renderer,
             max_texture_array_layers,
             meshes: ResourceStore::new(),
             textures: ResourceStore::new(),
@@ -1812,6 +1912,7 @@ impl BrowserWgpuRenderer {
         self.canvas.set_height(height);
         self.surface.configure(&self.device, &self.config);
         self.depth_texture = create_depth_texture(&self.device, width, height);
+        self.water_renderer.resize(&self.device, width, height);
         self.post_process.resize(&self.device, width, height);
         Ok(())
     }
@@ -2056,10 +2157,39 @@ impl BrowserWgpuRenderer {
         Ok(())
     }
 
+    fn set_water_debug_view(&mut self, debug_view: WaterDebugView) {
+        self.water_settings = self.water_settings.with_debug_view(debug_view);
+    }
+
+    fn set_water_options(&mut self, update: WaterSettingsUpdate) -> Result<(), WaterSettingsError> {
+        self.water_settings = self.water_settings.apply_update(update)?;
+        Ok(())
+    }
+
+    fn upsert_water_patch(
+        &mut self,
+        key: TerrainNodeKey,
+        water: &WaterNodePacket,
+    ) -> Result<bool, WaterBathymetryError> {
+        self.water_renderer
+            .upsert_water_patch(&self.queue, key, water)
+    }
+
+    fn remove_water_patch(&mut self, key: TerrainNodeKey) -> bool {
+        self.water_renderer.remove_water_patch(key)
+    }
+
+    fn clear_water_patches(&mut self) {
+        self.water_renderer.clear_water_patches();
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn render(
         &mut self,
         frame_packet: &[f32],
+        reflection_frame_packet: &[f32],
+        _terrain_seed: u32,
+        _terrain_variant: TerrainVariantDescriptor,
         shadow_cascades: &ShadowCascadeSet,
         shadow_runtime: ShadowRuntimeState,
         mesh_handles: &[f64],
@@ -2079,6 +2209,11 @@ impl BrowserWgpuRenderer {
         if frame_packet.len() != FRAME_PACKET_FLOATS {
             return Err(js_error(
                 "Rust WebGPU renderer received an invalid frame packet.",
+            ));
+        }
+        if reflection_frame_packet.len() != FRAME_PACKET_FLOATS {
+            return Err(js_error(
+                "Rust WebGPU renderer received an invalid reflection frame packet.",
             ));
         }
 
@@ -2104,7 +2239,18 @@ impl BrowserWgpuRenderer {
         if !self.render_debug_options.sky_cloud_noise_enabled {
             frame_uniforms[FRAME_UNIFORM_SKY_CLOUD_COVERAGE_OFFSET] = 0.0;
         }
-
+        let mut reflection_view_projection = [0.0; WORLD_MATRIX_FLOATS];
+        reflection_view_projection
+            .copy_from_slice(&reflection_frame_packet[0..WORLD_MATRIX_FLOATS]);
+        let reflection_frustum = frustum_from_view_projection(&reflection_view_projection)
+            .ok_or_else(|| {
+                js_error("Rust WebGPU renderer received an invalid reflection camera frustum.")
+            })?;
+        let mut reflection_frame_uniforms =
+            build_frame_uniform_values(reflection_frame_packet).map_err(js_error)?;
+        if !self.render_debug_options.sky_cloud_noise_enabled {
+            reflection_frame_uniforms[FRAME_UNIFORM_SKY_CLOUD_COVERAGE_OFFSET] = 0.0;
+        }
         let frame = match self.surface.get_current_texture() {
             Ok(frame) => frame,
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
@@ -2188,6 +2334,19 @@ impl BrowserWgpuRenderer {
             &mut gpu_timestamp_plan,
         )?;
         cpu_timings.renderer_shadow_cpu_ms = perf_now_ms() - shadow_started_at_ms;
+        if self.water_settings.enabled && self.water_settings.reflection_enabled {
+            self.queue.write_buffer(
+                &self.camera_uniform_buffer,
+                0,
+                f32_as_bytes(&reflection_frame_uniforms),
+            );
+            self.render_reflection_pass(&mut encoder, &render_items, reflection_frustum)?;
+            self.queue.write_buffer(
+                &self.camera_uniform_buffer,
+                0,
+                f32_as_bytes(&frame_uniforms),
+            );
+        }
         let scene_started_at_ms = perf_now_ms();
         {
             let scene_query = gpu_timestamp_plan.reserve_pass(GpuTimedPass::Scene);
@@ -2195,7 +2354,7 @@ impl BrowserWgpuRenderer {
                 render_pass_timestamp_writes(self.gpu_timers.as_ref(), scene_query);
             let color_attachments = [
                 Some(wgpu::RenderPassColorAttachment {
-                    view: self.post_process.scene_color_view(),
+                    view: self.water_renderer.opaque_scene_color_view(),
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -2208,7 +2367,7 @@ impl BrowserWgpuRenderer {
                     },
                 }),
                 Some(wgpu::RenderPassColorAttachment {
-                    view: self.post_process.linear_depth_view(),
+                    view: self.water_renderer.opaque_linear_depth_view(),
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
@@ -2278,6 +2437,16 @@ impl BrowserWgpuRenderer {
             self.frame_shadow_draw_count = shadow_draw_count;
         }
         cpu_timings.renderer_scene_cpu_ms = perf_now_ms() - scene_started_at_ms;
+        self.water_renderer.render(
+            &self.queue,
+            &mut encoder,
+            &self.camera_bind_group,
+            self.post_process.scene_color_view(),
+            self.post_process.linear_depth_view(),
+            self.water_settings,
+            frame_uniforms[44],
+            &reflection_view_projection,
+        );
         let post_started_at_ms = perf_now_ms();
         let bloom_query = gpu_timestamp_plan.reserve_pass(GpuTimedPass::Bloom);
         let post_query = gpu_timestamp_plan.reserve_pass(GpuTimedPass::PostProcess);
@@ -2447,10 +2616,96 @@ impl BrowserWgpuRenderer {
         Ok(shadow_draw_count)
     }
 
+    fn render_reflection_pass(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        render_items: &[PreparedRenderItem],
+        reflection_frustum: Frustum,
+    ) -> Result<(), JsValue> {
+        let color_attachments = [
+            Some(wgpu::RenderPassColorAttachment {
+                view: self.water_renderer.reflection_scene_color_view(),
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.02,
+                        g: 0.04,
+                        b: 0.07,
+                        a: 1.0,
+                    }),
+                    store: wgpu::StoreOp::Store,
+                },
+            }),
+            Some(wgpu::RenderPassColorAttachment {
+                view: self.water_renderer.reflection_linear_depth_view(),
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            }),
+        ];
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("water planar reflection pass"),
+            color_attachments: &color_attachments,
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: self.water_renderer.reflection_depth_view(),
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        pass.set_bind_group(0, &self.camera_bind_group, &[]);
+        pass.set_bind_group(2, &self.shadow_resources.bind_group, &[]);
+
+        let mut active_vertex_layout = None;
+        for item in render_items {
+            if !frustum_intersects_aabb(reflection_frustum, item.world_bounds) {
+                continue;
+            }
+            let mesh = self
+                .meshes
+                .get(item.mesh_handle)
+                .ok_or_else(|| js_error("Rust WebGPU renderer received a stale mesh handle."))?;
+            let object = self
+                .objects
+                .get(item.object_handle)
+                .ok_or_else(|| js_error("Rust WebGPU renderer received a stale object handle."))?;
+            let bind_group = object.bind_group.as_ref().ok_or_else(|| {
+                js_error("Rust WebGPU renderer object bind group was not prepared.")
+            })?;
+
+            if active_vertex_layout != Some(mesh.vertex_layout) {
+                match mesh.vertex_layout {
+                    MeshVertexLayout::Terrain => pass.set_pipeline(&self.reflection_pipeline),
+                    MeshVertexLayout::Model => pass.set_pipeline(&self.reflection_model_pipeline),
+                }
+                active_vertex_layout = Some(mesh.vertex_layout);
+            }
+            pass.set_bind_group(1, bind_group, &[]);
+            pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+            pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        }
+
+        if self.render_debug_options.sky_enabled {
+            pass.set_pipeline(&self.sky_pipeline);
+            pass.draw(0..3, 0..1);
+        }
+
+        Ok(())
+    }
+
     fn render_engine_frame(
         &mut self,
         engine_snapshot: &[f32],
         aspect: f32,
+        terrain_seed: u32,
+        terrain_variant: TerrainVariantDescriptor,
         mesh_handles: &[f64],
         object_handles: &[f64],
         albedo_texture_handles: &[f64],
@@ -2469,6 +2724,11 @@ impl BrowserWgpuRenderer {
         )?;
         let frame_packet = build_frame_packet_from_engine_snapshot(&effective_snapshot, aspect)
             .map_err(js_error)?;
+        let reflection_frame_packet = build_reflection_frame_packet_from_engine_snapshot(
+            &effective_snapshot,
+            aspect,
+            self.water_settings.sea_level_meters,
+        )?;
         let shadow_cascades = build_shadow_cascades_from_engine_snapshot(
             &effective_snapshot,
             aspect,
@@ -2479,6 +2739,9 @@ impl BrowserWgpuRenderer {
 
         self.render(
             &frame_packet,
+            &reflection_frame_packet,
+            terrain_seed,
+            terrain_variant,
             &shadow_cascades,
             shadow_runtime,
             mesh_handles,
@@ -2852,6 +3115,14 @@ impl BrowserWgpuRenderer {
             post_process_dof_focus_distance: self.post_process_settings.dof_focus_distance(),
             post_process_dof_focus_range: self.post_process_settings.dof_focus_range(),
             post_process_dof_max_blur_pixels: self.post_process_settings.dof_max_blur_pixels(),
+            water_status: {
+                let (reflection_width, reflection_height) = self.water_renderer.reflection_size();
+                self.water_settings.status().with_runtime_resources(
+                    self.water_renderer.bathymetry_coverage(),
+                    reflection_width,
+                    reflection_height,
+                )
+            },
             gpu_timer_status: self.gpu_timer_status,
             render_debug_options: self.render_debug_options,
             last_render_counters: self.last_render_counters.clone(),
@@ -2896,6 +3167,48 @@ fn build_shadow_cascades_from_engine_snapshot(
         light_direction,
     )
     .ok_or_else(|| js_error("Rust WebGPU renderer could not build shadow cascades."))
+}
+
+fn build_reflection_frame_packet_from_engine_snapshot(
+    snapshot: &[f32],
+    aspect: f32,
+    sea_level_meters: f32,
+) -> Result<[f32; FRAME_PACKET_FLOATS], JsValue> {
+    if snapshot.len() != ENGINE_RENDER_SNAPSHOT_FLOATS {
+        return Err(js_error(
+            "Rust WebGPU renderer received an invalid engine render snapshot for water reflection.",
+        ));
+    }
+    if !aspect.is_finite() || aspect <= 0.0 || !sea_level_meters.is_finite() {
+        return Err(js_error(
+            "Rust WebGPU renderer received invalid water reflection camera inputs.",
+        ));
+    }
+
+    let reflected_y = |value: f32| sea_level_meters.mul_add(2.0, -value);
+    let eye = RenderVec3::new(snapshot[0], reflected_y(snapshot[1]), snapshot[2]);
+    let target = RenderVec3::new(snapshot[3], reflected_y(snapshot[4]), snapshot[5]);
+    let projection = perspective_mat4(snapshot[8], aspect, snapshot[9], snapshot[10])
+        .ok_or_else(|| js_error("Rust WebGPU renderer could not build reflection projection."))?;
+    let view = look_at_mat4(eye, target, RenderVec3::new(0.0, -1.0, 0.0))
+        .ok_or_else(|| js_error("Rust WebGPU renderer could not build reflection view."))?;
+    let view_projection = multiply_mat4(&projection, &view);
+    let inverse_view_projection = inverse_mat4(&view_projection)
+        .ok_or_else(|| js_error("Rust WebGPU renderer could not invert reflection camera."))?;
+
+    let mut frame = [0.0; FRAME_PACKET_FLOATS];
+    frame[0..16].copy_from_slice(&view_projection);
+    frame[16..32].copy_from_slice(&inverse_view_projection);
+    frame[32] = eye.x;
+    frame[33] = eye.y;
+    frame[34] = eye.z;
+    frame[35..38].copy_from_slice(&snapshot[11..14]);
+    frame[38..41].copy_from_slice(&snapshot[14..17]);
+    frame[41] = snapshot[17];
+    frame[42] = snapshot[18];
+    frame[43..55].copy_from_slice(&snapshot[19..31]);
+
+    Ok(frame)
 }
 
 fn shadow_runtime_state_from_engine_snapshot(
@@ -2961,6 +3274,36 @@ fn create_main_pipeline(
     layout: &wgpu::PipelineLayout,
     shader: &wgpu::ShaderModule,
 ) -> wgpu::RenderPipeline {
+    create_main_pipeline_with_cull(
+        device,
+        layout,
+        shader,
+        Some(wgpu::Face::Back),
+        "seed terrain pipeline",
+    )
+}
+
+fn create_reflection_main_pipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    shader: &wgpu::ShaderModule,
+) -> wgpu::RenderPipeline {
+    create_main_pipeline_with_cull(
+        device,
+        layout,
+        shader,
+        None,
+        "water reflection terrain pipeline",
+    )
+}
+
+fn create_main_pipeline_with_cull(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    shader: &wgpu::ShaderModule,
+    cull_mode: Option<wgpu::Face>,
+    label: &'static str,
+) -> wgpu::RenderPipeline {
     const ATTRIBUTES: [wgpu::VertexAttribute; 6] = [
         wgpu::VertexAttribute {
             format: wgpu::VertexFormat::Float32x3,
@@ -3000,7 +3343,7 @@ fn create_main_pipeline(
     }];
 
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("seed terrain pipeline"),
+        label: Some(label),
         layout: Some(layout),
         vertex: wgpu::VertexState {
             module: shader,
@@ -3016,7 +3359,7 @@ fn create_main_pipeline(
         }),
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
-            cull_mode: Some(wgpu::Face::Back),
+            cull_mode,
             ..Default::default()
         },
         depth_stencil: Some(wgpu::DepthStencilState {
@@ -3035,6 +3378,36 @@ fn create_model_pipeline(
     device: &wgpu::Device,
     layout: &wgpu::PipelineLayout,
     shader: &wgpu::ShaderModule,
+) -> wgpu::RenderPipeline {
+    create_model_pipeline_with_cull(
+        device,
+        layout,
+        shader,
+        Some(wgpu::Face::Back),
+        "static model pipeline",
+    )
+}
+
+fn create_reflection_model_pipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    shader: &wgpu::ShaderModule,
+) -> wgpu::RenderPipeline {
+    create_model_pipeline_with_cull(
+        device,
+        layout,
+        shader,
+        None,
+        "water reflection model pipeline",
+    )
+}
+
+fn create_model_pipeline_with_cull(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    shader: &wgpu::ShaderModule,
+    cull_mode: Option<wgpu::Face>,
+    label: &'static str,
 ) -> wgpu::RenderPipeline {
     const ATTRIBUTES: [wgpu::VertexAttribute; 4] = [
         wgpu::VertexAttribute {
@@ -3065,7 +3438,7 @@ fn create_model_pipeline(
     }];
 
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("static model pipeline"),
+        label: Some(label),
         layout: Some(layout),
         vertex: wgpu::VertexState {
             module: shader,
@@ -3081,7 +3454,7 @@ fn create_model_pipeline(
         }),
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
-            cull_mode: Some(wgpu::Face::Back),
+            cull_mode,
             ..Default::default()
         },
         depth_stencil: Some(wgpu::DepthStencilState {
@@ -3480,6 +3853,26 @@ fn render_debug_options_update_from_js(
     })
 }
 
+fn water_settings_update_from_js(command: &JsValue) -> Result<WaterSettingsUpdate, JsValue> {
+    Ok(WaterSettingsUpdate {
+        enabled: js_optional_bool(command, "enabled", "command.enabled")?,
+        reflection_enabled: js_optional_bool(
+            command,
+            "reflectionEnabled",
+            "command.reflectionEnabled",
+        )?,
+        sea_level_meters: js_optional_f32(command, "seaLevelMeters", "command.seaLevelMeters")?,
+        shallow_depth_meters: js_optional_f32(
+            command,
+            "shallowDepthMeters",
+            "command.shallowDepthMeters",
+        )?,
+        deep_depth_meters: js_optional_f32(command, "deepDepthMeters", "command.deepDepthMeters")?,
+        wave_scale: js_optional_f32(command, "waveScale", "command.waveScale")?,
+        wave_strength: js_optional_f32(command, "waveStrength", "command.waveStrength")?,
+    })
+}
+
 fn render_material_debug_mode_from_js_name(
     mode_name: &str,
 ) -> Result<RenderMaterialDebugMode, JsValue> {
@@ -3542,6 +3935,24 @@ fn js_required_f32(object: &JsValue, property: &str, path: &str) -> Result<f32, 
     }
 
     Ok(number as f32)
+}
+
+fn js_optional_f32(object: &JsValue, property: &str, path: &str) -> Result<Option<f32>, JsValue> {
+    let Some(value) = js_optional_property(object, property, path)? else {
+        return Ok(None);
+    };
+    let Some(number) = value.as_f64() else {
+        return Err(js_error(format!(
+            "Rust browser game expected {path} to be a number."
+        )));
+    };
+    if !number.is_finite() || number < f32::MIN as f64 || number > f32::MAX as f64 {
+        return Err(js_error(format!(
+            "Rust browser game expected {path} to be a finite f32."
+        )));
+    }
+
+    Ok(Some(number as f32))
 }
 
 fn js_required_u32(object: &JsValue, property: &str, path: &str) -> Result<u32, JsValue> {
@@ -4010,6 +4421,66 @@ fn renderer_status_to_js(status: RustBrowserGameStatus) -> Result<JsValue, JsVal
         &object,
         "postProcessDofMaxBlurPixels",
         JsValue::from_f64(status.post_process_dof_max_blur_pixels as f64),
+    )?;
+    set_js_property(
+        &object,
+        "waterRuntime",
+        JsValue::from_str(status.water_status.runtime),
+    )?;
+    set_js_property(
+        &object,
+        "waterEnabled",
+        JsValue::from_bool(status.water_status.enabled),
+    )?;
+    set_js_property(
+        &object,
+        "waterReflectionEnabled",
+        JsValue::from_bool(status.water_status.reflection_enabled),
+    )?;
+    set_js_property(
+        &object,
+        "waterSeaLevelMeters",
+        JsValue::from_f64(status.water_status.sea_level_meters as f64),
+    )?;
+    set_js_property(
+        &object,
+        "waterBathymetryRuntime",
+        JsValue::from_str(status.water_status.bathymetry_runtime),
+    )?;
+    set_js_property(
+        &object,
+        "waterBathymetryGridSize",
+        JsValue::from_f64(status.water_status.bathymetry_grid_size as f64),
+    )?;
+    set_js_property(
+        &object,
+        "waterBathymetryWorldSpanMeters",
+        JsValue::from_f64(status.water_status.bathymetry_world_span_meters as f64),
+    )?;
+    set_js_property(
+        &object,
+        "waterBathymetryCenterX",
+        JsValue::from_f64(status.water_status.bathymetry_center_x as f64),
+    )?;
+    set_js_property(
+        &object,
+        "waterBathymetryCenterZ",
+        JsValue::from_f64(status.water_status.bathymetry_center_z as f64),
+    )?;
+    set_js_property(
+        &object,
+        "waterReflectionWidth",
+        JsValue::from_f64(status.water_status.reflection_width as f64),
+    )?;
+    set_js_property(
+        &object,
+        "waterReflectionHeight",
+        JsValue::from_f64(status.water_status.reflection_height as f64),
+    )?;
+    set_js_property(
+        &object,
+        "waterDebugView",
+        JsValue::from_str(status.water_status.debug_view.browser_name()),
     )?;
 
     Ok(object.into())
@@ -4709,6 +5180,183 @@ fn perf_now_ms() -> f64 {
     START.get_or_init(Instant::now).elapsed().as_secs_f64() * 1000.0
 }
 
+fn terrain_variant_from_reset_command(
+    command: &JsValue,
+    terrain_preset: u32,
+) -> Result<TerrainVariantDescriptor, JsValue> {
+    let expected_preset = terrain_variant_for_preset(terrain_preset).preset;
+    let Some(value) = js_optional_property(command, "terrainVariant", "command.terrainVariant")?
+    else {
+        return Ok(terrain_variant_for_preset(terrain_preset));
+    };
+    let descriptor = terrain_variant_from_js_flat_values(&value, "command.terrainVariant")?;
+    if descriptor.preset != expected_preset {
+        return Err(js_error(format!(
+            "Rust browser game expected command.terrainVariant preset {} to match command.terrainPreset {}.",
+            descriptor.preset, expected_preset
+        )));
+    }
+
+    Ok(descriptor)
+}
+
+fn terrain_variant_from_js_flat_values(
+    value: &JsValue,
+    path: &str,
+) -> Result<TerrainVariantDescriptor, JsValue> {
+    let array = js_sys::Array::from(value);
+    if array.length() as usize != TERRAIN_VARIANT_FLAT_VALUE_COUNT {
+        return Err(js_error(format!(
+            "Rust browser game expected {path} to contain {TERRAIN_VARIANT_FLAT_VALUE_COUNT} numbers."
+        )));
+    }
+
+    let mut values = [0.0; TERRAIN_VARIANT_FLAT_VALUE_COUNT];
+    for (index, slot) in values.iter_mut().enumerate() {
+        let value = array.get(index as u32);
+        let Some(number) = value.as_f64() else {
+            return Err(js_error(format!(
+                "Rust browser game expected {path}[{index}] to be a number."
+            )));
+        };
+        *slot = number;
+    }
+
+    terrain_variant_from_flat_values(&values).map_err(js_error)
+}
+
+fn terrain_variant_flat_values_to_js(descriptor: TerrainVariantDescriptor) -> JsValue {
+    let array = js_sys::Array::new();
+    for value in terrain_variant_flat_values(descriptor) {
+        array.push(&JsValue::from_f64(value));
+    }
+
+    array.into()
+}
+
+fn terrain_preset_catalog_to_js() -> Result<JsValue, JsValue> {
+    let array = js_sys::Array::new();
+    for preset in 0..terrain_preset_count() {
+        let metadata = terrain_preset_metadata(preset);
+        let object = js_sys::Object::new();
+        set_js_property(&object, "code", JsValue::from_f64(metadata.code as f64))?;
+        set_js_property(&object, "id", JsValue::from_str(metadata.id))?;
+        set_js_property(&object, "name", JsValue::from_str(metadata.name))?;
+        set_js_property(
+            &object,
+            "terrainVariant",
+            terrain_variant_flat_values_to_js(terrain_variant_for_preset(preset)),
+        )?;
+        array.push(&object);
+    }
+
+    Ok(array.into())
+}
+
+fn terrain_variant_probe_summary_to_js(
+    summary: TerrainVariantProbeSummary,
+) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    set_js_property(
+        &object,
+        "sampleCount",
+        JsValue::from_f64(summary.sample_count as f64),
+    )?;
+    set_js_property(&object, "heightMin", JsValue::from_f64(summary.height_min))?;
+    set_js_property(&object, "heightMax", JsValue::from_f64(summary.height_max))?;
+    set_js_property(&object, "slopeMin", JsValue::from_f64(summary.slope_min))?;
+    set_js_property(&object, "slopeMax", JsValue::from_f64(summary.slope_max))?;
+    set_js_property(
+        &object,
+        "macroBaseElevation",
+        JsValue::from_f64(summary.macro_base_elevation),
+    )?;
+    set_js_property(
+        &object,
+        "mountainness",
+        JsValue::from_f64(summary.mountainness),
+    )?;
+    set_js_property(&object, "ridge", JsValue::from_f64(summary.ridge))?;
+    set_js_property(
+        &object,
+        "cellularEdge",
+        JsValue::from_f64(summary.cellular_edge),
+    )?;
+    set_js_property(
+        &object,
+        "materialIndices",
+        u32_array_to_js(summary.material_indices).into(),
+    )?;
+    set_js_property(
+        &object,
+        "materialWeights",
+        f64_array_to_js(summary.material_weights).into(),
+    )?;
+    set_js_property(
+        &object,
+        "biomeWeights",
+        terrain_biome_weights_to_js(summary.biome_weights)?,
+    )?;
+
+    Ok(object.into())
+}
+
+fn terrain_biome_weights_to_js(weights: TerrainBiomeWeightsProbe) -> Result<JsValue, JsValue> {
+    let object = js_sys::Object::new();
+    set_js_property(&object, "grassland", JsValue::from_f64(weights.grassland))?;
+    set_js_property(
+        &object,
+        "temperateForest",
+        JsValue::from_f64(weights.temperate_forest),
+    )?;
+    set_js_property(&object, "wetland", JsValue::from_f64(weights.wetland))?;
+    set_js_property(
+        &object,
+        "coastBeach",
+        JsValue::from_f64(weights.coast_beach),
+    )?;
+    set_js_property(
+        &object,
+        "dryBadland",
+        JsValue::from_f64(weights.dry_badland),
+    )?;
+    set_js_property(
+        &object,
+        "alpineMeadow",
+        JsValue::from_f64(weights.alpine_meadow),
+    )?;
+    set_js_property(
+        &object,
+        "highMountainRock",
+        JsValue::from_f64(weights.high_mountain_rock),
+    )?;
+    set_js_property(
+        &object,
+        "snowTundra",
+        JsValue::from_f64(weights.snow_tundra),
+    )?;
+
+    Ok(object.into())
+}
+
+fn u32_array_to_js(values: [u32; 4]) -> js_sys::Array {
+    let array = js_sys::Array::new();
+    for value in values {
+        array.push(&JsValue::from_f64(value as f64));
+    }
+
+    array
+}
+
+fn f64_array_to_js(values: [f64; 4]) -> js_sys::Array {
+    let array = js_sys::Array::new();
+    for value in values {
+        array.push(&JsValue::from_f64(value));
+    }
+
+    array
+}
+
 fn terrain_build_requests_to_js(
     requests: Vec<BrowserTerrainBuildRequest>,
 ) -> Result<JsValue, JsValue> {
@@ -4731,6 +5379,16 @@ fn terrain_build_requests_to_js(
         set_js_property(&object, "z", JsValue::from_f64(request.key.coord.z as f64))?;
         set_js_property(&object, "seed", JsValue::from_f64(request.seed as f64))?;
         set_js_property(&object, "preset", JsValue::from_f64(request.preset as f64))?;
+        set_js_property(
+            &object,
+            "variantRevision",
+            JsValue::from_f64(request.variant_revision as f64),
+        )?;
+        set_js_property(
+            &object,
+            "terrainVariant",
+            terrain_variant_flat_values_to_js(request.terrain_variant),
+        )?;
         set_js_property(&object, "cellSize", JsValue::from_f64(request.cell_size))?;
         array.push(&object);
     }
@@ -4743,6 +5401,8 @@ fn terrain_build_completion_from_js(
 ) -> Result<BrowserTerrainBuildCompletion, JsValue> {
     let request_id = js_required_u64(value, "requestId", "terrainBuild.requestId")?;
     let generation = js_required_u64(value, "generation", "terrainBuild.generation")?;
+    let variant_revision =
+        js_required_u64(value, "variantRevision", "terrainBuild.variantRevision")?;
     let lod = js_required_u32(value, "lod", "terrainBuild.lod")?;
     if lod > u8::MAX as u32 {
         return Err(js_error(
@@ -4762,15 +5422,74 @@ fn terrain_build_completion_from_js(
     let indices_value = js_required_property(value, "indices", "terrainBuild.indices")?;
     let vertices = js_sys::Float32Array::new(&vertices_value).to_vec();
     let indices = js_sys::Uint32Array::new(&indices_value).to_vec();
+    let water = terrain_water_packet_from_js(value)?;
 
     Ok(BrowserTerrainBuildCompletion {
         request_id,
         generation,
         key,
+        variant_revision,
         vertices,
         indices,
+        water,
         failed,
     })
+}
+
+fn terrain_water_packet_from_js(value: &JsValue) -> Result<Option<WaterNodePacket>, JsValue> {
+    let texel_count =
+        js_optional_u32(value, "waterTexelCount", "terrainBuild.waterTexelCount")?.unwrap_or(0);
+    if texel_count == 0 {
+        return Ok(None);
+    }
+    if texel_count > 256 {
+        return Err(js_error(
+            "Rust browser game rejected an oversized terrainBuild water packet.",
+        ));
+    }
+
+    let depths_value = js_required_property(value, "waterDepths", "terrainBuild.waterDepths")?;
+    let depths_meters = js_sys::Float32Array::new(&depths_value).to_vec();
+    let expected_len = texel_count as usize * texel_count as usize;
+    if depths_meters.len() != expected_len {
+        return Err(js_error(format!(
+            "Rust browser game expected terrainBuild.waterDepths length {}, got {}.",
+            expected_len,
+            depths_meters.len()
+        )));
+    }
+
+    let packet = WaterNodePacket {
+        texel_count,
+        origin_x: js_required_f32(value, "waterOriginX", "terrainBuild.waterOriginX")?,
+        origin_z: js_required_f32(value, "waterOriginZ", "terrainBuild.waterOriginZ")?,
+        world_span_x: js_required_f32(value, "waterWorldSpanX", "terrainBuild.waterWorldSpanX")?,
+        world_span_z: js_required_f32(value, "waterWorldSpanZ", "terrainBuild.waterWorldSpanZ")?,
+        sea_level_meters: js_required_f32(
+            value,
+            "waterSeaLevelMeters",
+            "terrainBuild.waterSeaLevelMeters",
+        )?,
+        max_depth_meters: js_required_f32(
+            value,
+            "waterMaxDepthMeters",
+            "terrainBuild.waterMaxDepthMeters",
+        )?,
+        depths_meters,
+    };
+    if packet.world_span_x <= 0.0
+        || packet.world_span_z <= 0.0
+        || packet.max_depth_meters <= 0.0
+        || !packet.origin_x.is_finite()
+        || !packet.origin_z.is_finite()
+        || !packet.sea_level_meters.is_finite()
+    {
+        return Err(js_error(
+            "Rust browser game rejected invalid terrainBuild water packet metadata.",
+        ));
+    }
+
+    Ok(Some(packet))
 }
 
 fn terrain_stream_status_to_js(status: BrowserTerrainStreamStatus) -> Result<JsValue, JsValue> {
@@ -5019,13 +5738,7 @@ fn player_mode_from_js_name(mode: &str) -> Option<PlayerMode> {
 }
 
 fn terrain_preset_to_js_name(preset: u32) -> &'static str {
-    match preset {
-        0 => "seed",
-        1 => "rollingHills",
-        2 => "mountainValley",
-        3 => "rockyHighland",
-        _ => "rollingHills",
-    }
+    terrain_preset_metadata(preset).id
 }
 
 fn sorted_terrain_node_keys(handles: &HashMap<String, ResourceHandle>) -> Vec<String> {

@@ -21,6 +21,7 @@ pub(crate) struct PackedTerrainMaterial {
 pub(crate) fn material_pack_at(
     noise: &SimplexNoise3D,
     preset: TerrainPresetDefinition,
+    material_bias: TerrainMaterialBias,
     seed: u32,
     position: Vec3,
 ) -> PackedTerrainMaterial {
@@ -60,32 +61,50 @@ pub(crate) fn material_pack_at(
     pack_material_weights(&[
         (
             0,
-            meadow * (0.72 + biome.grassland * 0.42 + biome.alpine_meadow * 0.18),
+            material_bias.meadow
+                * meadow
+                * (0.72 + biome.grassland * 0.42 + biome.alpine_meadow * 0.18),
         ),
-        (1, dry_ground * (0.72 + biome.dry_badland * 0.65)),
+        (
+            1,
+            material_bias.dry_ground * dry_ground * (0.72 + biome.dry_badland * 0.65),
+        ),
         (
             2,
             (1.0 - dry) * 0.2 * (1.0 - rocky) * (1.0 - wet) + biome.temperate_forest * 0.45,
         ),
         (
             4,
-            lowland * 0.28 * (1.0 - wet) * (1.0 - sand) + biome.wetland * 0.1,
+            material_bias.wetland
+                * (lowland * 0.28 * (1.0 - wet) * (1.0 - sand) + biome.wetland * 0.1),
         ),
-        (6, wet + biome.wetland * 0.65),
+        (6, material_bias.wetland * (wet + biome.wetland * 0.65)),
         (7, sand + biome.coast_beach * 0.55),
-        (8, sand * rocky * 0.8 + biome.coast_beach * rocky * 0.22),
-        (10, scree + biome.high_mountain_rock * rocky * 0.28),
+        (
+            8,
+            material_bias.rock * (sand * rocky * 0.8 + biome.coast_beach * rocky * 0.22),
+        ),
+        (
+            10,
+            material_bias.rock * (scree + biome.high_mountain_rock * rocky * 0.28),
+        ),
         (
             11,
-            rocky * (1.0 - highland * 0.35) + biome.high_mountain_rock * 0.3,
+            material_bias.rock * (rocky * (1.0 - highland * 0.35) + biome.high_mountain_rock * 0.3),
         ),
-        (12, cliff + biome.high_mountain_rock * cliff * 0.35),
+        (
+            12,
+            material_bias.rock * (cliff + biome.high_mountain_rock * cliff * 0.35),
+        ),
         (
             13,
             moss + biome.temperate_forest * 0.16 + biome.alpine_meadow * 0.14,
         ),
-        (14, red_soil + biome.dry_badland * 0.4),
-        (15, snow + biome.snow_tundra * 0.85),
+        (
+            14,
+            material_bias.dry_ground * (red_soil + biome.dry_badland * 0.4),
+        ),
+        (15, material_bias.snow * (snow + biome.snow_tundra * 0.85)),
     ])
 }
 

@@ -24,6 +24,51 @@ pub fn build_chunk_mesh(
     coord: TerrainChunkCoord,
     cell_size: f64,
 ) -> MeshData {
+    let preset_id = terrain_preset_index(preset);
+    build_chunk_mesh_with_shape(
+        seed,
+        preset_id,
+        terrain_preset(preset_id),
+        TerrainMaterialBias::default(),
+        u64::from(preset_id),
+        coord,
+        cell_size,
+    )
+}
+
+pub fn build_chunk_mesh_for_variant(
+    seed: u32,
+    descriptor: TerrainVariantDescriptor,
+    coord: TerrainChunkCoord,
+    cell_size: f64,
+) -> MeshData {
+    if descriptor.validate().is_err() {
+        return MeshData {
+            vertices: Vec::new(),
+            indices: Vec::new(),
+        };
+    }
+
+    build_chunk_mesh_with_shape(
+        seed,
+        descriptor.preset,
+        descriptor.shape,
+        descriptor.material_bias,
+        terrain_variant_cache_key(descriptor),
+        coord,
+        cell_size,
+    )
+}
+
+pub(crate) fn build_chunk_mesh_with_shape(
+    seed: u32,
+    preset_id: u32,
+    shape: TerrainShapeParameters,
+    material_bias: TerrainMaterialBias,
+    variant_cache_key: u64,
+    coord: TerrainChunkCoord,
+    cell_size: f64,
+) -> MeshData {
     if cell_size <= 0.0 {
         return MeshData {
             vertices: Vec::new(),
@@ -32,11 +77,17 @@ pub fn build_chunk_mesh(
     }
 
     let noise = SimplexNoise3D::new(seed);
-    let preset_id = terrain_preset_index(preset);
-    let preset = terrain_preset(preset_id);
-    let chunks = generate_neighbor_apron_chunks(&noise, preset, preset_id, seed, coord, cell_size);
+    let chunks = generate_neighbor_apron_chunks(
+        &noise,
+        shape,
+        preset_id,
+        variant_cache_key,
+        seed,
+        coord,
+        cell_size,
+    );
 
-    build_neighbor_aware_chunk_mesh(&noise, preset, seed, &chunks, coord)
+    build_neighbor_aware_chunk_mesh(&noise, shape, material_bias, seed, &chunks, coord)
 }
 
 pub fn build_node_mesh(
@@ -81,17 +132,40 @@ pub(crate) const CELL_EDGES: [(usize, usize); 12] = [
 pub(crate) fn build_neighbor_aware_chunk_mesh(
     noise: &SimplexNoise3D,
     preset: TerrainPresetDefinition,
+    material_bias: TerrainMaterialBias,
     seed: u32,
     chunks: &[TerrainDensityChunk],
     center_coord: TerrainChunkCoord,
 ) -> MeshData {
-    let raw_mesh = build_neighbor_aware_chunk_mesh_raw(noise, preset, seed, chunks, center_coord);
+    let raw_mesh = build_neighbor_aware_chunk_mesh_raw(
+        noise,
+        preset,
+        material_bias,
+        seed,
+        chunks,
+        center_coord,
+    );
     expand_terrain_mesh_for_triangle_material_palettes(&raw_mesh.vertices, &raw_mesh.indices)
+}
+
+pub fn build_node_mesh_for_variant(
+    seed: u32,
+    descriptor: TerrainVariantDescriptor,
+    key: TerrainNodeKey,
+    base_cell_size: f64,
+) -> MeshData {
+    build_chunk_mesh_for_variant(
+        seed,
+        descriptor,
+        key.coord,
+        terrain_node_cell_size(base_cell_size, key.lod),
+    )
 }
 
 pub(crate) fn build_neighbor_aware_chunk_mesh_raw(
     noise: &SimplexNoise3D,
     preset: TerrainPresetDefinition,
+    material_bias: TerrainMaterialBias,
     seed: u32,
     chunks: &[TerrainDensityChunk],
     center_coord: TerrainChunkCoord,
@@ -133,6 +207,7 @@ pub(crate) fn build_neighbor_aware_chunk_mesh_raw(
                     normal,
                     noise,
                     preset,
+                    material_bias,
                     seed,
                 );
             }
@@ -361,12 +436,13 @@ pub(crate) fn write_dual_contouring_vertex(
     normal: Vec3,
     noise: &SimplexNoise3D,
     preset: TerrainPresetDefinition,
+    material_bias: TerrainMaterialBias,
     seed: u32,
 ) {
     let color = color_for_height(position.y);
     let width = chunk_bounds.max.x - chunk_bounds.min.x;
     let depth = chunk_bounds.max.z - chunk_bounds.min.z;
-    let material = material_pack_at(noise, preset, seed, position);
+    let material = material_pack_at(noise, preset, material_bias, seed, position);
 
     vertices.extend_from_slice(&[
         position.x as f32,

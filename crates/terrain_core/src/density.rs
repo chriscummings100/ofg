@@ -4,6 +4,7 @@ pub(crate) fn generate_neighbor_apron_chunks(
     noise: &SimplexNoise3D,
     preset: TerrainPresetDefinition,
     preset_id: u32,
+    variant_cache_key: u64,
     seed: u32,
     center_coord: TerrainChunkCoord,
     cell_size: f64,
@@ -17,6 +18,7 @@ pub(crate) fn generate_neighbor_apron_chunks(
                     noise,
                     preset,
                     preset_id,
+                    variant_cache_key,
                     seed,
                     TerrainChunkCoord {
                         x: center_coord.x + dx,
@@ -81,11 +83,12 @@ pub(crate) fn ensure_density_chunk_stored(
     noise: &SimplexNoise3D,
     preset: TerrainPresetDefinition,
     preset_id: u32,
+    variant_cache_key: u64,
     seed: u32,
     coord: TerrainChunkCoord,
     cell_size: f64,
 ) -> TerrainDensityChunk {
-    let key = density_chunk_store_key(seed, preset_id, coord, cell_size);
+    let key = density_chunk_store_key(seed, preset_id, variant_cache_key, coord, cell_size);
     if let Some(densities) = density_chunk_store()
         .lock()
         .expect("density chunk store lock poisoned")

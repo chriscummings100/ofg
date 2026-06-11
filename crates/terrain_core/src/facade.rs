@@ -4,6 +4,14 @@ pub(crate) static mut DENSITY_CHUNK_BUFFER: [f32; TERRAIN_CHUNK_SAMPLE_COUNT] =
     [0.0; TERRAIN_CHUNK_SAMPLE_COUNT];
 pub(crate) static mut MESH_VERTEX_BUFFER: Vec<f32> = Vec::new();
 pub(crate) static mut MESH_INDEX_BUFFER: Vec<u32> = Vec::new();
+pub(crate) static mut WATER_NODE_BATHYMETRY_BUFFER: Vec<f32> = Vec::new();
+pub(crate) static mut WATER_NODE_BATHYMETRY_TEXEL_COUNT: u32 = 0;
+pub(crate) static mut WATER_NODE_BATHYMETRY_ORIGIN_X: f32 = 0.0;
+pub(crate) static mut WATER_NODE_BATHYMETRY_ORIGIN_Z: f32 = 0.0;
+pub(crate) static mut WATER_NODE_BATHYMETRY_WORLD_SPAN_X: f32 = 0.0;
+pub(crate) static mut WATER_NODE_BATHYMETRY_WORLD_SPAN_Z: f32 = 0.0;
+pub(crate) static mut WATER_NODE_BATHYMETRY_SEA_LEVEL: f32 = 0.0;
+pub(crate) static mut WATER_NODE_BATHYMETRY_MAX_DEPTH: f32 = 0.0;
 pub(crate) static mut MESH_PACKET_INPUT_VERTEX_BUFFER: Vec<f32> = Vec::new();
 pub(crate) static mut MESH_PACKET_INPUT_INDEX_BUFFER: Vec<u32> = Vec::new();
 pub(crate) const STREAM_VERTICAL_OFFSET_BUFFER_CAPACITY: usize = 64;
@@ -41,6 +49,8 @@ pub(crate) static mut MESH_PACKET_Z_BUFFER: [i32; MESH_PACKET_COORD_BUFFER_CAPAC
 pub(crate) static mut WORKER_POOL_TASK_REQUEST_ID: u32 = 0;
 pub(crate) static mut WORKER_POOL_TASK_WORKER_INDEX: u32 = 0;
 pub(crate) static mut WORKER_POOL_TASK_RUNTIME_GENERATION: f64 = 0.0;
+pub(crate) static mut TERRAIN_VARIANT_BUFFER: [f64; TERRAIN_VARIANT_FLAT_VALUE_COUNT] =
+    [0.0; TERRAIN_VARIANT_FLAT_VALUE_COUNT];
 
 #[no_mangle]
 pub extern "C" fn ofg_terrain_core_version() -> u32 {
@@ -49,7 +59,28 @@ pub extern "C" fn ofg_terrain_core_version() -> u32 {
 
 #[no_mangle]
 pub extern "C" fn ofg_terrain_core_preset_count() -> u32 {
-    TERRAIN_PRESETS.len() as u32
+    terrain_preset_count()
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_terrain_variant_flat_value_count() -> u32 {
+    TERRAIN_VARIANT_FLAT_VALUE_COUNT as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_terrain_variant_buffer_ptr() -> *mut f64 {
+    unsafe { core::ptr::addr_of_mut!(TERRAIN_VARIANT_BUFFER).cast::<f64>() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_write_terrain_variant_preset(preset: u32) -> u32 {
+    let descriptor = terrain_variant_for_preset(preset);
+    let values = terrain_variant_flat_values(descriptor);
+    unsafe {
+        TERRAIN_VARIANT_BUFFER = values;
+    }
+
+    1
 }
 
 #[no_mangle]
@@ -884,7 +915,7 @@ pub extern "C" fn ofg_store_density_chunk_buffer(
         z: chunk_z,
     };
     let preset_id = terrain_preset_index(preset);
-    let key = density_chunk_store_key(seed, preset_id, coord, cell_size);
+    let key = density_chunk_store_key(seed, preset_id, u64::from(preset_id), coord, cell_size);
     let densities = unsafe {
         core::slice::from_raw_parts(
             core::ptr::addr_of!(DENSITY_CHUNK_BUFFER).cast::<f32>(),
@@ -929,7 +960,16 @@ pub extern "C" fn ofg_retain_density_chunk_store_window(
         .expect("density chunk store lock poisoned");
 
     store.retain_window(
-        seed, preset_id, cell_size, min_x, min_y, min_z, max_x, max_y, max_z,
+        seed,
+        preset_id,
+        u64::from(preset_id),
+        cell_size,
+        min_x,
+        min_y,
+        min_z,
+        max_x,
+        max_y,
+        max_z,
     );
 
     store.entries.len() as u32
@@ -960,12 +1000,22 @@ pub extern "C" fn ofg_prepare_density_chunk_window(
     let noise = SimplexNoise3D::new(seed);
     let preset_id = terrain_preset_index(preset);
     let preset = terrain_preset(preset_id);
+    let variant_cache_key = u64::from(preset_id);
 
     density_chunk_store()
         .lock()
         .expect("density chunk store lock poisoned")
         .retain_window(
-            seed, preset_id, cell_size, min_x, min_y, min_z, max_x, max_y, max_z,
+            seed,
+            preset_id,
+            variant_cache_key,
+            cell_size,
+            min_x,
+            min_y,
+            min_z,
+            max_x,
+            max_y,
+            max_z,
         );
 
     let mut prepared = 0;
@@ -976,6 +1026,7 @@ pub extern "C" fn ofg_prepare_density_chunk_window(
                     &noise,
                     preset,
                     preset_id,
+                    variant_cache_key,
                     seed,
                     TerrainChunkCoord { x, y, z },
                     cell_size,
@@ -1087,6 +1138,45 @@ pub extern "C" fn ofg_build_chunk_mesh(
 }
 
 #[no_mangle]
+pub extern "C" fn ofg_build_chunk_mesh_for_variant(
+    seed: u32,
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+    cell_size: f64,
+) -> u32 {
+    unsafe {
+        MESH_VERTEX_BUFFER.clear();
+        MESH_INDEX_BUFFER.clear();
+    }
+
+    if cell_size <= 0.0 {
+        return 0;
+    }
+
+    let values = unsafe { TERRAIN_VARIANT_BUFFER };
+    let Ok(descriptor) = terrain_variant_from_flat_values(&values) else {
+        return 0;
+    };
+    let mesh = build_chunk_mesh_for_variant(
+        seed,
+        descriptor,
+        TerrainChunkCoord {
+            x: chunk_x,
+            y: chunk_y,
+            z: chunk_z,
+        },
+        cell_size,
+    );
+
+    unsafe {
+        MESH_VERTEX_BUFFER = mesh.vertices;
+        MESH_INDEX_BUFFER = mesh.indices;
+        MESH_INDEX_BUFFER.len() as u32
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn ofg_mesh_vertex_buffer_ptr() -> *const f32 {
     unsafe { MESH_VERTEX_BUFFER.as_ptr() }
 }
@@ -1107,6 +1197,102 @@ pub extern "C" fn ofg_mesh_index_buffer_len() -> u32 {
 }
 
 #[no_mangle]
+pub extern "C" fn ofg_build_water_node_packet_for_variant(
+    seed: u32,
+    lod: u32,
+    chunk_x: i32,
+    chunk_y: i32,
+    chunk_z: i32,
+    cell_size: f64,
+    sea_level: f64,
+    max_depth_meters: f64,
+) -> u32 {
+    clear_water_node_bathymetry_buffer();
+    let Ok(lod) = u8::try_from(lod) else {
+        return 0;
+    };
+    let descriptor_values = unsafe { TERRAIN_VARIANT_BUFFER };
+    let Ok(descriptor) = terrain_variant_from_flat_values(&descriptor_values) else {
+        return 0;
+    };
+    let packet = build_water_node_packet_for_variant(
+        seed,
+        descriptor,
+        TerrainNodeKey {
+            lod,
+            coord: TerrainChunkCoord {
+                x: chunk_x,
+                y: chunk_y,
+                z: chunk_z,
+            },
+        },
+        cell_size,
+        sea_level,
+        max_depth_meters,
+    );
+    let Ok(Some(packet)) = packet else {
+        return 0;
+    };
+
+    unsafe {
+        WATER_NODE_BATHYMETRY_TEXEL_COUNT = packet.texel_count;
+        WATER_NODE_BATHYMETRY_ORIGIN_X = packet.origin_x;
+        WATER_NODE_BATHYMETRY_ORIGIN_Z = packet.origin_z;
+        WATER_NODE_BATHYMETRY_WORLD_SPAN_X = packet.world_span_x;
+        WATER_NODE_BATHYMETRY_WORLD_SPAN_Z = packet.world_span_z;
+        WATER_NODE_BATHYMETRY_SEA_LEVEL = packet.sea_level_meters;
+        WATER_NODE_BATHYMETRY_MAX_DEPTH = packet.max_depth_meters;
+        WATER_NODE_BATHYMETRY_BUFFER = packet.depths_meters;
+        WATER_NODE_BATHYMETRY_TEXEL_COUNT
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_water_node_bathymetry_buffer_ptr() -> *const f32 {
+    unsafe { WATER_NODE_BATHYMETRY_BUFFER.as_ptr() }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_water_node_bathymetry_buffer_len() -> u32 {
+    unsafe { WATER_NODE_BATHYMETRY_BUFFER.len() as u32 }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_water_node_bathymetry_texel_count() -> u32 {
+    unsafe { WATER_NODE_BATHYMETRY_TEXEL_COUNT }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_water_node_bathymetry_origin_x() -> f32 {
+    unsafe { WATER_NODE_BATHYMETRY_ORIGIN_X }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_water_node_bathymetry_origin_z() -> f32 {
+    unsafe { WATER_NODE_BATHYMETRY_ORIGIN_Z }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_water_node_bathymetry_world_span_x() -> f32 {
+    unsafe { WATER_NODE_BATHYMETRY_WORLD_SPAN_X }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_water_node_bathymetry_world_span_z() -> f32 {
+    unsafe { WATER_NODE_BATHYMETRY_WORLD_SPAN_Z }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_water_node_bathymetry_sea_level() -> f32 {
+    unsafe { WATER_NODE_BATHYMETRY_SEA_LEVEL }
+}
+
+#[no_mangle]
+pub extern "C" fn ofg_water_node_bathymetry_max_depth() -> f32 {
+    unsafe { WATER_NODE_BATHYMETRY_MAX_DEPTH }
+}
+
+#[no_mangle]
 pub extern "C" fn ofg_macro_base_elevation_at(seed: u32, preset: u32, x: f64, z: f64) -> f64 {
     let noise = SimplexNoise3D::new(seed);
     let preset = terrain_preset(preset);
@@ -1123,6 +1309,19 @@ pub extern "C" fn ofg_density_at(seed: u32, preset: u32, x: f64, y: f64, z: f64)
 #[no_mangle]
 pub extern "C" fn ofg_height_at(seed: u32, preset: u32, x: f64, z: f64) -> f64 {
     height_at(seed, preset, x, z)
+}
+
+fn clear_water_node_bathymetry_buffer() {
+    unsafe {
+        WATER_NODE_BATHYMETRY_BUFFER.clear();
+        WATER_NODE_BATHYMETRY_TEXEL_COUNT = 0;
+        WATER_NODE_BATHYMETRY_ORIGIN_X = 0.0;
+        WATER_NODE_BATHYMETRY_ORIGIN_Z = 0.0;
+        WATER_NODE_BATHYMETRY_WORLD_SPAN_X = 0.0;
+        WATER_NODE_BATHYMETRY_WORLD_SPAN_Z = 0.0;
+        WATER_NODE_BATHYMETRY_SEA_LEVEL = 0.0;
+        WATER_NODE_BATHYMETRY_MAX_DEPTH = 0.0;
+    }
 }
 
 fn terrain_stream_status() -> TerrainStreamStatus {

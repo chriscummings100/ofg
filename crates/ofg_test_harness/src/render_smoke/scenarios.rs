@@ -5,9 +5,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use engine_core::Vec3;
 use engine_web::{BrowserTerrainStream, TERRAIN_VERTEX_FLOATS};
 use terrain_core::{
-    height_at, terrain_chunk_key, terrain_node_cell_size, terrain_node_key, terrain_node_parent,
-    MeshData, TerrainChunkCoord, TerrainNodeKey, DEFAULT_TERRAIN_PRESET,
-    TERRAIN_CHUNK_CELLS_PER_AXIS,
+    height_at_for_variant, terrain_chunk_key, terrain_node_cell_size, terrain_node_key,
+    terrain_node_parent, terrain_variant_for_preset, MeshData, TerrainChunkCoord, TerrainLodBand,
+    TerrainNodeKey, TerrainVariantDescriptor, DEFAULT_TERRAIN_PRESET, TERRAIN_CHUNK_CELLS_PER_AXIS,
 };
 
 use super::error::{harness_error, HarnessResult};
@@ -21,8 +21,15 @@ pub enum ScenarioFilter {
     All,
     Boot,
     Presets,
+    Variants,
     Seams,
     Lods,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ScenarioVariantKind {
+    LowRolling,
+    RidgeHeavy,
 }
 
 #[derive(Clone, Copy)]
@@ -79,6 +86,8 @@ pub enum ChunkAxis {
 }
 
 pub struct ScenarioTerrain {
+    pub seed: u32,
+    pub terrain_variant: TerrainVariantDescriptor,
     pub meshes: Vec<MeshData>,
     pub camera: CameraSetup,
     pub debug: ScenarioDebug,
@@ -91,10 +100,11 @@ impl ScenarioFilter {
             "all" => Ok(Self::All),
             "boot" => Ok(Self::Boot),
             "presets" => Ok(Self::Presets),
+            "variants" => Ok(Self::Variants),
             "seams" => Ok(Self::Seams),
             "lods" => Ok(Self::Lods),
             _ => Err(harness_error(format!(
-                "Unknown --scenario '{value}'. Use all, boot, presets, seams, or lods."
+                "Unknown --scenario '{value}'. Use all, boot, presets, variants, seams, or lods."
             ))),
         }
     }
@@ -107,219 +117,14 @@ impl ScenarioFilter {
 
 /// Returns deterministic scenario definitions for Rust image smoke.
 pub fn scenarios() -> Vec<Scenario> {
-    vec![
-        Scenario {
-            name: "boot-frame",
-            file_name: "boot-frame.png",
-            group: ScenarioFilter::Boot,
-            seed: 246,
-            preset: DEFAULT_TERRAIN_PRESET,
-            center_x: 0.0,
-            center_z: 0.0,
-            camera_offset: Vec3::new(48.0, 36.0, 62.0),
-            target_height_offset: 4.0,
-            coverage: None,
-            shadow_debug: true,
-            stream_mode: ScenarioStreamMode::Lod0,
-            max_stream_ticks: 64,
-            movement: None,
-        },
-        Scenario {
-            name: "preset-seed",
-            file_name: "preset-seed.png",
-            group: ScenarioFilter::Presets,
-            seed: 246,
-            preset: 0,
-            center_x: 0.0,
-            center_z: 0.0,
-            camera_offset: Vec3::new(44.0, 34.0, 58.0),
-            target_height_offset: 4.0,
-            coverage: None,
-            shadow_debug: false,
-            stream_mode: ScenarioStreamMode::Lod0,
-            max_stream_ticks: 64,
-            movement: None,
-        },
-        Scenario {
-            name: "preset-rollingHills",
-            file_name: "preset-rollingHills.png",
-            group: ScenarioFilter::Presets,
-            seed: 246,
-            preset: 1,
-            center_x: 64.0,
-            center_z: -64.0,
-            camera_offset: Vec3::new(48.0, 34.0, 58.0),
-            target_height_offset: 5.0,
-            coverage: None,
-            shadow_debug: false,
-            stream_mode: ScenarioStreamMode::Lod0,
-            max_stream_ticks: 64,
-            movement: None,
-        },
-        Scenario {
-            name: "preset-mountainValley",
-            file_name: "preset-mountainValley.png",
-            group: ScenarioFilter::Presets,
-            seed: 246,
-            preset: 2,
-            center_x: 96.0,
-            center_z: -32.0,
-            camera_offset: Vec3::new(60.0, 52.0, 78.0),
-            target_height_offset: 7.0,
-            coverage: None,
-            shadow_debug: false,
-            stream_mode: ScenarioStreamMode::Lod0,
-            max_stream_ticks: 64,
-            movement: None,
-        },
-        Scenario {
-            name: "preset-rockyHighland",
-            file_name: "preset-rockyHighland.png",
-            group: ScenarioFilter::Presets,
-            seed: 246,
-            preset: 3,
-            center_x: -64.0,
-            center_z: 64.0,
-            camera_offset: Vec3::new(58.0, 44.0, 62.0),
-            target_height_offset: 6.0,
-            coverage: None,
-            shadow_debug: false,
-            stream_mode: ScenarioStreamMode::Lod0,
-            max_stream_ticks: 64,
-            movement: None,
-        },
-        Scenario {
-            name: "x-seam-grazing",
-            file_name: "x-seam-grazing.png",
-            group: ScenarioFilter::Seams,
-            seed: 246,
-            preset: 3,
-            center_x: 32.0,
-            center_z: 0.0,
-            camera_offset: Vec3::new(-24.0, 2.3, -18.0),
-            target_height_offset: 1.1,
-            coverage: Some(ScenarioCoverage::Axis {
-                axis: ChunkAxis::X,
-                low: 0,
-                high: 1,
-            }),
-            shadow_debug: false,
-            stream_mode: ScenarioStreamMode::Lod0,
-            max_stream_ticks: 64,
-            movement: None,
-        },
-        Scenario {
-            name: "z-seam-grazing",
-            file_name: "z-seam-grazing.png",
-            group: ScenarioFilter::Seams,
-            seed: 246,
-            preset: 3,
-            center_x: 0.0,
-            center_z: 32.0,
-            camera_offset: Vec3::new(-18.0, 2.3, -24.0),
-            target_height_offset: 1.1,
-            coverage: Some(ScenarioCoverage::Axis {
-                axis: ChunkAxis::Z,
-                low: 0,
-                high: 1,
-            }),
-            shadow_debug: false,
-            stream_mode: ScenarioStreamMode::Lod0,
-            max_stream_ticks: 64,
-            movement: None,
-        },
-        Scenario {
-            name: "chunk-corner-oblique",
-            file_name: "chunk-corner-oblique.png",
-            group: ScenarioFilter::Seams,
-            seed: 246,
-            preset: 3,
-            center_x: 32.0,
-            center_z: 32.0,
-            camera_offset: Vec3::new(-22.0, 2.0, -24.0),
-            target_height_offset: 1.4,
-            coverage: Some(ScenarioCoverage::Corner {
-                x_low: 0,
-                x_high: 1,
-                z_low: 0,
-                z_high: 1,
-            }),
-            shadow_debug: false,
-            stream_mode: ScenarioStreamMode::Lod0,
-            max_stream_ticks: 64,
-            movement: None,
-        },
-        Scenario {
-            name: "far-view-multi-lod",
-            file_name: "far-view-multi-lod.png",
-            group: ScenarioFilter::Lods,
-            seed: 246,
-            preset: 2,
-            center_x: 0.0,
-            center_z: 0.0,
-            camera_offset: Vec3::new(220.0, 118.0, 260.0),
-            target_height_offset: 18.0,
-            coverage: None,
-            shadow_debug: false,
-            stream_mode: ScenarioStreamMode::MultiLod,
-            max_stream_ticks: 1600,
-            movement: None,
-        },
-        Scenario {
-            name: "lod-boundary-oblique",
-            file_name: "lod-boundary-oblique.png",
-            group: ScenarioFilter::Lods,
-            seed: 246,
-            preset: 3,
-            center_x: 64.0,
-            center_z: 64.0,
-            camera_offset: Vec3::new(150.0, 62.0, 34.0),
-            target_height_offset: 8.0,
-            coverage: None,
-            shadow_debug: false,
-            stream_mode: ScenarioStreamMode::MultiLod,
-            max_stream_ticks: 1600,
-            movement: None,
-        },
-        Scenario {
-            name: "running-stream-delta",
-            file_name: "running-stream-delta.png",
-            group: ScenarioFilter::Lods,
-            seed: 246,
-            preset: 2,
-            center_x: 0.0,
-            center_z: 0.0,
-            camera_offset: Vec3::new(150.0, 72.0, 170.0),
-            target_height_offset: 10.0,
-            coverage: None,
-            shadow_debug: false,
-            stream_mode: ScenarioStreamMode::MultiLod,
-            max_stream_ticks: 2000,
-            movement: Some(ScenarioMovement {
-                step_count: 48,
-                step_x: 4.0,
-                step_z: 1.75,
-                ticks_per_step: 2,
-            }),
-        },
-    ]
+    scenario_catalog::scenarios()
 }
 
 /// Builds Rust terrain stream meshes for a scenario.
 pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerrain> {
-    let mut center = terrain_position(
-        scenario.seed,
-        scenario.preset,
-        scenario.center_x,
-        scenario.center_z,
-        scenario.name,
-    )?;
+    let mut center = terrain_position(scenario, scenario.center_x, scenario.center_z)?;
 
-    let mut stream = match scenario.stream_mode {
-        ScenarioStreamMode::Lod0 => BrowserTerrainStream::new_lod0(scenario.seed, scenario.preset),
-        ScenarioStreamMode::MultiLod => BrowserTerrainStream::new(scenario.seed, scenario.preset),
-    }
-    .map_err(|error| harness_error(format!("Could not create terrain stream: {error:?}")))?;
+    let mut stream = create_scenario_stream(scenario)?;
     stream.reset_around(center);
     let mut meshes_by_node = BTreeMap::<TerrainNodeKey, MeshData>::new();
 
@@ -329,11 +134,9 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
     if let Some(movement) = scenario.movement {
         for step in 1..=movement.step_count {
             center = terrain_position(
-                scenario.seed,
-                scenario.preset,
+                scenario,
                 scenario.center_x + movement.step_x * step as f32,
                 scenario.center_z + movement.step_z * step as f32,
-                scenario.name,
             )?;
             for _ in 0..movement.ticks_per_step {
                 apply_stream_update(&mut stream, center, &mut meshes_by_node);
@@ -384,11 +187,13 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
     );
 
     Ok(ScenarioTerrain {
+        seed: scenario.seed,
+        terrain_variant: scenario_terrain_variant(scenario),
         meshes,
         camera: CameraSetup { eye, target },
         debug: ScenarioDebug {
             terrain_seed: scenario.seed,
-            terrain_preset: terrain_preset_name(scenario.preset),
+            terrain_preset: scenario_terrain_name(scenario),
             terrain_preset_code: scenario.preset,
             center: [center.x, center.y, center.z],
             camera_eye: [eye.x, eye.y, eye.z],
@@ -413,6 +218,27 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
     })
 }
 
+fn create_scenario_stream(scenario: Scenario) -> HarnessResult<BrowserTerrainStream> {
+    let stream = if scenario_variant_kind(scenario).is_some() {
+        BrowserTerrainStream::new_with_variant_lod_bands(
+            scenario.seed,
+            scenario_terrain_variant(scenario),
+            lod0_terrain_lod_bands(),
+        )
+    } else {
+        match scenario.stream_mode {
+            ScenarioStreamMode::Lod0 => {
+                BrowserTerrainStream::new_lod0(scenario.seed, scenario.preset)
+            }
+            ScenarioStreamMode::MultiLod => {
+                BrowserTerrainStream::new(scenario.seed, scenario.preset)
+            }
+        }
+    };
+
+    stream.map_err(|error| harness_error(format!("Could not create terrain stream: {error:?}")))
+}
+
 fn scenario_stream_ready(scenario: Scenario, stream: &BrowserTerrainStream) -> bool {
     let status = stream.status();
     match scenario.stream_mode {
@@ -428,17 +254,23 @@ fn scenario_stream_ready(scenario: Scenario, stream: &BrowserTerrainStream) -> b
     }
 }
 
-fn terrain_position(
-    seed: u32,
-    preset: u32,
-    x: f32,
-    z: f32,
-    scenario_name: &str,
-) -> HarnessResult<Vec3> {
-    let y = height_at(seed, preset, f64::from(x), f64::from(z)) as f32;
+fn terrain_position(scenario: Scenario, x: f32, z: f32) -> HarnessResult<Vec3> {
+    let y = height_at_for_variant(
+        scenario.seed,
+        scenario_terrain_variant(scenario),
+        f64::from(x),
+        f64::from(z),
+    )
+    .map_err(|error| {
+        harness_error(format!(
+            "Scenario '{}' rejected its terrain variant: {error}",
+            scenario.name
+        ))
+    })? as f32;
     if !y.is_finite() {
         return Err(harness_error(format!(
-            "Scenario '{scenario_name}' produced a non-finite terrain center height.",
+            "Scenario '{}' produced a non-finite terrain center height.",
+            scenario.name
         )));
     }
 
@@ -618,6 +450,59 @@ fn coord_axis(coord: TerrainChunkCoord, axis: ChunkAxis) -> i32 {
     }
 }
 
+fn scenario_variant_kind(scenario: Scenario) -> Option<ScenarioVariantKind> {
+    match scenario.name {
+        "variant-low-rolling" => Some(ScenarioVariantKind::LowRolling),
+        "variant-ridge-heavy" => Some(ScenarioVariantKind::RidgeHeavy),
+        _ => None,
+    }
+}
+
+fn scenario_terrain_variant(scenario: Scenario) -> TerrainVariantDescriptor {
+    let mut descriptor = terrain_variant_for_preset(scenario.preset);
+    match scenario_variant_kind(scenario) {
+        Some(ScenarioVariantKind::LowRolling) => {
+            descriptor.shape.base_height = 4.0;
+            descriptor.shape.height_scale = 8.0;
+            descriptor.shape.large_feature_noise.frequency = 0.006;
+            descriptor.shape.large_feature_noise.persistence = 0.42;
+            descriptor.shape.ridge_height_scale = 1.0;
+            descriptor.shape.warp.frequency = 0.004;
+            descriptor.shape.warp.amplitude = 3.0;
+            descriptor.shape.cellular_height_scale = 0.5;
+            descriptor.shape.detail_amplitude = 0.75;
+        }
+        Some(ScenarioVariantKind::RidgeHeavy) => {
+            descriptor.shape.base_height = 18.0;
+            descriptor.shape.height_scale = 38.0;
+            descriptor.shape.ridge_height_scale = 44.0;
+            descriptor.shape.ridge_noise.ridge_offset = 0.85;
+            descriptor.shape.ridge_noise.ridge_sharpness = 2.2;
+            descriptor.shape.warp.amplitude = 18.0;
+            descriptor.shape.cellular_height_scale = 8.0;
+            descriptor.shape.detail_amplitude = 4.0;
+        }
+        None => {}
+    }
+    descriptor
+}
+
+fn scenario_terrain_name(scenario: Scenario) -> &'static str {
+    match scenario_variant_kind(scenario) {
+        Some(ScenarioVariantKind::LowRolling) => "variant-low-rolling",
+        Some(ScenarioVariantKind::RidgeHeavy) => "variant-ridge-heavy",
+        None => terrain_preset_name(scenario.preset),
+    }
+}
+
+fn lod0_terrain_lod_bands() -> Vec<TerrainLodBand> {
+    vec![TerrainLodBand {
+        lod: 0,
+        horizontal_radius: 1,
+        vertical_chunk_offsets: vec![-2, -1, 0, 1],
+    }]
+}
+
 /// Returns a stable display name for terrain preset codes.
 fn terrain_preset_name(preset: u32) -> &'static str {
     match preset {
@@ -632,3 +517,6 @@ fn terrain_preset_name(preset: u32) -> &'static str {
 #[cfg(test)]
 #[path = "scenarios_tests.rs"]
 mod tests;
+
+#[path = "scenario_catalog.rs"]
+mod scenario_catalog;

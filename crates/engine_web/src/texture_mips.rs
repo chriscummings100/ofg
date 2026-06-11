@@ -95,11 +95,10 @@ fn downsample_rgba8_mip(previous: &Rgba8MipLevel, layers: u32) -> Rgba8MipLevel 
                 let mut sample_count = 0_u32;
                 for source_y in source_y_start..source_y_end {
                     for source_x in source_x_start..source_x_end {
-                        let source_index =
-                            ((layer * previous.height as usize + source_y)
-                                * previous.width as usize
-                                + source_x)
-                                * 4;
+                        let source_index = ((layer * previous.height as usize + source_y)
+                            * previous.width as usize
+                            + source_x)
+                            * 4;
                         sum[0] += u32::from(previous.data[source_index]);
                         sum[1] += u32::from(previous.data[source_index + 1]);
                         sum[2] += u32::from(previous.data[source_index + 2]);
@@ -147,8 +146,8 @@ mod tests {
     #[test]
     fn rgba8_mip_chain_downsamples_layers_independently() {
         let data = [
-            0, 10, 20, 255, 4, 10, 20, 255, 8, 10, 20, 255, 12, 10, 20, 255, 100, 20, 40,
-            128, 104, 20, 40, 128, 108, 20, 40, 128, 112, 20, 40, 128,
+            0, 10, 20, 255, 4, 10, 20, 255, 8, 10, 20, 255, 12, 10, 20, 255, 100, 20, 40, 128, 104,
+            20, 40, 128, 108, 20, 40, 128, 112, 20, 40, 128,
         ];
 
         let chain = build_rgba8_mip_chain(2, 2, 2, &data).unwrap();
@@ -156,10 +155,7 @@ mod tests {
         assert_eq!(chain.len(), 2);
         assert_eq!(chain[1].width, 1);
         assert_eq!(chain[1].height, 1);
-        assert_eq!(
-            chain[1].data,
-            vec![6, 10, 20, 255, 106, 20, 40, 128]
-        );
+        assert_eq!(chain[1].data, vec![6, 10, 20, 255, 106, 20, 40, 128]);
     }
 
     #[test]

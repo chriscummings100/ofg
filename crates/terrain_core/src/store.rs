@@ -6,6 +6,7 @@ use crate::*;
 pub(crate) struct DensityChunkStoreKey {
     pub(crate) seed: u32,
     pub(crate) preset: u32,
+    pub(crate) variant_cache_key: u64,
     pub(crate) chunk_x: i32,
     pub(crate) chunk_y: i32,
     pub(crate) chunk_z: i32,
@@ -36,12 +37,14 @@ pub(crate) fn density_chunk_store() -> &'static Mutex<DensityChunkStore> {
 pub(crate) fn density_chunk_store_key(
     seed: u32,
     preset: u32,
+    variant_cache_key: u64,
     coord: TerrainChunkCoord,
     cell_size: f64,
 ) -> DensityChunkStoreKey {
     DensityChunkStoreKey {
         seed,
         preset,
+        variant_cache_key,
         chunk_x: coord.x,
         chunk_y: coord.y,
         chunk_z: coord.z,
@@ -105,6 +108,7 @@ impl DensityChunkStore {
         &mut self,
         seed: u32,
         preset: u32,
+        variant_cache_key: u64,
         cell_size: f64,
         min_x: i32,
         min_y: i32,
@@ -118,6 +122,7 @@ impl DensityChunkStore {
         self.entries.retain(|entry| {
             entry.key.seed == seed
                 && entry.key.preset == preset
+                && entry.key.variant_cache_key == variant_cache_key
                 && entry.key.cell_size_bits == cell_size_bits
                 && entry.key.chunk_x >= min_x
                 && entry.key.chunk_x <= max_x

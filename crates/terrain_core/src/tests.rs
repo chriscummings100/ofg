@@ -8,7 +8,7 @@ fn density_store_contains(
     coord: TerrainChunkCoord,
     cell_size: f64,
 ) -> bool {
-    let key = density_chunk_store_key(seed, preset, coord, cell_size);
+    let key = density_chunk_store_key(seed, preset, u64::from(preset), coord, cell_size);
 
     density_chunk_store()
         .lock()
@@ -22,8 +22,302 @@ fn exported_version_is_stable() {
     let _lock = test_lock();
     assert_eq!(ofg_terrain_core_version(), 1);
     assert_eq!(ofg_terrain_core_preset_count(), 4);
+    assert_eq!(
+        ofg_terrain_variant_flat_value_count() as usize,
+        TERRAIN_VARIANT_FLAT_VALUE_COUNT
+    );
     assert_eq!(ofg_density_chunk_sample_count(), 33 * 33 * 33);
     assert!(ofg_density_chunk_store_max_entries() >= 8);
+}
+
+#[test]
+fn terrain_variant_catalog_exposes_current_shape_presets() {
+    let _lock = test_lock();
+
+    for preset in 0..ofg_terrain_core_preset_count() {
+        let metadata = terrain_preset_metadata(preset);
+        let descriptor = terrain_variant_for_preset(preset);
+
+        assert_eq!(metadata.code, preset);
+        assert_eq!(descriptor.version, TERRAIN_VARIANT_DESCRIPTOR_VERSION);
+        assert_eq!(descriptor.preset, preset);
+        assert_eq!(descriptor.shape, terrain_preset(preset));
+        descriptor
+            .validate()
+            .expect("catalog terrain variant should be valid");
+    }
+}
+
+#[test]
+fn terrain_variant_catalog_defaults_unknown_preset_codes() {
+    let _lock = test_lock();
+    let metadata = terrain_preset_metadata(999);
+    let descriptor = terrain_variant_for_preset(999);
+
+    assert_eq!(metadata.code, DEFAULT_TERRAIN_PRESET);
+    assert_eq!(descriptor.preset, DEFAULT_TERRAIN_PRESET);
+    assert_eq!(descriptor.shape, terrain_preset(DEFAULT_TERRAIN_PRESET));
+}
+
+#[test]
+fn terrain_variant_validation_rejects_unbounded_editor_values() {
+    let _lock = test_lock();
+    let mut descriptor = terrain_variant_for_preset(1);
+
+    descriptor.shape.base_height = f64::NAN;
+    assert_eq!(
+        descriptor.validate(),
+        Err(TerrainVariantValidationError::InvalidBaseHeight)
+    );
+
+    descriptor = terrain_variant_for_preset(1);
+    descriptor.shape.detail_noise.frequency = 0.0;
+    assert_eq!(
+        descriptor.validate(),
+        Err(TerrainVariantValidationError::InvalidFractalNoise)
+    );
+
+    descriptor = terrain_variant_for_preset(1);
+    descriptor.shape.ridge_noise.ridge_sharpness = 0.0;
+    assert_eq!(
+        descriptor.validate(),
+        Err(TerrainVariantValidationError::InvalidRidgedNoise)
+    );
+
+    descriptor = terrain_variant_for_preset(1);
+    descriptor.material_bias.snow = f64::INFINITY;
+    assert_eq!(
+        descriptor.validate(),
+        Err(TerrainVariantValidationError::InvalidMaterialBias)
+    );
+}
+
+#[test]
+fn terrain_variant_validation_errors_have_stable_display_text() {
+    assert_eq!(
+        TerrainVariantValidationError::InvalidFlatValueCount.to_string(),
+        "terrain variant flat value count is invalid"
+    );
+    assert_eq!(
+        TerrainVariantValidationError::InvalidWarpNoise.to_string(),
+        "terrain variant domain warp options are invalid"
+    );
+}
+
+#[test]
+fn terrain_variant_flat_values_round_trip_and_change_cache_key() {
+    let _lock = test_lock();
+    let descriptor = terrain_variant_for_preset(1);
+    let values = terrain_variant_flat_values(descriptor);
+    let round_tripped = terrain_variant_from_flat_values(&values)
+        .expect("flat terrain variant values should round-trip");
+    let mut edited = descriptor;
+
+    edited.shape.ridge_height_scale += 2.0;
+
+    assert_eq!(values.len(), TERRAIN_VARIANT_FLAT_VALUE_COUNT);
+    assert_eq!(round_tripped, descriptor);
+    assert_ne!(
+        terrain_variant_cache_key(descriptor),
+        terrain_variant_cache_key(edited)
+    );
+    assert_eq!(
+        terrain_variant_from_flat_values(&values[0..values.len() - 1]),
+        Err(TerrainVariantValidationError::InvalidFlatValueCount)
+    );
+}
+
+#[test]
+fn facade_builds_chunk_mesh_from_flat_terrain_variant_buffer() {
+    let _lock = test_lock();
+    ofg_reset_density_chunk_store();
+
+    assert_eq!(ofg_write_terrain_variant_preset(1), 1);
+    let baseline_index_count = ofg_build_chunk_mesh_for_variant(0x0F6, 0, 0, 0, 1.0);
+
+    assert!(baseline_index_count > 0);
+    assert!(ofg_mesh_vertex_buffer_len() > 0);
+
+    let mut edited = terrain_variant_for_preset(1);
+    edited.shape.height_scale += 3.0;
+    let values = terrain_variant_flat_values(edited);
+    let buffer = unsafe {
+        std::slice::from_raw_parts_mut(
+            ofg_terrain_variant_buffer_ptr(),
+            ofg_terrain_variant_flat_value_count() as usize,
+        )
+    };
+    buffer.copy_from_slice(&values);
+
+    let edited_index_count = ofg_build_chunk_mesh_for_variant(0x0F6, 0, 0, 0, 1.0);
+
+    assert!(edited_index_count > 0);
+    assert!(ofg_mesh_vertex_buffer_len() > 0);
+}
+
+#[test]
+fn facade_builds_water_node_packet_from_flat_terrain_variant_buffer() {
+    let _lock = test_lock();
+    let mut variant = terrain_variant_for_preset(1);
+    variant.shape.base_height = -6.0;
+    let values = terrain_variant_flat_values(variant);
+    let buffer = unsafe {
+        std::slice::from_raw_parts_mut(
+            ofg_terrain_variant_buffer_ptr(),
+            ofg_terrain_variant_flat_value_count() as usize,
+        )
+    };
+    buffer.copy_from_slice(&values);
+
+    let texel_count = ofg_build_water_node_packet_for_variant(
+        0x0F6,
+        0,
+        0,
+        0,
+        0,
+        1.0,
+        SEA_LEVEL_METERS,
+        WATER_NODE_MAX_RELEVANT_DEPTH_METERS,
+    );
+
+    assert_eq!(texel_count, WATER_NODE_BATHYMETRY_TEXEL_COUNT);
+    assert_eq!(ofg_water_node_bathymetry_texel_count(), texel_count);
+    assert_eq!(
+        ofg_water_node_bathymetry_buffer_len(),
+        texel_count * texel_count
+    );
+    assert_eq!(ofg_water_node_bathymetry_origin_x(), 0.0);
+    assert_eq!(ofg_water_node_bathymetry_origin_z(), 0.0);
+    assert_eq!(
+        ofg_water_node_bathymetry_world_span_x(),
+        TERRAIN_CHUNK_CELLS_PER_AXIS as f32
+    );
+    assert_eq!(
+        ofg_water_node_bathymetry_world_span_z(),
+        TERRAIN_CHUNK_CELLS_PER_AXIS as f32
+    );
+    assert_eq!(
+        ofg_water_node_bathymetry_sea_level(),
+        SEA_LEVEL_METERS as f32
+    );
+    assert!(ofg_water_node_bathymetry_max_depth() > 0.0);
+    let depths = unsafe {
+        std::slice::from_raw_parts(
+            ofg_water_node_bathymetry_buffer_ptr(),
+            ofg_water_node_bathymetry_buffer_len() as usize,
+        )
+    };
+    assert!(depths.iter().any(|depth| *depth > 0.0));
+
+    assert_eq!(
+        ofg_build_water_node_packet_for_variant(
+            0x0F6,
+            0,
+            0,
+            -1,
+            0,
+            1.0,
+            SEA_LEVEL_METERS,
+            WATER_NODE_MAX_RELEVANT_DEPTH_METERS,
+        ),
+        0
+    );
+    assert_eq!(ofg_water_node_bathymetry_buffer_len(), 0);
+    assert_eq!(ofg_water_node_bathymetry_texel_count(), 0);
+}
+
+#[test]
+fn terrain_variant_probe_summary_reports_finite_origin_readouts() {
+    let _lock = test_lock();
+    let descriptor = terrain_variant_for_preset(1);
+    let mut edited = descriptor;
+    edited.shape.height_scale += 5.0;
+
+    let baseline = terrain_variant_probe_summary(0x0F6, descriptor, 0.0, 0.0, 16.0)
+        .expect("catalog probe should be valid");
+    let changed = terrain_variant_probe_summary(0x0F6, edited, 0.0, 0.0, 16.0)
+        .expect("edited probe should be valid");
+
+    assert_eq!(baseline.sample_count, 5);
+    assert!(baseline.height_min.is_finite());
+    assert!(baseline.height_max.is_finite());
+    assert!(baseline.height_min <= baseline.height_max);
+    assert!(baseline.slope_min >= 0.0);
+    assert!(baseline.slope_max <= 1.0);
+    assert!(baseline
+        .material_weights
+        .iter()
+        .all(|weight| weight.is_finite()));
+    assert_ne!(
+        baseline.macro_base_elevation.to_bits(),
+        changed.macro_base_elevation.to_bits()
+    );
+}
+
+#[test]
+fn terrain_material_bias_can_promote_grass_material() {
+    let _lock = test_lock();
+    let seed = 0x0F6;
+    let noise = SimplexNoise3D::new(seed);
+    let mut grass_variant = terrain_variant_for_preset(1);
+    let neutral_variant = grass_variant;
+    grass_variant.material_bias = TerrainMaterialBias {
+        meadow: 4.0,
+        dry_ground: 0.0,
+        wetland: 0.0,
+        rock: 0.0,
+        snow: 0.0,
+    };
+
+    let mut best_delta = 0.0_f32;
+    let mut grass_best = 0.0_f32;
+    for x in [-48.0, -24.0, 0.0, 24.0, 48.0] {
+        for z in [-48.0, -24.0, 0.0, 24.0, 48.0] {
+            let y = height_at_for_variant(seed, neutral_variant, x, z).unwrap();
+            let position = Vec3 { x, y, z };
+            let neutral = material_pack_at(
+                &noise,
+                neutral_variant.shape,
+                neutral_variant.material_bias,
+                seed,
+                position,
+            );
+            let biased = material_pack_at(
+                &noise,
+                grass_variant.shape,
+                grass_variant.material_bias,
+                seed,
+                position,
+            );
+            let neutral_grass = material_layer_weight(neutral, 0);
+            let biased_grass = material_layer_weight(biased, 0);
+            best_delta = best_delta.max(biased_grass - neutral_grass);
+            grass_best = grass_best.max(biased_grass);
+        }
+    }
+
+    assert!(best_delta > 0.1);
+    assert!(grass_best > 0.5);
+
+    let origin_probe = terrain_variant_probe_summary(seed, grass_variant, 0.0, 0.0, 16.0)
+        .expect("grass-biased probe should be valid");
+    assert_eq!(origin_probe.material_indices[0], 0);
+    assert!(origin_probe.material_weights[0] > 0.5);
+}
+
+fn material_layer_weight(material: PackedTerrainMaterial, layer: usize) -> f32 {
+    material
+        .indices
+        .iter()
+        .zip(material.weights)
+        .filter_map(|(candidate_layer, weight)| {
+            if candidate_layer.round() as usize == layer {
+                Some(weight)
+            } else {
+                None
+            }
+        })
+        .sum()
 }
 
 #[test]
@@ -66,6 +360,7 @@ fn facade_exposes_stable_buffer_capacities_and_pointers() {
     assert!(!ofg_terrain_mesh_packet_y_buffer_ptr().is_null());
     assert!(!ofg_terrain_mesh_packet_z_buffer_ptr().is_null());
     assert!(!ofg_density_chunk_buffer_ptr().is_null());
+    assert!(!ofg_terrain_variant_buffer_ptr().is_null());
 }
 
 #[test]
@@ -102,15 +397,23 @@ fn density_crosses_zero_near_surface() {
 #[test]
 fn macro_base_elevation_matches_surface_band_for_every_preset() {
     let _lock = test_lock();
+    let points = [
+        (0.0, 0.0),
+        (384.0, -256.0),
+        (960.0, 640.0),
+        (-1536.0, 1280.0),
+    ];
 
     for preset in 0..ofg_terrain_core_preset_count() {
-        let macro_elevation = ofg_macro_base_elevation_at(0x0F6, preset, 42.25, -17.5);
-        let refined_height = ofg_height_at(0x0F6, preset, 42.25, -17.5);
+        for (x, z) in points {
+            let macro_elevation = ofg_macro_base_elevation_at(0x0F6, preset, x, z);
+            let refined_height = ofg_height_at(0x0F6, preset, x, z);
 
-        assert!(macro_elevation.is_finite());
-        assert!(macro_elevation > SURFACE_SEARCH_MIN_Y);
-        assert!(macro_elevation < SURFACE_SEARCH_MAX_Y);
-        assert!((macro_elevation - refined_height).abs() < 64.0);
+            assert!(macro_elevation.is_finite());
+            assert!(macro_elevation > SURFACE_SEARCH_MIN_Y);
+            assert!(macro_elevation < SURFACE_SEARCH_MAX_Y);
+            assert!((macro_elevation - refined_height).abs() < 64.0);
+        }
     }
 }
 
@@ -739,6 +1042,23 @@ fn stream_scheduler_builds_lod0_targets() {
     assert_eq!(scheduler.status().desired_lod0_count, 1);
     assert_eq!(scheduler.status().missing_density_count, 0);
     assert_eq!(scheduler.status().missing_lod0_count, 1);
+}
+
+#[test]
+fn stream_scheduler_pending_tracks_missing_in_flight_and_complete_nodes() {
+    let mut scheduler = test_stream_scheduler(0, vec![0], 1);
+
+    assert!(!scheduler.pending());
+    scheduler.sync_center(coord(0, 0, 0));
+    assert!(scheduler.pending());
+
+    let [TerrainStreamJob::BuildNode { generation, key }] = scheduler.tick()[..] else {
+        panic!("expected one build job");
+    };
+    assert!(scheduler.pending());
+
+    assert!(scheduler.complete_node(generation, key, false));
+    assert!(!scheduler.pending());
 }
 
 #[test]

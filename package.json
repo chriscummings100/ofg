@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "clean": "node tools/clean-dist.mjs",
+    "build:terrain-presets": "node tools/build-terrain-preset-metadata.mjs",
+    "check:terrain-presets": "node tools/build-terrain-preset-metadata.mjs --check",
     "build:shaders": "node tools/build-shaders.mjs",
     "check:shaders": "node tools/build-shaders.mjs --check",
     "build:wasm": "node tools/build-terrain-wasm.mjs && node tools/build-engine-web-wasm.mjs",
@@ -15,7 +17,7 @@
     "perf:debug:capture": "node tools/browser-perf-debug-capture.mjs",
     "perf:terrain-stream-cpu": "node tools/browser-terrain-stream-cpu-capture.mjs",
     "coverage:rust": "node tools/rust-coverage.mjs",
-    "build": "npm run clean && npm run build:shaders && npm run build:wasm && tsc -p tsconfig.app.json",
+    "build": "npm run clean && npm run build:terrain-presets && npm run build:shaders && npm run build:wasm && tsc -p tsconfig.app.json",
     "build:cloudflare": "node tools/cloudflare-build.mjs",
     "package:site": "node tools/package-site.mjs",
     "test:rust": "cargo test --workspace",
@@ -27,7 +29,7 @@
     "smoke": "npm run smoke:rust && npm run smoke:browser",
     "smoke:terrain-seams": "cargo run -p ofg_test_harness --bin ofg-render-smoke -- --out artifacts/rust-smoke --scenario seams",
     "smoke:terrain-presets": "cargo run -p ofg_test_harness --bin ofg-render-smoke -- --out artifacts/rust-smoke --scenario presets",
-    "watch": "npm run build:shaders && npm run build:wasm && tsc -p tsconfig.json --watch"
+    "watch": "npm run build:terrain-presets && npm run build:shaders && npm run build:wasm && tsc -p tsconfig.json --watch"
   },
   "devDependencies": {
     "mocha": "^11.7.6",

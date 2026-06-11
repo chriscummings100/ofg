@@ -256,7 +256,10 @@ pub fn build_shadow_cascades_with_max_distance(
 }
 
 /// Returns the deterministic sun direction used by a shadow diagnostic mode.
-pub fn shadow_sun_mode_direction(mode: ShadowSunMode, production: RenderVec3) -> Option<RenderVec3> {
+pub fn shadow_sun_mode_direction(
+    mode: ShadowSunMode,
+    production: RenderVec3,
+) -> Option<RenderVec3> {
     match mode {
         ShadowSunMode::Production => production.normalize(),
         ShadowSunMode::Overhead => Some(RenderVec3::UP),
@@ -289,9 +292,8 @@ pub fn clamp_shadow_light_direction(direction: RenderVec3) -> Option<RenderVec3>
     let horizontal_direction = horizontal
         .normalize()
         .unwrap_or(RenderVec3::new(1.0, 0.0, 0.0));
-    let horizontal_scale = (1.0
-        - SHADOW_MIN_EFFECTIVE_SUN_ELEVATION * SHADOW_MIN_EFFECTIVE_SUN_ELEVATION)
-        .sqrt();
+    let horizontal_scale =
+        (1.0 - SHADOW_MIN_EFFECTIVE_SUN_ELEVATION * SHADOW_MIN_EFFECTIVE_SUN_ELEVATION).sqrt();
     RenderVec3::new(
         horizontal_direction.x * horizontal_scale,
         SHADOW_MIN_EFFECTIVE_SUN_ELEVATION,

@@ -159,6 +159,10 @@ function fakeModule(
 }
 
 const fakeCreateAssetLoaders: unknown[] = [];
+const FAKE_TERRAIN_VARIANT = Object.freeze([
+  1, 1, 3, 16, 4, 0.004, 2, 0.5, 3, 3, 0.009, 2.1, 0.48, 1, 1.8, 2,
+  0.004, 2, 0.5, 14, 0.018, 1.3, 3, 0.03, 2.05, 0.44, 3.2, 1, 1, 1, 1, 1
+]);
 
 function hashFile(path: string): string {
   return `sha256-${createHash("sha256").update(readFileSync(path)).digest("hex")}`;
@@ -186,6 +190,10 @@ function fakeBrowserGame(): EngineWebBrowserGame {
         terrainNodeKeys: ["lod0:0,0,0"],
         terrainPreset: "rollingHills",
         terrainSeed: 0x0F6,
+        terrainVariantRevision: 2,
+        terrainVariant: FAKE_TERRAIN_VARIANT,
+        terrainPresetCatalog: fakeTerrainPresetCatalog(),
+        terrainVariantProbe: fakeTerrainVariantProbe(),
         terrainStreamStatus: {
           generation: 0,
           pending: false,
@@ -241,6 +249,43 @@ function fakeBrowserGame(): EngineWebBrowserGame {
         terrainWorkerCount: 0,
         playerControllerRuntime: "rust"
       };
+    }
+  };
+}
+
+function fakeTerrainPresetCatalog() {
+  return [
+    {
+      code: 1,
+      id: "rollingHills" as const,
+      name: "Rolling Hills",
+      terrainVariant: FAKE_TERRAIN_VARIANT
+    }
+  ];
+}
+
+function fakeTerrainVariantProbe() {
+  return {
+    sampleCount: 5,
+    heightMin: 1,
+    heightMax: 8,
+    slopeMin: 0.1,
+    slopeMax: 0.6,
+    macroBaseElevation: 4,
+    mountainness: 0.35,
+    ridge: 0.42,
+    cellularEdge: 0.22,
+    materialIndices: [0, 11, 13, 15],
+    materialWeights: [0.5, 0.25, 0.15, 0.1],
+    biomeWeights: {
+      grassland: 0.4,
+      temperateForest: 0.2,
+      wetland: 0.1,
+      coastBeach: 0,
+      dryBadland: 0.1,
+      alpineMeadow: 0.1,
+      highMountainRock: 0.1,
+      snowTundra: 0
     }
   };
 }

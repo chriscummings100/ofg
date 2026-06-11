@@ -5,36 +5,36 @@ pub(crate) struct NoiseSample {
     pub(crate) gradient: Vec3,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct FractalNoiseOptions {
-    pub(crate) octaves: u32,
-    pub(crate) frequency: f64,
-    pub(crate) lacunarity: f64,
-    pub(crate) persistence: f64,
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FractalNoiseOptions {
+    pub octaves: u32,
+    pub frequency: f64,
+    pub lacunarity: f64,
+    pub persistence: f64,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct RidgedFractalNoiseOptions {
-    pub(crate) octaves: u32,
-    pub(crate) frequency: f64,
-    pub(crate) lacunarity: f64,
-    pub(crate) persistence: f64,
-    pub(crate) ridge_offset: f64,
-    pub(crate) ridge_sharpness: f64,
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RidgedFractalNoiseOptions {
+    pub octaves: u32,
+    pub frequency: f64,
+    pub lacunarity: f64,
+    pub persistence: f64,
+    pub ridge_offset: f64,
+    pub ridge_sharpness: f64,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct DomainWarpOptions {
-    pub(crate) octaves: u32,
-    pub(crate) frequency: f64,
-    pub(crate) lacunarity: f64,
-    pub(crate) persistence: f64,
-    pub(crate) amplitude: f64,
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DomainWarpOptions {
+    pub octaves: u32,
+    pub frequency: f64,
+    pub lacunarity: f64,
+    pub persistence: f64,
+    pub amplitude: f64,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct CellularNoiseOptions {
-    pub(crate) frequency: f64,
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CellularNoiseOptions {
+    pub frequency: f64,
 }
 
 #[derive(Clone, Copy)]

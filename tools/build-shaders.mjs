@@ -33,6 +33,18 @@ const shaders = [
     metadataExport: "POST_SHADER_METADATA",
     vertexEntryPoint: "postVertexMain",
     fragmentEntryPoint: "postFragmentMain"
+  },
+  {
+    id: "water",
+    language: "wgsl",
+    sourcePath: "src/engine/render/shaders/water.wgsl",
+    outputPath: "src/generated/render/waterShader.ts",
+    sourceExport: "WATER_SHADER_SOURCE",
+    metadataExport: "WATER_SHADER_METADATA",
+    vertexEntryPoint: "waterCopyVertexMain",
+    fragmentEntryPoint: "waterCopyFragmentMain",
+    waterPatchVertexEntryPoint: "waterPatchVertexMain",
+    waterPatchFragmentEntryPoint: "waterPatchFragmentMain"
   }
 ];
 
@@ -98,6 +110,8 @@ function buildTypeScriptModule(shader, source) {
     "  readonly fragmentEntryPoint: string;",
     "  readonly skyVertexEntryPoint?: string;",
     "  readonly skyFragmentEntryPoint?: string;",
+    "  readonly waterPatchVertexEntryPoint?: string;",
+    "  readonly waterPatchFragmentEntryPoint?: string;",
     "};",
     "",
     `export const ${shader.metadataExport}: ShaderMetadata = Object.freeze(${JSON.stringify(metadata, null, 2)});`,
@@ -116,7 +130,9 @@ function entryPointMetadata(shader) {
     "shadowModelVertexEntryPoint",
     "fragmentEntryPoint",
     "skyVertexEntryPoint",
-    "skyFragmentEntryPoint"
+    "skyFragmentEntryPoint",
+    "waterPatchVertexEntryPoint",
+    "waterPatchFragmentEntryPoint"
   ]) {
     if (shader[key] !== undefined) {
       metadata[key] = shader[key];

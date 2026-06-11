@@ -32,7 +32,39 @@
       >
         PERF
       </button>
+      <button
+        id="terrain-variant-panel-toggle"
+        type="button"
+        aria-label="Toggle terrain variant editor"
+        aria-expanded="false"
+        title="Open terrain variant editor (F10)"
+      >
+        TER
+      </button>
     </div>
+    <section id="terrain-variant-panel" aria-label="Terrain variant editor" hidden>
+      <div class="terrain-variant-row">
+        <label for="terrain-variant-draft" title="Catalog preset or working draft.">Draft</label>
+        <select id="terrain-variant-draft" title="Catalog preset or working draft."></select>
+      </div>
+      <div class="terrain-variant-row">
+        <label for="terrain-variant-name" title="Local draft name for export.">Name</label>
+        <input id="terrain-variant-name" type="text" title="Local draft name for export." />
+      </div>
+      <div class="terrain-variant-actions">
+        <button id="terrain-variant-duplicate" type="button" title="Copy the selected draft.">Duplicate</button>
+        <button id="terrain-variant-reset" type="button" title="Restore this draft from the catalog preset.">Reset</button>
+        <button id="terrain-variant-apply" type="button" title="Regenerate terrain without resetting the camera.">Apply</button>
+        <button id="terrain-variant-preview-origin" type="button" title="Put this draft at world origin in front of the debug camera.">Origin</button>
+      </div>
+      <div id="terrain-variant-fields" class="terrain-variant-number-grid"></div>
+      <div class="terrain-variant-actions">
+        <button id="terrain-variant-export" type="button" title="Write drafts to JSON.">Export</button>
+        <button id="terrain-variant-import" type="button" title="Load drafts from JSON.">Import</button>
+      </div>
+      <textarea id="terrain-variant-json" spellcheck="false" title="Draft import/export JSON."></textarea>
+      <div id="terrain-variant-status" aria-live="polite" title="Terrain stream status.">rev 0 | pending | 0/0</div>
+    </section>
     <section id="render-debug-panel" aria-label="Render debug controls" hidden>
       <div class="render-debug-row">
         <label for="render-debug-terrain-lod">Terrain LOD</label>
@@ -109,6 +141,24 @@
           <input id="post-dof-blur" type="number" min="0" max="32" step="0.5" />
         </div>
         <button id="post-debug-reset" type="button">Reset post</button>
+      </fieldset>
+      <fieldset class="debug-panel-fieldset" id="water-debug-effects">
+        <legend>Water</legend>
+        <div class="render-debug-row">
+          <label for="water-debug-view">View</label>
+          <select id="water-debug-view">
+            <option value="final">Final</option>
+            <option value="bottomDepth">Bottom depth</option>
+            <option value="pathLength">Path length</option>
+            <option value="fresnel">Fresnel</option>
+            <option value="reflection">Reflection</option>
+          </select>
+        </div>
+        <div class="render-debug-grid">
+          <label><input id="water-enabled" type="checkbox" /> Water</label>
+          <label><input id="water-reflection" type="checkbox" /> Reflection</label>
+        </div>
+        <div id="water-debug-status" aria-live="polite">water</div>
       </fieldset>
       <div class="render-debug-actions">
         <button id="render-debug-reset" type="button">Reset</button>

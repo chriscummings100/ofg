@@ -55,6 +55,17 @@ describe("RustBrowserGameRuntime", () => {
       focusRange: 4,
       maxBlurPixels: 10
     });
+    runtime.command({ type: "setWaterDebugView", view: "pathLength" });
+    runtime.command({
+      type: "setWaterOptions",
+      enabled: true,
+      reflectionEnabled: false,
+      seaLevelMeters: 0,
+      shallowDepthMeters: 3,
+      deepDepthMeters: 42,
+      waveScale: 0.12,
+      waveStrength: 0.3
+    });
     runtime.command({
       type: "setRenderDebugOptions",
       skyEnabled: false,
@@ -92,15 +103,26 @@ describe("RustBrowserGameRuntime", () => {
       focusRange: 4,
       maxBlurPixels: 10
     });
-    deepEqual(renderer.commandCalls[7], {
+    deepEqual(renderer.commandCalls[7], { type: "setWaterDebugView", view: "pathLength" });
+    deepEqual(renderer.commandCalls[8], {
+      type: "setWaterOptions",
+      enabled: true,
+      reflectionEnabled: false,
+      seaLevelMeters: 0,
+      shallowDepthMeters: 3,
+      deepDepthMeters: 42,
+      waveScale: 0.12,
+      waveStrength: 0.3
+    });
+    deepEqual(renderer.commandCalls[9], {
       type: "setRenderDebugOptions",
       skyEnabled: false,
       skyCloudNoiseEnabled: false,
       shadowSamplingEnabled: false,
       materialMode: "lambert"
     });
-    deepEqual(renderer.commandCalls[8], { type: "resetRenderDebugOptions" });
-    deepEqual(renderer.commandCalls[9], { type: "resetPerfStats" });
+    deepEqual(renderer.commandCalls[10], { type: "resetRenderDebugOptions" });
+    deepEqual(renderer.commandCalls[11], { type: "resetPerfStats" });
     equal(snapshot.terrainStreamStatus.workerPoolRuntime, "rust-sync");
     equal(snapshot.rendererStatus.runtime, "rust-wgpu");
     equal(snapshot.rendererStatus.gpuTimerAvailable, false);
@@ -108,6 +130,8 @@ describe("RustBrowserGameRuntime", () => {
     equal(snapshot.rendererStatus.postProcessToneMappingEnabled, true);
     equal(snapshot.rendererStatus.postProcessBloomEnabled, true);
     equal(snapshot.rendererStatus.postProcessDofEnabled, false);
+    equal(snapshot.rendererStatus.waterRuntime, "rust-wgpu");
+    equal(snapshot.rendererStatus.waterBathymetryRuntime, "rust-heightfield");
     equal(snapshot.shadowDebugView, "cascadeIndex");
     equal(snapshot.rustPerfStats.sampleCount, 1);
     equal(snapshot.renderDebugOptions.skyEnabled, true);
@@ -115,6 +139,11 @@ describe("RustBrowserGameRuntime", () => {
     deepEqual(snapshot.playerPosition, { x: 32, y: 8, z: 16 });
   });
 });
+
+const FAKE_TERRAIN_VARIANT = Object.freeze([
+  1, 1, 3, 16, 4, 0.004, 2, 0.5, 3, 3, 0.009, 2.1, 0.48, 1, 1.8, 2,
+  0.004, 2, 0.5, 14, 0.018, 1.3, 3, 0.03, 2.05, 0.44, 3.2, 1, 1, 1, 1, 1
+]);
 
 type FakeRenderer = RustBrowserGameRenderer & {
   readonly tickCalls: BrowserFrameInput[];
@@ -142,6 +171,10 @@ function fakeRenderer(): FakeRenderer {
         terrainNodeKeys: ["lod0:0,0,0"],
         terrainPreset: "rollingHills",
         terrainSeed: 0x0F6,
+        terrainVariantRevision: 2,
+        terrainVariant: FAKE_TERRAIN_VARIANT,
+        terrainPresetCatalog: fakeTerrainPresetCatalog(),
+        terrainVariantProbe: fakeTerrainVariantProbe(),
         terrainStreamStatus: {
           generation: 1,
           pending: false,
@@ -197,6 +230,43 @@ function fakeRenderer(): FakeRenderer {
         terrainWorkerCount: 0,
         playerControllerRuntime: "rust"
       };
+    }
+  };
+}
+
+function fakeTerrainPresetCatalog() {
+  return [
+    {
+      code: 1,
+      id: "rollingHills" as const,
+      name: "Rolling Hills",
+      terrainVariant: FAKE_TERRAIN_VARIANT
+    }
+  ];
+}
+
+function fakeTerrainVariantProbe() {
+  return {
+    sampleCount: 5,
+    heightMin: 1,
+    heightMax: 8,
+    slopeMin: 0.1,
+    slopeMax: 0.6,
+    macroBaseElevation: 4,
+    mountainness: 0.35,
+    ridge: 0.42,
+    cellularEdge: 0.22,
+    materialIndices: [0, 11, 13, 15],
+    materialWeights: [0.5, 0.25, 0.15, 0.1],
+    biomeWeights: {
+      grassland: 0.4,
+      temperateForest: 0.2,
+      wetland: 0.1,
+      coastBeach: 0,
+      dryBadland: 0.1,
+      alpineMeadow: 0.1,
+      highMountainRock: 0.1,
+      snowTundra: 0
     }
   };
 }
