@@ -289,6 +289,15 @@ function fakeBrowserGame(): FakeBrowserGame {
               missingNodeCount: 0
             }
           ],
+          placementCandidateCount: 0,
+          placementSampleCount: 0,
+          placementMissedSurfaceCount: 0,
+          placementRejectedBelowWaterCount: 0,
+          placementRejectedSlopeCount: 0,
+          transitionFaceCount: 0,
+          transitionMeshCount: 0,
+          transitionVertexFloatCount: 0,
+          transitionIndexCount: 0,
           maxConcurrentChunkJobs: 6,
           workerPoolRuntime: "rust-sync",
           terrainWorkerCount: 0,

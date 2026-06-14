@@ -812,6 +812,14 @@ fn print_summary(
         report.multi_lod.visible_world_span_x_meters,
         report.multi_lod.visible_world_span_z_meters
     );
+    println!(
+        "  transition meshes: {} active, {} of {} timed builds, median {:.3} ms, p95 {:.3} ms",
+        report.multi_lod.transition_mesh_count,
+        report.multi_lod.transition_mesh_builds.build_count,
+        report.multi_lod.transition_mesh_builds.attempted_count,
+        report.multi_lod.transition_mesh_builds.median_ms,
+        report.multi_lod.transition_mesh_builds.p95_ms
+    );
     println!("Report: {}", path_string(output_path)?);
     Ok(())
 }

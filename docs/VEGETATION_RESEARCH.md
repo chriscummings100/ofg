@@ -8,9 +8,11 @@ inside Rust.
 ## Current OFG Constraints
 
 - `terrain_core` already owns deterministic density, height, macro fields, biome
-  weights, material classification, and chunk meshing.
+  weights, material classification, chunk meshing, exact polygonized surface
+  queries, and mesh-backed placement sample generation.
 - `engine_web` owns the playable terrain stream and Rust/wgpu renderer. The
-  current stream emits terrain chunk meshes only.
+  current stream emits terrain chunk meshes and Rust-owned aggregate placement
+  sample counters, but no vegetation instances or foliage rendering yet.
 - The renderer currently has one terrain-shaped mesh pipeline: one vertex buffer
   layout, one object uniform per draw, and one indexed draw per mesh/object.
   There is no vegetation-specific pipeline, no instance buffer, no alpha-cutout
@@ -123,7 +125,7 @@ chunk to own duplicate vegetation.
 
 For every candidate point:
 
-- Query terrain surface height and normal from Rust.
+- Query exact polygonized terrain surface height and normal from Rust.
 - Reject if slope, altitude, biome, material, wetness, or water masks fail.
 - Reject if future building/factory/road/player-edit exclusion masks fail.
 - Apply deterministic jitter, yaw, scale, and species variation from hashed

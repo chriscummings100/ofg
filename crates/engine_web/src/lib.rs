@@ -21,8 +21,12 @@ mod resources;
 #[cfg(target_arch = "wasm32")]
 mod shadow_renderer;
 mod shadows;
+mod terrain_placement;
+#[cfg(any(test, target_arch = "wasm32"))]
+mod terrain_removal;
 mod terrain_stream;
 mod terrain_textures;
+mod terrain_transitions;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod texture_mips;
 mod water;
@@ -138,6 +142,7 @@ pub use terrain_textures::{
     TERRAIN_ALBEDO_TEXTURE_ARRAY_ID, TERRAIN_MATERIAL_TEXTURE_ARRAY_ID,
     TERRAIN_NORMAL_TEXTURE_ARRAY_ID,
 };
+pub use terrain_transitions::BrowserTerrainTransitionMeshUpdate;
 pub use water::{
     WaterBathymetryError, WaterDebugView, WaterSettings, WaterSettingsError, WaterSettingsUpdate,
     WaterStatus, DEFAULT_WATER_BATHYMETRY_GRID_SIZE, DEFAULT_WATER_BATHYMETRY_WORLD_SPAN_METERS,

@@ -7,7 +7,8 @@ use engine_web::{BrowserTerrainStream, TERRAIN_VERTEX_FLOATS};
 use terrain_core::{
     height_at_for_variant, terrain_chunk_key, terrain_node_cell_size, terrain_node_key,
     terrain_node_parent, terrain_variant_for_preset, MeshData, TerrainChunkCoord, TerrainLodBand,
-    TerrainNodeKey, TerrainVariantDescriptor, DEFAULT_TERRAIN_PRESET, TERRAIN_CHUNK_CELLS_PER_AXIS,
+    TerrainNodeKey, TerrainTransitionMeshKey, TerrainVariantDescriptor, DEFAULT_TERRAIN_PRESET,
+    TERRAIN_CHUNK_CELLS_PER_AXIS,
 };
 
 use super::error::{harness_error, HarnessResult};
@@ -127,8 +128,15 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
     let mut stream = create_scenario_stream(scenario)?;
     stream.reset_around(center);
     let mut meshes_by_node = BTreeMap::<TerrainNodeKey, MeshData>::new();
+    let mut transition_meshes_by_key = BTreeMap::<TerrainTransitionMeshKey, MeshData>::new();
 
-    settle_stream(scenario, &mut stream, center, &mut meshes_by_node)?;
+    settle_stream(
+        scenario,
+        &mut stream,
+        center,
+        &mut meshes_by_node,
+        &mut transition_meshes_by_key,
+    )?;
     assert_visible_stream_cover(scenario, &stream, center)?;
 
     if let Some(movement) = scenario.movement {
@@ -139,12 +147,23 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
                 scenario.center_z + movement.step_z * step as f32,
             )?;
             for _ in 0..movement.ticks_per_step {
-                apply_stream_update(&mut stream, center, &mut meshes_by_node);
+                apply_stream_update(
+                    &mut stream,
+                    center,
+                    &mut meshes_by_node,
+                    &mut transition_meshes_by_key,
+                );
                 assert_visible_stream_cover(scenario, &stream, center)?;
             }
         }
 
-        settle_stream(scenario, &mut stream, center, &mut meshes_by_node)?;
+        settle_stream(
+            scenario,
+            &mut stream,
+            center,
+            &mut meshes_by_node,
+            &mut transition_meshes_by_key,
+        )?;
         assert_visible_stream_cover(scenario, &stream, center)?;
     }
 
@@ -172,13 +191,25 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
     let rendered_lod_counts = rendered_lod_counts(&meshes_by_node);
     let max_rendered_lod = meshes_by_node.keys().map(|key| key.lod).max().unwrap_or(0);
     let status = stream.status();
-    let vertex_count = meshes_by_node
+    let canonical_vertex_count = meshes_by_node
         .values()
         .map(|mesh| mesh.vertices.len() / TERRAIN_VERTEX_FLOATS as usize)
-        .sum();
-    let index_count = meshes_by_node.values().map(|mesh| mesh.indices.len()).sum();
+        .sum::<usize>();
+    let canonical_index_count = meshes_by_node
+        .values()
+        .map(|mesh| mesh.indices.len())
+        .sum::<usize>();
+    let transition_vertex_count = transition_meshes_by_key
+        .values()
+        .map(|mesh| mesh.vertices.len() / TERRAIN_VERTEX_FLOATS as usize)
+        .sum::<usize>();
+    let transition_index_count = transition_meshes_by_key
+        .values()
+        .map(|mesh| mesh.indices.len())
+        .sum::<usize>();
     let rendered_node_count = rendered_node_keys.len();
-    let meshes = meshes_by_node.into_values().collect::<Vec<_>>();
+    let mut meshes = meshes_by_node.into_values().collect::<Vec<_>>();
+    meshes.extend(transition_meshes_by_key.into_values());
     let target = Vec3::new(center.x, center.y + scenario.target_height_offset, center.z);
     let eye = Vec3::new(
         target.x + scenario.camera_offset.x,
@@ -210,8 +241,13 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
             visible_world_span_x_meters: status.visible_world_span_x_meters,
             visible_world_span_z_meters: status.visible_world_span_z_meters,
             rendered_lod_counts,
-            vertex_count,
-            index_count,
+            transition_face_count: status.transition_face_count,
+            transition_mesh_count: status.transition_mesh_count,
+            transition_vertex_count,
+            transition_index_count,
+            transition_vertex_float_count: status.transition_vertex_float_count,
+            vertex_count: canonical_vertex_count + transition_vertex_count,
+            index_count: canonical_index_count + transition_index_count,
             rendered_chunk_keys,
             rendered_node_keys,
         },
@@ -248,6 +284,7 @@ fn scenario_stream_ready(scenario: Scenario, stream: &BrowserTerrainStream) -> b
                 && status.rendered_chunk_count > 0
                 && status.rendered_node_count > status.rendered_chunk_count
                 && status.max_rendered_lod >= 3
+                && status.transition_mesh_count > 0
                 && status.visible_world_span_x_meters >= MIN_MULTI_KM_TERRAIN_SPAN_METERS
                 && status.visible_world_span_z_meters >= MIN_MULTI_KM_TERRAIN_SPAN_METERS
         }
@@ -282,9 +319,10 @@ fn settle_stream(
     stream: &mut BrowserTerrainStream,
     center: Vec3,
     meshes_by_node: &mut BTreeMap<TerrainNodeKey, MeshData>,
+    transition_meshes_by_key: &mut BTreeMap<TerrainTransitionMeshKey, MeshData>,
 ) -> HarnessResult<()> {
     for _ in 0..scenario.max_stream_ticks {
-        apply_stream_update(stream, center, meshes_by_node);
+        apply_stream_update(stream, center, meshes_by_node, transition_meshes_by_key);
         if scenario_stream_ready(scenario, stream) {
             return Ok(());
         }
@@ -300,13 +338,20 @@ fn apply_stream_update(
     stream: &mut BrowserTerrainStream,
     center: Vec3,
     meshes_by_node: &mut BTreeMap<TerrainNodeKey, MeshData>,
+    transition_meshes_by_key: &mut BTreeMap<TerrainTransitionMeshKey, MeshData>,
 ) {
     let update = stream.tick(center);
     for key in update.removed_nodes {
         meshes_by_node.remove(&key);
     }
+    for key in update.removed_transition_meshes {
+        transition_meshes_by_key.remove(&key);
+    }
     for mesh_update in update.upserted_meshes {
         meshes_by_node.insert(mesh_update.key, (*mesh_update.mesh).clone());
+    }
+    for mesh_update in update.upserted_transition_meshes {
+        transition_meshes_by_key.insert(mesh_update.key, (*mesh_update.mesh).clone());
     }
 }
 

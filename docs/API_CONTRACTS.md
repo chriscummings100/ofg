@@ -243,8 +243,16 @@ are Rust-produced stable IDs in the form `lodN:x,y,z`. The accompanying
 `terrainStreamStatus` includes legacy chunk counts for HUD/smoke compatibility
 and node/LOD fields such as `loadedNodeCount`, `renderedNodeCount`,
 `maxRenderedLod`, `visibleWorldSpanXMeters`, `visibleWorldSpanZMeters`, and
-`terrainLodSummary`. The default playable stream currently reaches LOD4 and
-reports a settled horizontal visible span of at least 4096 meters in X and Z.
+`terrainLodSummary`. It also includes Rust-owned surface-placement counters:
+`placementCandidateCount`, `placementSampleCount`,
+`placementMissedSurfaceCount`, `placementRejectedBelowWaterCount`, and
+`placementRejectedSlopeCount`. It also includes Rust-owned LOD transition edge
+mesh counters: `transitionFaceCount`, `transitionMeshCount`,
+`transitionVertexFloatCount`, and `transitionIndexCount`. These are debug
+counts from mesh-backed Rust placement sampling and Rust-derived apron
+rendering, not browser placement or terrain ownership. The default playable
+stream currently reaches LOD4 and reports a settled horizontal visible span of
+at least 4096 meters in X and Z.
 The browser playable path reports `workerPoolRuntime === "browser-worker"`,
 the actual `terrainWorkerCount`, worker in-flight/queued/completed/stale/failed
 counters, and `synchronousBuildCount`. Native tests and Rust smoke can still
@@ -330,8 +338,8 @@ not browser debug-hook terrain clients.
 
 Current hook categories:
 
-- Terrain chunk compatibility keys, terrain node keys, and terrain stream
-  status from Rust `debugSnapshot()`.
+- Terrain chunk compatibility keys, terrain node keys, terrain stream status,
+  and Rust-owned placement-sample counters from Rust `debugSnapshot()`.
 - Terrain preset, seed, active terrain variant descriptor, variant revision,
   Rust-owned preset catalog descriptors, and origin probe summary from Rust
   `debugSnapshot()`.
@@ -783,7 +791,9 @@ These are known contract risks for milestone reviewers:
   threshold, and `crates/terrain_core/src/facade.rs` is also oversized. Continue
   extracting focused model/renderer modules before GPU skinning, tangent-space
   normal maps, static model showcase loading, or retargeting adds more renderer
-  code.
+  code. The next expansion of debug/status serialization should extract the
+  terrain/renderer JS status object builders from `wgpu_renderer.rs` instead of
+  adding more fields directly there.
 - The GLTF path uses the generic byte asset loader and Rust-owned animation
   sampling; keep TypeScript generic and do not let it grow model or animation
   semantics while expanding the feature.

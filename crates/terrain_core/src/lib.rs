@@ -9,14 +9,19 @@ mod material;
 mod math;
 mod mesh;
 mod mesh_packet_store;
+mod mesh_surface;
 mod node;
 mod noise;
+mod placement;
 mod presets;
 mod probe;
 mod store;
 mod stream;
 mod stream_helpers;
 mod stream_types;
+mod surface_query;
+mod surface_query_geometry;
+mod transition_mesh;
 mod variant;
 mod water;
 mod worker_pool;
@@ -45,12 +50,19 @@ pub use mesh::{
     build_chunk_mesh, build_chunk_mesh_for_variant, build_node_mesh, build_node_mesh_for_variant,
     MeshData,
 };
+pub use mesh_surface::{build_node_mesh_and_surface_for_variant, TerrainNodeBuildSurface};
 pub use node::{
     terrain_node_cell_size, terrain_node_children, terrain_node_coord_for_lod, terrain_node_key,
     terrain_node_parent, TerrainNodeKey,
 };
 pub use noise::{
     CellularNoiseOptions, DomainWarpOptions, FractalNoiseOptions, RidgedFractalNoiseOptions,
+};
+pub use placement::{
+    build_node_surface_placement_samples_for_variant,
+    build_node_surface_placement_samples_for_variant_with_config,
+    sample_terrain_placements_from_candidates, terrain_placement_candidates_for_node,
+    TerrainPlacementSample, TerrainPlacementSamplePacket, TerrainPlacementSamplingConfig,
 };
 pub use probe::{
     terrain_variant_probe_summary, TerrainBiomeWeightsProbe, TerrainVariantProbeSummary,
@@ -59,6 +71,11 @@ pub use stream::TerrainStreamScheduler;
 pub use stream_types::{
     TerrainLodBand, TerrainLodStatus, TerrainStreamConfig, TerrainStreamError, TerrainStreamJob,
     TerrainStreamStatus,
+};
+pub use surface_query::{TerrainSurfaceHit, TerrainSurfaceIndex, TerrainVerticalQuery};
+pub use transition_mesh::{
+    build_parent_lod_transition_edge_mesh, TerrainTransitionFace, TerrainTransitionMeshConfig,
+    TerrainTransitionMeshInput, TerrainTransitionMeshKey,
 };
 pub use variant::{
     terrain_preset_count, terrain_preset_metadata, terrain_variant_cache_key,
@@ -84,3 +101,12 @@ pub(crate) fn test_lock() -> std::sync::MutexGuard<'static, ()> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod surface_query_tests;
+
+#[cfg(test)]
+mod placement_tests;
+
+#[cfg(test)]
+mod transition_mesh_tests;

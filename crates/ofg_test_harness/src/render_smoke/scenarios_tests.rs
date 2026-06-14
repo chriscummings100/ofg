@@ -121,6 +121,8 @@ fn builds_boot_scenario_terrain_with_debug_metadata() {
     assert!(terrain.debug.loaded_chunk_count >= terrain.debug.rendered_chunk_count);
     assert!(terrain.debug.loaded_node_count >= terrain.debug.rendered_node_count);
     assert_eq!(terrain.debug.max_rendered_lod, 0);
+    assert_eq!(terrain.debug.transition_face_count, 0);
+    assert_eq!(terrain.debug.transition_mesh_count, 0);
     assert!(terrain.debug.vertex_count > 0);
     assert!(terrain.debug.index_count > 0);
     assert!(terrain
@@ -164,6 +166,15 @@ fn multi_lod_scenario_terrain_reports_lod_counts() {
     assert!(terrain.debug.visible_world_span_x_meters >= 4096.0);
     assert!(terrain.debug.visible_world_span_z_meters >= 4096.0);
     assert!(terrain.debug.rendered_lod_counts.len() >= 2);
+    assert!(terrain.debug.transition_face_count > 0);
+    assert_eq!(
+        terrain.debug.transition_mesh_count,
+        terrain.debug.transition_face_count
+    );
+    assert!(terrain.debug.transition_vertex_count > 0);
+    assert!(terrain.debug.transition_index_count > 0);
+    assert!(terrain.debug.transition_vertex_float_count > 0);
+    assert!(terrain.meshes.len() > terrain.debug.rendered_node_count);
     assert!(terrain
         .debug
         .rendered_node_keys

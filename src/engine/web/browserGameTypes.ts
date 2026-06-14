@@ -221,6 +221,15 @@ export type TerrainStreamStatus = {
   readonly visibleWorldSpanXMeters: number;
   readonly visibleWorldSpanZMeters: number;
   readonly terrainLodSummary: TerrainLodSummary[];
+  readonly placementCandidateCount: number;
+  readonly placementSampleCount: number;
+  readonly placementMissedSurfaceCount: number;
+  readonly placementRejectedBelowWaterCount: number;
+  readonly placementRejectedSlopeCount: number;
+  readonly transitionFaceCount: number;
+  readonly transitionMeshCount: number;
+  readonly transitionVertexFloatCount: number;
+  readonly transitionIndexCount: number;
   readonly maxConcurrentChunkJobs: number;
   readonly workerPoolRuntime: TerrainWorkerPoolRuntime;
   readonly terrainWorkerCount: number;

@@ -30,6 +30,7 @@ use shadow_debug::ShadowDebugOutput;
 struct Args {
     out_root: PathBuf,
     scenario: ScenarioFilter,
+    case_name: Option<String>,
 }
 
 /// Parses args, renders selected scenarios, writes PNGs, and saves report JSON.
@@ -42,6 +43,10 @@ pub fn run() -> HarnessResult<()> {
     let selected_scenarios = scenarios()
         .into_iter()
         .filter(|scenario| args.scenario.matches(scenario.group))
+        .filter(|scenario| match args.case_name.as_deref() {
+            Some(case_name) => scenario.name == case_name,
+            None => true,
+        })
         .collect::<Vec<_>>();
     if selected_scenarios.is_empty() {
         return Err(harness_error("No Rust smoke scenarios matched the filter."));
@@ -88,6 +93,7 @@ impl Args {
         Self {
             out_root: PathBuf::from("artifacts/rust-smoke"),
             scenario: ScenarioFilter::All,
+            case_name: None,
         }
     }
 }
@@ -119,9 +125,15 @@ where
                     .ok_or_else(|| harness_error("--scenario requires a filter value."))?;
                 args.scenario = ScenarioFilter::parse(&value)?;
             }
+            "--case" => {
+                args.case_name = Some(
+                    iter.next()
+                        .ok_or_else(|| harness_error("--case requires a scenario name."))?,
+                );
+            }
             "--help" | "-h" => {
                 println!(
-                    "Usage: ofg-render-smoke [--out artifacts/rust-smoke] [--scenario all|boot|presets|variants|seams|lods]"
+                    "Usage: ofg-render-smoke [--out artifacts/rust-smoke] [--scenario all|boot|presets|variants|seams|lods] [--case scenario-name]"
                 );
                 std::process::exit(0);
             }
@@ -261,12 +273,15 @@ mod tests {
         assert!(defaults.scenario.matches(ScenarioFilter::Presets));
         assert!(defaults.scenario.matches(ScenarioFilter::Variants));
         assert!(defaults.scenario.matches(ScenarioFilter::Seams));
+        assert_eq!(defaults.case_name, None);
 
         let explicit = parse_args_from([
             "--out".to_string(),
             "artifacts/custom-rust-smoke".to_string(),
             "--scenario".to_string(),
             "seams".to_string(),
+            "--case".to_string(),
+            "x-seam-grazing".to_string(),
         ])
         .expect("explicit args should parse");
         assert_eq!(
@@ -275,6 +290,7 @@ mod tests {
         );
         assert!(explicit.scenario.matches(ScenarioFilter::Seams));
         assert!(!explicit.scenario.matches(ScenarioFilter::Boot));
+        assert_eq!(explicit.case_name.as_deref(), Some("x-seam-grazing"));
     }
 
     #[test]
@@ -282,6 +298,7 @@ mod tests {
         assert!(parse_args_from(["--out"]).is_err());
         assert!(parse_args_from(["--scenario"]).is_err());
         assert!(parse_args_from(["--scenario", "unknown"]).is_err());
+        assert!(parse_args_from(["--case"]).is_err());
         assert!(parse_args_from(["--bogus"]).is_err());
     }
 

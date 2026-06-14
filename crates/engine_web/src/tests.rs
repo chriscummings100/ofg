@@ -7,13 +7,13 @@ use crate::{
     import_gltf_model_from_slice, model_primitive_vertex_floats, skin_joint_matrices,
     skin_primitive_vertices, skinned_model_render_assets, BrowserGameInput, BrowserGameState,
     BrowserGameStateError, BrowserTerrainBuildCompletion, BrowserTerrainStream,
-    LocomotionAnimationController, MaterialPacketError, MeshResource, ModelAnimationChannel,
-    ModelAnimationClip, ModelAnimationInterpolation, ModelAnimationOutputs, ModelAnimationTarget,
-    ModelAsset, ModelAssetError, ModelMaterial, ModelNode, ModelNodeTransform, ModelPrimitive,
-    ModelSkin, ModelVertex, PlayerCharacterLocomotionTuning, PlayerCharacterModel,
-    RenderPacketError, RenderUniformError, RendererState, RendererStateError, ResourceHandle,
-    RgbaTextureArrayAsset, TerrainTextureArrays, TerrainTextureError, TextureResource,
-    ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS, MATERIAL_PACKET_FLOATS,
+    BrowserTerrainStreamStatus, LocomotionAnimationController, MaterialPacketError, MeshResource,
+    ModelAnimationChannel, ModelAnimationClip, ModelAnimationInterpolation, ModelAnimationOutputs,
+    ModelAnimationTarget, ModelAsset, ModelAssetError, ModelMaterial, ModelNode,
+    ModelNodeTransform, ModelPrimitive, ModelSkin, ModelVertex, PlayerCharacterLocomotionTuning,
+    PlayerCharacterModel, RenderPacketError, RenderUniformError, RendererState, RendererStateError,
+    ResourceHandle, RgbaTextureArrayAsset, TerrainTextureArrays, TerrainTextureError,
+    TextureResource, ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS, MATERIAL_PACKET_FLOATS,
     MATERIAL_WORKFLOW_METALLIC_ROUGHNESS, MATERIAL_WORKFLOW_SPECULAR_GLOSSINESS,
     MODEL_VERTEX_FLOATS, QUATERNIUS_IDLE_CLIP_NAME, QUATERNIUS_RUN_CLIP_NAME,
     QUATERNIUS_WALK_CLIP_NAME, REQUIRED_TEXTURE_ARRAY_LAYERS, SAMPLE_STATIC_BOX_MATERIAL_LABEL,
@@ -1798,6 +1798,8 @@ fn browser_terrain_stream_queues_worker_requests_without_sync_building() {
     assert_eq!(status.terrain_worker_completed_count, 1);
     assert_eq!(status.terrain_worker_in_flight_count, 0);
     assert_eq!(status.synchronous_build_count, 0);
+    assert!(status.placement_candidate_count > 0);
+    assert_placement_counts_partition_candidates(&status);
     assert_eq!(status.pending, false);
 }
 
@@ -1855,6 +1857,16 @@ fn test_water_packet() -> WaterNodePacket {
     }
 }
 
+fn assert_placement_counts_partition_candidates(status: &BrowserTerrainStreamStatus) {
+    assert_eq!(
+        status.placement_sample_count
+            + status.placement_missed_surface_count
+            + status.placement_rejected_below_water_count
+            + status.placement_rejected_slope_count,
+        status.placement_candidate_count
+    );
+}
+
 #[test]
 fn browser_terrain_stream_skips_visibility_resync_when_unchanged() {
     let mut stream = BrowserTerrainStream::new_with_lod_bands(
@@ -1873,6 +1885,9 @@ fn browser_terrain_stream_skips_visibility_resync_when_unchanged() {
     let first = stream.tick(origin);
     assert_eq!(first.upserted_meshes.len(), 1);
     assert!(first.timings.visibility_sync_ms >= 0.0);
+    let status = stream.status();
+    assert!(status.placement_candidate_count > 0);
+    assert_placement_counts_partition_candidates(&status);
 
     let second = stream.tick(origin);
 
@@ -2138,6 +2153,60 @@ fn browser_terrain_stream_swaps_parent_out_after_complete_child_group() {
     let visible = stream.render_node_keys();
     assert!(visible.contains(&child_key));
     assert!(!visible.contains(&parent_key));
+}
+
+#[test]
+fn browser_terrain_stream_caches_transition_meshes_without_rebuilding_child_meshes() {
+    let mut stream = BrowserTerrainStream::new_with_lod_bands(
+        0x0F6,
+        1,
+        vec![
+            TerrainLodBand {
+                lod: 0,
+                horizontal_radius: 0,
+                vertical_chunk_offsets: vec![0],
+            },
+            TerrainLodBand {
+                lod: 1,
+                horizontal_radius: 0,
+                vertical_chunk_offsets: vec![0],
+            },
+        ],
+    )
+    .unwrap();
+    let origin = Vec3::new(0.0, 0.0, 0.0);
+    stream.reset_around(origin);
+    let mut transition_upsert_count = 0;
+    for _ in 0..240 {
+        let update = stream.tick(origin);
+        transition_upsert_count += update.upserted_transition_meshes.len();
+        if !stream.status().pending {
+            break;
+        }
+    }
+
+    let status = stream.status();
+    assert!(!status.pending);
+    assert!(status.rendered_node_count > 0);
+    assert!(status.transition_face_count > 0);
+    assert_eq!(status.transition_mesh_count, status.transition_face_count);
+    assert!(status.transition_vertex_float_count > 0);
+    assert!(status.transition_index_count > 0);
+    assert!(transition_upsert_count > 0);
+    let synchronous_build_count = status.synchronous_build_count;
+    let rendered_nodes = stream.render_node_keys();
+
+    let update = stream.tick(origin);
+    let next_status = stream.status();
+
+    assert!(update.upserted_meshes.is_empty());
+    assert!(update.upserted_transition_meshes.is_empty());
+    assert_eq!(stream.render_node_keys(), rendered_nodes);
+    assert_eq!(next_status.synchronous_build_count, synchronous_build_count);
+    assert_eq!(
+        next_status.transition_mesh_count,
+        status.transition_mesh_count
+    );
 }
 
 fn sample_engine_render_snapshot() -> [f32; ENGINE_RENDER_SNAPSHOT_FLOATS] {

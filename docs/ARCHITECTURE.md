@@ -106,12 +106,13 @@ as a browser shell plus generic browser image decoder.
   is built for the playable app.
 - `terrain_core` owns terrain preset metadata, terrain variant descriptor
   validation, flat descriptor layout, height/density sampling, generated chunk
-  mesh emission, terrain-job sea-depth packet generation, descriptor probe
+  mesh emission, exact polygonized surface queries, mesh-backed placement sample
+  generation, terrain-job sea-depth packet generation, descriptor probe
   summaries, stream scheduling, density storage, worker-pool request-state
   tests, and the tested legacy terrain mesh packet store. The playable browser
   path now reaches it through `engine_web` as a Rust library for scheduling,
-  sea-depth sampling, and through a dedicated browser worker `terrain_core.wasm`
-  instance for build execution. The standalone
+  sea-depth sampling, placement counting, and through a dedicated browser worker
+  `terrain_core.wasm` instance for build execution. The standalone
   `terrain_core.wasm` artifact remains a narrow export-contract and
   worker-build artifact, not a TypeScript terrain ownership boundary; native
   Rust tests and `npm run bench:terrain:rust` cover terrain behavior and
@@ -143,12 +144,14 @@ as a browser shell plus generic browser image decoder.
   directly. The terrain worker client exists only to route Rust-issued opaque
   build requests and completions. Rust owns the terrain renderer vertex stride,
   terrain texture layer requests, terrain variant descriptor interpretation,
-  stream status/debug snapshot, and active frame construction at that facade.
+  surface-placement sampling, stream status/debug snapshot, and active frame
+  construction at that facade.
   TypeScript no longer creates WebGPU devices, pipelines, buffers, textures,
   render passes, shader uniform buffers, renderer resource handles, shader
   material packets, camera frames, light packets, player-marker mesh/material
   data, scene mesh world matrices, normal matrices, water bathymetry data,
-  water visibility, optical path length, or reflection cameras.
+  water visibility, terrain placement decisions, optical path length, or
+  reflection cameras.
 
 The retired TypeScript scene model is archived under `docs/archived/`. Future
 large-scale world state should move into Rust rather than recreating that graph.
@@ -169,6 +172,13 @@ generated mesh data cached, and selects a hole-free visible cover by keeping
 parent nodes rendered until their desired child group is generated or proven
 empty. Terrain stream scheduling, browser stream updates, renderer mesh IDs,
 and debug snapshots are node-keyed for a rootless multi-resolution LOD grid.
+The stream also builds Rust-owned placement sample packets from accepted
+polygonized meshes and reports only aggregate placement candidate/sample/reject
+counts through debug status. For mixed-LOD boundaries, the stream derives
+separate Rust-owned transition edge meshes from cached child and parent
+polygonized meshes, uploads them as optional terrain drawables with keys
+distinct from canonical terrain nodes, and reports aggregate transition
+face/mesh/buffer counts. No foliage instances are rendered yet.
 
 The terrain data model is 3D from the start. A terrain density chunk has 32 cells
 per axis and 33 samples per axis, so adjacent chunks share boundary samples
