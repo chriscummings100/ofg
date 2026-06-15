@@ -113,6 +113,17 @@ describe("RustBrowserGameAdapter", () => {
       focusRange: 4,
       maxBlurPixels: 10
     });
+    adapter.command({
+      type: "setPostProcessFog",
+      enabled: true,
+      startDistance: 6400,
+      endDistance: 10800,
+      density: 0.8,
+      colorR: 0.5,
+      colorG: 0.6,
+      colorB: 0.7,
+      curve: 1.6
+    });
     adapter.command({ type: "setWaterDebugView", view: "bottomDepth" });
     adapter.command({
       type: "setWaterOptions",
@@ -151,11 +162,12 @@ describe("RustBrowserGameAdapter", () => {
     equal(fake.commandCalls[10]?.type, "setPostProcessToneMapping");
     equal(fake.commandCalls[11]?.type, "setPostProcessBloom");
     equal(fake.commandCalls[12]?.type, "setPostProcessDepthOfField");
-    equal(fake.commandCalls[13]?.type, "setWaterDebugView");
-    equal(fake.commandCalls[14]?.type, "setWaterOptions");
-    equal(fake.commandCalls[15]?.type, "setRenderDebugOptions");
-    equal(fake.commandCalls[16]?.type, "resetRenderDebugOptions");
-    equal(fake.commandCalls[17]?.type, "resetPerfStats");
+    equal(fake.commandCalls[13]?.type, "setPostProcessFog");
+    equal(fake.commandCalls[14]?.type, "setWaterDebugView");
+    equal(fake.commandCalls[15]?.type, "setWaterOptions");
+    equal(fake.commandCalls[16]?.type, "setRenderDebugOptions");
+    equal(fake.commandCalls[17]?.type, "resetRenderDebugOptions");
+    equal(fake.commandCalls[18]?.type, "resetPerfStats");
     equal(snapshot.playerMode, "firstPerson");
     equal(snapshot.playerPosition.x, 96);
     equal(snapshot.shadowDebugView, "shadowVisibility");
@@ -167,6 +179,7 @@ describe("RustBrowserGameAdapter", () => {
     equal(snapshot.rendererStatus.postProcessBloomThreshold, 1);
     equal(snapshot.rendererStatus.postProcessDofEnabled, false);
     equal(snapshot.rendererStatus.postProcessDofFocusDistance, 30);
+    equal(snapshot.rendererStatus.postProcessFogEnabled, true);
     equal(snapshot.rendererStatus.waterRuntime, "rust-wgpu");
     equal(snapshot.rendererStatus.waterDebugView, "final");
     equal(snapshot.rendererStatus.gpuTimerAvailable, false);
@@ -283,6 +296,8 @@ function fakeBrowserGame(): FakeBrowserGame {
             {
               lod: 0,
               desiredNodeCount: 1,
+              minDesiredNodeY: 0,
+              maxDesiredNodeY: 0,
               densityReadyNodeCount: 1,
               renderedNodeCount: 1,
               emptyNodeCount: 0,

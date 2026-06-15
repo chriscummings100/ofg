@@ -7,15 +7,15 @@ use engine_web::{BrowserTerrainStream, TERRAIN_VERTEX_FLOATS};
 use terrain_core::{
     height_at_for_variant, terrain_chunk_key, terrain_node_cell_size, terrain_node_key,
     terrain_node_parent, terrain_variant_for_preset, MeshData, TerrainChunkCoord, TerrainLodBand,
-    TerrainNodeKey, TerrainTransitionMeshKey, TerrainVariantDescriptor, DEFAULT_TERRAIN_PRESET,
-    TERRAIN_CHUNK_CELLS_PER_AXIS,
+    TerrainLodBoundedVerticalPolicy, TerrainNodeKey, TerrainTransitionMeshKey,
+    TerrainVariantDescriptor, DEFAULT_TERRAIN_PRESET, TERRAIN_CHUNK_CELLS_PER_AXIS,
 };
 
 use super::error::{harness_error, HarnessResult};
 use super::renderer::CameraSetup;
-use super::report::{LodCountReport, ScenarioDebug};
+use super::report::{LodCountReport, LodStreamReport, ScenarioDebug};
 
-const MIN_MULTI_KM_TERRAIN_SPAN_METERS: f64 = 4096.0;
+const MIN_REAL_SCALE_TERRAIN_SPAN_METERS: f64 = 7_000.0;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ScenarioFilter {
@@ -31,6 +31,7 @@ pub enum ScenarioFilter {
 enum ScenarioVariantKind {
     LowRolling,
     RidgeHeavy,
+    HighReliefVertical,
 }
 
 #[derive(Clone, Copy)]
@@ -191,6 +192,19 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
     let rendered_lod_counts = rendered_lod_counts(&meshes_by_node);
     let max_rendered_lod = meshes_by_node.keys().map(|key| key.lod).max().unwrap_or(0);
     let status = stream.status();
+    let stream_lod_counts = status
+        .lod_summaries
+        .iter()
+        .map(|summary| LodStreamReport {
+            lod: summary.lod,
+            desired_node_count: summary.desired_node_count,
+            min_desired_node_y: summary.min_desired_node_y,
+            max_desired_node_y: summary.max_desired_node_y,
+            rendered_node_count: summary.rendered_node_count,
+            empty_node_count: summary.empty_node_count,
+            missing_node_count: summary.missing_node_count,
+        })
+        .collect::<Vec<_>>();
     let canonical_vertex_count = meshes_by_node
         .values()
         .map(|mesh| mesh.vertices.len() / TERRAIN_VERTEX_FLOATS as usize)
@@ -241,6 +255,7 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
             visible_world_span_x_meters: status.visible_world_span_x_meters,
             visible_world_span_z_meters: status.visible_world_span_z_meters,
             rendered_lod_counts,
+            stream_lod_counts,
             transition_face_count: status.transition_face_count,
             transition_mesh_count: status.transition_mesh_count,
             transition_vertex_count,
@@ -256,10 +271,14 @@ pub fn build_scenario_terrain(scenario: Scenario) -> HarnessResult<ScenarioTerra
 
 fn create_scenario_stream(scenario: Scenario) -> HarnessResult<BrowserTerrainStream> {
     let stream = if scenario_variant_kind(scenario).is_some() {
+        let lod_bands = match scenario.stream_mode {
+            ScenarioStreamMode::Lod0 => lod0_terrain_lod_bands(),
+            ScenarioStreamMode::MultiLod => multi_lod_terrain_lod_bands(),
+        };
         BrowserTerrainStream::new_with_variant_lod_bands(
             scenario.seed,
             scenario_terrain_variant(scenario),
-            lod0_terrain_lod_bands(),
+            lod_bands,
         )
     } else {
         match scenario.stream_mode {
@@ -285,8 +304,8 @@ fn scenario_stream_ready(scenario: Scenario, stream: &BrowserTerrainStream) -> b
                 && status.rendered_node_count > status.rendered_chunk_count
                 && status.max_rendered_lod >= 3
                 && status.transition_mesh_count > 0
-                && status.visible_world_span_x_meters >= MIN_MULTI_KM_TERRAIN_SPAN_METERS
-                && status.visible_world_span_z_meters >= MIN_MULTI_KM_TERRAIN_SPAN_METERS
+                && status.visible_world_span_x_meters >= MIN_REAL_SCALE_TERRAIN_SPAN_METERS
+                && status.visible_world_span_z_meters >= MIN_REAL_SCALE_TERRAIN_SPAN_METERS
         }
     }
 }
@@ -499,6 +518,7 @@ fn scenario_variant_kind(scenario: Scenario) -> Option<ScenarioVariantKind> {
     match scenario.name {
         "variant-low-rolling" => Some(ScenarioVariantKind::LowRolling),
         "variant-ridge-heavy" => Some(ScenarioVariantKind::RidgeHeavy),
+        "vertical-band-high-relief" => Some(ScenarioVariantKind::HighReliefVertical),
         _ => None,
     }
 }
@@ -527,6 +547,16 @@ fn scenario_terrain_variant(scenario: Scenario) -> TerrainVariantDescriptor {
             descriptor.shape.cellular_height_scale = 8.0;
             descriptor.shape.detail_amplitude = 4.0;
         }
+        Some(ScenarioVariantKind::HighReliefVertical) => {
+            descriptor.shape.base_height = 24.0;
+            descriptor.shape.height_scale = 96.0;
+            descriptor.shape.ridge_height_scale = 112.0;
+            descriptor.shape.ridge_noise.ridge_offset = 0.75;
+            descriptor.shape.ridge_noise.ridge_sharpness = 2.8;
+            descriptor.shape.warp.amplitude = 64.0;
+            descriptor.shape.cellular_height_scale = 28.0;
+            descriptor.shape.detail_amplitude = 12.0;
+        }
         None => {}
     }
     descriptor
@@ -536,16 +566,32 @@ fn scenario_terrain_name(scenario: Scenario) -> &'static str {
     match scenario_variant_kind(scenario) {
         Some(ScenarioVariantKind::LowRolling) => "variant-low-rolling",
         Some(ScenarioVariantKind::RidgeHeavy) => "variant-ridge-heavy",
+        Some(ScenarioVariantKind::HighReliefVertical) => "vertical-band-high-relief",
         None => terrain_preset_name(scenario.preset),
     }
 }
 
 fn lod0_terrain_lod_bands() -> Vec<TerrainLodBand> {
-    vec![TerrainLodBand {
-        lod: 0,
-        horizontal_radius: 1,
-        vertical_chunk_offsets: vec![-2, -1, 0, 1],
-    }]
+    vec![TerrainLodBand::fixed_offsets(0, 1, vec![-2, -1, 0, 1])]
+}
+
+fn multi_lod_terrain_lod_bands() -> Vec<TerrainLodBand> {
+    vec![
+        TerrainLodBand::bounded(0, 1, bounded_vertical_policy(2, 1)),
+        TerrainLodBand::bounded(1, 2, bounded_vertical_policy(3, 2)),
+        TerrainLodBand::bounded(2, 3, bounded_vertical_policy(4, 3)),
+        TerrainLodBand::bounded(3, 2, bounded_vertical_policy(6, 5)),
+        TerrainLodBand::bounded(4, 3, bounded_vertical_policy(8, 7)),
+        TerrainLodBand::bounded(5, 3, bounded_vertical_policy(5, 4)),
+    ]
+}
+
+fn bounded_vertical_policy(
+    below_player_nodes: i32,
+    above_player_nodes: i32,
+) -> TerrainLodBoundedVerticalPolicy {
+    TerrainLodBoundedVerticalPolicy::new(below_player_nodes, above_player_nodes)
+        .expect("smoke vertical windows should be valid")
 }
 
 /// Returns a stable display name for terrain preset codes.

@@ -8,6 +8,9 @@
 - Prefer explicit data contracts over hidden engine state.
 - Move long-lived world, simulation, terrain, render extraction, and WebGPU
   ownership into Rust.
+- Preserve 60fps play as an architectural requirement: regular 500ms-class
+  frame, terrain-stream, or renderer spikes mean the owning change is unfinished,
+  even if the feature is visually correct.
 
 The Rust conversion is complete; its historical plan is archived at
 `docs/archived/RUST_CONVERSION_PLAN.md`. The TypeScript scene/component model has
@@ -124,16 +127,16 @@ as a browser shell plus generic browser image decoder.
   WebGPU canvas surface, adapter/device/queue, surface configuration, depth
   texture, HDR scene color, linear-depth, and half-resolution bloom
   post-process targets, shader modules, terrain, static-model, sky, bloom
-  extraction, depth-of-field CoC/blur sampling, water opaque color/depth
-  targets, water bathymetry texture, water reflection targets, water composite
-  pipeline, and fullscreen post-process pipelines,
+  extraction, depth-of-field CoC/blur sampling, distance fog, water opaque
+  color/depth targets, water bathymetry texture, water reflection targets,
+  water composite pipeline, and fullscreen post-process pipelines,
   GLB parsing, model image/texture/sampler/material import, embedded PNG/JPEG decode,
   static model resource registration, non-skinned node animation sampling,
   skin joint/inverse bind import, CPU skinning for all active player-character
   primitives, male/female player-character descriptor selection, buffers,
   texture arrays, samplers, bind groups, render-pass submission, frame/resource
-  counts, post-process tone-map/bloom/DoF settings, debug view selection, and
-  GPU resource pruning.
+  counts, post-process tone-map/bloom/DoF/fog settings, debug view selection,
+  and GPU resource pruning.
 - TypeScript collects DOM input, parses URL seed/preset values, starts WASM,
   exposes debug hooks, displays terrain variant editor and water debug controls,
   decodes Rust-provided generic texture-array URL requests into RGBA arrays,
@@ -162,9 +165,12 @@ The active direction is a small Rust-owned scene/component layer in
 
 The visible seed terrain now defaults to a Rust-owned multi-LOD terrain view.
 Near terrain still uses the current highest-detail LOD0 Dual Contouring chunks,
-while farther bands render coarser LOD1 through LOD4 nodes with larger
+while farther bands render coarser LOD1 through LOD5 nodes with larger
 world-space cell sizes. The default horizon band renders a measured settled
-span above 4 km in X and Z. The runtime streamer schedules generated nodes as
+span above 7 km in X and Z, and the default Rust camera far plane is 3500 m.
+Default post-process fog starts at 200 m and reaches full skybox-matched blend
+at 3000 m, so the game has terrain just beyond the fogged horizon without
+keeping the earlier LOD6/18 km proof span. The runtime streamer schedules generated nodes as
 the active unit of work: a node build produces either a renderable mesh or an
 empty node, with density sampling kept as an internal meshing detail. It builds
 neighbor-aware meshes with deterministic same-LOD seam ownership, keeps
@@ -172,6 +178,14 @@ generated mesh data cached, and selects a hole-free visible cover by keeping
 parent nodes rendered until their desired child group is generated or proven
 empty. Terrain stream scheduling, browser stream updates, renderer mesh IDs,
 and debug snapshots are node-keyed for a rootless multi-resolution LOD grid.
+Desired nodes are selected per `(lod, x, z)` column with Rust-owned vertical
+band resolution: the scheduler estimates a conservative world-space
+terrain-interest Y range for the column, converts it to node Y coordinates, and
+intersects it with a per-LOD player-centered vertical window. The browser
+default uses bounded vertical policies so LOD0 stays vertically close to the
+player while coarser LODs can cover taller terrain ranges. Fixed vertical
+offsets remain only as a fixture/migration policy.
+
 The stream also builds Rust-owned placement sample packets from accepted
 polygonized meshes and reports only aggregate placement candidate/sample/reject
 counts through debug status. For mixed-LOD boundaries, the stream derives
@@ -200,8 +214,8 @@ vegetation, prop placement, material palette, and local feature systems should
 compose with these shape descriptors as separate Rust-owned layers rather than
 turning every terrain shape preset into an all-in-one world type. The current
 sea-level water is a renderer feature over the existing terrain height surface,
-not a terrain generator layer. Current built-in preset scales, terrain-band
-constraints, and post-band-fix target numbers are recorded in
+not a terrain generator layer. Current built-in preset scales and remaining
+terrain-band constraints are recorded in
 `docs/TERRAIN_PRESET_SCALE.md`.
 
 `engine_web` now keeps the playable browser terrain stream inside Rust. Its
@@ -285,10 +299,13 @@ post-process frame graph also writes a half-resolution `Rgba16Float` bloom
 target from bright HDR scene color and
 composites it before tone mapping. Depth of field is default-off and uses the
 linear-depth target to calculate a per-pixel circle of confusion before sampling
-a small HDR scene blur in the final pass. Debug hooks may select final output,
-scene color, linear depth, post-tone-map color, bloom contribution, DoF CoC, or
-DoF blurred scene color, but TypeScript only sends commands and reads
-Rust-reported status.
+a small HDR scene blur in the final pass. Distance fog is default-on and uses
+linear depth to fade opaque scene pixels toward the same procedural sky color
+used by the sky pass, with RGB fog controls acting as a sky tint before tone
+mapping while leaving sky pixels untouched. Debug hooks may select final
+output, scene color, linear depth, post-tone-map color, bloom contribution, DoF
+CoC, DoF blurred scene color, or fog factor, but TypeScript only sends commands
+and reads Rust-reported status.
 
 The model material path supports glTF 2.0 core metallic-roughness and the
 archived `KHR_materials_pbrSpecularGlossiness` extension. Rust imports material

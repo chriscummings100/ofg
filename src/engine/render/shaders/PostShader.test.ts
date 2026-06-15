@@ -41,6 +41,7 @@ describe("post shader build", () => {
     ok(POST_SHADER_SOURCE.includes("POST_DEBUG_BLOOM"));
     ok(POST_SHADER_SOURCE.includes("POST_DEBUG_DOF_COC"));
     ok(POST_SHADER_SOURCE.includes("POST_DEBUG_DOF_BLURRED"));
+    ok(POST_SHADER_SOURCE.includes("POST_DEBUG_FOG_FACTOR"));
     ok(POST_SHADER_SOURCE.includes("textureLoad(linearDepthTexture"));
   });
 
@@ -61,6 +62,18 @@ describe("post shader build", () => {
     ok(POST_SHADER_SOURCE.includes("fn dofCocPixels"));
     ok(POST_SHADER_SOURCE.includes("fn dofBlurredSceneColor"));
     ok(POST_SHADER_SOURCE.includes("dofSettings"));
+  });
+
+  it("contains the depth-based horizon fog contract", () => {
+    ok(POST_SHADER_SOURCE.includes("fogSettings"));
+    ok(POST_SHADER_SOURCE.includes("fogColorAndCurve"));
+    ok(POST_SHADER_SOURCE.includes("@group(2) @binding(0) var<uniform> camera: Camera"));
+    ok(POST_SHADER_SOURCE.includes("fn fogFactor"));
+    ok(POST_SHADER_SOURCE.includes("fn skyColorAtUv"));
+    ok(POST_SHADER_SOURCE.includes("fn applyFog"));
+    ok(POST_SHADER_SOURCE.includes("linearDepth <= 0.0"));
+    ok(POST_SHADER_SOURCE.includes("skyColorAtUv(uv)"));
+    ok(POST_SHADER_SOURCE.includes("let foggedColor = applyFog"));
   });
 
   it("only computes the expensive DoF blur when enabled or explicitly debugged", () => {

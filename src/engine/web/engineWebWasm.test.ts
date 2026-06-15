@@ -219,6 +219,8 @@ function fakeBrowserGame(): EngineWebBrowserGame {
             {
               lod: 0,
               desiredNodeCount: 1,
+              minDesiredNodeY: 0,
+              maxDesiredNodeY: 0,
               densityReadyNodeCount: 1,
               renderedNodeCount: 1,
               emptyNodeCount: 0,

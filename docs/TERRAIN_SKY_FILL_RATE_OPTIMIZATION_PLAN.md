@@ -187,10 +187,14 @@ Milestone 1 records a clean baseline. Run the current `node tools/browser-perf-d
 
 Milestone 2 makes terrain material sample count and roughness sampling controllable by LOD. In Rust, extend `RenderDebugOptions` and `RenderDebugOptionsUpdate` with two validated per-LOD settings:
 
-    terrainMaterialSampleCountsByLod: [u32; 5], valid values 1..=4
-    terrainRoughnessEnabledByLod: [bool; 5]
+    terrainMaterialSampleCountsByLod: [u32; 7], valid values 1..=4
+    terrainRoughnessEnabledByLod: [bool; 7]
 
-Use five entries for current LOD0 through LOD4. If the runtime later renders LODs above 4, clamp to the final entry. Defaults are material samples `[4,4,4,4,4]` and roughness enabled `[true,true,true,true,true]`.
+Use seven tracked entries so the renderer has slots for the current default
+LOD0 through LOD5 bands plus the historical/proof LOD6 slot. If the runtime
+later renders LODs above 6, clamp to the final entry. Defaults are material
+samples `[4,4,4,4,4,4,4]` and roughness enabled
+`[true,true,true,true,true,true,true]`.
 
 In `wgpu_renderer.rs`, when preparing each terrain draw, derive the current item's LOD from `PreparedRenderItem.terrain_lod` and write two terrain-only shader controls into the existing object uniform:
 

@@ -178,7 +178,8 @@ export function buildPerfOverlayLines(stats: CombinedPerfStats): string[] {
       `tone=${formatOnOff(stats.rendererStatus.postProcessToneMappingEnabled)} ` +
       `exp=${round(stats.rendererStatus.postProcessExposure)} ` +
       `bloom=${formatOnOff(stats.rendererStatus.postProcessBloomEnabled)} ` +
-      `dof=${formatOnOff(stats.rendererStatus.postProcessDofEnabled)}`,
+      `dof=${formatOnOff(stats.rendererStatus.postProcessDofEnabled)} ` +
+      `fog=${formatOnOff(stats.rendererStatus.postProcessFogEnabled)}`,
     `Debug ${formatRenderDebugOptions(stats.renderDebugOptions)}`
   ];
 }

@@ -6,6 +6,9 @@ use crate::sky::{sky_state_at_elapsed_seconds, SkyRenderPacket};
 
 pub const RENDER_SNAPSHOT_FLOAT_COUNT: usize = 31;
 pub const RENDER_MESH_ITEM_WORLD_MATRIX_FLOAT_COUNT: usize = 16;
+pub const DEFAULT_CAMERA_FOV_Y_RADIANS: f32 = 70.0 * std::f32::consts::PI / 180.0;
+pub const DEFAULT_CAMERA_NEAR_PLANE_METERS: f32 = 0.05;
+pub const DEFAULT_CAMERA_FAR_PLANE_METERS: f32 = 3_500.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RenderCameraPacket {
@@ -54,9 +57,9 @@ impl RenderSnapshot {
                 target: eye.add(yaw_pitch_forward(yaw, pitch)),
                 yaw,
                 pitch,
-                fov_y_radians: 70.0_f32.to_radians(),
-                near_plane: 0.05,
-                far_plane: 500.0,
+                fov_y_radians: DEFAULT_CAMERA_FOV_Y_RADIANS,
+                near_plane: DEFAULT_CAMERA_NEAR_PLANE_METERS,
+                far_plane: DEFAULT_CAMERA_FAR_PLANE_METERS,
             },
             main_light: sky_state.main_light,
             sky: sky_state.sky,

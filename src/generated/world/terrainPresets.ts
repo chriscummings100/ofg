@@ -4,7 +4,7 @@ export const TERRAIN_PRESET_DEFINITIONS = [
   {
     "code": 0,
     "id": "seed",
-    "name": "Seed"
+    "name": "Lowland Plain"
   },
   {
     "code": 1,

@@ -10,7 +10,7 @@ pub(crate) const POST_PROCESS_LINEAR_DEPTH_FORMAT: wgpu::TextureFormat =
     wgpu::TextureFormat::R32Float;
 const POST_PROCESS_SHADER_SOURCE: &str =
     include_str!("../../../src/engine/render/shaders/post.wgsl");
-const POST_PROCESS_UNIFORM_FLOATS: usize = 12;
+const POST_PROCESS_UNIFORM_FLOATS: usize = 20;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PostProcessDebugView {
@@ -21,6 +21,7 @@ pub(crate) enum PostProcessDebugView {
     Bloom,
     DofCoc,
     DofBlurred,
+    FogFactor,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -36,6 +37,12 @@ pub(crate) struct PostProcessSettings {
     dof_focus_distance: f32,
     dof_focus_range: f32,
     dof_max_blur_pixels: f32,
+    fog_enabled: bool,
+    fog_start_distance: f32,
+    fog_end_distance: f32,
+    fog_density: f32,
+    fog_color: [f32; 3],
+    fog_curve: f32,
 }
 
 pub(crate) struct PostProcessResources {
@@ -69,6 +76,7 @@ impl PostProcessDebugView {
             "bloom" => Some(Self::Bloom),
             "dofCoc" => Some(Self::DofCoc),
             "dofBlurred" => Some(Self::DofBlurred),
+            "fogFactor" => Some(Self::FogFactor),
             _ => None,
         }
     }
@@ -83,6 +91,7 @@ impl PostProcessDebugView {
             Self::Bloom => "bloom",
             Self::DofCoc => "dofCoc",
             Self::DofBlurred => "dofBlurred",
+            Self::FogFactor => "fogFactor",
         }
     }
 
@@ -96,6 +105,7 @@ impl PostProcessDebugView {
             Self::Bloom => 4.0,
             Self::DofCoc => 5.0,
             Self::DofBlurred => 6.0,
+            Self::FogFactor => 7.0,
         }
     }
 }
@@ -115,6 +125,12 @@ impl PostProcessSettings {
             dof_focus_distance: 30.0,
             dof_focus_range: 8.0,
             dof_max_blur_pixels: 6.0,
+            fog_enabled: true,
+            fog_start_distance: 200.0,
+            fog_end_distance: 3_000.0,
+            fog_density: 1.0,
+            fog_color: [1.0, 1.0, 1.0],
+            fog_curve: 1.35,
         }
     }
 
@@ -186,6 +202,36 @@ impl PostProcessSettings {
         self.dof_max_blur_pixels
     }
 
+    /// Returns whether distance fog is composited into final post output.
+    pub(crate) fn fog_enabled(&self) -> bool {
+        self.fog_enabled
+    }
+
+    /// Returns the camera-space distance where horizon fog begins.
+    pub(crate) fn fog_start_distance(&self) -> f32 {
+        self.fog_start_distance
+    }
+
+    /// Returns the camera-space distance where horizon fog reaches full weight.
+    pub(crate) fn fog_end_distance(&self) -> f32 {
+        self.fog_end_distance
+    }
+
+    /// Returns the maximum fog opacity multiplier.
+    pub(crate) fn fog_density(&self) -> f32 {
+        self.fog_density
+    }
+
+    /// Returns the linear HDR color blended into distant scene pixels.
+    pub(crate) fn fog_color(&self) -> [f32; 3] {
+        self.fog_color
+    }
+
+    /// Returns the exponent used to shape the depth-fog ramp.
+    pub(crate) fn fog_curve(&self) -> f32 {
+        self.fog_curve
+    }
+
     /// Updates depth-of-field enablement and artist-friendly focus controls.
     pub(crate) fn set_depth_of_field(
         &mut self,
@@ -198,6 +244,24 @@ impl PostProcessSettings {
         self.dof_focus_distance = focus_distance;
         self.dof_focus_range = focus_range;
         self.dof_max_blur_pixels = max_blur_pixels;
+    }
+
+    /// Updates distance-fog enablement and artist-friendly horizon controls.
+    pub(crate) fn set_fog(
+        &mut self,
+        enabled: bool,
+        start_distance: f32,
+        end_distance: f32,
+        density: f32,
+        color: [f32; 3],
+        curve: f32,
+    ) {
+        self.fog_enabled = enabled;
+        self.fog_start_distance = start_distance;
+        self.fog_end_distance = end_distance;
+        self.fog_density = density;
+        self.fog_color = color;
+        self.fog_curve = curve;
     }
 
     /// Packs the post-process uniform block for GPU upload.
@@ -215,6 +279,14 @@ impl PostProcessSettings {
             self.dof_focus_distance,
             self.dof_focus_range,
             self.dof_max_blur_pixels,
+            if self.fog_enabled { 1.0 } else { 0.0 },
+            self.fog_start_distance,
+            self.fog_end_distance,
+            self.fog_density,
+            self.fog_color[0],
+            self.fog_color[1],
+            self.fog_color[2],
+            self.fog_curve,
         ]
     }
 }
@@ -229,6 +301,7 @@ impl PostProcessResources {
     /// Creates all resize-owned post-process targets and the present pipeline.
     pub(crate) fn new(
         device: &wgpu::Device,
+        camera_bind_group_layout: &wgpu::BindGroupLayout,
         surface_format: wgpu::TextureFormat,
         width: u32,
         height: u32,
@@ -344,7 +417,14 @@ impl PostProcessResources {
             label: Some("post process shader"),
             source: wgpu::ShaderSource::Wgsl(POST_PROCESS_SHADER_SOURCE.into()),
         });
-        let pipeline = create_pipeline(device, &bind_group_layout, &shader, surface_format);
+        let pipeline = create_pipeline(
+            device,
+            &bind_group_layout,
+            &bloom_empty_bind_group_layout,
+            camera_bind_group_layout,
+            &shader,
+            surface_format,
+        );
         let bloom_pipeline = create_bloom_pipeline(
             device,
             &bloom_empty_bind_group_layout,
@@ -424,6 +504,7 @@ impl PostProcessResources {
         &self,
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
+        camera_bind_group: &wgpu::BindGroup,
         surface_view: &wgpu::TextureView,
         settings: PostProcessSettings,
         bloom_timestamp_writes: Option<wgpu::RenderPassTimestampWrites<'_>>,
@@ -453,6 +534,8 @@ impl PostProcessResources {
         });
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
+        pass.set_bind_group(1, &self.bloom_empty_bind_group, &[]);
+        pass.set_bind_group(2, camera_bind_group, &[]);
         pass.draw(0..3, 0..1);
     }
 
@@ -595,12 +678,18 @@ fn texture_binding(
 fn create_pipeline(
     device: &wgpu::Device,
     bind_group_layout: &wgpu::BindGroupLayout,
+    empty_bind_group_layout: &wgpu::BindGroupLayout,
+    camera_bind_group_layout: &wgpu::BindGroupLayout,
     shader: &wgpu::ShaderModule,
     surface_format: wgpu::TextureFormat,
 ) -> wgpu::RenderPipeline {
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("post process pipeline layout"),
-        bind_group_layouts: &[bind_group_layout],
+        bind_group_layouts: &[
+            bind_group_layout,
+            empty_bind_group_layout,
+            camera_bind_group_layout,
+        ],
         push_constant_ranges: &[],
     });
 
@@ -706,6 +795,7 @@ mod tests {
             ("bloom", PostProcessDebugView::Bloom, 4.0),
             ("dofCoc", PostProcessDebugView::DofCoc, 5.0),
             ("dofBlurred", PostProcessDebugView::DofBlurred, 6.0),
+            ("fogFactor", PostProcessDebugView::FogFactor, 7.0),
         ];
 
         for (name, view, code) in cases {
@@ -730,9 +820,18 @@ mod tests {
         assert_eq!(settings.dof_focus_distance(), 30.0);
         assert_eq!(settings.dof_focus_range(), 8.0);
         assert_eq!(settings.dof_max_blur_pixels(), 6.0);
+        assert!(settings.fog_enabled());
+        assert_eq!(settings.fog_start_distance(), 200.0);
+        assert_eq!(settings.fog_end_distance(), 3_000.0);
+        assert_eq!(settings.fog_density(), 1.0);
+        assert_eq!(settings.fog_color(), [1.0, 1.0, 1.0]);
+        assert_eq!(settings.fog_curve(), 1.35);
         assert_eq!(
             settings.uniform_values(),
-            [0.0, 0.02, 1.0, 1.0, 1.0, 1.0, 0.08, 0.0, 0.0, 30.0, 8.0, 6.0]
+            [
+                0.0, 0.02, 1.0, 1.0, 1.0, 1.0, 0.08, 0.0, 0.0, 30.0, 8.0, 6.0, 1.0, 200.0, 3_000.0,
+                1.0, 1.0, 1.0, 1.0, 1.35
+            ]
         );
     }
 
@@ -743,6 +842,7 @@ mod tests {
         settings.set_tone_mapping(false, 1.75);
         settings.set_bloom(false, 0.8, 0.35);
         settings.set_depth_of_field(true, 18.0, 4.0, 12.0);
+        settings.set_fog(false, 100.0, 500.0, 0.65, [0.2, 0.3, 0.4], 2.0);
 
         assert_eq!(settings.debug_view(), PostProcessDebugView::PostToneMap);
         assert!(!settings.tone_mapping_enabled());
@@ -754,9 +854,18 @@ mod tests {
         assert_eq!(settings.dof_focus_distance(), 18.0);
         assert_eq!(settings.dof_focus_range(), 4.0);
         assert_eq!(settings.dof_max_blur_pixels(), 12.0);
+        assert!(!settings.fog_enabled());
+        assert_eq!(settings.fog_start_distance(), 100.0);
+        assert_eq!(settings.fog_end_distance(), 500.0);
+        assert_eq!(settings.fog_density(), 0.65);
+        assert_eq!(settings.fog_color(), [0.2, 0.3, 0.4]);
+        assert_eq!(settings.fog_curve(), 2.0);
         assert_eq!(
             settings.uniform_values(),
-            [3.0, 0.02, 1.75, 0.0, 0.0, 0.8, 0.35, 0.0, 1.0, 18.0, 4.0, 12.0]
+            [
+                3.0, 0.02, 1.75, 0.0, 0.0, 0.8, 0.35, 0.0, 1.0, 18.0, 4.0, 12.0, 0.0, 100.0, 500.0,
+                0.65, 0.2, 0.3, 0.4, 2.0
+            ]
         );
     }
 
@@ -795,12 +904,21 @@ mod tests {
                 return;
             };
 
-            let mut resources =
-                PostProcessResources::new(&device, wgpu::TextureFormat::Rgba8Unorm, 64, 32);
+            let camera_bind_group_layout = create_test_camera_bind_group_layout(&device);
+            let camera_bind_group =
+                create_test_camera_bind_group(&device, &camera_bind_group_layout);
+            let mut resources = PostProcessResources::new(
+                &device,
+                &camera_bind_group_layout,
+                wgpu::TextureFormat::Rgba8Unorm,
+                64,
+                32,
+            );
             render_debug_view(
                 &device,
                 &queue,
                 &resources,
+                &camera_bind_group,
                 PostProcessDebugView::Final,
                 64,
                 32,
@@ -809,6 +927,7 @@ mod tests {
                 &device,
                 &queue,
                 &resources,
+                &camera_bind_group,
                 PostProcessDebugView::SceneColor,
                 64,
                 32,
@@ -817,6 +936,7 @@ mod tests {
                 &device,
                 &queue,
                 &resources,
+                &camera_bind_group,
                 PostProcessDebugView::LinearDepth,
                 64,
                 32,
@@ -825,6 +945,7 @@ mod tests {
                 &device,
                 &queue,
                 &resources,
+                &camera_bind_group,
                 PostProcessDebugView::PostToneMap,
                 64,
                 32,
@@ -833,6 +954,7 @@ mod tests {
                 &device,
                 &queue,
                 &resources,
+                &camera_bind_group,
                 PostProcessDebugView::Bloom,
                 64,
                 32,
@@ -841,6 +963,7 @@ mod tests {
                 &device,
                 &queue,
                 &resources,
+                &camera_bind_group,
                 PostProcessDebugView::DofCoc,
                 64,
                 32,
@@ -849,7 +972,17 @@ mod tests {
                 &device,
                 &queue,
                 &resources,
+                &camera_bind_group,
                 PostProcessDebugView::DofBlurred,
+                64,
+                32,
+            );
+            render_debug_view(
+                &device,
+                &queue,
+                &resources,
+                &camera_bind_group,
+                PostProcessDebugView::FogFactor,
                 64,
                 32,
             );
@@ -859,6 +992,7 @@ mod tests {
                 &device,
                 &queue,
                 &resources,
+                &camera_bind_group,
                 PostProcessDebugView::LinearDepth,
                 32,
                 16,
@@ -870,6 +1004,7 @@ mod tests {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         resources: &PostProcessResources,
+        camera_bind_group: &wgpu::BindGroup,
         debug_view: PostProcessDebugView,
         width: u32,
         height: u32,
@@ -931,8 +1066,75 @@ mod tests {
         }
         let mut settings = PostProcessSettings::default();
         settings.set_debug_view(debug_view);
-        resources.render(queue, &mut encoder, &target_view, settings, None, None);
+        resources.render(
+            queue,
+            &mut encoder,
+            camera_bind_group,
+            &target_view,
+            settings,
+            None,
+            None,
+        );
         queue.submit(Some(encoder.finish()));
         device.poll(wgpu::Maintain::Wait);
+    }
+
+    fn create_test_camera_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("post process test camera bind group layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        })
+    }
+
+    fn create_test_camera_bind_group(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+    ) -> wgpu::BindGroup {
+        let mut values = [0.0; 56];
+        for offset in [0, 16] {
+            values[offset] = 1.0;
+            values[offset + 5] = 1.0;
+            values[offset + 10] = 1.0;
+            values[offset + 15] = 1.0;
+        }
+        values[35] = 1.0;
+        values[36] = 0.2;
+        values[37] = 0.82;
+        values[38] = 0.35;
+        values[39] = 1.0;
+        values[40] = 1.0;
+        values[41] = 0.96;
+        values[42] = 0.84;
+        values[43] = 0.25;
+        values[46] = 0.82;
+        values[48] = 2.4;
+        values[49] = 0.0;
+        values[50] = 0.02;
+        values[51] = 1.8;
+        values[52] = 0.2;
+        values[53] = 0.5;
+
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("post process test camera uniforms"),
+            contents: f32_as_bytes(&values),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("post process test camera bind group"),
+            layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: buffer.as_entire_binding(),
+            }],
+        })
     }
 }

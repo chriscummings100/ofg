@@ -19,7 +19,7 @@ const headed = process.env.OFG_SMOKE_HEADED === "1";
 const artifactRoot = resolve(root, "artifacts", "browser-smoke");
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
 const artifactDir = resolve(artifactRoot, runId);
-const minMultiKmTerrainSpanMeters = 4096;
+const minRealScaleTerrainSpanMeters = 7000;
 
 mkdirSync(artifactDir, { recursive: true });
 
@@ -83,6 +83,87 @@ async function runBrowserSmoke(url) {
     assertSkyRemainsInspectable(firstDebug, advancedSkyDebug);
     const firstImage = await saveScreenshot(page, "browser-first-person.png");
     assertPixelStats(firstImage.pixelStats, "browser first-person", consoleMessages);
+
+    await setFogVisibleDebugCamera(page);
+    const smokeFog = {
+      startDistance: 200,
+      endDistance: 3000,
+      density: 1,
+      colorR: 1,
+      colorG: 1,
+      colorB: 1,
+      curve: 1.35
+    };
+    await setPostProcessFog(
+      page,
+      false,
+      smokeFog.startDistance,
+      smokeFog.endDistance,
+      smokeFog.density,
+      smokeFog.colorR,
+      smokeFog.colorG,
+      smokeFog.colorB,
+      smokeFog.curve
+    );
+    await setPostProcessDebugView(page, "final");
+    assertNoBrowserFailures(consoleMessages);
+    const fogOffDebug = await readDebugContract(page);
+    assertDebugContract(fogOffDebug, {
+      fogEnabled: false,
+      fogStartDistance: smokeFog.startDistance,
+      fogEndDistance: smokeFog.endDistance,
+      fogDensity: smokeFog.density,
+      fogColorR: smokeFog.colorR,
+      fogColorG: smokeFog.colorG,
+      fogColorB: smokeFog.colorB,
+      fogCurve: smokeFog.curve
+    });
+    const fogOffImage = await saveScreenshot(page, "browser-fog-off.png");
+    assertPixelStats(fogOffImage.pixelStats, "browser fog off", consoleMessages);
+    await setPostProcessFog(
+      page,
+      true,
+      smokeFog.startDistance,
+      smokeFog.endDistance,
+      smokeFog.density,
+      smokeFog.colorR,
+      smokeFog.colorG,
+      smokeFog.colorB,
+      smokeFog.curve
+    );
+    await setPostProcessDebugView(page, "final");
+    assertNoBrowserFailures(consoleMessages);
+    const fogOnDebug = await readDebugContract(page);
+    assertDebugContract(fogOnDebug, {
+      fogStartDistance: smokeFog.startDistance,
+      fogEndDistance: smokeFog.endDistance,
+      fogDensity: smokeFog.density,
+      fogColorR: smokeFog.colorR,
+      fogColorG: smokeFog.colorG,
+      fogColorB: smokeFog.colorB,
+      fogCurve: smokeFog.curve
+    });
+    const fogOnImage = await saveScreenshot(page, "browser-fog-on.png");
+    assertPixelStats(fogOnImage.pixelStats, "browser fog on", consoleMessages);
+    assertFogChangesFinalPixels(fogOffImage.pixelStats, fogOnImage.pixelStats, consoleMessages);
+    await setPostProcessDebugView(page, "fogFactor");
+    assertNoBrowserFailures(consoleMessages);
+    const fogFactorDebug = await readDebugContract(page);
+    assertDebugContract(fogFactorDebug, {
+      postProcessDebugView: "fogFactor",
+      fogStartDistance: smokeFog.startDistance,
+      fogEndDistance: smokeFog.endDistance,
+      fogDensity: smokeFog.density,
+      fogColorR: smokeFog.colorR,
+      fogColorG: smokeFog.colorG,
+      fogColorB: smokeFog.colorB,
+      fogCurve: smokeFog.curve
+    });
+    const fogFactorImage = await saveScreenshot(page, "browser-fog-factor.png");
+    assertFogFactorPixels(fogFactorImage.pixelStats, consoleMessages);
+    await setPostProcessFog(page, true, 200, 3000, 1, 1, 1, 1, 1.35);
+    await setPostProcessDebugView(page, "final");
+
     await setShadowDebugView(page, "cascadeIndex");
     assertNoBrowserFailures(consoleMessages);
     const cascadeDebug = await readDebugContract(page);
@@ -290,6 +371,9 @@ async function runBrowserSmoke(url) {
       headed,
       images: [
         firstImage,
+        fogOffImage,
+        fogOnImage,
+        fogFactorImage,
         cascadeDebugImage,
         visibilityDebugImage,
         linearDepthImage,
@@ -309,6 +393,9 @@ async function runBrowserSmoke(url) {
       reloadedHud,
       firstDebug,
       advancedSkyDebug,
+      fogOffDebug,
+      fogOnDebug,
+      fogFactorDebug,
       cascadeDebug,
       visibilityDebug,
       depthDebug,
@@ -477,6 +564,38 @@ async function setPostProcessDepthOfField(
   await page.waitForTimeout(250);
 }
 
+/// Updates fog settings and waits for a frame with those settings.
+async function setPostProcessFog(
+  page,
+  enabled,
+  startDistance,
+  endDistance,
+  density,
+  colorR,
+  colorG,
+  colorB,
+  curve
+) {
+  const startingFrameIndex = await rendererFrameIndex(page);
+  const expected = { enabled, startDistance, endDistance, density, colorR, colorG, colorB, curve };
+  await page.evaluate((settings) => {
+    window.__ofgDebug?.setPostProcessFog?.(settings);
+  }, expected);
+  await page.waitForFunction(({ expectedSettings, frameIndex }) => {
+    const status = window.__ofgDebug?.getRendererStatus?.();
+    return status?.postProcessFogEnabled === expectedSettings.enabled &&
+      Math.abs(status.postProcessFogStartDistance - expectedSettings.startDistance) < 0.0001 &&
+      Math.abs(status.postProcessFogEndDistance - expectedSettings.endDistance) < 0.0001 &&
+      Math.abs(status.postProcessFogDensity - expectedSettings.density) < 0.0001 &&
+      Math.abs(status.postProcessFogColorR - expectedSettings.colorR) < 0.0001 &&
+      Math.abs(status.postProcessFogColorG - expectedSettings.colorG) < 0.0001 &&
+      Math.abs(status.postProcessFogColorB - expectedSettings.colorB) < 0.0001 &&
+      Math.abs(status.postProcessFogCurve - expectedSettings.curve) < 0.0001 &&
+      status.frameIndex > frameIndex;
+  }, { expectedSettings: expected, frameIndex: startingFrameIndex }, { timeout: 10000 });
+  await page.waitForTimeout(250);
+}
+
 /// Selects a Rust-owned water debug view and waits for the renderer status.
 async function setWaterDebugView(page, view) {
   const startingFrameIndex = await rendererFrameIndex(page);
@@ -514,18 +633,40 @@ async function setCameraMode(page, mode, hudLabel) {
   await page.waitForTimeout(250);
 }
 
-/// Places the Rust debug-fly camera at a deterministic coastal view with visible sea.
+/// Places the Rust debug-fly camera at a deterministic long-horizon terrain view.
+async function setFogVisibleDebugCamera(page) {
+  const startingFrameIndex = await rendererFrameIndex(page);
+  await page.evaluate(({ x, y, z, yaw, pitch }) => {
+    window.__ofgDebug?.setCameraMode?.("debugFly");
+    window.__ofgDebug?.setDebugCamera?.(x, y, z, yaw, pitch);
+  }, {
+    x: 220.0,
+    y: 160.0,
+    z: 260.0,
+    yaw: -2.44,
+    pitch: -0.34
+  });
+  await page.waitForFunction((frameIndex) => {
+    const status = window.__ofgDebug?.getRendererStatus?.();
+    return status?.frameIndex > frameIndex &&
+      document.querySelector("#camera-mode")?.textContent === "FLY";
+  }, startingFrameIndex, { timeout: 10000 });
+  await waitForTerrainLodFrame(page);
+  await page.waitForTimeout(350);
+}
+
+/// Places the Rust debug-fly camera above a deterministic water patch.
 async function setWaterVisibleDebugCamera(page) {
   const startingFrameIndex = await rendererFrameIndex(page);
   await page.evaluate(({ x, y, z, yaw, pitch }) => {
     window.__ofgDebug?.setCameraMode?.("debugFly");
     window.__ofgDebug?.setDebugCamera?.(x, y, z, yaw, pitch);
   }, {
-    x: 48.0,
-    y: 48.214722,
-    z: 62.0,
-    yaw: -2.4827867,
-    pitch: -0.43042037
+    x: -512.0,
+    y: 120.0,
+    z: -1024.0,
+    yaw: 0.0,
+    pitch: -1.35
   });
   await page.waitForFunction((frameIndex) => {
     const status = window.__ofgDebug?.getRendererStatus?.();
@@ -627,6 +768,14 @@ async function exercisePostProcessUi(page) {
   await fillAndCommit(page, "#post-dof-focus", "8");
   await fillAndCommit(page, "#post-dof-range", "1");
   await fillAndCommit(page, "#post-dof-blur", "12");
+  await page.uncheck("#post-fog");
+  await fillAndCommit(page, "#post-fog-start", "6400");
+  await fillAndCommit(page, "#post-fog-end", "10800");
+  await fillAndCommit(page, "#post-fog-density", "0.8");
+  await fillAndCommit(page, "#post-fog-curve", "1.6");
+  await fillAndCommit(page, "#post-fog-r", "0.5");
+  await fillAndCommit(page, "#post-fog-g", "0.6");
+  await fillAndCommit(page, "#post-fog-b", "0.7");
 
   const expected = {
     postProcessDebugView: "bloom",
@@ -638,7 +787,15 @@ async function exercisePostProcessUi(page) {
     postProcessDofEnabled: true,
     postProcessDofFocusDistance: 8,
     postProcessDofFocusRange: 1,
-    postProcessDofMaxBlurPixels: 12
+    postProcessDofMaxBlurPixels: 12,
+    postProcessFogEnabled: false,
+    postProcessFogStartDistance: 6400,
+    postProcessFogEndDistance: 10800,
+    postProcessFogDensity: 0.8,
+    postProcessFogColorR: 0.5,
+    postProcessFogColorG: 0.6,
+    postProcessFogColorB: 0.7,
+    postProcessFogCurve: 1.6
   };
   await waitForPostProcessSettings(page, expected, startingFrameIndex);
   const enabledState = await page.evaluate(() => {
@@ -649,6 +806,7 @@ async function exercisePostProcessUi(page) {
       toneMappingChecked: document.querySelector("#post-tone-mapping")?.checked,
       bloomChecked: document.querySelector("#post-bloom")?.checked,
       dofChecked: document.querySelector("#post-dof")?.checked,
+      fogChecked: document.querySelector("#post-fog")?.checked,
       status: status === undefined
         ? undefined
         : {
@@ -661,7 +819,15 @@ async function exercisePostProcessUi(page) {
             postProcessDofEnabled: status.postProcessDofEnabled,
             postProcessDofFocusDistance: status.postProcessDofFocusDistance,
             postProcessDofFocusRange: status.postProcessDofFocusRange,
-            postProcessDofMaxBlurPixels: status.postProcessDofMaxBlurPixels
+            postProcessDofMaxBlurPixels: status.postProcessDofMaxBlurPixels,
+            postProcessFogEnabled: status.postProcessFogEnabled,
+            postProcessFogStartDistance: status.postProcessFogStartDistance,
+            postProcessFogEndDistance: status.postProcessFogEndDistance,
+            postProcessFogDensity: status.postProcessFogDensity,
+            postProcessFogColorR: status.postProcessFogColorR,
+            postProcessFogColorG: status.postProcessFogColorG,
+            postProcessFogColorB: status.postProcessFogColorB,
+            postProcessFogCurve: status.postProcessFogCurve
           }
     };
   });
@@ -690,7 +856,15 @@ async function exercisePostProcessUi(page) {
             postProcessDofEnabled: status.postProcessDofEnabled,
             postProcessDofFocusDistance: status.postProcessDofFocusDistance,
             postProcessDofFocusRange: status.postProcessDofFocusRange,
-            postProcessDofMaxBlurPixels: status.postProcessDofMaxBlurPixels
+            postProcessDofMaxBlurPixels: status.postProcessDofMaxBlurPixels,
+            postProcessFogEnabled: status.postProcessFogEnabled,
+            postProcessFogStartDistance: status.postProcessFogStartDistance,
+            postProcessFogEndDistance: status.postProcessFogEndDistance,
+            postProcessFogDensity: status.postProcessFogDensity,
+            postProcessFogColorR: status.postProcessFogColorR,
+            postProcessFogColorG: status.postProcessFogColorG,
+            postProcessFogColorB: status.postProcessFogColorB,
+            postProcessFogCurve: status.postProcessFogCurve
           };
     }),
     panelHiddenAfterClose: await page.evaluate(() =>
@@ -829,7 +1003,9 @@ async function waitForWaterSettings(page, expectedSettings, startingFrameIndex) 
         ? "waterEnabled"
         : key === "reflectionEnabled"
           ? "waterReflectionEnabled"
-          : key,
+          : key === "seaLevelMeters"
+            ? "waterSeaLevelMeters"
+            : key,
       value
     ])
   );
@@ -873,12 +1049,12 @@ async function waitForTerrainLodFrame(page) {
       status.pending === false &&
       status.renderedChunkCount > 0 &&
       status.renderedNodeCount > status.renderedChunkCount &&
-      status.maxRenderedLod >= 3 &&
+      status.maxRenderedLod >= 5 &&
       status.visibleWorldSpanXMeters >= minSpanMeters &&
       status.visibleWorldSpanZMeters >= minSpanMeters &&
       terrainNodeKeys.some((key) => key.startsWith("lod0:")) &&
-      terrainNodeKeys.some((key) => key.startsWith("lod3:") || key.startsWith("lod4:"));
-  }, minMultiKmTerrainSpanMeters, { timeout: 120000 });
+      terrainNodeKeys.some((key) => key.startsWith("lod5:"));
+  }, minRealScaleTerrainSpanMeters, { timeout: 120000 });
 }
 
 /// Reads browser HUD values relevant to shell integration.
@@ -940,6 +1116,7 @@ async function readDebugContract(page) {
       skyCloudCoverage: debug?.getSkyCloudCoverage?.(),
       skyStarIntensity: debug?.getSkyStarIntensity?.(),
       postProcessDebugView: debug?.getPostProcessDebugView?.() ?? "missing",
+      postProcessFogEnabled: debug?.getPostProcessFogEnabled?.(),
       perfStats,
       renderDebugOptions,
       debugUi: {
@@ -961,6 +1138,8 @@ async function readDebugContract(page) {
           document.querySelector("#post-bloom") instanceof HTMLInputElement,
         hasPostDof:
           document.querySelector("#post-dof") instanceof HTMLInputElement,
+        hasPostFog:
+          document.querySelector("#post-fog") instanceof HTMLInputElement,
         hasPostReset:
           document.querySelector("#post-debug-reset") instanceof HTMLButtonElement,
         hasWaterDebugView:
@@ -985,7 +1164,7 @@ async function readDebugContract(page) {
             meshCount: status.meshCount,
             textureCount: status.textureCount,
             objectCount: status.objectCount,
-            frameIndex: status.frameIndex.toString(),
+            frameIndex: status.frameIndex,
             frameDrawCount: status.frameDrawCount,
             frameVisibleDrawCount: status.frameVisibleDrawCount,
             frameShadowDrawCount: status.frameShadowDrawCount,
@@ -1039,6 +1218,14 @@ async function readDebugContract(page) {
             postProcessDofFocusDistance: status.postProcessDofFocusDistance,
             postProcessDofFocusRange: status.postProcessDofFocusRange,
             postProcessDofMaxBlurPixels: status.postProcessDofMaxBlurPixels,
+            postProcessFogEnabled: status.postProcessFogEnabled,
+            postProcessFogStartDistance: status.postProcessFogStartDistance,
+            postProcessFogEndDistance: status.postProcessFogEndDistance,
+            postProcessFogDensity: status.postProcessFogDensity,
+            postProcessFogColorR: status.postProcessFogColorR,
+            postProcessFogColorG: status.postProcessFogColorG,
+            postProcessFogColorB: status.postProcessFogColorB,
+            postProcessFogCurve: status.postProcessFogCurve,
             waterRuntime: status.waterRuntime,
             waterEnabled: status.waterEnabled,
             waterReflectionEnabled: status.waterReflectionEnabled,
@@ -1106,9 +1293,18 @@ function assertDebugContract(debug, expectations = {}) {
     dofFocusDistance = defaultPostProcessSettings().postProcessDofFocusDistance,
     dofFocusRange = defaultPostProcessSettings().postProcessDofFocusRange,
     dofMaxBlurPixels = defaultPostProcessSettings().postProcessDofMaxBlurPixels,
+    fogEnabled = defaultPostProcessSettings().postProcessFogEnabled,
+    fogStartDistance = defaultPostProcessSettings().postProcessFogStartDistance,
+    fogEndDistance = defaultPostProcessSettings().postProcessFogEndDistance,
+    fogDensity = defaultPostProcessSettings().postProcessFogDensity,
+    fogColorR = defaultPostProcessSettings().postProcessFogColorR,
+    fogColorG = defaultPostProcessSettings().postProcessFogColorG,
+    fogColorB = defaultPostProcessSettings().postProcessFogColorB,
+    fogCurve = defaultPostProcessSettings().postProcessFogCurve,
     waterDebugView = defaultWaterSettings().waterDebugView,
     waterEnabled = defaultWaterSettings().waterEnabled,
     waterReflectionEnabled = defaultWaterSettings().waterReflectionEnabled,
+    waterSeaLevelMeters = defaultWaterSettings().waterSeaLevelMeters,
     renderDebugOptions = defaultRenderDebugOptions()
   } = expectations;
   if (!debug.hasDebug) {
@@ -1132,6 +1328,7 @@ function assertDebugContract(debug, expectations = {}) {
     debug.debugUi?.hasPostToneMapping !== true ||
     debug.debugUi?.hasPostBloom !== true ||
     debug.debugUi?.hasPostDof !== true ||
+    debug.debugUi?.hasPostFog !== true ||
     debug.debugUi?.hasPostReset !== true ||
     debug.debugUi?.hasWaterDebugView !== true ||
     debug.debugUi?.hasWaterEnabled !== true ||
@@ -1183,9 +1380,9 @@ function assertDebugContract(debug, expectations = {}) {
     terrainStatus.pending !== false ||
     terrainStatus.renderedChunkCount <= 0 ||
     terrainStatus.renderedNodeCount <= terrainStatus.renderedChunkCount ||
-    terrainStatus.maxRenderedLod < 3 ||
-    terrainStatus.visibleWorldSpanXMeters < minMultiKmTerrainSpanMeters ||
-    terrainStatus.visibleWorldSpanZMeters < minMultiKmTerrainSpanMeters ||
+    terrainStatus.maxRenderedLod < 5 ||
+    terrainStatus.visibleWorldSpanXMeters < minRealScaleTerrainSpanMeters ||
+    terrainStatus.visibleWorldSpanZMeters < minRealScaleTerrainSpanMeters ||
     terrainStatus.workerPoolRuntime !== "browser-worker" ||
     terrainStatus.terrainWorkerCount <= 1 ||
     terrainStatus.terrainWorkerCount !== debug.terrainWorkerCount ||
@@ -1255,10 +1452,26 @@ function assertDebugContract(debug, expectations = {}) {
     Math.abs(status.postProcessDofFocusRange - dofFocusRange) > 0.0001 ||
     !Number.isFinite(status.postProcessDofMaxBlurPixels) ||
     Math.abs(status.postProcessDofMaxBlurPixels - dofMaxBlurPixels) > 0.0001 ||
+    status.postProcessFogEnabled !== fogEnabled ||
+    debug.postProcessFogEnabled !== fogEnabled ||
+    !Number.isFinite(status.postProcessFogStartDistance) ||
+    Math.abs(status.postProcessFogStartDistance - fogStartDistance) > 0.0001 ||
+    !Number.isFinite(status.postProcessFogEndDistance) ||
+    Math.abs(status.postProcessFogEndDistance - fogEndDistance) > 0.0001 ||
+    !Number.isFinite(status.postProcessFogDensity) ||
+    Math.abs(status.postProcessFogDensity - fogDensity) > 0.0001 ||
+    !Number.isFinite(status.postProcessFogColorR) ||
+    Math.abs(status.postProcessFogColorR - fogColorR) > 0.0001 ||
+    !Number.isFinite(status.postProcessFogColorG) ||
+    Math.abs(status.postProcessFogColorG - fogColorG) > 0.0001 ||
+    !Number.isFinite(status.postProcessFogColorB) ||
+    Math.abs(status.postProcessFogColorB - fogColorB) > 0.0001 ||
+    !Number.isFinite(status.postProcessFogCurve) ||
+    Math.abs(status.postProcessFogCurve - fogCurve) > 0.0001 ||
     status.waterRuntime !== "rust-wgpu" ||
     status.waterEnabled !== waterEnabled ||
     status.waterReflectionEnabled !== waterReflectionEnabled ||
-    status.waterSeaLevelMeters !== 0 ||
+    Math.abs(status.waterSeaLevelMeters - waterSeaLevelMeters) > 0.0001 ||
     status.waterBathymetryRuntime !== "rust-heightfield" ||
     status.waterBathymetryGridSize !== 32 ||
     !Number.isFinite(status.waterBathymetryWorldSpanMeters) ||
@@ -1383,7 +1596,15 @@ function defaultPostProcessSettings() {
     postProcessDofEnabled: false,
     postProcessDofFocusDistance: 30,
     postProcessDofFocusRange: 8,
-    postProcessDofMaxBlurPixels: 6
+    postProcessDofMaxBlurPixels: 6,
+    postProcessFogEnabled: true,
+    postProcessFogStartDistance: 200,
+    postProcessFogEndDistance: 3000,
+    postProcessFogDensity: 1,
+    postProcessFogColorR: 1,
+    postProcessFogColorG: 1,
+    postProcessFogColorB: 1,
+    postProcessFogCurve: 1.35
   };
 }
 
@@ -1392,7 +1613,8 @@ function defaultWaterSettings() {
   return {
     waterDebugView: "final",
     waterEnabled: true,
-    waterReflectionEnabled: false
+    waterReflectionEnabled: false,
+    waterSeaLevelMeters: 0
   };
 }
 
@@ -1538,6 +1760,8 @@ function analyzePng(buffer) {
   let opaquePixels = 0;
   let waterLikePixels = 0;
   let bottomDepthDebugPixels = 0;
+  let fogFactorDarkPixels = 0;
+  let fogFactorBrightPixels = 0;
   let sumR = 0;
   let sumG = 0;
   let sumB = 0;
@@ -1565,6 +1789,12 @@ function analyzePng(buffer) {
       if (isBottomDepthDebugPixel(r, g, b)) {
         bottomDepthDebugPixels += 1;
       }
+      if (isFogFactorDarkPixel(r, g, b)) {
+        fogFactorDarkPixels += 1;
+      }
+      if (isFogFactorBrightPixel(r, g, b)) {
+        fogFactorBrightPixels += 1;
+      }
       sumR += r;
       sumG += g;
       sumB += b;
@@ -1579,6 +1809,8 @@ function analyzePng(buffer) {
     opaquePixels,
     waterLikePixels,
     bottomDepthDebugPixels,
+    fogFactorDarkPixels,
+    fogFactorBrightPixels,
     uniqueColorBuckets: buckets.size,
     dominantColorRatio: dominantBucketCount / sampledPixels,
     meanColor: {
@@ -1606,6 +1838,20 @@ function isBottomDepthDebugPixel(r, g, b) {
   return maxChannel - minChannel <= 6 &&
     maxChannel >= 24 &&
     maxChannel <= 245;
+}
+
+/// Returns true for near-black grayscale fog-factor pixels.
+function isFogFactorDarkPixel(r, g, b) {
+  const maxChannel = Math.max(r, g, b);
+  const minChannel = Math.min(r, g, b);
+  return maxChannel - minChannel <= 8 && maxChannel <= 48;
+}
+
+/// Returns true for bright grayscale fog-factor pixels.
+function isFogFactorBrightPixel(r, g, b) {
+  const maxChannel = Math.max(r, g, b);
+  const minChannel = Math.min(r, g, b);
+  return maxChannel - minChannel <= 8 && minChannel >= 140;
 }
 
 /// Fails when a screenshot looks blank, transparent, or solid.
@@ -1648,6 +1894,34 @@ function assertWaterBottomDepthPixels(stats, consoleMessages = []) {
     throw new Error(
       `browser water bottom-depth screenshot does not contain enough depth-debug pixels: ` +
       `${JSON.stringify({ ratio, stats })} console=${JSON.stringify(consoleMessages)}`
+    );
+  }
+}
+
+/// Fails if the fog factor debug capture does not contain near and far regions.
+function assertFogFactorPixels(stats, consoleMessages = []) {
+  const darkRatio = stats.fogFactorDarkPixels / stats.sampledPixels;
+  const brightRatio = stats.fogFactorBrightPixels / stats.sampledPixels;
+  if (darkRatio < 0.02 || brightRatio < 0.01) {
+    throw new Error(
+      `browser fog factor screenshot does not contain enough near/far fog range: ` +
+      `${JSON.stringify({ darkRatio, brightRatio, stats })} ` +
+      `console=${JSON.stringify(consoleMessages)}`
+    );
+  }
+}
+
+/// Fails if enabling fog has no measurable effect on the long-horizon capture.
+function assertFogChangesFinalPixels(fogOffStats, fogOnStats, consoleMessages = []) {
+  const delta =
+    Math.abs(fogOffStats.meanColor.r - fogOnStats.meanColor.r) +
+    Math.abs(fogOffStats.meanColor.g - fogOnStats.meanColor.g) +
+    Math.abs(fogOffStats.meanColor.b - fogOnStats.meanColor.b);
+  if (delta < 2.0) {
+    throw new Error(
+      `browser fog on/off screenshots are too similar: ` +
+      `${JSON.stringify({ delta, fogOff: fogOffStats.meanColor, fogOn: fogOnStats.meanColor })} ` +
+      `console=${JSON.stringify(consoleMessages)}`
     );
   }
 }

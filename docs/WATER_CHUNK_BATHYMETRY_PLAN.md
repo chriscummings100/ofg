@@ -27,7 +27,7 @@ After this change, moving through terrain should not trigger renderer-side bathy
   Evidence: `src/engine/web/terrainBuildWorker.ts` calls `ofg_build_chunk_mesh_for_variant` and copies exported buffers.
 
 - Observation: The first packet implementation incorrectly used `height_at_for_variant` for every bathymetry texel. That public helper performs a vertical density search and was the wrong tool for terrain-job bathymetry.
-  Evidence: `height_at_for_variant` delegates to `height_at_with_shape`, which walks from `SURFACE_SEARCH_MAX_Y` to `SURFACE_SEARCH_MIN_Y`.
+  Evidence: `height_at_for_variant` delegates to `height_at_with_shape`, which now brackets a heightfield-like surface around the macro terrain estimate rather than using the terrain job's local bounded water-depth search.
 
 - Observation: Sea-level ownership should stay half-open and local to the node that contains the plane; with independent sampling, sea level `0` belongs to LOD0 node `y = 0`.
   Evidence: the rejected density-chunk approach forced ownership toward the chunk below the plane only because it reused pre-sampled vertical columns. Direct bounded sampling has no such dependency.

@@ -5,6 +5,7 @@
 import { buildPerfOverlayText, type CombinedPerfStats } from "./perfDebug.js";
 import type {
   PostProcessDebugView,
+  PostProcessFogSettings,
   RenderDebugOptions,
   RenderDebugOptionsUpdate,
   WaterDebugView,
@@ -35,6 +36,18 @@ export type RenderDebugUiElements = {
   readonly postDofFocusInput: HTMLInputElement;
   readonly postDofRangeInput: HTMLInputElement;
   readonly postDofBlurInput: HTMLInputElement;
+  readonly postFogCheckbox: HTMLInputElement;
+  readonly postFogStartRange: HTMLInputElement;
+  readonly postFogStartInput: HTMLInputElement;
+  readonly postFogEndRange: HTMLInputElement;
+  readonly postFogEndInput: HTMLInputElement;
+  readonly postFogDensityRange: HTMLInputElement;
+  readonly postFogDensityInput: HTMLInputElement;
+  readonly postFogCurveRange: HTMLInputElement;
+  readonly postFogCurveInput: HTMLInputElement;
+  readonly postFogRInput: HTMLInputElement;
+  readonly postFogGInput: HTMLInputElement;
+  readonly postFogBInput: HTMLInputElement;
   readonly postResetButton: HTMLButtonElement;
   readonly waterDebugViewSelect: HTMLSelectElement;
   readonly waterEnabledCheckbox: HTMLInputElement;
@@ -57,6 +70,14 @@ export type PostProcessDebugState = Pick<
   | "postProcessDofFocusDistance"
   | "postProcessDofFocusRange"
   | "postProcessDofMaxBlurPixels"
+  | "postProcessFogEnabled"
+  | "postProcessFogStartDistance"
+  | "postProcessFogEndDistance"
+  | "postProcessFogDensity"
+  | "postProcessFogColorR"
+  | "postProcessFogColorG"
+  | "postProcessFogColorB"
+  | "postProcessFogCurve"
 >;
 
 export type WaterDebugState = Pick<
@@ -93,6 +114,7 @@ export type RenderDebugUiCallbacks = {
     focusRange: number,
     maxBlurPixels: number
   ) => void;
+  readonly setPostProcessFog: (settings: PostProcessFogSettings) => void;
   readonly resetPostProcess: () => void;
   readonly setWaterDebugView: (view: WaterDebugView) => void;
   readonly setWaterOptions: (options: WaterOptionsUpdate) => void;
@@ -263,6 +285,52 @@ export function createRenderDebugUi(
     );
     callbacks.focusCanvas();
   });
+  elements.postFogCheckbox.addEventListener("change", () => {
+    callbacks.setPostProcessFog(readPostProcessFogInputs(
+      elements,
+      callbacks.getPostProcessState(),
+      elements.postFogCheckbox.checked
+    ));
+    callbacks.focusCanvas();
+  });
+  for (const control of [
+    { range: elements.postFogStartRange, number: elements.postFogStartInput },
+    { range: elements.postFogEndRange, number: elements.postFogEndInput },
+    { range: elements.postFogDensityRange, number: elements.postFogDensityInput },
+    { range: elements.postFogCurveRange, number: elements.postFogCurveInput }
+  ]) {
+    control.range.addEventListener("input", () => {
+      control.number.value = control.range.value;
+      const state = callbacks.getPostProcessState();
+      callbacks.setPostProcessFog(readPostProcessFogInputs(
+        elements,
+        state,
+        state.postProcessFogEnabled
+      ));
+    });
+    control.range.addEventListener("change", () => {
+      callbacks.focusCanvas();
+    });
+  }
+  for (const input of [
+    elements.postFogStartInput,
+    elements.postFogEndInput,
+    elements.postFogDensityInput,
+    elements.postFogCurveInput,
+    elements.postFogRInput,
+    elements.postFogGInput,
+    elements.postFogBInput
+  ]) {
+    input.addEventListener("change", () => {
+      const state = callbacks.getPostProcessState();
+      callbacks.setPostProcessFog(readPostProcessFogInputs(
+        elements,
+        state,
+        state.postProcessFogEnabled
+      ));
+      callbacks.focusCanvas();
+    });
+  }
   elements.postResetButton.addEventListener("click", () => {
     callbacks.resetPostProcess();
     syncPostProcessControls(elements, callbacks.getPostProcessState());
@@ -383,12 +451,63 @@ function syncPostProcessControls(
   elements.postToneMappingCheckbox.checked = state.postProcessToneMappingEnabled;
   elements.postBloomCheckbox.checked = state.postProcessBloomEnabled;
   elements.postDofCheckbox.checked = state.postProcessDofEnabled;
+  elements.postFogCheckbox.checked = state.postProcessFogEnabled;
   setNumberInputValue(elements.postExposureInput, state.postProcessExposure);
   setNumberInputValue(elements.postBloomThresholdInput, state.postProcessBloomThreshold);
   setNumberInputValue(elements.postBloomIntensityInput, state.postProcessBloomIntensity);
   setNumberInputValue(elements.postDofFocusInput, state.postProcessDofFocusDistance);
   setNumberInputValue(elements.postDofRangeInput, state.postProcessDofFocusRange);
   setNumberInputValue(elements.postDofBlurInput, state.postProcessDofMaxBlurPixels);
+  setPairedRangeValue(
+    elements.postFogStartRange,
+    elements.postFogStartInput,
+    state.postProcessFogStartDistance
+  );
+  setPairedRangeValue(
+    elements.postFogEndRange,
+    elements.postFogEndInput,
+    state.postProcessFogEndDistance
+  );
+  setPairedRangeValue(
+    elements.postFogDensityRange,
+    elements.postFogDensityInput,
+    state.postProcessFogDensity
+  );
+  setPairedRangeValue(
+    elements.postFogCurveRange,
+    elements.postFogCurveInput,
+    state.postProcessFogCurve
+  );
+  setNumberInputValue(elements.postFogRInput, state.postProcessFogColorR);
+  setNumberInputValue(elements.postFogGInput, state.postProcessFogColorG);
+  setNumberInputValue(elements.postFogBInput, state.postProcessFogColorB);
+}
+
+/// Reads the fog controls, falling back to the latest Rust-owned fog state.
+function readPostProcessFogInputs(
+  elements: RenderDebugUiElements,
+  state: PostProcessDebugState,
+  enabled: boolean
+): PostProcessFogSettings {
+  const startDistance = readNumberInput(
+    elements.postFogStartInput,
+    state.postProcessFogStartDistance
+  );
+  const endDistance = Math.max(
+    readNumberInput(elements.postFogEndInput, state.postProcessFogEndDistance),
+    startDistance + 50
+  );
+
+  return {
+    enabled,
+    startDistance,
+    endDistance,
+    density: readNumberInput(elements.postFogDensityInput, state.postProcessFogDensity),
+    colorR: readNumberInput(elements.postFogRInput, state.postProcessFogColorR),
+    colorG: readNumberInput(elements.postFogGInput, state.postProcessFogColorG),
+    colorB: readNumberInput(elements.postFogBInput, state.postProcessFogColorB),
+    curve: readNumberInput(elements.postFogCurveInput, state.postProcessFogCurve)
+  };
 }
 
 /// Synchronizes DOM controls from the latest Rust-owned water renderer state.
@@ -443,4 +562,37 @@ function setNumberInputValue(input: HTMLInputElement, value: number): void {
   }
 
   input.value = Number.isFinite(value) ? String(value) : "0";
+}
+
+/// Keeps a slider and exact numeric field in sync without hiding out-of-slider values.
+function setPairedRangeValue(
+  range: HTMLInputElement,
+  number: HTMLInputElement,
+  value: number
+): void {
+  setNumberInputValue(number, value);
+  if (document.activeElement === range) {
+    return;
+  }
+
+  range.value = String(clampToInputRange(range, value));
+}
+
+/// Clamps a value to the finite min/max range advertised by an input element.
+function clampToInputRange(input: HTMLInputElement, value: number): number {
+  if (!Number.isFinite(value)) {
+    return Number(input.min) || 0;
+  }
+
+  const min = Number(input.min);
+  const max = Number(input.max);
+  let next = value;
+  if (Number.isFinite(min)) {
+    next = Math.max(min, next);
+  }
+  if (Number.isFinite(max)) {
+    next = Math.min(max, next);
+  }
+
+  return next;
 }

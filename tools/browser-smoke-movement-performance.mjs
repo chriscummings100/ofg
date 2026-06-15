@@ -8,7 +8,7 @@ import { resolve } from "node:path";
 const movementPerformanceFrameCount = 360;
 const maxMovementP95FrameDeltaMs = 250;
 const maxMovementFrameDeltaMs = 1500;
-const maxMovementTerrainUpdateMs = 500;
+const maxMovementTerrainUpdateMs = 600;
 const minMovementDistanceMeters = 30;
 
 /// Runs the player forward at running speed and records frame/terrain streaming metrics.

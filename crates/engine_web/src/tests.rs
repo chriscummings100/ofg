@@ -6,20 +6,21 @@ use crate::{
     build_specular_glossiness_material_packet, horizontal_movement_is_active,
     import_gltf_model_from_slice, model_primitive_vertex_floats, skin_joint_matrices,
     skin_primitive_vertices, skinned_model_render_assets, BrowserGameInput, BrowserGameState,
-    BrowserGameStateError, BrowserTerrainBuildCompletion, BrowserTerrainStream,
-    BrowserTerrainStreamStatus, LocomotionAnimationController, MaterialPacketError, MeshResource,
-    ModelAnimationChannel, ModelAnimationClip, ModelAnimationInterpolation, ModelAnimationOutputs,
-    ModelAnimationTarget, ModelAsset, ModelAssetError, ModelMaterial, ModelNode,
-    ModelNodeTransform, ModelPrimitive, ModelSkin, ModelVertex, PlayerCharacterLocomotionTuning,
-    PlayerCharacterModel, RenderPacketError, RenderUniformError, RendererState, RendererStateError,
-    ResourceHandle, RgbaTextureArrayAsset, TerrainTextureArrays, TerrainTextureError,
-    TextureResource, ENGINE_RENDER_SNAPSHOT_FLOATS, FRAME_PACKET_FLOATS, MATERIAL_PACKET_FLOATS,
-    MATERIAL_WORKFLOW_METALLIC_ROUGHNESS, MATERIAL_WORKFLOW_SPECULAR_GLOSSINESS,
-    MODEL_VERTEX_FLOATS, QUATERNIUS_IDLE_CLIP_NAME, QUATERNIUS_RUN_CLIP_NAME,
-    QUATERNIUS_WALK_CLIP_NAME, REQUIRED_TEXTURE_ARRAY_LAYERS, SAMPLE_STATIC_BOX_MATERIAL_LABEL,
-    SAMPLE_STATIC_BOX_MESH_LABEL, TERRAIN_ALBEDO_TEXTURE_ARRAY_ID, TERRAIN_MATERIAL_ID,
-    TERRAIN_MATERIAL_PACKET, TERRAIN_MATERIAL_TEXTURE_ARRAY_ID, TERRAIN_NORMAL_TEXTURE_ARRAY_ID,
-    TERRAIN_VERTEX_FLOATS, TEXTURE_FORMAT_RGBA8_UNORM, WORLD_MATRIX_FLOATS,
+    BrowserGameStateError, BrowserTerrainBuildCompletion, BrowserTerrainBuildRequest,
+    BrowserTerrainStream, BrowserTerrainStreamStatus, LocomotionAnimationController,
+    MaterialPacketError, MeshResource, ModelAnimationChannel, ModelAnimationClip,
+    ModelAnimationInterpolation, ModelAnimationOutputs, ModelAnimationTarget, ModelAsset,
+    ModelAssetError, ModelMaterial, ModelNode, ModelNodeTransform, ModelPrimitive, ModelSkin,
+    ModelVertex, PlayerCharacterLocomotionTuning, PlayerCharacterModel, RenderPacketError,
+    RenderUniformError, RendererState, RendererStateError, ResourceHandle, RgbaTextureArrayAsset,
+    TerrainTextureArrays, TerrainTextureError, TextureResource, ENGINE_RENDER_SNAPSHOT_FLOATS,
+    FRAME_PACKET_FLOATS, MATERIAL_PACKET_FLOATS, MATERIAL_WORKFLOW_METALLIC_ROUGHNESS,
+    MATERIAL_WORKFLOW_SPECULAR_GLOSSINESS, MODEL_VERTEX_FLOATS, QUATERNIUS_IDLE_CLIP_NAME,
+    QUATERNIUS_RUN_CLIP_NAME, QUATERNIUS_WALK_CLIP_NAME, REQUIRED_TEXTURE_ARRAY_LAYERS,
+    SAMPLE_STATIC_BOX_MATERIAL_LABEL, SAMPLE_STATIC_BOX_MESH_LABEL,
+    TERRAIN_ALBEDO_TEXTURE_ARRAY_ID, TERRAIN_MATERIAL_ID, TERRAIN_MATERIAL_PACKET,
+    TERRAIN_MATERIAL_TEXTURE_ARRAY_ID, TERRAIN_NORMAL_TEXTURE_ARRAY_ID, TERRAIN_VERTEX_FLOATS,
+    TEXTURE_FORMAT_RGBA8_UNORM, WORLD_MATRIX_FLOATS,
 };
 use engine_core::{EngineError, MaterialId, MeshId, PlayerMode, TerrainComponent, Vec3};
 use terrain_core::{
@@ -43,7 +44,7 @@ const ANIMATED_CUBE_GLTF: &[u8] =
     include_bytes!("../../../assets/models/test-fixtures/animated-cube.gltf");
 const SIMPLE_SKIN_GLTF: &[u8] =
     include_bytes!("../../../assets/models/test-fixtures/simple-skin.gltf");
-const MIN_MULTI_KM_TERRAIN_SPAN_METERS: f64 = 4096.0;
+const MIN_REAL_SCALE_TERRAIN_SPAN_METERS: f64 = 7_000.0;
 
 #[test]
 fn config_rejects_canvas_and_texture_limits_that_webgpu_terrain_cannot_use() {
@@ -1711,17 +1712,19 @@ fn browser_terrain_stream_generates_and_prunes_meshes_in_rust() {
 #[test]
 fn browser_terrain_stream_default_bands_render_multiple_lods_after_settling() {
     let mut stream = BrowserTerrainStream::new(0x0F6, 1).unwrap();
+    stream.configure_worker_runtime(64).unwrap();
     let origin = Vec3::new(0.0, 0.0, 0.0);
     stream.reset_around(origin);
 
     for _ in 0..1600 {
-        stream.tick(origin);
+        stream.tick_for_workers(origin);
+        complete_ready_worker_requests_with_tiny_meshes(&mut stream);
         let status = stream.status();
         if !status.pending
             && status.rendered_chunk_count > 0
-            && status.max_rendered_lod >= 3
-            && status.visible_world_span_x_meters >= MIN_MULTI_KM_TERRAIN_SPAN_METERS
-            && status.visible_world_span_z_meters >= MIN_MULTI_KM_TERRAIN_SPAN_METERS
+            && status.max_rendered_lod >= 5
+            && status.visible_world_span_x_meters >= MIN_REAL_SCALE_TERRAIN_SPAN_METERS
+            && status.visible_world_span_z_meters >= MIN_REAL_SCALE_TERRAIN_SPAN_METERS
         {
             break;
         }
@@ -1733,19 +1736,18 @@ fn browser_terrain_stream_default_bands_render_multiple_lods_after_settling() {
 
     assert!(status.rendered_chunk_count > 0);
     assert!(status.rendered_node_count > status.rendered_chunk_count);
-    assert!(status.max_rendered_lod >= 3);
-    assert!(status.visible_world_span_x_meters >= MIN_MULTI_KM_TERRAIN_SPAN_METERS);
-    assert!(status.visible_world_span_z_meters >= MIN_MULTI_KM_TERRAIN_SPAN_METERS);
+    assert!(status.max_rendered_lod >= 5);
+    assert!(status.visible_world_span_x_meters >= MIN_REAL_SCALE_TERRAIN_SPAN_METERS);
+    assert!(status.visible_world_span_z_meters >= MIN_REAL_SCALE_TERRAIN_SPAN_METERS);
     assert_eq!(status.pending, false);
     assert_eq!(status.missing_node_count, 0);
+    assert!(status.lod_summaries.iter().all(|summary| {
+        summary.min_desired_node_y.is_some() && summary.max_desired_node_y.is_some()
+    }));
     assert_visible_stream_cover(&stream, origin);
-    assert!(loaded_node_keys
-        .iter()
-        .any(|key| key.starts_with("lod4:") && key.contains(",-1,")));
+    assert!(loaded_node_keys.iter().any(|key| key.starts_with("lod5:")));
     assert!(render_node_keys.iter().any(|key| key.starts_with("lod0:")));
-    assert!(render_node_keys
-        .iter()
-        .any(|key| key.starts_with("lod3:") || key.starts_with("lod4:")));
+    assert!(render_node_keys.iter().any(|key| key.starts_with("lod5:")));
 }
 
 #[test]
@@ -1753,11 +1755,7 @@ fn browser_terrain_stream_queues_worker_requests_without_sync_building() {
     let mut stream = BrowserTerrainStream::new_with_lod_bands(
         0x0F6,
         1,
-        vec![TerrainLodBand {
-            lod: 0,
-            horizontal_radius: 0,
-            vertical_chunk_offsets: vec![0],
-        }],
+        vec![TerrainLodBand::fixed_offsets(0, 0, vec![0])],
     )
     .unwrap();
     stream.configure_worker_runtime(2).unwrap();
@@ -1808,11 +1806,7 @@ fn browser_terrain_stream_emits_water_for_generated_empty_sea_level_nodes() {
     let mut stream = BrowserTerrainStream::new_with_lod_bands(
         0x0F6,
         1,
-        vec![TerrainLodBand {
-            lod: 0,
-            horizontal_radius: 0,
-            vertical_chunk_offsets: vec![0],
-        }],
+        vec![TerrainLodBand::fixed_offsets(0, 0, vec![0])],
     )
     .unwrap();
     stream.configure_worker_runtime(1).unwrap();
@@ -1872,11 +1866,7 @@ fn browser_terrain_stream_skips_visibility_resync_when_unchanged() {
     let mut stream = BrowserTerrainStream::new_with_lod_bands(
         0x0F6,
         1,
-        vec![TerrainLodBand {
-            lod: 0,
-            horizontal_radius: 0,
-            vertical_chunk_offsets: vec![0],
-        }],
+        vec![TerrainLodBand::fixed_offsets(0, 0, vec![0])],
     )
     .unwrap();
     let origin = Vec3::new(0.0, 0.0, 0.0);
@@ -1901,11 +1891,7 @@ fn browser_terrain_stream_rejects_stale_worker_completions_and_retries() {
     let mut stream = BrowserTerrainStream::new_with_lod_bands(
         0x0F6,
         1,
-        vec![TerrainLodBand {
-            lod: 0,
-            horizontal_radius: 0,
-            vertical_chunk_offsets: vec![0],
-        }],
+        vec![TerrainLodBand::fixed_offsets(0, 0, vec![0])],
     )
     .unwrap();
     stream.configure_worker_runtime(1).unwrap();
@@ -1947,11 +1933,7 @@ fn browser_terrain_stream_rejects_worker_completions_for_stale_variant_revisions
     let mut stream = BrowserTerrainStream::new_with_lod_bands(
         0x0F6,
         1,
-        vec![TerrainLodBand {
-            lod: 0,
-            horizontal_radius: 0,
-            vertical_chunk_offsets: vec![0],
-        }],
+        vec![TerrainLodBand::fixed_offsets(0, 0, vec![0])],
     )
     .unwrap();
     stream.configure_worker_runtime(1).unwrap();
@@ -1986,11 +1968,7 @@ fn browser_terrain_stream_rejects_worker_completions_after_reset() {
     let mut stream = BrowserTerrainStream::new_with_lod_bands(
         0x0F6,
         1,
-        vec![TerrainLodBand {
-            lod: 0,
-            horizontal_radius: 0,
-            vertical_chunk_offsets: vec![0],
-        }],
+        vec![TerrainLodBand::fixed_offsets(0, 0, vec![0])],
     )
     .unwrap();
     stream.configure_worker_runtime(1).unwrap();
@@ -2021,16 +1999,8 @@ fn browser_terrain_stream_generates_unique_mesh_keys_across_lods() {
         0x0F6,
         1,
         vec![
-            TerrainLodBand {
-                lod: 0,
-                horizontal_radius: 1,
-                vertical_chunk_offsets: vec![0, 1],
-            },
-            TerrainLodBand {
-                lod: 1,
-                horizontal_radius: 1,
-                vertical_chunk_offsets: vec![0],
-            },
+            TerrainLodBand::fixed_offsets(0, 1, vec![0, 1]),
+            TerrainLodBand::fixed_offsets(1, 1, vec![0]),
         ],
     )
     .unwrap();
@@ -2062,21 +2032,9 @@ fn browser_terrain_stream_keeps_current_position_covered_while_running() {
         0x0F6,
         1,
         vec![
-            TerrainLodBand {
-                lod: 0,
-                horizontal_radius: 0,
-                vertical_chunk_offsets: vec![-1, 0, 1],
-            },
-            TerrainLodBand {
-                lod: 1,
-                horizontal_radius: 1,
-                vertical_chunk_offsets: vec![-1, 0],
-            },
-            TerrainLodBand {
-                lod: 2,
-                horizontal_radius: 1,
-                vertical_chunk_offsets: vec![-1, 0],
-            },
+            TerrainLodBand::fixed_offsets(0, 0, vec![-1, 0, 1]),
+            TerrainLodBand::fixed_offsets(1, 1, vec![-1, 0]),
+            TerrainLodBand::fixed_offsets(2, 1, vec![-1, 0]),
         ],
     )
     .unwrap();
@@ -2111,16 +2069,8 @@ fn browser_terrain_stream_swaps_parent_out_after_complete_child_group() {
         0x0F6,
         1,
         vec![
-            TerrainLodBand {
-                lod: 0,
-                horizontal_radius: 1,
-                vertical_chunk_offsets: vec![0, 1],
-            },
-            TerrainLodBand {
-                lod: 1,
-                horizontal_radius: 0,
-                vertical_chunk_offsets: vec![0],
-            },
+            TerrainLodBand::fixed_offsets(0, 1, vec![0, 1]),
+            TerrainLodBand::fixed_offsets(1, 0, vec![0]),
         ],
     )
     .unwrap();
@@ -2161,16 +2111,8 @@ fn browser_terrain_stream_caches_transition_meshes_without_rebuilding_child_mesh
         0x0F6,
         1,
         vec![
-            TerrainLodBand {
-                lod: 0,
-                horizontal_radius: 0,
-                vertical_chunk_offsets: vec![0],
-            },
-            TerrainLodBand {
-                lod: 1,
-                horizontal_radius: 0,
-                vertical_chunk_offsets: vec![0],
-            },
+            TerrainLodBand::fixed_offsets(0, 0, vec![0]),
+            TerrainLodBand::fixed_offsets(1, 0, vec![0]),
         ],
     )
     .unwrap();
@@ -2420,6 +2362,42 @@ fn settle_terrain_stream(stream: &mut BrowserTerrainStream, position: Vec3, max_
             return;
         }
     }
+}
+
+/// Completes queued worker requests with a minimal valid mesh for policy tests.
+fn complete_ready_worker_requests_with_tiny_meshes(stream: &mut BrowserTerrainStream) {
+    for request in stream.take_worker_build_requests() {
+        let vertices = tiny_terrain_triangle_vertices(request);
+        assert!(stream.complete_worker_build(BrowserTerrainBuildCompletion {
+            request_id: request.request_id,
+            generation: request.generation,
+            key: request.key,
+            variant_revision: request.variant_revision,
+            vertices,
+            indices: vec![0, 1, 2],
+            water: None,
+            failed: false,
+        }));
+    }
+}
+
+/// Builds one flat triangle inside the requested node's world-space bounds.
+fn tiny_terrain_triangle_vertices(request: BrowserTerrainBuildRequest) -> Vec<f32> {
+    let node_span = request.cell_size as f32 * TERRAIN_CHUNK_CELLS_PER_AXIS as f32;
+    let x0 = request.key.coord.x as f32 * node_span;
+    let z0 = request.key.coord.z as f32 * node_span;
+    let mut vertices = Vec::with_capacity(TERRAIN_VERTEX_FLOATS as usize * 3);
+    append_tiny_terrain_vertex(&mut vertices, x0, 0.0, z0, 0.0, 0.0);
+    append_tiny_terrain_vertex(&mut vertices, x0 + node_span, 0.0, z0, 1.0, 0.0);
+    append_tiny_terrain_vertex(&mut vertices, x0, 0.0, z0 + node_span, 0.0, 1.0);
+    vertices
+}
+
+/// Appends one terrain-layout vertex with upward normal and simple material weights.
+fn append_tiny_terrain_vertex(vertices: &mut Vec<f32>, x: f32, y: f32, z: f32, u: f32, v: f32) {
+    vertices.extend_from_slice(&[
+        x, y, z, 0.35, 0.75, 0.32, 0.0, 1.0, 0.0, u, v, 0.0, 1.0, 2.0, 3.0, 1.0, 0.0, 0.0, 0.0,
+    ]);
 }
 
 fn assert_visible_stream_cover(stream: &BrowserTerrainStream, position: Vec3) {

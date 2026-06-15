@@ -70,6 +70,28 @@ detail is generated and is the basis for smooth streaming transitions.
   playable stream now includes LOD3/LOD4 far bands, reports a settled visible
   span above 4 km in X and Z, benchmarks realistic terrain-node generation
   populations, and uses browser workers for terrain node builds.
+- [x] (2026-06-14 13:55+01:00) Real-scale preset and far-distance follow-up
+  started in `docs/TERRAIN_REAL_SCALE_PRESETS_AND_FAR_LOD_PLAN.md`: built-in
+  shape presets now target kilometer-scale landform wavelengths, and the
+  first proof stream included LOD5/LOD6 far bands with a settled visible span
+  target above 16 km in X and Z.
+- [x] (2026-06-14 21:20+01:00) Follow-up horizon trim: kept the LOD6 generated
+  span above 16 km so an 8 km-class view has terrain behind post-process fog,
+  but reduced the shared Rust camera far plane from the 24 km proof value to
+  12 km.
+- [x] (2026-06-14 22:06+01:00) Follow-up fog pass: the Rust/wgpu
+  post-process path now applies default-on distance fog from renderer-owned
+  linear depth, exposes fog settings/debug status through Rust commands, and
+  validates fog-off/fog-on/fog-factor screenshots in browser smoke.
+- [x] (2026-06-15 05:45+01:00) Follow-up completion bar: terrain/view-distance
+  work now treats regular large frame or terrain-update spikes as unfinished
+  work for the 60fps target. The fog pass now fades opaque pixels toward the
+  procedural skybox color, with fog RGB controls acting as a tint.
+- [x] (2026-06-15 07:30+01:00) Follow-up horizon trim: user tuning established
+  default fog near/far values of 200 m and 3000 m. The playable default now
+  drops LOD6, uses LOD5 as the far terrain carrier, targets a settled generated
+  span above 7000 m in X and Z, and sets the shared Rust camera far plane to
+  3500 m.
 
 ## Surprises & Discoveries
 
@@ -82,12 +104,12 @@ detail is generated and is the basis for smooth streaming transitions.
   Evidence: `crates/terrain_core/src/mesh.rs` exposes
   `build_chunk_mesh(seed, preset, coord, cell_size)`.
 - Observation: the runtime stream and renderer can process coarser nodes and
-  now use them by default through LOD0 through LOD4 bands.
+  now use them by default through LOD0 through LOD5 bands.
   Evidence:
   `browser_terrain_stream_generates_unique_mesh_keys_across_lods` creates LOD0
   and LOD1 bands, settles the stream, and asserts rendered node keys include
   both LOD0 and LOD1 keys; `browser_terrain_stream_default_bands_render_multiple_lods_after_settling`
-  asserts the default stream reaches at least LOD3 and spans at least 4096m in
+  asserts the default stream reaches at least LOD5 and spans at least 7000m in
   X and Z.
 - Observation: Milestone 1 made `stream.rs` exceed the review skill's 600-line
   split-pressure threshold.
@@ -451,6 +473,10 @@ The plan is accepted only when these observable behaviors are true:
   nonblank terrain pixels and multiple rendered LOD counts in the report.
 - Browser smoke still passes, including reload, input forwarding, WebGPU canvas
   rendering, Rust runtime sentinels, and terrain debug status.
+- Movement/performance smoke or capture evidence shows the default playable
+  path avoids regular large frame or terrain-update spikes. A 500ms-class spike
+  in normal play is not an accepted completion state for terrain, renderer, or
+  stream scheduling changes.
 
 Run these commands before completing the plan:
 
@@ -755,51 +781,45 @@ Core node identity should live in `crates/terrain_core`, either in
         ])
     }
 
-The stream configuration should become band-based instead of one
-horizontal-radius setting:
+The stream configuration is now band-based and supports two vertical policies.
+`FixedOffsets` remains for fixture-only paths and narrow tests. The playable
+browser default uses `Bounded`, which resolves each `(lod, x, z)` column from a
+conservative terrain-interest Y range intersected with a player-centered Y
+window:
 
-    #[derive(Clone, Debug, Eq, PartialEq)]
     pub struct TerrainLodBand {
         pub lod: u8,
         pub horizontal_radius: i32,
-        pub vertical_chunk_offsets: Vec<i32>,
+        pub vertical: TerrainLodVerticalPolicy,
     }
 
-    #[derive(Clone, Debug, Eq, PartialEq)]
-    pub struct TerrainStreamConfig {
-        pub lod_bands: Vec<TerrainLodBand>,
-        pub max_in_flight_jobs: usize,
+    pub enum TerrainLodVerticalPolicy {
+        FixedOffsets(Vec<i32>),
+        Bounded(TerrainLodBoundedVerticalPolicy),
     }
 
-Milestone 3 should enable conservative default bands near
-`crates/engine_web/src/terrain_stream.rs`. This is illustrative; tune the exact
-radii after benchmark and smoke evidence. Milestone 2 intentionally keeps the
-default runtime at a single LOD0 band while tests exercise mixed LODs:
-
-    fn default_terrain_lod_bands() -> Vec<TerrainLodBand> {
-        vec![
-            TerrainLodBand {
-                lod: 0,
-                horizontal_radius: 1,
-                vertical_chunk_offsets: vec![-2, -1, 0, 1],
-            },
-            TerrainLodBand {
-                lod: 1,
-                horizontal_radius: 3,
-                vertical_chunk_offsets: vec![-1, 0, 1],
-            },
-            TerrainLodBand {
-                lod: 2,
-                horizontal_radius: 6,
-                vertical_chunk_offsets: vec![0],
-            },
-            TerrainLodBand {
-                lod: 3,
-                horizontal_radius: 10,
-                vertical_chunk_offsets: vec![0],
-            },
-        ]
+    pub struct TerrainLodBoundedVerticalPolicy {
+        pub below_player_nodes: i32,
+        pub above_player_nodes: i32,
+        pub surface_padding_below_m: f64,
+        pub surface_padding_above_m: f64,
+        pub feature_padding_below_m: f64,
+        pub feature_padding_above_m: f64,
+        pub sample_steps_per_axis: u8,
     }
+
+Current browser defaults in `crates/engine_web/src/terrain_stream.rs` use
+bounded windows of LOD0 `2/1`, LOD1 `3/2`, LOD2 `4/3`, LOD3 `6/5`, LOD4
+`8/7`, and LOD5 `5/4` below/above the player node. Horizontal radii currently
+keep LOD4 at radius 3 and LOD5 at radius 3, so LOD5 carries an approximately
+7 km generated horizon while intermediate LODs remain smaller overlap bands.
+The shared Rust camera far plane is 3500 m. Default post-process fog starts at
+200 m and reaches full skybox-matched blend at 3000 m before the final clip.
+This
+keeps high-detail vertical generation near the player while letting coarser LODs cover
+taller terrain-interest ranges and much longer real-scale landform wavelengths.
+Debug snapshots, Rust smoke reports, and the multi-LOD terrain benchmark expose
+per-LOD desired min/max node Y so changes to these windows are observable.
 
 Scheduler jobs should become node-keyed:
 

@@ -26,7 +26,19 @@ export type PostProcessDebugView =
   | "postToneMap"
   | "bloom"
   | "dofCoc"
-  | "dofBlurred";
+  | "dofBlurred"
+  | "fogFactor";
+
+export type PostProcessFogSettings = {
+  readonly enabled: boolean;
+  readonly startDistance: number;
+  readonly endDistance: number;
+  readonly density: number;
+  readonly colorR: number;
+  readonly colorG: number;
+  readonly colorB: number;
+  readonly curve: number;
+};
 
 export type WaterDebugView = "final" | "bottomDepth" | "pathLength" | "fresnel" | "reflection";
 
@@ -125,6 +137,7 @@ export type GameCommand =
       readonly focusRange: number;
       readonly maxBlurPixels: number;
     }
+  | ({ readonly type: "setPostProcessFog" } & PostProcessFogSettings)
   | { readonly type: "setWaterDebugView"; readonly view: WaterDebugView }
   | ({ readonly type: "setWaterOptions" } & WaterOptionsUpdate)
   | ({ readonly type: "setRenderDebugOptions" } & RenderDebugOptionsUpdate)
@@ -193,6 +206,8 @@ export type TerrainVariantProbeSummary = {
 export type TerrainLodSummary = {
   readonly lod: number;
   readonly desiredNodeCount: number;
+  readonly minDesiredNodeY: number | null;
+  readonly maxDesiredNodeY: number | null;
   readonly densityReadyNodeCount: number;
   readonly renderedNodeCount: number;
   readonly emptyNodeCount: number;

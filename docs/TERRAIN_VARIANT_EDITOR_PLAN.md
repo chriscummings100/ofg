@@ -25,6 +25,7 @@ In that model, terrain shape presets define general ground form, while biomes us
 - [x] (2026-06-10) Milestone 4: Added Rust-owned origin probe readouts, custom edited-variant smoke coverage, and validation coverage for descriptor routing.
 - [x] (2026-06-10) Milestone 5: Updated active API/architecture docs and recorded the shape-preset versus biome handoff.
 - [x] (2026-06-10) Follow-up tuning: Retuned built-in shape presets to meter-scale landform wavelengths and verified them with Rust terrain tests, TypeScript/wasm build tests, and terrain preset smoke.
+- [x] (2026-06-14) Real-scale follow-up: replaced the previous meter-scale tuning with kilometer-scale landform presets, followed by a trimmed LOD5 far band, a 3500 m camera far plane, and a 200-3000 m skybox-matched fog ramp for the current playable horizon.
 
 ## Surprises & Discoveries
 
@@ -100,7 +101,7 @@ Milestone 5 updated the active contracts and architecture docs. The editor is ex
 
 Remaining gaps are future terrain features, not unfinished acceptance for this plan: no spatial variant-region mixer, no real biome/climate/water controls, no hydrology/rivers/caves/erosion, and material-bias fields are descriptor-ready but still intentionally conservative until Rust material tuning is designed.
 
-Follow-up preset tuning made the built-in catalog a better starting point for editor work. The stock frequencies now use meter-scale defaults: broad seed/rolling forms are roughly 625-950 m, mountain valley macro form is roughly 1.8 km with ridge structure around 950 m, and rocky highland combines roughly 1 km massing with 50-200 m roughness. A sampled 4 km x 4 km grid from `assets/wasm/terrain_core.wasm` reports about 40 m of relief for Rolling Hills, about 68 m for Mountain Valley, and about 63 m for Rocky Highland; larger true-mountain relief remains a future vertical-shell and far-field terrain feature rather than a preset-only change. The exact current numbers, real-world scale rationale, constrained fields, and future target ranges are recorded in `docs/TERRAIN_PRESET_SCALE.md`.
+Follow-up preset tuning made the built-in catalog a better starting point for editor work. The stock macro frequencies now use kilometer-scale defaults: Lowland Plain spans roughly 7 km, Rolling Hills uses roughly 4 km broad forms with 1.4 km ridge hints, Mountain Valley uses roughly 9 km macro forms with 3 km ridge structure, and Rocky Highland uses roughly 5.9 km broad massing with 1.6 km ridge structure. Fine density detail still lives around 100-220 m so close terrain does not become featureless. Full human-authored terrain art direction remains a future curation step; the current numbers are a plausible technical baseline. The exact current values, real-world scale rationale, constrained fields, and future target ranges are recorded in `docs/TERRAIN_PRESET_SCALE.md`.
 
 ## Contract and Quality Baseline
 
@@ -123,7 +124,7 @@ The plan is complete only when changed Rust implementation files do not appear i
 
 The current terrain generator is Rust-owned in `crates/terrain_core`. `crates/terrain_core/src/presets.rs` defines four numeric presets. `crates/terrain_core/src/field.rs` builds macro terrain from simplex-style fractal noise, ridged noise, domain warp, cellular breakup, and local 3D detail noise. `crates/terrain_core/src/material.rs` classifies materials from slope, altitude, macro fields, and lightweight biome weights. `crates/terrain_core/src/mesh.rs` builds Dual Contouring meshes from density chunks.
 
-The browser game runtime is Rust-owned in `crates/engine_web`. `crates/engine_web/src/terrain_stream.rs` owns the browser terrain stream and default LOD0 through LOD4 bands. `crates/engine_web/src/wgpu_renderer.rs` owns the wasm-bindgen facade, command parsing, terrain mesh upload/pruning, renderer resources, and debug snapshot conversion.
+The browser game runtime is Rust-owned in `crates/engine_web`. `crates/engine_web/src/terrain_stream.rs` owns the browser terrain stream and default LOD0 through LOD5 bands. `crates/engine_web/src/wgpu_renderer.rs` owns the wasm-bindgen facade, command parsing, terrain mesh upload/pruning, renderer resources, and debug snapshot conversion.
 
 The TypeScript browser shell lives in `src/app` and `src/engine/web`. `src/engine/world/terrainDescriptor.ts` currently exposes URL-facing seed and preset IDs, plus placeholder `seaLevel`, `climatePreset`, and `materialPalette`. `src/engine/web/rustBrowserGameRuntime.ts` sends `resetGame` with `terrainSeed` and numeric `terrainPreset`. `src/engine/web/terrainBuildWorker.ts` is the only compiled TypeScript path allowed to call raw `terrain_core.wasm` terrain mesh exports, and only for Rust-issued worker requests.
 

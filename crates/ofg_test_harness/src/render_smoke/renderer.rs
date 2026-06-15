@@ -3,7 +3,11 @@
 use std::borrow::Cow;
 use std::sync::mpsc;
 
-use engine_core::{sky_state_at_elapsed_seconds, RenderCameraPacket, RenderSnapshot, Vec3};
+use engine_core::{
+    sky_state_at_elapsed_seconds, RenderCameraPacket, RenderSnapshot, Vec3,
+    DEFAULT_CAMERA_FAR_PLANE_METERS, DEFAULT_CAMERA_FOV_Y_RADIANS,
+    DEFAULT_CAMERA_NEAR_PLANE_METERS,
+};
 use engine_web::{
     build_frame_packet_from_engine_snapshot, build_frame_uniform_values,
     build_object_uniform_values, build_shadow_cascades, RenderVec3, ShadowCascadeSet,
@@ -775,9 +779,9 @@ impl CameraSetup {
                 target: self.target,
                 yaw: 0.0,
                 pitch: 0.0,
-                fov_y_radians: 70.0_f32.to_radians(),
-                near_plane: 0.05,
-                far_plane: 500.0,
+                fov_y_radians: DEFAULT_CAMERA_FOV_Y_RADIANS,
+                near_plane: DEFAULT_CAMERA_NEAR_PLANE_METERS,
+                far_plane: DEFAULT_CAMERA_FAR_PLANE_METERS,
             },
             main_light: sky_state.main_light,
             sky: sky_state.sky,

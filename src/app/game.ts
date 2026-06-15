@@ -35,11 +35,13 @@ import {
   type PlayerCharacterId,
   type PlayerMode,
   type PostProcessDebugView,
+  type PostProcessFogSettings,
   type RenderDebugOptions,
   type RenderDebugOptionsUpdate,
   type ShadowDebugView,
   type ShadowSunMode,
-  type WaterDebugView
+  type WaterDebugView,
+  type WaterOptionsUpdate
 } from "../engine/web/browserGameTypes.js";
 
 export type GameTouchControlElements = TouchControlElements & {
@@ -53,6 +55,7 @@ type GameElements = {
   readonly canvas: HTMLCanvasElement;
   readonly cameraMode: HTMLElement;
   readonly characterToggle: HTMLButtonElement;
+  readonly playerCoordinates: HTMLElement;
   readonly frameTime: HTMLElement;
   readonly touchControls: GameTouchControlElements;
   readonly renderDebugUi: GameRenderDebugUiElements;
@@ -96,6 +99,14 @@ declare global {
       getPostProcessDofFocusDistance: () => number;
       getPostProcessDofFocusRange: () => number;
       getPostProcessDofMaxBlurPixels: () => number;
+      getPostProcessFogEnabled: () => boolean;
+      getPostProcessFogStartDistance: () => number;
+      getPostProcessFogEndDistance: () => number;
+      getPostProcessFogDensity: () => number;
+      getPostProcessFogColorR: () => number;
+      getPostProcessFogColorG: () => number;
+      getPostProcessFogColorB: () => number;
+      getPostProcessFogCurve: () => number;
       getWaterDebugView: () => WaterDebugView;
       getWaterEnabled: () => boolean;
       getWaterReflectionEnabled: () => boolean;
@@ -151,8 +162,9 @@ declare global {
         focusRange: number,
         maxBlurPixels: number
       ) => void;
+      setPostProcessFog: (settings: PostProcessFogSettings) => void;
       setWaterDebugView: (view: WaterDebugView) => void;
-      setWaterOptions: (options: { enabled?: boolean; reflectionEnabled?: boolean }) => void;
+      setWaterOptions: (options: WaterOptionsUpdate) => void;
       setPlayerAnimationTuning: (tuning: Partial<PlayerAnimationTuning>) => void;
       setPlayerCharacter: (character: PlayerCharacterId) => void;
       setPlayerPosition: (x: number, z: number) => void;
@@ -213,6 +225,16 @@ export async function startGame(elements: GameElements): Promise<void> {
       readDebugSnapshot().rendererStatus.postProcessDofFocusRange,
     getPostProcessDofMaxBlurPixels: () =>
       readDebugSnapshot().rendererStatus.postProcessDofMaxBlurPixels,
+    getPostProcessFogEnabled: () => readDebugSnapshot().rendererStatus.postProcessFogEnabled,
+    getPostProcessFogStartDistance: () =>
+      readDebugSnapshot().rendererStatus.postProcessFogStartDistance,
+    getPostProcessFogEndDistance: () =>
+      readDebugSnapshot().rendererStatus.postProcessFogEndDistance,
+    getPostProcessFogDensity: () => readDebugSnapshot().rendererStatus.postProcessFogDensity,
+    getPostProcessFogColorR: () => readDebugSnapshot().rendererStatus.postProcessFogColorR,
+    getPostProcessFogColorG: () => readDebugSnapshot().rendererStatus.postProcessFogColorG,
+    getPostProcessFogColorB: () => readDebugSnapshot().rendererStatus.postProcessFogColorB,
+    getPostProcessFogCurve: () => readDebugSnapshot().rendererStatus.postProcessFogCurve,
     getWaterDebugView: () => readDebugSnapshot().rendererStatus.waterDebugView,
     getWaterEnabled: () => readDebugSnapshot().rendererStatus.waterEnabled,
     getWaterReflectionEnabled: () => readDebugSnapshot().rendererStatus.waterReflectionEnabled,
@@ -326,6 +348,12 @@ export async function startGame(elements: GameElements): Promise<void> {
         maxBlurPixels: validatePostProcessDofMaxBlurPixels(maxBlurPixels)
       });
     },
+    setPostProcessFog(settings) {
+      runDebugCommand({
+        type: "setPostProcessFog",
+        ...validatePostProcessFogSettings(settings)
+      });
+    },
     setWaterDebugView(view) {
       runDebugCommand({ type: "setWaterDebugView", view: validateWaterDebugView(view) });
     },
@@ -394,6 +422,12 @@ export async function startGame(elements: GameElements): Promise<void> {
         maxBlurPixels: validatePostProcessDofMaxBlurPixels(maxBlurPixels)
       });
     },
+    setPostProcessFog: (settings) => {
+      runDebugCommand({
+        type: "setPostProcessFog",
+        ...validatePostProcessFogSettings(settings)
+      });
+    },
     resetPostProcess: () => {
       runDebugCommand({
         type: "setPostProcessToneMapping",
@@ -412,6 +446,17 @@ export async function startGame(elements: GameElements): Promise<void> {
         focusDistance: 30,
         focusRange: 8,
         maxBlurPixels: 6
+      });
+      runDebugCommand({
+        type: "setPostProcessFog",
+        enabled: true,
+        startDistance: 200,
+        endDistance: 3_000,
+        density: 1,
+        colorR: 1,
+        colorG: 1,
+        colorB: 1,
+        curve: 1.35
       });
       runDebugCommand({ type: "setPostProcessDebugView", view: "final" });
     },
@@ -493,6 +538,7 @@ export async function startGame(elements: GameElements): Promise<void> {
     elements.cameraMode.textContent = cameraModeLabel(playerMode);
     elements.cameraMode.dataset.mode = playerMode;
     updateCharacterToggle(elements.characterToggle, debugSnapshot);
+    elements.playerCoordinates.textContent = formatPlayerPosition(debugSnapshot.playerPosition);
     elements.frameTime.textContent = `${(deltaSeconds * 1000).toFixed(1)} ms`;
     const hudUpdateMs = performance.now() - hudStartedAt;
     browserPerf.record({
@@ -589,7 +635,8 @@ function validatePostProcessDebugView(view: string): PostProcessDebugView {
     view === "postToneMap" ||
     view === "bloom" ||
     view === "dofCoc" ||
-    view === "dofBlurred"
+    view === "dofBlurred" ||
+    view === "fogFactor"
   ) {
     return view;
   }
@@ -657,6 +704,69 @@ function validatePostProcessDofMaxBlurPixels(maxBlurPixels: number): number {
   }
 
   throw new Error(`Invalid post-process DoF max blur pixels '${maxBlurPixels}'.`);
+}
+
+function validatePostProcessFogSettings(
+  settings: PostProcessFogSettings
+): PostProcessFogSettings {
+  const startDistance = validatePostProcessFogStartDistance(settings.startDistance);
+  const endDistance = validatePostProcessFogEndDistance(settings.endDistance, startDistance);
+
+  return {
+    enabled: validateBoolean(settings.enabled, "postProcessFogEnabled"),
+    startDistance,
+    endDistance,
+    density: validatePostProcessFogDensity(settings.density),
+    colorR: validatePostProcessFogColor(settings.colorR, "R"),
+    colorG: validatePostProcessFogColor(settings.colorG, "G"),
+    colorB: validatePostProcessFogColor(settings.colorB, "B"),
+    curve: validatePostProcessFogCurve(settings.curve)
+  };
+}
+
+function validatePostProcessFogStartDistance(startDistance: number): number {
+  if (Number.isFinite(startDistance) && startDistance >= 0 && startDistance <= 50_000) {
+    return startDistance;
+  }
+
+  throw new Error(`Invalid post-process fog start distance '${startDistance}'.`);
+}
+
+function validatePostProcessFogEndDistance(endDistance: number, startDistance: number): number {
+  if (
+    Number.isFinite(endDistance) &&
+    endDistance >= 0.1 &&
+    endDistance <= 50_000 &&
+    endDistance > startDistance
+  ) {
+    return endDistance;
+  }
+
+  throw new Error(`Invalid post-process fog end distance '${endDistance}'.`);
+}
+
+function validatePostProcessFogDensity(density: number): number {
+  if (Number.isFinite(density) && density >= 0 && density <= 1) {
+    return density;
+  }
+
+  throw new Error(`Invalid post-process fog density '${density}'.`);
+}
+
+function validatePostProcessFogColor(channel: number, label: string): number {
+  if (Number.isFinite(channel) && channel >= 0 && channel <= 16) {
+    return channel;
+  }
+
+  throw new Error(`Invalid post-process fog ${label} color '${channel}'.`);
+}
+
+function validatePostProcessFogCurve(curve: number): number {
+  if (Number.isFinite(curve) && curve >= 0.1 && curve <= 8) {
+    return curve;
+  }
+
+  throw new Error(`Invalid post-process fog curve '${curve}'.`);
 }
 
 function validateRenderDebugOptionsUpdate(
@@ -797,6 +907,15 @@ function cameraModeLabel(mode: PlayerMode): string {
     case "debugFly":
       return "FLY";
   }
+}
+
+/// Formats the Rust-owned player position for the compact debug HUD.
+function formatPlayerPosition(position: {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}): string {
+  return `X ${position.x.toFixed(1)} Y ${position.y.toFixed(1)} Z ${position.z.toFixed(1)}`;
 }
 
 function readFrameInput(

@@ -36,6 +36,7 @@ pub struct ImageReport {
     pub height: u32,
     pub pixel_stats: PixelStats,
     pub water: WaterImageReport,
+    pub post_process: PostProcessImageReport,
     pub debug: ScenarioDebug,
 }
 
@@ -51,6 +52,33 @@ pub struct WaterImageReport {
     pub bathymetry_world_span_meters: f32,
     pub bathymetry_center_x: f32,
     pub bathymetry_center_z: f32,
+}
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PostProcessImageReport {
+    pub runtime: &'static str,
+    pub applied_in_native_smoke: bool,
+    pub fog_enabled: bool,
+    pub fog_start_distance_meters: f32,
+    pub fog_end_distance_meters: f32,
+    pub fog_density: f32,
+    pub fog_color: [f32; 3],
+    pub fog_curve: f32,
+}
+
+/// Returns the Rust/browser post-process fog defaults tracked by native smoke.
+pub(super) fn default_post_process_report() -> PostProcessImageReport {
+    PostProcessImageReport {
+        runtime: "rust-wgpu",
+        applied_in_native_smoke: false,
+        fog_enabled: true,
+        fog_start_distance_meters: 200.0,
+        fog_end_distance_meters: 3_000.0,
+        fog_density: 1.0,
+        fog_color: [1.0, 1.0, 1.0],
+        fog_curve: 1.35,
+    }
 }
 
 #[derive(Serialize)]
@@ -118,6 +146,7 @@ pub struct ScenarioDebug {
     pub visible_world_span_x_meters: f64,
     pub visible_world_span_z_meters: f64,
     pub rendered_lod_counts: Vec<LodCountReport>,
+    pub stream_lod_counts: Vec<LodStreamReport>,
     pub transition_face_count: usize,
     pub transition_mesh_count: usize,
     pub transition_vertex_count: usize,
@@ -134,6 +163,18 @@ pub struct ScenarioDebug {
 pub struct LodCountReport {
     pub lod: u8,
     pub node_count: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LodStreamReport {
+    pub lod: u8,
+    pub desired_node_count: usize,
+    pub min_desired_node_y: Option<i32>,
+    pub max_desired_node_y: Option<i32>,
+    pub rendered_node_count: usize,
+    pub empty_node_count: usize,
+    pub missing_node_count: usize,
 }
 
 /// Computes pixel statistics for a rendered RGBA image.
@@ -506,6 +547,7 @@ mod tests {
                     bathymetry_center_x: 0.0,
                     bathymetry_center_z: 0.0,
                 },
+                post_process: default_post_process_report(),
                 debug: ScenarioDebug {
                     terrain_seed: 246,
                     terrain_preset: "rollingHills",
@@ -527,6 +569,15 @@ mod tests {
                     rendered_lod_counts: vec![LodCountReport {
                         lod: 0,
                         node_count: 1,
+                    }],
+                    stream_lod_counts: vec![LodStreamReport {
+                        lod: 0,
+                        desired_node_count: 1,
+                        min_desired_node_y: Some(0),
+                        max_desired_node_y: Some(0),
+                        rendered_node_count: 1,
+                        empty_node_count: 0,
+                        missing_node_count: 0,
                     }],
                     transition_face_count: 0,
                     transition_mesh_count: 0,
@@ -577,6 +628,15 @@ mod tests {
         assert!(value["artifactDir"].is_string());
         assert!(value["renderer"]["deviceType"].is_string());
         assert!(value["images"][0]["pixelStats"]["sampledPixels"].is_number());
+        assert_eq!(value["images"][0]["postProcess"]["runtime"], "rust-wgpu");
+        assert_eq!(
+            value["images"][0]["postProcess"]["fogStartDistanceMeters"],
+            200.0
+        );
+        assert_eq!(
+            value["images"][0]["postProcess"]["appliedInNativeSmoke"],
+            false
+        );
         assert_eq!(value["images"][0]["debug"]["terrainPreset"], "rollingHills");
         assert!(value["shadowImages"][0]["shadowStats"]["nonBlackPixels"].is_number());
     }

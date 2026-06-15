@@ -1,6 +1,9 @@
 // Browser-free typed components used by the scene graph.
 use crate::math::Vec3;
 use crate::player::{PlayerConfig, PlayerMode, PlayerMovementIntent};
+use crate::render_packet::{
+    DEFAULT_CAMERA_FAR_PLANE_METERS, DEFAULT_CAMERA_FOV_Y_RADIANS, DEFAULT_CAMERA_NEAR_PLANE_METERS,
+};
 use crate::scene::EntityId;
 use crate::scene_resources::{MaterialId, MeshId};
 
@@ -14,9 +17,9 @@ pub struct CameraComponent {
 impl Default for CameraComponent {
     fn default() -> Self {
         Self {
-            fov_y_radians: 70.0_f32.to_radians(),
-            near_plane: 0.05,
-            far_plane: 500.0,
+            fov_y_radians: DEFAULT_CAMERA_FOV_Y_RADIANS,
+            near_plane: DEFAULT_CAMERA_NEAR_PLANE_METERS,
+            far_plane: DEFAULT_CAMERA_FAR_PLANE_METERS,
         }
     }
 }

@@ -100,11 +100,13 @@ smoke tests. Current commands are:
     { type: "setDebugCamera", x, y, z, yaw, pitch }
     { type: "setPostProcessDebugView", view: "final" | "sceneColor" |
       "linearDepth" | "postToneMap" | "bloom" | "dofCoc" |
-      "dofBlurred" }
+      "dofBlurred" | "fogFactor" }
     { type: "setPostProcessToneMapping", enabled, exposure }
     { type: "setPostProcessBloom", enabled, threshold, intensity }
     { type: "setPostProcessDepthOfField", enabled, focusDistance,
       focusRange, maxBlurPixels }
+    { type: "setPostProcessFog", enabled, startDistance, endDistance,
+      density, colorR, colorG, colorB, curve }
     { type: "setWaterDebugView",
       view: "final" | "bottomDepth" | "pathLength" | "fresnel" |
         "reflection" }
@@ -146,7 +148,7 @@ and the selected post-process debug view:
     rendererStatus.postProcessRuntime === "rust-wgpu"
     rendererStatus.postProcessDebugView === "final" | "sceneColor" |
       "linearDepth" | "postToneMap" | "bloom" | "dofCoc" |
-      "dofBlurred"
+      "dofBlurred" | "fogFactor"
     rendererStatus.postProcessExposure: number
     rendererStatus.postProcessToneMappingEnabled: boolean
     rendererStatus.postProcessBloomEnabled: boolean
@@ -156,6 +158,14 @@ and the selected post-process debug view:
     rendererStatus.postProcessDofFocusDistance: number
     rendererStatus.postProcessDofFocusRange: number
     rendererStatus.postProcessDofMaxBlurPixels: number
+    rendererStatus.postProcessFogEnabled: boolean
+    rendererStatus.postProcessFogStartDistance: number
+    rendererStatus.postProcessFogEndDistance: number
+    rendererStatus.postProcessFogDensity: number
+    rendererStatus.postProcessFogColorR: number
+    rendererStatus.postProcessFogColorG: number
+    rendererStatus.postProcessFogColorB: number
+    rendererStatus.postProcessFogCurve: number
     rendererStatus.waterRuntime === "rust-wgpu"
     rendererStatus.waterEnabled: boolean
     rendererStatus.waterReflectionEnabled: boolean
@@ -227,7 +237,11 @@ worker request queueing, visibility selection/status/apply, deferred mesh
 destruction, and GPU mesh upload/registration. Budget fields report whether
 mesh upload or removal work remains queued after the current frame. These
 fields are intended for smoke and performance reports, not for browser-side
-terrain scheduling decisions.
+terrain scheduling decisions. OFG is targeting a 60fps game feel: terrain,
+renderer, and streaming changes are not complete if normal play produces
+regular large frame spikes. A 500ms terrain update or frame spike is a failure
+to fix or explicitly quarantine behind a non-default diagnostic path, not an
+acceptable completed baseline.
 
 `rustPerfStats` is Rust-owned frame-history data. It summarizes recent Rust CPU
 timing spans, renderer counters, latest terrain LOD counters, shadow cascade
@@ -243,7 +257,10 @@ are Rust-produced stable IDs in the form `lodN:x,y,z`. The accompanying
 `terrainStreamStatus` includes legacy chunk counts for HUD/smoke compatibility
 and node/LOD fields such as `loadedNodeCount`, `renderedNodeCount`,
 `maxRenderedLod`, `visibleWorldSpanXMeters`, `visibleWorldSpanZMeters`, and
-`terrainLodSummary`. It also includes Rust-owned surface-placement counters:
+`terrainLodSummary`. Each `terrainLodSummary` entry includes Rust-authored
+`minDesiredNodeY` and `maxDesiredNodeY` fields, which are nullable when a LOD
+has no desired nodes and otherwise report the desired vertical node range after
+bounded vertical band resolution. It also includes Rust-owned surface-placement counters:
 `placementCandidateCount`, `placementSampleCount`,
 `placementMissedSurfaceCount`, `placementRejectedBelowWaterCount`, and
 `placementRejectedSlopeCount`. It also includes Rust-owned LOD transition edge
@@ -251,8 +268,11 @@ mesh counters: `transitionFaceCount`, `transitionMeshCount`,
 `transitionVertexFloatCount`, and `transitionIndexCount`. These are debug
 counts from mesh-backed Rust placement sampling and Rust-derived apron
 rendering, not browser placement or terrain ownership. The default playable
-stream currently reaches LOD4 and reports a settled horizontal visible span of
-at least 4096 meters in X and Z.
+stream currently reaches LOD5 and reports a settled horizontal visible span of
+at least 7000 meters in X and Z. Rust-owned camera defaults use a 3500 meter
+far plane, with default post-process fog starting at 200 meters and reaching
+full blend at 3000 meters so terrain remains generated just beyond the visible
+fogged horizon without keeping the earlier LOD6/18 km proof span.
 The browser playable path reports `workerPoolRuntime === "browser-worker"`,
 the actual `terrainWorkerCount`, worker in-flight/queued/completed/stale/failed
 counters, and `synchronousBuildCount`. Native tests and Rust smoke can still
@@ -400,8 +420,9 @@ Current hook categories:
 - Runtime ownership sentinel strings such as `"rust"` and `"rust-wgpu"`.
 - Debug commands that call `game.command(...)`.
 - Post-process debug view commands and screenshots. Current debug views are
-  final output, HDR scene color, linear depth, post-tone-map color, and bloom
-  contribution, DoF circle of confusion, and DoF blurred scene color.
+  final output, HDR scene color, linear depth, post-tone-map color, bloom
+  contribution, DoF circle of confusion, DoF blurred scene color, and fog
+  factor.
 - Water debug view commands and screenshots. Current water debug views are
   final water composite, vertical bottom depth, optical path length, Fresnel,
   and reflection contribution.
@@ -462,7 +483,15 @@ commands and renderer status. Depth of field is Rust/wgpu-owned and default
 off: the post shader derives a per-pixel circle of confusion from the
 renderer-owned linear-depth target, samples a small fullscreen blur in post, and
 exposes enabled/focus-distance/focus-range/max-blur-pixels through Rust commands
-and renderer status.
+and renderer status. Distance fog is Rust/wgpu-owned and default on: the post
+shader computes fog factor from renderer-owned linear depth, ignores sky pixels
+with zero/nonpositive depth, blends opaque scene pixels toward the same
+procedural sky color sampled by the sky pass before tone mapping, and exposes
+enablement, start/end distance, density, color,
+curve, and a `fogFactor` debug view through Rust commands and renderer status.
+The fog RGB values are tint multipliers over the procedural skybox color; the
+default `[1, 1, 1]` tint means distant opaque pixels converge to the actual sky
+at that screen direction, not to an independent fixed color.
 
 Sea-level water is Rust/wgpu-owned. Terrain node generation also emits optional
 node-local water packets: the node job that owns the sea-level Y slice samples a

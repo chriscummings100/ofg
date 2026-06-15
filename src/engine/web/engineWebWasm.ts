@@ -89,6 +89,14 @@ export type EngineWebRendererStatus = {
   readonly postProcessDofFocusDistance: number;
   readonly postProcessDofFocusRange: number;
   readonly postProcessDofMaxBlurPixels: number;
+  readonly postProcessFogEnabled: boolean;
+  readonly postProcessFogStartDistance: number;
+  readonly postProcessFogEndDistance: number;
+  readonly postProcessFogDensity: number;
+  readonly postProcessFogColorR: number;
+  readonly postProcessFogColorG: number;
+  readonly postProcessFogColorB: number;
+  readonly postProcessFogCurve: number;
   readonly waterRuntime: "rust-wgpu";
   readonly waterEnabled: boolean;
   readonly waterReflectionEnabled: boolean;

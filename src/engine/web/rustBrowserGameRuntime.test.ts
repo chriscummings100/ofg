@@ -55,6 +55,17 @@ describe("RustBrowserGameRuntime", () => {
       focusRange: 4,
       maxBlurPixels: 10
     });
+    runtime.command({
+      type: "setPostProcessFog",
+      enabled: true,
+      startDistance: 6400,
+      endDistance: 10800,
+      density: 0.8,
+      colorR: 0.5,
+      colorG: 0.6,
+      colorB: 0.7,
+      curve: 1.6
+    });
     runtime.command({ type: "setWaterDebugView", view: "pathLength" });
     runtime.command({
       type: "setWaterOptions",
@@ -103,8 +114,19 @@ describe("RustBrowserGameRuntime", () => {
       focusRange: 4,
       maxBlurPixels: 10
     });
-    deepEqual(renderer.commandCalls[7], { type: "setWaterDebugView", view: "pathLength" });
-    deepEqual(renderer.commandCalls[8], {
+    deepEqual(renderer.commandCalls[7], {
+      type: "setPostProcessFog",
+      enabled: true,
+      startDistance: 6400,
+      endDistance: 10800,
+      density: 0.8,
+      colorR: 0.5,
+      colorG: 0.6,
+      colorB: 0.7,
+      curve: 1.6
+    });
+    deepEqual(renderer.commandCalls[8], { type: "setWaterDebugView", view: "pathLength" });
+    deepEqual(renderer.commandCalls[9], {
       type: "setWaterOptions",
       enabled: true,
       reflectionEnabled: false,
@@ -114,15 +136,15 @@ describe("RustBrowserGameRuntime", () => {
       waveScale: 0.12,
       waveStrength: 0.3
     });
-    deepEqual(renderer.commandCalls[9], {
+    deepEqual(renderer.commandCalls[10], {
       type: "setRenderDebugOptions",
       skyEnabled: false,
       skyCloudNoiseEnabled: false,
       shadowSamplingEnabled: false,
       materialMode: "lambert"
     });
-    deepEqual(renderer.commandCalls[10], { type: "resetRenderDebugOptions" });
-    deepEqual(renderer.commandCalls[11], { type: "resetPerfStats" });
+    deepEqual(renderer.commandCalls[11], { type: "resetRenderDebugOptions" });
+    deepEqual(renderer.commandCalls[12], { type: "resetPerfStats" });
     equal(snapshot.terrainStreamStatus.workerPoolRuntime, "rust-sync");
     equal(snapshot.rendererStatus.runtime, "rust-wgpu");
     equal(snapshot.rendererStatus.gpuTimerAvailable, false);
@@ -130,6 +152,7 @@ describe("RustBrowserGameRuntime", () => {
     equal(snapshot.rendererStatus.postProcessToneMappingEnabled, true);
     equal(snapshot.rendererStatus.postProcessBloomEnabled, true);
     equal(snapshot.rendererStatus.postProcessDofEnabled, false);
+    equal(snapshot.rendererStatus.postProcessFogEnabled, true);
     equal(snapshot.rendererStatus.waterRuntime, "rust-wgpu");
     equal(snapshot.rendererStatus.waterBathymetryRuntime, "rust-heightfield");
     equal(snapshot.shadowDebugView, "cascadeIndex");
@@ -200,6 +223,8 @@ function fakeRenderer(): FakeRenderer {
             {
               lod: 0,
               desiredNodeCount: 1,
+              minDesiredNodeY: 0,
+              maxDesiredNodeY: 0,
               densityReadyNodeCount: 1,
               renderedNodeCount: 1,
               emptyNodeCount: 0,

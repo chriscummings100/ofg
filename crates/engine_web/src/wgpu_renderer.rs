@@ -181,6 +181,12 @@ struct RustBrowserGameStatus {
     post_process_dof_focus_distance: f32,
     post_process_dof_focus_range: f32,
     post_process_dof_max_blur_pixels: f32,
+    post_process_fog_enabled: bool,
+    post_process_fog_start_distance: f32,
+    post_process_fog_end_distance: f32,
+    post_process_fog_density: f32,
+    post_process_fog_color: [f32; 3],
+    post_process_fog_curve: f32,
     water_status: WaterStatus,
     gpu_timer_status: GpuTimerStatus,
     render_debug_options: RenderDebugOptions,
@@ -896,6 +902,27 @@ impl RustBrowserGame {
                     focus_distance,
                     focus_range,
                     max_blur_pixels,
+                )?;
+            }
+            "setPostProcessFog" => {
+                let enabled = js_required_bool(&command, "enabled", "command.enabled")?;
+                let start_distance =
+                    js_required_f32(&command, "startDistance", "command.startDistance")?;
+                let end_distance = js_required_f32(&command, "endDistance", "command.endDistance")?;
+                let density = js_required_f32(&command, "density", "command.density")?;
+                let color = [
+                    js_required_f32(&command, "colorR", "command.colorR")?,
+                    js_required_f32(&command, "colorG", "command.colorG")?,
+                    js_required_f32(&command, "colorB", "command.colorB")?,
+                ];
+                let curve = js_required_f32(&command, "curve", "command.curve")?;
+                self.renderer.set_post_process_fog(
+                    enabled,
+                    start_distance,
+                    end_distance,
+                    density,
+                    color,
+                    curve,
                 )?;
             }
             "setWaterDebugView" => {
@@ -1968,8 +1995,13 @@ impl BrowserWgpuRenderer {
             create_reflection_model_pipeline(&device, &pipeline_layout, &shader);
         let sky_pipeline = create_sky_pipeline(&device, &sky_pipeline_layout, &shader);
         let shadow_pipelines = create_shadow_pipelines(&device, &shadow_pipeline_layout, &shader);
-        let post_process =
-            PostProcessResources::new(&device, format, display_width, display_height);
+        let post_process = PostProcessResources::new(
+            &device,
+            &camera_bind_group_layout,
+            format,
+            display_width,
+            display_height,
+        );
         let water_renderer = WaterRendererResources::new(
             &device,
             &camera_bind_group_layout,
@@ -2302,6 +2334,52 @@ impl BrowserWgpuRenderer {
         Ok(())
     }
 
+    fn set_post_process_fog(
+        &mut self,
+        enabled: bool,
+        start_distance: f32,
+        end_distance: f32,
+        density: f32,
+        color: [f32; 3],
+        curve: f32,
+    ) -> Result<(), JsValue> {
+        if !(0.0..=50_000.0).contains(&start_distance) {
+            return Err(js_error(
+                "Rust WebGPU renderer expected fog start distance in the range 0.0..=50000.0.",
+            ));
+        }
+        if !(0.1..=50_000.0).contains(&end_distance) || end_distance <= start_distance {
+            return Err(js_error(
+                "Rust WebGPU renderer expected fog end distance above start and in the range 0.1..=50000.0.",
+            ));
+        }
+        if !(0.0..=1.0).contains(&density) {
+            return Err(js_error(
+                "Rust WebGPU renderer expected fog density in the range 0.0..=1.0.",
+            ));
+        }
+        if !color.iter().all(|channel| (0.0..=16.0).contains(channel)) {
+            return Err(js_error(
+                "Rust WebGPU renderer expected fog tint channels in the range 0.0..=16.0.",
+            ));
+        }
+        if !(0.1..=8.0).contains(&curve) {
+            return Err(js_error(
+                "Rust WebGPU renderer expected fog curve in the range 0.1..=8.0.",
+            ));
+        }
+
+        self.post_process_settings.set_fog(
+            enabled,
+            start_distance,
+            end_distance,
+            density,
+            color,
+            curve,
+        );
+        Ok(())
+    }
+
     fn set_water_debug_view(&mut self, debug_view: WaterDebugView) {
         self.water_settings = self.water_settings.with_debug_view(debug_view);
     }
@@ -2602,6 +2680,7 @@ impl BrowserWgpuRenderer {
         self.post_process.render(
             &self.queue,
             &mut encoder,
+            &self.camera_bind_group,
             &view,
             self.post_process_settings,
             bloom_timestamp_writes,
@@ -3260,6 +3339,12 @@ impl BrowserWgpuRenderer {
             post_process_dof_focus_distance: self.post_process_settings.dof_focus_distance(),
             post_process_dof_focus_range: self.post_process_settings.dof_focus_range(),
             post_process_dof_max_blur_pixels: self.post_process_settings.dof_max_blur_pixels(),
+            post_process_fog_enabled: self.post_process_settings.fog_enabled(),
+            post_process_fog_start_distance: self.post_process_settings.fog_start_distance(),
+            post_process_fog_end_distance: self.post_process_settings.fog_end_distance(),
+            post_process_fog_density: self.post_process_settings.fog_density(),
+            post_process_fog_color: self.post_process_settings.fog_color(),
+            post_process_fog_curve: self.post_process_settings.fog_curve(),
             water_status: {
                 let (reflection_width, reflection_height) = self.water_renderer.reflection_size();
                 self.water_settings.status().with_runtime_resources(
@@ -4569,6 +4654,46 @@ fn renderer_status_to_js(status: RustBrowserGameStatus) -> Result<JsValue, JsVal
     )?;
     set_js_property(
         &object,
+        "postProcessFogEnabled",
+        JsValue::from_bool(status.post_process_fog_enabled),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessFogStartDistance",
+        JsValue::from_f64(status.post_process_fog_start_distance as f64),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessFogEndDistance",
+        JsValue::from_f64(status.post_process_fog_end_distance as f64),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessFogDensity",
+        JsValue::from_f64(status.post_process_fog_density as f64),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessFogColorR",
+        JsValue::from_f64(status.post_process_fog_color[0] as f64),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessFogColorG",
+        JsValue::from_f64(status.post_process_fog_color[1] as f64),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessFogColorB",
+        JsValue::from_f64(status.post_process_fog_color[2] as f64),
+    )?;
+    set_js_property(
+        &object,
+        "postProcessFogCurve",
+        JsValue::from_f64(status.post_process_fog_curve as f64),
+    )?;
+    set_js_property(
+        &object,
         "waterRuntime",
         JsValue::from_str(status.water_status.runtime),
     )?;
@@ -5862,6 +5987,16 @@ fn terrain_lod_summary_to_js(
         )?;
         set_js_property(
             &object,
+            "minDesiredNodeY",
+            optional_i32_to_js(status.min_desired_node_y),
+        )?;
+        set_js_property(
+            &object,
+            "maxDesiredNodeY",
+            optional_i32_to_js(status.max_desired_node_y),
+        )?;
+        set_js_property(
+            &object,
             "densityReadyNodeCount",
             JsValue::from_f64(status.density_ready_node_count as f64),
         )?;
@@ -5884,6 +6019,12 @@ fn terrain_lod_summary_to_js(
     }
 
     Ok(array.into())
+}
+
+fn optional_i32_to_js(value: Option<i32>) -> JsValue {
+    value
+        .map(|value| JsValue::from_f64(value as f64))
+        .unwrap_or(JsValue::NULL)
 }
 
 fn terrain_job_stats_to_js(stats: TerrainJobStats) -> Result<JsValue, JsValue> {

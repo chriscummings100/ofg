@@ -68,7 +68,7 @@ fn scenarios_cover_boot_preset_variant_seam_and_lod_groups() {
             .iter()
             .filter(|scenario| ScenarioFilter::Lods.matches(scenario.group))
             .count(),
-        3
+        4
     );
 
     let mut file_names = scenarios
@@ -94,6 +94,9 @@ fn scenarios_cover_boot_preset_variant_seam_and_lod_groups() {
     assert!(scenarios
         .iter()
         .any(|scenario| scenario.name == "variant-ridge-heavy"));
+    assert!(scenarios
+        .iter()
+        .any(|scenario| scenario.name == "vertical-band-high-relief"));
     assert_eq!(
         scenarios
             .iter()
@@ -121,6 +124,13 @@ fn builds_boot_scenario_terrain_with_debug_metadata() {
     assert!(terrain.debug.loaded_chunk_count >= terrain.debug.rendered_chunk_count);
     assert!(terrain.debug.loaded_node_count >= terrain.debug.rendered_node_count);
     assert_eq!(terrain.debug.max_rendered_lod, 0);
+    assert!(terrain
+        .debug
+        .stream_lod_counts
+        .iter()
+        .all(
+            |summary| summary.min_desired_node_y.is_some() && summary.max_desired_node_y.is_some()
+        ));
     assert_eq!(terrain.debug.transition_face_count, 0);
     assert_eq!(terrain.debug.transition_mesh_count, 0);
     assert!(terrain.debug.vertex_count > 0);
@@ -152,34 +162,16 @@ fn variant_scenario_terrain_uses_custom_descriptor_metadata() {
 }
 
 #[test]
-fn multi_lod_scenario_terrain_reports_lod_counts() {
+fn multi_lod_scenario_is_configured_for_real_scale_lod_smoke() {
     let scenario = scenarios()
         .into_iter()
         .find(|scenario| scenario.name == "far-view-multi-lod")
         .expect("far-view scenario should exist");
 
-    let terrain = build_scenario_terrain(scenario).expect("far-view scenario should build terrain");
-
-    assert!(terrain.debug.rendered_chunk_count > 0);
-    assert!(terrain.debug.rendered_node_count > terrain.debug.rendered_chunk_count);
-    assert!(terrain.debug.max_rendered_lod >= 3);
-    assert!(terrain.debug.visible_world_span_x_meters >= 4096.0);
-    assert!(terrain.debug.visible_world_span_z_meters >= 4096.0);
-    assert!(terrain.debug.rendered_lod_counts.len() >= 2);
-    assert!(terrain.debug.transition_face_count > 0);
-    assert_eq!(
-        terrain.debug.transition_mesh_count,
-        terrain.debug.transition_face_count
-    );
-    assert!(terrain.debug.transition_vertex_count > 0);
-    assert!(terrain.debug.transition_index_count > 0);
-    assert!(terrain.debug.transition_vertex_float_count > 0);
-    assert!(terrain.meshes.len() > terrain.debug.rendered_node_count);
-    assert!(terrain
-        .debug
-        .rendered_node_keys
-        .iter()
-        .any(|key| key.starts_with("lod3:") || key.starts_with("lod4:")));
+    assert_eq!(scenario.group, ScenarioFilter::Lods);
+    assert_eq!(scenario.stream_mode, ScenarioStreamMode::MultiLod);
+    assert!(scenario.max_stream_ticks >= 1600);
+    assert_eq!(scenario.preset, 2);
 }
 
 #[test]

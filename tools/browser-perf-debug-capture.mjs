@@ -17,7 +17,7 @@ const sampleFrames = Number.parseInt(process.env.OFG_PERF_SAMPLE_FRAMES ?? "120"
 const artifactRoot = resolve(root, "artifacts", "perf-debug");
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
 const artifactDir = resolve(artifactRoot, runId);
-const minMultiKmTerrainSpanMeters = 4096;
+const minRealScaleTerrainSpanMeters = 7000;
 
 const experiments = [
   {
@@ -533,12 +533,12 @@ async function waitForTerrainLodFrame(page) {
       status.pending === false &&
       status.renderedChunkCount > 0 &&
       status.renderedNodeCount > status.renderedChunkCount &&
-      status.maxRenderedLod >= 3 &&
+      status.maxRenderedLod >= 5 &&
       status.visibleWorldSpanXMeters >= minSpanMeters &&
       status.visibleWorldSpanZMeters >= minSpanMeters &&
       terrainNodeKeys.some((key) => key.startsWith("lod0:")) &&
-      terrainNodeKeys.some((key) => key.startsWith("lod3:") || key.startsWith("lod4:"));
-  }, minMultiKmTerrainSpanMeters, { timeout: 120000 });
+      terrainNodeKeys.some((key) => key.startsWith("lod5:"));
+  }, minRealScaleTerrainSpanMeters, { timeout: 120000 });
 }
 
 /// Waits for a fixed count of browser animation frames.

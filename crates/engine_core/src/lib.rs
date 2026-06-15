@@ -19,7 +19,9 @@ pub use math::{Quat, Vec3};
 pub use player::{EyeTransform, PlayerConfig, PlayerMode, PlayerMovementIntent, PlayerRig};
 pub use render_packet::{
     RenderCameraPacket, RenderLightPacket, RenderMeshItemPacket, RenderSnapshot,
-    RENDER_MESH_ITEM_WORLD_MATRIX_FLOAT_COUNT, RENDER_SNAPSHOT_FLOAT_COUNT,
+    DEFAULT_CAMERA_FAR_PLANE_METERS, DEFAULT_CAMERA_FOV_Y_RADIANS,
+    DEFAULT_CAMERA_NEAR_PLANE_METERS, RENDER_MESH_ITEM_WORLD_MATRIX_FLOAT_COUNT,
+    RENDER_SNAPSHOT_FLOAT_COUNT,
 };
 pub use scene::{Entity, EntityId, LocalTransform, Scene, SceneError, WorldTransform};
 pub use scene_access::{EntityMut, EntityRef};

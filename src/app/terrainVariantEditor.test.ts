@@ -33,6 +33,16 @@ describe("terrain variant editor helpers", () => {
     equal(edited[9], 8);
   });
 
+  it("allows real-scale terrain ranges while clamping unsafe editor values", () => {
+    equal(updateTerrainVariantField(ROLLING_HILLS_VARIANT, "baseHeight", 3000)[2], 3000);
+    equal(updateTerrainVariantField(ROLLING_HILLS_VARIANT, "heightScale", 777)[3], 777);
+    equal(updateTerrainVariantField(ROLLING_HILLS_VARIANT, "heightScale", 9999)[3], 2048);
+    equal(updateTerrainVariantField(ROLLING_HILLS_VARIANT, "ridgeHeight", 9999)[8], 2048);
+    equal(updateTerrainVariantField(ROLLING_HILLS_VARIANT, "warpAmplitude", 9000)[19], 8192);
+    equal(updateTerrainVariantField(ROLLING_HILLS_VARIANT, "cellHeight", 9000)[21], 1024);
+    equal(updateTerrainVariantField(ROLLING_HILLS_VARIANT, "detailAmplitude", 900)[26], 512);
+  });
+
   it("rejects unknown fields and invalid descriptor lengths", () => {
     throws(() => terrainVariantFieldIndex("unknown"));
     throws(() => updateTerrainVariantField(ROLLING_HILLS_VARIANT.slice(0, 5), "heightScale", 2));

@@ -8,6 +8,7 @@ import {
 const canvas = document.querySelector<HTMLCanvasElement>("#game-canvas");
 const cameraMode = document.querySelector<HTMLElement>("#camera-mode");
 const characterToggle = document.querySelector<HTMLButtonElement>("#character-toggle");
+const playerCoordinates = document.querySelector<HTMLElement>("#player-coordinates");
 const frameTime = document.querySelector<HTMLElement>("#frame-time");
 const touchControls = readTouchControls();
 const renderDebugUi = readRenderDebugUi();
@@ -17,6 +18,7 @@ if (
   canvas === null ||
   cameraMode === null ||
   characterToggle === null ||
+  playerCoordinates === null ||
   frameTime === null ||
   touchControls === null ||
   renderDebugUi === null ||
@@ -29,6 +31,7 @@ startGame({
   canvas,
   cameraMode,
   characterToggle,
+  playerCoordinates,
   frameTime,
   touchControls,
   renderDebugUi,
@@ -167,6 +170,18 @@ function readRenderDebugUi(): GameRenderDebugUiElements | null {
   const postDofFocusInput = document.querySelector<HTMLInputElement>("#post-dof-focus");
   const postDofRangeInput = document.querySelector<HTMLInputElement>("#post-dof-range");
   const postDofBlurInput = document.querySelector<HTMLInputElement>("#post-dof-blur");
+  const postFogCheckbox = document.querySelector<HTMLInputElement>("#post-fog");
+  const postFogStartRange = document.querySelector<HTMLInputElement>("#post-fog-start-range");
+  const postFogStartInput = document.querySelector<HTMLInputElement>("#post-fog-start");
+  const postFogEndRange = document.querySelector<HTMLInputElement>("#post-fog-end-range");
+  const postFogEndInput = document.querySelector<HTMLInputElement>("#post-fog-end");
+  const postFogDensityRange = document.querySelector<HTMLInputElement>("#post-fog-density-range");
+  const postFogDensityInput = document.querySelector<HTMLInputElement>("#post-fog-density");
+  const postFogCurveRange = document.querySelector<HTMLInputElement>("#post-fog-curve-range");
+  const postFogCurveInput = document.querySelector<HTMLInputElement>("#post-fog-curve");
+  const postFogRInput = document.querySelector<HTMLInputElement>("#post-fog-r");
+  const postFogGInput = document.querySelector<HTMLInputElement>("#post-fog-g");
+  const postFogBInput = document.querySelector<HTMLInputElement>("#post-fog-b");
   const postResetButton = document.querySelector<HTMLButtonElement>("#post-debug-reset");
   const waterDebugViewSelect = document.querySelector<HTMLSelectElement>("#water-debug-view");
   const waterEnabledCheckbox = document.querySelector<HTMLInputElement>("#water-enabled");
@@ -199,6 +214,18 @@ function readRenderDebugUi(): GameRenderDebugUiElements | null {
     postDofFocusInput === null ||
     postDofRangeInput === null ||
     postDofBlurInput === null ||
+    postFogCheckbox === null ||
+    postFogStartRange === null ||
+    postFogStartInput === null ||
+    postFogEndRange === null ||
+    postFogEndInput === null ||
+    postFogDensityRange === null ||
+    postFogDensityInput === null ||
+    postFogCurveRange === null ||
+    postFogCurveInput === null ||
+    postFogRInput === null ||
+    postFogGInput === null ||
+    postFogBInput === null ||
     postResetButton === null ||
     waterDebugViewSelect === null ||
     waterEnabledCheckbox === null ||
@@ -234,6 +261,18 @@ function readRenderDebugUi(): GameRenderDebugUiElements | null {
     postDofFocusInput,
     postDofRangeInput,
     postDofBlurInput,
+    postFogCheckbox,
+    postFogStartRange,
+    postFogStartInput,
+    postFogEndRange,
+    postFogEndInput,
+    postFogDensityRange,
+    postFogDensityInput,
+    postFogCurveRange,
+    postFogCurveInput,
+    postFogRInput,
+    postFogGInput,
+    postFogBInput,
     postResetButton,
     waterDebugViewSelect,
     waterEnabledCheckbox,

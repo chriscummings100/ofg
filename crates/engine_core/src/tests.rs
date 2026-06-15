@@ -343,9 +343,18 @@ fn render_snapshot_tracks_player_camera_and_light() {
     assert_vec3_near(snapshot.camera.eye, Vec3::new(1.0, 3.65, 3.0));
     assert_close(snapshot.camera.yaw, 0.75);
     assert_close(snapshot.camera.pitch, -0.25);
-    assert_close(snapshot.camera.fov_y_radians, 70.0_f32.to_radians());
-    assert_close(snapshot.camera.near_plane, 0.05);
-    assert_close(snapshot.camera.far_plane, 500.0);
+    assert_close(
+        snapshot.camera.fov_y_radians,
+        crate::DEFAULT_CAMERA_FOV_Y_RADIANS,
+    );
+    assert_close(
+        snapshot.camera.near_plane,
+        crate::DEFAULT_CAMERA_NEAR_PLANE_METERS,
+    );
+    assert_close(
+        snapshot.camera.far_plane,
+        crate::DEFAULT_CAMERA_FAR_PLANE_METERS,
+    );
     assert!(snapshot.main_light.direction.x > 0.45);
     assert!(snapshot.main_light.direction.y > 0.80);
     assert!(snapshot.main_light.direction.z > 0.18);
@@ -506,9 +515,9 @@ fn render_snapshot_writes_stable_f32_packet_layout() {
     assert_close(values[2], 3.0);
     assert_close(values[6], 0.5);
     assert_close(values[7], -0.25);
-    assert_close(values[8], 70.0_f32.to_radians());
-    assert_close(values[9], 0.05);
-    assert_close(values[10], 500.0);
+    assert_close(values[8], crate::DEFAULT_CAMERA_FOV_Y_RADIANS);
+    assert_close(values[9], crate::DEFAULT_CAMERA_NEAR_PLANE_METERS);
+    assert_close(values[10], crate::DEFAULT_CAMERA_FAR_PLANE_METERS);
     assert!(values[17] > 0.9);
     assert!(values[18] > 0.33);
     assert_close(values[19], 0.0);

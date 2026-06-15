@@ -21,8 +21,8 @@ use error::harness_error;
 use renderer::{OffscreenRenderer, RenderedOffscreenFrame, HEIGHT, WIDTH};
 use report::{
     analyze_pixels, analyze_shadow_debug_pixels, assert_no_large_lower_center_sky_hole,
-    assert_pixel_stats, assert_shadow_debug_layers, path_string, ImageReport, ShadowImageReport,
-    SmokeReport,
+    assert_pixel_stats, assert_shadow_debug_layers, default_post_process_report, path_string,
+    ImageReport, ShadowImageReport, SmokeReport,
 };
 use scenarios::{build_scenario_terrain, scenarios, Scenario, ScenarioFilter, ScenarioStreamMode};
 use shadow_debug::ShadowDebugOutput;
@@ -187,6 +187,7 @@ fn render_scenario(
             height: HEIGHT,
             pixel_stats: stats,
             water,
+            post_process: default_post_process_report(),
             debug: terrain.debug,
         },
         shadow_images,
