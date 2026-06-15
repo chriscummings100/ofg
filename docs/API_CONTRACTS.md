@@ -27,8 +27,8 @@ decisions.
 | OFG-API-001 | Browser shell to Rust browser game | Active | `src/engine/web/browserGameTypes.ts`, `src/engine/web/engineWebWasm.ts`, `crates/engine_web/src/perf.rs`, `crates/engine_web/src/wgpu_renderer.rs`, `crates/engine_web/src/post_process.rs` |
 | OFG-API-002 | Rust browser game to browser asset loader | Active | `src/engine/browser/textureAssetLoader.ts`, `crates/engine_web/src/terrain_textures.rs` |
 | OFG-API-003 | Debug and smoke-test hooks | Active | `src/app/game.ts`, `src/app/perfDebug.ts`, `src/engine/web/browserGameTypes.ts`, `tools/browser-smoke.mjs`, `tools/browser-perf-debug-capture.mjs`, `tools/browser-terrain-stream-cpu-capture.mjs` |
-| OFG-API-004 | Terrain vertex, scene targets, and render shaders | Active | `crates/terrain_core/src/constants.rs`, `crates/engine_web/src/config.rs`, `crates/engine_web/src/wgpu_renderer.rs`, `crates/engine_web/src/water.rs`, `crates/engine_web/src/water_renderer.rs`, `src/engine/render/shaders/UberShader.test.ts`, `src/engine/render/shaders/PostShader.test.ts`, `src/engine/render/shaders/WaterShader.test.ts` |
-| OFG-API-005 | Terrain presets and terrain variant descriptors | Active | `crates/terrain_core/src/variant.rs`, `crates/terrain_core/src/presets.rs`, `tools/build-terrain-preset-metadata.mjs`, `src/generated/world/terrainPresets.ts`, `src/engine/world/terrainDescriptor.ts` |
+| OFG-API-004 | Terrain vertex, scene targets, and render shaders | Active | `crates/terrain_core/src/mesh.rs`, `crates/engine_web/src/config.rs`, `crates/engine_web/src/wgpu_renderer.rs`, `crates/engine_web/src/water.rs`, `crates/engine_web/src/water_renderer.rs`, `src/engine/render/shaders/UberShader.test.ts`, `src/engine/render/shaders/PostShader.test.ts`, `src/engine/render/shaders/WaterShader.test.ts` |
+| OFG-API-005 | Terrain presets and terrain variant descriptors | Active | `crates/terrain_core/src/variant.rs`, `crates/terrain_core/src/node.rs`, `tools/build-terrain-preset-metadata.mjs`, `src/generated/world/terrainPresets.ts`, `src/engine/world/terrainDescriptor.ts` |
 | OFG-API-006 | Standalone `terrain_core.wasm` artifact | Fixture | `tools/build-terrain-wasm.mjs`, `crates/terrain_core/src/facade.rs`, `src/engine/web/terrainBuildWorker.ts` |
 | OFG-API-007 | Raw linked WASM exports in `engine_web` | Unsupported | `assets/wasm/engine_web/engine_web.d.ts`, `crates/*/src/facade.rs` |
 | OFG-API-008 | Future game lifecycle and tuning surface | Future | This document until real behavior exists |
@@ -260,19 +260,12 @@ and node/LOD fields such as `loadedNodeCount`, `renderedNodeCount`,
 `terrainLodSummary`. Each `terrainLodSummary` entry includes Rust-authored
 `minDesiredNodeY` and `maxDesiredNodeY` fields, which are nullable when a LOD
 has no desired nodes and otherwise report the desired vertical node range after
-bounded vertical band resolution. It also includes Rust-owned surface-placement counters:
-`placementCandidateCount`, `placementSampleCount`,
-`placementMissedSurfaceCount`, `placementRejectedBelowWaterCount`, and
-`placementRejectedSlopeCount`. It also includes Rust-owned LOD transition edge
-mesh counters: `transitionFaceCount`, `transitionMeshCount`,
-`transitionVertexFloatCount`, and `transitionIndexCount`. These are debug
-counts from mesh-backed Rust placement sampling and Rust-derived apron
-rendering, not browser placement or terrain ownership. The default playable
-stream currently reaches LOD5 and reports a settled horizontal visible span of
-at least 7000 meters in X and Z. Rust-owned camera defaults use a 3500 meter
-far plane, with default post-process fog starting at 200 meters and reaching
-full blend at 3000 meters so terrain remains generated just beyond the visible
-fogged horizon without keeping the earlier LOD6/18 km proof span.
+bounded vertical band resolution. Placement and transition mesh counters remain
+in the debug packet for compatibility, but the sine-grass baseline reports them
+as zero because placement, aprons, and transition-edge meshes are not active.
+The default playable stream reaches LOD5 through Rust-owned desired-node
+scheduling; any settled span requirement should be re-established by the new
+smoke tests rather than inherited from the retired terrain implementation.
 The browser playable path reports `workerPoolRuntime === "browser-worker"`,
 the actual `terrainWorkerCount`, worker in-flight/queued/completed/stale/failed
 counters, and `synchronousBuildCount`. Native tests and Rust smoke can still
@@ -359,7 +352,7 @@ not browser debug-hook terrain clients.
 Current hook categories:
 
 - Terrain chunk compatibility keys, terrain node keys, terrain stream status,
-  and Rust-owned placement-sample counters from Rust `debugSnapshot()`.
+  and compatibility placement/transition counters from Rust `debugSnapshot()`.
 - Terrain preset, seed, active terrain variant descriptor, variant revision,
   Rust-owned preset catalog descriptors, and origin probe summary from Rust
   `debugSnapshot()`.
@@ -370,9 +363,9 @@ Current hook categories:
   fade strength, effective sun elevation, and clamped effective sun direction.
   Post-process status reports the
   selected debug view, exposure, tone mapping, bloom, and depth-of-field
-  settings. Water status reports the Rust/wgpu water runtime, enabled flags,
-  sea level, terrain-derived bathymetry runtime, bathymetry grid coverage,
-  half-resolution reflection target size, and selected water debug view.
+  settings. Water status fields are compatibility fields during the sine-grass
+  baseline: water starts disabled and bathymetry/reflection coverage is not an
+  active visual contract.
   Performance status also reports main-camera cull count, submitted
   vertices/indices/triangles, GPU timer availability, latest render counters,
   active render debug options, and latest GPU pass timings when available.
@@ -404,9 +397,9 @@ Current hook categories:
   post-process behavior, or LOD policy in TypeScript. The same panel may expose
   post-process debug controls for debug view, tone mapping, bloom, depth of
   field, and numeric post-process settings by forwarding the existing
-  post-process commands. It may also expose water debug-view and enabled/
-  reflection toggles by forwarding water commands; it must not compute water
-  depth, optical path length, bathymetry, reflection cameras, or water
+  post-process commands. It may also expose dormant water debug-view and
+  enabled/reflection toggles by forwarding water commands; it must not compute
+  water depth, optical path length, bathymetry, reflection cameras, or water
   visibility in TypeScript.
 - Shadow debug view state from Rust `debugSnapshot()` as `shadowDebugView`, plus
   the browser-only `setShadowDebugView(...)` debug hook. Supported debug view
@@ -423,9 +416,8 @@ Current hook categories:
   final output, HDR scene color, linear depth, post-tone-map color, bloom
   contribution, DoF circle of confusion, DoF blurred scene color, and fog
   factor.
-- Water debug view commands and screenshots. Current water debug views are
-  final water composite, vertical bottom depth, optical path length, Fresnel,
-  and reflection contribution.
+- Dormant water debug view commands. These remain compatibility controls only
+  while the active terrain baseline has no water.
 
 Compatibility fields:
 
@@ -493,23 +485,15 @@ The fog RGB values are tint multipliers over the procedural skybox color; the
 default `[1, 1, 1]` tint means distant opaque pixels converge to the actual sky
 at that screen direction, not to an independent fixed color.
 
-Sea-level water is Rust/wgpu-owned. Terrain node generation also emits optional
-node-local water packets: the node job that owns the sea-level Y slice samples a
-small XZ bathymetry texture by evaluating the terrain equation directly within a
-bounded vertical range. It stores `max(sea_level - terrain_height, 0)` per texel,
-clamped to the render-relevant maximum water depth. Dry nodes emit no water packet.
-The renderer uploads visible packets into a bathymetry atlas and draws matching
-sea-level water planes before post-process. The water shader separates vertical
-bottom depth from optical path length: vertical bottom depth comes from the
-terrain-job packet sampled in XZ space, while optical path length comes from the
-opaque scene linear-depth target along the current eye ray. The shader also owns
-small animated ripple normals, denser shallow-water tinting, and procedural
-shoreline foam derived from bathymetry/depth; these are renderer effects, not
-terrain or hydrology simulation. Planar reflections are default-off while the
-current experimental reflection path is repaired; the Rust debug command may
-still opt into that path for diagnosis. Bathymetry is not an asset loaded from
-disk, a TypeScript-authored texture, a renderer-side camera-centered rebuild, or
-a hydrology simulation.
+Sea-level water is dormant during the sine-grass terrain rebuild baseline.
+Terrain node generation emits no water bathymetry packets, the browser renderer
+starts with `rendererStatus.waterEnabled === false`, and the scene pass writes
+directly into the post-process scene color and linear-depth targets. The old
+water settings/status types, shader source, and renderer resource module remain
+only as compatibility scaffolding until a later water milestone either deletes
+or rebuilds them. TypeScript may still forward water debug commands and display
+reported status fields, but those commands are not part of the active baseline
+visual contract.
 
 Contract rules:
 
@@ -520,7 +504,7 @@ Contract rules:
   must update `uber.wgsl`, `post.wgsl`, generated shader artifacts, Rust/wgpu
   pipeline target descriptors, and browser/Rust smoke coverage in the same
   milestone.
-- Any water composite, bathymetry, or water debug-view change must update
+- Any future water composite, bathymetry, or water debug-view change must update
   `water.wgsl`, generated shader artifacts, Rust/wgpu water resource code,
   TypeScript command/status typing, shader tests, and smoke coverage in the
   same milestone.
@@ -531,10 +515,7 @@ Contract rules:
 
 Browser URLs and TypeScript descriptors use string preset IDs:
 
-    seed
-    rollingHills
-    mountainValley
-    rockyHighland
+    sineGrass
 
 WASM/Rust commands use numeric codes. The browser string IDs and numeric codes
 are generated from Rust-owned preset metadata by
@@ -543,12 +524,12 @@ are generated from Rust-owned preset metadata by
 `terrain_core`.
 
 Terrain variants are Rust-owned descriptors for geometry-shape tuning. The
-current flat descriptor includes version, catalog preset code, shape parameters,
-and neutral material-bias fields. Shape parameters control broad terrain form:
-base elevation, relief scale, large-feature noise, ridge strength, domain warp,
-cellular breakup, and detail noise. Material-bias fields are descriptor
-contract placeholders for Rust-owned material tuning; they do not make
-TypeScript a material classifier.
+current reset descriptor is deliberately small: version, catalog preset code,
+base height, sine height scale, wavelength, secondary wave scale, grass material
+bias, and a cache key. TypeScript may edit and forward these numbers through the
+terrain variant editor, but Rust validates and interprets them. TypeScript must
+not sample the sine field, classify materials, or decide visibility from the
+descriptor.
 
 Shape presets are not biomes. The intended composition is:
 
@@ -556,12 +537,11 @@ Shape presets are not biomes. The intended composition is:
       future material palette + future local feature modifiers
 
 Biomes, hydrology, vegetation, props, climate, rivers, lakes, water-body IDs,
-and terrain-carving water systems remain future Rust-owned layers. The active
-fixed sea-level renderer is a Rust/wgpu render feature documented in
-OFG-API-004 and uses terrain-derived bathymetry only as renderer input. The
-terrain variant editor may expose shape and descriptor numbers, origin preview,
-import/export, and Rust probe readouts, but it must not pretend that climate,
-hydrology, or biome mixing exists until those systems are implemented.
+and terrain-carving water systems remain future Rust-owned layers. The current
+baseline has grass only and no active water. The terrain variant editor may
+expose descriptor numbers, origin preview, import/export, and Rust probe
+readouts, but it must not pretend that climate, hydrology, material palettes, or
+biome mixing exists until those systems are implemented.
 
 Contract rules:
 
@@ -572,7 +552,7 @@ Contract rules:
 - Flat terrain variant descriptor changes must update Rust validation, worker
   facade layout, TypeScript editor field mapping, debug snapshot typing, and
   tests in the same milestone.
-- `rollingHills` is the current default terrain preset.
+- `sineGrass` is the current default and only active terrain preset.
 
 ## OFG-API-006: Standalone Terrain WASM Artifact
 
@@ -592,8 +572,9 @@ Terrain performance benchmarking now uses `npm run bench:terrain:rust`, which
 calls `terrain_core` from Rust and writes JSON under `artifacts/terrain-bench/`.
 The terrain benchmark report must sample a realistic multi-node terrain
 population, not just a single chunk, and include aggregate/per-LOD/per-class
-generation timing distributions plus coarse phase breakdowns for density,
-Dual Contouring, material expansion, and buffer copy cost.
+generation timing distributions. During the sine-grass baseline it should
+measure heightfield sampling, mesh emission, and buffer copy cost; richer phase
+breakdowns return with richer terrain generation.
 
 The dedicated browser terrain build worker may use the fixture exports needed
 to satisfy Rust-issued build requests, including the Rust flat terrain variant

@@ -21,7 +21,6 @@ mod resources;
 #[cfg(target_arch = "wasm32")]
 mod shadow_renderer;
 mod shadows;
-mod terrain_placement;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod terrain_removal;
 mod terrain_stream;

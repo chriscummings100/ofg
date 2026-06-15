@@ -35,14 +35,6 @@ export type TerrainBuildCompletion = {
   readonly failed: boolean;
   readonly vertices: Float32Array;
   readonly indices: Uint32Array;
-  readonly waterTexelCount: number;
-  readonly waterOriginX: number;
-  readonly waterOriginZ: number;
-  readonly waterWorldSpanX: number;
-  readonly waterWorldSpanZ: number;
-  readonly waterSeaLevelMeters: number;
-  readonly waterMaxDepthMeters: number;
-  readonly waterDepths?: Float32Array;
   readonly durationMs?: number;
   readonly message?: string;
 };
@@ -180,13 +172,6 @@ function failedCompletion(request: TerrainBuildRequest, message: string): Terrai
     failed: true,
     vertices: new Float32Array(0),
     indices: new Uint32Array(0),
-    waterTexelCount: 0,
-    waterOriginX: 0,
-    waterOriginZ: 0,
-    waterWorldSpanX: 0,
-    waterWorldSpanZ: 0,
-    waterSeaLevelMeters: 0,
-    waterMaxDepthMeters: 0,
     message
   };
 }

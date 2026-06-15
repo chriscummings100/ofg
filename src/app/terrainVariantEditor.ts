@@ -9,7 +9,7 @@ import type {
   TerrainVariantFlatValues
 } from "../engine/web/browserGameTypes.js";
 
-const TERRAIN_VARIANT_VALUE_COUNT = 32;
+const TERRAIN_VARIANT_VALUE_COUNT = 8;
 const ORIGIN_PREVIEW_CAMERA = {
   x: 24,
   y: 22,
@@ -64,44 +64,15 @@ type TerrainVariantFieldDefinition = {
 
 const TERRAIN_BASE_HEIGHT_MIN = -4096;
 const TERRAIN_BASE_HEIGHT_MAX = 4096;
-const TERRAIN_HEIGHT_SCALE_MIN = -2048;
+const TERRAIN_HEIGHT_SCALE_MIN = 0;
 const TERRAIN_HEIGHT_SCALE_MAX = 2048;
-const TERRAIN_RIDGE_HEIGHT_SCALE_MAX = 2048;
-const TERRAIN_CELLULAR_HEIGHT_SCALE_MAX = 1024;
-const TERRAIN_DETAIL_AMPLITUDE_MAX = 512;
-const TERRAIN_WARP_AMPLITUDE_MAX = 8192;
 
 const FIELD_DEFINITIONS: readonly TerrainVariantFieldDefinition[] = [
   { id: "baseHeight", label: "Base", description: "Average terrain elevation in meters.", index: 2, step: 0.25, min: TERRAIN_BASE_HEIGHT_MIN, max: TERRAIN_BASE_HEIGHT_MAX },
-  { id: "heightScale", label: "Relief", description: "Overall macro height variation.", index: 3, step: 0.25, min: TERRAIN_HEIGHT_SCALE_MIN, max: TERRAIN_HEIGHT_SCALE_MAX },
-  { id: "largeOctaves", label: "Large oct", description: "Number of broad terrain noise layers.", index: 4, step: 1, integer: true, min: 1, max: 8 },
-  { id: "largeFrequency", label: "Large freq", description: "Frequency of broad terrain undulation.", index: 5, step: 0.0001, min: 0.000001, max: 1 },
-  { id: "largeLacunarity", label: "Large lac", description: "Scale multiplier between broad terrain octaves.", index: 6, step: 0.05, min: 1, max: 8 },
-  { id: "largePersistence", label: "Large pers", description: "Strength retained by each broad terrain octave.", index: 7, step: 0.01, min: 0, max: 1.5 },
-  { id: "ridgeHeight", label: "Ridge", description: "Height contribution from ridge noise.", index: 8, step: 0.25, min: 0, max: TERRAIN_RIDGE_HEIGHT_SCALE_MAX },
-  { id: "ridgeOctaves", label: "Ridge oct", description: "Number of ridge noise layers.", index: 9, step: 1, integer: true, min: 1, max: 8 },
-  { id: "ridgeFrequency", label: "Ridge freq", description: "Frequency of ridge features.", index: 10, step: 0.0001, min: 0.000001, max: 1 },
-  { id: "ridgeLacunarity", label: "Ridge lac", description: "Scale multiplier between ridge octaves.", index: 11, step: 0.05, min: 1, max: 8 },
-  { id: "ridgePersistence", label: "Ridge pers", description: "Strength retained by each ridge octave.", index: 12, step: 0.01, min: 0, max: 1.5 },
-  { id: "ridgeOffset", label: "Ridge off", description: "Ridge inversion offset before sharpening.", index: 13, step: 0.05, min: 0.000001, max: 4 },
-  { id: "ridgeSharpness", label: "Ridge sharp", description: "Ridge contrast and narrowness.", index: 14, step: 0.05, min: 0.1, max: 8 },
-  { id: "warpOctaves", label: "Warp oct", description: "Number of domain-warp noise layers.", index: 15, step: 1, integer: true, min: 1, max: 8 },
-  { id: "warpFrequency", label: "Warp freq", description: "Frequency of terrain domain warping.", index: 16, step: 0.0001, min: 0.000001, max: 1 },
-  { id: "warpLacunarity", label: "Warp lac", description: "Scale multiplier between warp octaves.", index: 17, step: 0.05, min: 1, max: 8 },
-  { id: "warpPersistence", label: "Warp pers", description: "Strength retained by each warp octave.", index: 18, step: 0.01, min: 0, max: 1.5 },
-  { id: "warpAmplitude", label: "Warp amp", description: "Horizontal distortion applied before sampling terrain.", index: 19, step: 0.25, min: 0, max: TERRAIN_WARP_AMPLITUDE_MAX },
-  { id: "cellFrequency", label: "Cell freq", description: "Frequency of cellular basin and edge features.", index: 20, step: 0.0001, min: 0.000001, max: 1 },
-  { id: "cellHeight", label: "Cell h", description: "Height contribution from cellular features.", index: 21, step: 0.25, min: 0, max: TERRAIN_CELLULAR_HEIGHT_SCALE_MAX },
-  { id: "detailOctaves", label: "Detail oct", description: "Number of small detail noise layers.", index: 22, step: 1, integer: true, min: 1, max: 8 },
-  { id: "detailFrequency", label: "Detail freq", description: "Frequency of small surface detail.", index: 23, step: 0.0001, min: 0.000001, max: 1 },
-  { id: "detailLacunarity", label: "Detail lac", description: "Scale multiplier between detail octaves.", index: 24, step: 0.05, min: 1, max: 8 },
-  { id: "detailPersistence", label: "Detail pers", description: "Strength retained by each detail octave.", index: 25, step: 0.01, min: 0, max: 1.5 },
-  { id: "detailAmplitude", label: "Detail amp", description: "Fine surface displacement strength.", index: 26, step: 0.25, min: 0, max: TERRAIN_DETAIL_AMPLITUDE_MAX },
-  { id: "matMeadow", label: "Grass", description: "Multiplier for meadow and grass material candidates.", index: 27, step: 0.05, min: 0, max: 4 },
-  { id: "matDryGround", label: "Dry", description: "Multiplier for dry soil and badland material candidates.", index: 28, step: 0.05, min: 0, max: 4 },
-  { id: "matWetland", label: "Wet", description: "Multiplier for wetland and muddy material candidates.", index: 29, step: 0.05, min: 0, max: 4 },
-  { id: "matRock", label: "Rock", description: "Multiplier for rock, scree, and cliff material candidates.", index: 30, step: 0.05, min: 0, max: 4 },
-  { id: "matSnow", label: "Snow", description: "Multiplier for snow material candidates.", index: 31, step: 0.05, min: 0, max: 4 }
+  { id: "heightScale", label: "Relief", description: "Sine wave height variation in meters.", index: 3, step: 0.25, min: TERRAIN_HEIGHT_SCALE_MIN, max: TERRAIN_HEIGHT_SCALE_MAX },
+  { id: "wavelength", label: "Wave", description: "Sine wavelength in meters.", index: 4, step: 1, min: 1, max: 8192 },
+  { id: "secondaryScale", label: "Second", description: "Secondary sine contribution.", index: 5, step: 0.05, min: 0, max: 4 },
+  { id: "grass", label: "Grass", description: "Grass material weight.", index: 6, step: 0.05, min: 0, max: 4 }
 ];
 
 export function createTerrainVariantEditor(

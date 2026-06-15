@@ -24,15 +24,14 @@ coarser node at `lod + 1`, and each parent covers a 2x2x2 group of children at
 infinite world grid instead of a single root. Every generated node is a whole
 chunk job; jobs are never split below one node.
 
-Each node is sampled from a signed density field. The highest-detail `lod = 0`
-node spans 32x32x32 meters, contains 32 cells per axis, and samples 33x33x33
-vertices so neighbor nodes share boundary samples. Coarser LODs keep 32 cells
-per axis and double world cell size per LOD. The first rebuilt generator keeps
-the current no-overhang rule: each XZ column finds a highest solid Y and treats
-all lower samples as solid. Broad shape comes from large-feature simplex-style
-noise, ridge noise, domain warp noise, and cell noise; local surface variation
-comes from 3D detail noise. Material choice remains small and terrain-owned,
-based on altitude and gradient until a later biome/material layer exists.
+The active rebuild deliberately starts smaller than the destination terrain
+model. The first browser-visible baseline is a deterministic sine heightfield,
+grass material only, and no collision, apron, placement, water, bathymetry, or
+shore logic. It keeps the important architectural rule that `lod = 0` spans
+32x32x32 meters with 32 cells per axis and 33 shared samples per edge, while
+coarser LODs double world cell size per level. Rich density fields, overhangs,
+biome/material classification, and water return only after the streaming and
+transition model is lean and observable.
 
 Streaming must be hole-free and cheap on the main thread. A child group can
 replace its parent only when all eight children are generated or proven empty.
@@ -44,12 +43,14 @@ which complementary random screen-space or world-space masks discard pixels
 from the outgoing and incoming LOD. Nodes participating in a transition cannot
 be removed until the dissolve completes.
 
-Success means the browser-visible terrain still works, but its implementation is
-smaller, more explicit, and easier to test. Smoke tests should prove a settled
-stream has no holes, parent/child swaps are one-frame visible-set flips after
-generation, dissolve transitions retain both sides until completion, and terrain
-generation remains within the target budget of under 30ms per generated node on
-a worker, with main-thread transition work close to a render-bit toggle.
+Success for this reset means the browser-visible terrain renders again from the
+new baseline, and the active implementation is small enough to reason about.
+Smoke tests should first prove that sky plus sine-grass terrain render
+nonblank, a settled stream has no holes, parent/child swaps are one-frame
+visible-set flips after generation, dissolve transitions retain both sides until
+completion, and terrain generation remains within the target budget of under
+30ms per generated node on a worker, with main-thread transition work close to a
+render-bit toggle.
 
 ## Progress
 
@@ -69,18 +70,29 @@ a worker, with main-thread transition work close to a render-bit toggle.
 - [x] (2026-06-15 22:04+01:00) Ran the repo-local `milestone-review` skill for
   Milestone 1 locally, fixed the required `TerrainLod` vocabulary alignment
   finding, and reran validation.
-- [ ] Milestone 2: introduce the rebuilt generator contract and terrain node
-  output packet, still callable synchronously for Rust tests.
-- [ ] Milestone 3: introduce the rebuilt stream state machine with one-job-per
-  node scheduling, parent-retained fallback cover, and dissolve transition
-  ownership.
-- [ ] Milestone 4: connect the rebuilt stream to browser worker execution or
-  the chosen Rust/WASM thread-pool path without giving TypeScript terrain
-  ownership.
-- [ ] Milestone 5: replace the active renderer/debug integration, retire the
-  legacy active modules, and keep only the reference snapshot.
-- [ ] Milestone 6: add and pass Rust image smoke, browser smoke, benchmark, and
-  coverage gates for the rebuilt terrain path.
+- [x] (2026-06-15 23:05+01:00) Re-scoped the active rebuild to the requested
+  minimum viable terrain: sine heightfield, grass only, no collision, no
+  aprons, no placement, and no water.
+- [x] (2026-06-15 23:18+01:00) Milestone 2A: replaced active `terrain_core` and
+  browser terrain stream code with the lean sine-grass generator,
+  one-job-per-node packets, and parent-retained multi-LOD stream scheduler.
+- [x] (2026-06-15 23:18+01:00) Milestone 2B: connected the lean stream to the
+  browser worker path and Rust/wgpu renderer without TypeScript terrain policy.
+- [ ] Milestone 2C: add focused smoke tests for nonblank sine-grass rendering,
+  parent/child replacement readiness, and transition retention.
+- [ ] Milestone 3: add dissolve shader/state integration for one-level-at-a-time
+  LOD transitions.
+- [ ] Milestone 4: reintroduce richer terrain generation only after the lean
+  stream and transition model is stable.
+- [x] (2026-06-15 23:18+01:00) Ran the repo-local `milestone-review` skill
+  locally for the reset checkpoint. Required finding: active docs still
+  described the retired density/Dual Contouring/water path. Fixed
+  `AGENTS.md`, `docs/API_CONTRACTS.md`, `docs/ARCHITECTURE.md`, and this plan.
+- [x] (2026-06-15 23:18+01:00) Validation for the reset checkpoint:
+  `cargo test -p terrain_core`, `cargo check -p engine_web`, `npm run build`,
+  `npm run check:wasm`, `npm run check:shaders`, and browser screenshot capture
+  all passed. Screenshot:
+  `artifacts/terrain-rebuild/sine-grass-baseline-after-build.png`.
 
 ## Surprises & Discoveries
 
@@ -111,6 +123,25 @@ a worker, with main-thread transition work close to a render-bit toggle.
   Evidence: `cargo test -p terrain_core rebuild` passed 7 focused tests, and
   `npm run test:rust` passed the Rust workspace after adding
   `terrain_core::rebuild`.
+
+- Observation: the browser can present frames even when the terrain pipeline is
+  broken.
+  Evidence: a direct swapchain clear in `BrowserWgpuRenderer::render` presented
+  red, proving the WebGPU surface and browser cache-busting path were alive
+  while the normal scene/post path remained black.
+
+- Observation: the black-frame regression came from the active renderer still
+  depending on the retired water composite targets.
+  Evidence: hard-coded pink terrain, cyan sky, no-terrain submission, and a
+  red post-process shader all still produced black frames. Rendering the scene
+  pass directly into `PostProcessResources` targets and bypassing
+  `WaterRendererResources::render` restored visible sky and sine-grass terrain.
+
+- Observation: browser reloads can keep an old `engine_web_bg.wasm` when only
+  the WASM binary changes.
+  Evidence: appending `ENGINE_WEB_WASM_METADATA.wasmHash` to the dynamic import
+  URL made renderer diagnostics and the no-water composite fix appear reliably
+  in the browser.
 
 ## Decision Log
 
@@ -157,14 +188,38 @@ a worker, with main-thread transition work close to a render-bit toggle.
   rebuild should not take on Rayon/WASM atomics complexity speculatively.
   Date/Author: 2026-06-15 / User and Codex.
 
+- Decision: the active reset starts from sine heightfield terrain with a single
+  grass material and no water, collision, placement, or apron behavior.
+  Rationale: the user explicitly asked to stop maintaining a working shape of
+  the old terrain system and to rebuild from a smaller, cleaner streaming and
+  transition core.
+  Date/Author: 2026-06-15 / User and Codex.
+
+- Decision: for the no-water baseline, the scene pass writes directly into
+  post-process color/depth targets and does not use the old water composite
+  path.
+  Rationale: absence of water packets is not enough; the old composite path can
+  still black out the final frame. Direct scene-to-post rendering matches the
+  current feature set and keeps sky visible when terrain is disabled.
+  Date/Author: 2026-06-15 / Codex.
+
 ## Outcomes & Retrospective
 
-Milestone 1 is complete. The rebuild now has an additive
-`terrain_core::rebuild` model that encodes LOD order, node metrics,
+Milestone 1 is complete. The rebuild first added an additive
+`terrain_core::rebuild` model that encoded LOD order, node metrics,
 parent/child relationships, 3x3x3 parent-region child selection, and child-group
-replacement readiness. It does not yet generate terrain, schedule jobs, dissolve
-transitions, or connect to the active renderer; those remain Milestones 2
-through 5.
+replacement readiness.
+
+Milestones 2A and 2B are complete for the lean reset checkpoint. Active
+`terrain_core` now consists of small sine-heightfield, mesh, variant, node,
+stream, facade, and benchmark modules. The browser worker bridge routes opaque
+Rust-issued node build requests and returns mesh buffers without TypeScript
+terrain policy. Rust/wgpu renders terrain directly into post-process scene
+targets with water disabled. The old density, Dual Contouring, placement,
+apron, transition-edge mesh, and water-generation systems are out of the active
+compiled terrain path and preserved only in the reference snapshot. Milestone
+2C still needs focused replacement smoke tests, and Milestone 3 still needs the
+dissolve transition shader/state work.
 
 ## Contract and Quality Baseline
 
@@ -180,11 +235,12 @@ This plan preserves the active OFG contracts:
   or renderer state.
 - `OFG-API-004`: terrain mesh vertices keep the current renderer contract unless
   a milestone updates all Rust, WGSL, generated shader artifacts, and tests
-  together. Water bathymetry packets remain terrain-job outputs consumed by the
-  Rust/wgpu renderer.
+  together. The active reset emits no water bathymetry packets; water renderer
+  code is dormant compatibility until a later water milestone either removes or
+  rebuilds it.
 - `OFG-API-005`: terrain presets and variant descriptors remain Rust-owned.
   TypeScript may edit flat descriptor values for UI, but cannot sample terrain
-  or classify materials.
+  or classify materials. The active reset uses only the `sineGrass` preset.
 - `OFG-API-006`: the standalone `terrain_core.wasm` artifact remains a fixture
   and worker-build artifact, not a TypeScript terrain runtime.
 - `OFG-API-009`: TypeScript must not regain terrain generation, density
@@ -199,16 +255,14 @@ exception here with rationale.
 
 ## Context and Orientation
 
-Current terrain lives mostly in `crates/terrain_core/src`. It includes chunk and
-node identity, density sampling, broad shape presets, material classification,
-Dual Contouring mesh generation, placement sampling, vertical band resolution,
-transition edge meshes, water bathymetry packet generation, streaming state, a
-fixture facade, and large test modules. `crates/engine_web/src/terrain_stream.rs`
-owns the playable browser stream facade, emits opaque browser worker requests,
-validates completions, uploads/removes meshes through the Rust/wgpu renderer,
-and assembles terrain debug status. `src/engine/web/terrainWorkerClient.ts` and
-`src/engine/web/terrainBuildWorker.ts` currently route Rust-issued build
-requests to browser workers and call raw `terrain_core.wasm` exports.
+Before this reset, active terrain lived mostly in `crates/terrain_core/src` and
+included chunk identity, density sampling, broad shape presets, material
+classification, Dual Contouring mesh generation, placement sampling, vertical
+band resolution, transition edge meshes, water bathymetry packet generation,
+streaming state, a fixture facade, and large test modules. That implementation
+now exists only as reference material under
+`docs/reference/terrain_legacy_2026_06_15/`. The active path should stay much
+smaller until the streaming and transition model is proved.
 
 The rebuild should not preserve this shape just because it exists. The reference
 snapshot is a memory aid only. Active code should be reintroduced as small,
@@ -218,9 +272,9 @@ named modules with direct tests:
   relationships, stable debug keys, and negative-coordinate floor division.
 - Desired-region resolution: 3x3x3 parent-grid rule, infinite `lod5` grid, and
   vertical range support that does not assume one fixed band.
-- Generation: one whole node per job, 33x33x33 sample lattice, no-overhang
-  column solidification, broad shape noise, detail noise, compact mesh packet,
-  optional water-depth packet, and material labels.
+- Generation: one whole node per job, 33x33 shared edge samples for LOD0,
+  sine-wave height sampling, compact mesh packets, empty-node flags, and grass
+  material IDs.
 - Streaming: job queue, generated/empty/failed states, readiness of all eight
   children before parent replacement, one-level-at-a-time refinement, dissolve
   transition ownership, and stale generation/variant checks.
@@ -230,12 +284,13 @@ named modules with direct tests:
 
 ## Plan of Work
 
-Milestone 0 preserves the current implementation as reference. Create a
+Milestone 0 preserves the previous implementation as reference. Create a
 reference-only folder under `docs/reference/terrain_legacy_2026_06_15/` with a
 README and copied source files from terrain-owned Rust and browser worker paths.
 The folder must not be compiled, imported, or treated as an active source of
-truth. Because the worktree is dirty, use a copy snapshot first; active deletion
-comes only after the rebuilt path passes smoke.
+truth. The user later approved breaking old tests and deleting active legacy
+terrain modules immediately, so the reset may remove compiled legacy code before
+all replacement smoke tests exist.
 
 Milestone 1 adds a small rebuilt terrain specification model in
 `crates/terrain_core/src/rebuild/`. This module should have top-of-file comments
@@ -245,42 +300,37 @@ explaining that it is the new terrain model under construction. It should define
 parent/child mapping, negative coordinate floor division, the infinite `lod5`
 grid rule, and the 3x3x3 parent-to-child desired set.
 
-Milestone 2 adds generation contracts without replacing rendering yet. Define
-node build request and output packets that include mesh data, empty state,
-generation timing, material IDs, and optional water bathymetry data. Implement a
-first synchronous no-overhang density path using the rebuilt identity and
-descriptor shape values. Add tests for deterministic density, no-overhang column
-solidification, material classification by altitude/gradient, empty-node output,
-and water packet presence when sea level crosses a node.
+Milestone 2A replaces the active terrain implementation with a compact
+sine-grass baseline. Define whole-node build request/output packets that include
+mesh data, empty state, generation timing, and grass material IDs. Keep
+compatibility fields only where the browser facade still requires them. Remove
+active collision, apron, placement, material classification, density-field,
+Dual Contouring, transition-edge mesh, and water generation code from the
+compiled terrain path.
 
-Milestone 3 adds the rebuilt stream state machine. It owns request IDs,
-generation revisions, desired sets, queue priority, generated/empty caches,
-visible set selection, transition states, and stale completion rejection. Tests
-must prove a parent remains visible until all eight children are generated or
-empty, replacement happens as a single visible-set flip, transitions retain both
-incoming and outgoing nodes until dissolve completion, and LOD refinement does
-not skip levels.
+Milestone 2B connects the lean stream to active `engine_web` terrain rendering,
+browser worker execution, generated WASM artifacts, and debug snapshots. Keep
+the current opaque browser worker adapter unless benchmark evidence proves it is
+the bottleneck. TypeScript may route opaque build requests and typed arrays, but
+must not own desired sets, material choices, visibility, or rendering policy.
 
-Milestone 4 decides the job execution strategy. First, build an executor
-interface that supports native synchronous tests and browser async completions.
-Then run a small branch experiment with `rayon` plus `wasm-bindgen-rayon`. Adopt
-it only if `npm run build:wasm` and `npm run smoke:browser` can run with the
-required wasm atomics, `SharedArrayBuffer`, and async thread-pool initialization
-without blocking the browser main thread. If that proof fails, keep a minimal
-opaque browser worker adapter and record why in the Decision Log.
+Milestone 2C validates the new baseline with focused Rust tests, build/wasm
+checks, and immediate browser screenshots. Old smoke tests may be broken while
+they still assert removed behavior, but this plan must record which gates ran
+and which legacy expectations need replacement.
 
-Milestone 5 connects the rebuilt stream to active `engine_web` terrain rendering
-and debug snapshots. Retire legacy active modules only after equivalent behavior
-exists in the rebuilt path. Maintain compatibility fields only where browser
-HUD, smoke, or generated WASM contracts still need them. Keep the renderer API
-node-keyed and Rust-owned.
+Milestone 3 adds the rebuilt stream transition state machine and renderer
+dissolve. It owns request IDs, generation revisions, desired sets, queue
+priority, generated/empty caches, visible set selection, transition states, and
+stale completion rejection. Tests must prove a parent remains visible until all
+eight children are generated or empty, replacement happens as a single
+visible-set flip, transitions retain both incoming and outgoing nodes until
+dissolve completion, and LOD refinement does not skip levels.
 
-Milestone 6 validates the rebuild with Rust unit tests, Rust image smoke,
-browser smoke, benchmarks, shader/wasm checks if touched, and coverage. Add or
-update smoke scenarios that prove hole-free replacement, visible dissolve
-transitions, water depth packets near shorelines, and nonblank multi-LOD
-terrain frames. `npm run bench:terrain:rust` must report per-node generation
-timing distributions with attention to the under-30ms target.
+Milestone 4 reintroduces richer generation only after the lean multi-LOD stream
+and transition model is stable. At that point, decide whether density fields,
+overhangs, material classification, water, and placement belong in separate
+small milestones.
 
 ## Concrete Steps
 
@@ -301,7 +351,7 @@ After each milestone:
     git -c safe.directory=C:/dev/ofg diff --check
     npm run test:rust
 
-Before plan completion:
+Before the full rebuild is considered complete:
 
     npm test
     npm run smoke:rust
@@ -348,8 +398,9 @@ The rebuilt terrain path is accepted only when these behaviors are observable:
 - Terrain generation jobs are one whole node per job.
 - Browser TypeScript routes opaque terrain jobs only; it does not compute
   terrain desired sets, visibility, generation, materials, water, or rendering.
-- Rust image smoke captures nonblank multi-LOD terrain frames and water-depth
-  behavior where sea level intersects terrain.
+- Rust image smoke captures nonblank multi-LOD terrain frames. Water-depth
+  behavior is out of scope for the sine-grass baseline and must be covered by a
+  later water milestone.
 - Browser smoke passes with Rust-owned runtime sentinel strings, worker/job
   status, reload health, and nonblank frames.
 - `npm run bench:terrain:rust` reports generation timings and flags any normal
@@ -361,11 +412,11 @@ The rebuilt terrain path is accepted only when these behaviors are observable:
 ## Idempotence and Recovery
 
 The reference snapshot can be recreated by deleting only
-`docs/reference/terrain_legacy_2026_06_15/` and copying the current terrain
-files again. Do not delete active terrain modules until the rebuilt replacement
-has passing tests and smoke. If a Rayon/WASM thread-pool experiment destabilizes
-the build, revert only the experiment files from that milestone, record the
-result here, and continue with the minimal opaque browser worker adapter.
+`docs/reference/terrain_legacy_2026_06_15/` and copying the preserved legacy
+terrain files again from Git history or the latest reference source. If a
+Rayon/WASM thread-pool experiment destabilizes the build, revert only the
+experiment files from that milestone, record the result here, and continue with
+the minimal opaque browser worker adapter.
 
 Because the worktree starts dirty, every milestone should inspect `git status`
 before broad moves or deletions. Never use `git reset --hard` or `git checkout
@@ -383,6 +434,8 @@ Expected generated validation artifacts:
 - Rust image smoke screenshots and reports under `artifacts/rust-smoke/`.
 - Browser smoke screenshots and reports under `artifacts/browser-smoke/`.
 - Rust coverage summaries under `artifacts/coverage/rust/`.
+- Sine-grass reset screenshot:
+  `artifacts/terrain-rebuild/sine-grass-baseline-after-build.png`.
 
 Thread-pool research notes:
 
@@ -419,6 +472,31 @@ Milestone 1 review:
 - Remaining risk: the rebuild model is not yet the active runtime terrain path.
   Generator, stream state machine, dissolve transitions, worker execution, and
   renderer integration are still future milestones.
+
+Milestones 2A/2B review:
+
+- Scope: active terrain reset across `crates/terrain_core`, browser terrain
+  worker routing, `crates/engine_web` stream/render integration, generated WASM
+  artifacts, terrain editor preset fields, active docs, and screenshot
+  evidence.
+- Reviewers: contract, code quality, legacy, correctness, and validation passes
+  were performed locally using the repo-local `milestone-review` skill.
+  Sub-agents were not spawned because this was the plan-required gate, not an
+  explicit user request for delegated reviewers.
+- Required findings fixed: active docs still described the retired density,
+  Dual Contouring, placement, and water path as current. Updated `AGENTS.md`,
+  `docs/API_CONTRACTS.md`, `docs/ARCHITECTURE.md`, and this ExecPlan to name
+  the sine-grass baseline and dormant water compatibility state.
+- Follow-ups recorded: replacement smoke tests are still Milestone 2C; dissolve
+  shader/state integration is still Milestone 3; the dormant water renderer
+  module should be deleted or rebuilt in a later water milestone.
+- Rejected findings: none.
+- Validation rerun: `cargo test -p terrain_core`, `cargo check -p engine_web`,
+  `npm run build`, `npm run check:wasm`, `npm run check:shaders`, browser
+  screenshot capture, and `git -c safe.directory=C:/dev/ofg diff --check`.
+- Remaining risk: old full smoke suites may still expect retired water,
+  placement, or Dual Contouring behavior until Milestone 2C replaces them with
+  lean baseline smoke.
 
 ## Interfaces and Dependencies
 

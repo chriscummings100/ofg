@@ -137,6 +137,7 @@ export async function loadEngineWebWasmModule(
   importModule: DynamicImport = (specifier) => import(specifier)
 ): Promise<EngineWebWasmModule> {
   const moduleUrl = new URL(`../../../${ENGINE_WEB_WASM_METADATA.modulePath}`, import.meta.url);
+  moduleUrl.searchParams.set("v", ENGINE_WEB_WASM_METADATA.wasmHash);
   const module = await importModule(moduleUrl.href) as EngineWebWasmModule;
   await module.default();
 

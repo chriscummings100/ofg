@@ -2048,7 +2048,10 @@ impl BrowserWgpuRenderer {
             shadow_debug_view: ShadowDebugView::Off,
             post_process,
             post_process_settings: PostProcessSettings::default(),
-            water_settings: WaterSettings::default(),
+            water_settings: WaterSettings {
+                enabled: false,
+                ..WaterSettings::default()
+            },
             water_renderer,
             max_texture_array_layers,
             meshes: ResourceStore::new(),
@@ -2577,7 +2580,7 @@ impl BrowserWgpuRenderer {
                 render_pass_timestamp_writes(self.gpu_timers.as_ref(), scene_query);
             let color_attachments = [
                 Some(wgpu::RenderPassColorAttachment {
-                    view: self.water_renderer.opaque_scene_color_view(),
+                    view: self.post_process.scene_color_view(),
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -2590,7 +2593,7 @@ impl BrowserWgpuRenderer {
                     },
                 }),
                 Some(wgpu::RenderPassColorAttachment {
-                    view: self.water_renderer.opaque_linear_depth_view(),
+                    view: self.post_process.linear_depth_view(),
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
@@ -2660,16 +2663,6 @@ impl BrowserWgpuRenderer {
             self.frame_shadow_draw_count = shadow_draw_count;
         }
         cpu_timings.renderer_scene_cpu_ms = perf_now_ms() - scene_started_at_ms;
-        self.water_renderer.render(
-            &self.queue,
-            &mut encoder,
-            &self.camera_bind_group,
-            self.post_process.scene_color_view(),
-            self.post_process.linear_depth_view(),
-            self.water_settings,
-            frame_uniforms[44],
-            &reflection_view_projection,
-        );
         let post_started_at_ms = perf_now_ms();
         let bloom_query = gpu_timestamp_plan.reserve_pass(GpuTimedPass::Bloom);
         let post_query = gpu_timestamp_plan.reserve_pass(GpuTimedPass::PostProcess);

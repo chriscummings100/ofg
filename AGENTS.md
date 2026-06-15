@@ -12,11 +12,11 @@ a Rust/TypeScript toolchain that stays friendly to automated AI development.
 
 The current playable seed is still simple:
 
-- Chunk-streamed generated terrain from 3D density chunks.
-- Runtime terrain meshed as per-chunk neighbor-aware Dual Contouring chunks.
+- Chunk-streamed generated terrain from a sine-wave heightfield baseline.
+- Runtime terrain meshed as whole generated LOD nodes, grass material only.
 - Poly Haven terrain materials rendered from global WebGPU texture arrays.
-- Rust terrain core library/artifact that owns terrain height/density sampling,
-  chunk meshing, stream scheduling, density storage, and mesh packet storage.
+- Rust terrain core library/artifact that owns terrain height sampling, node
+  meshing, stream scheduling, and worker build packets.
 - Rust-owned first-person camera/player movement through `engine_web.wasm`,
   backed by `engine_core`.
 - Rust/wgpu WebGPU renderer through `engine_web.wasm`; Rust owns browser draw
@@ -27,8 +27,10 @@ The current playable seed is still simple:
 - A yellow player marker visible in debug fly mode.
 - WebGPU renderer using generated WGSL shader artifacts.
 
-The current terrain uses same-LOD per-chunk Dual Contouring. LOD transitions and
-far-field terrain are still future terrain architecture work.
+The previous density/Dual Contouring terrain implementation is preserved only as
+reference under `docs/reference/terrain_legacy_2026_06_15/`. The active terrain
+rebuild starts from sine grass, no collision, no aprons, no placement, and no
+water so the multi-LOD streaming and transition model can stay lean.
 
 ## Read These When Needed
 
@@ -243,13 +245,11 @@ crates/engine_core
 
 crates/terrain_core
   Rust terrain core built as both an rlib and a wasm32-unknown-unknown test/dev
-  artifact. It owns macro base elevation, density, compatibility height
-  sampling, density chunk filling, chunk mesh generation, stream scheduling,
-  density storage, worker-pool state tests, and the tested legacy terrain mesh
-  packet store. The playable browser app reaches it through `engine_web` as a
-  Rust library, not through runtime or test TypeScript `terrain_core.wasm`
-  calls. The standalone WASM artifact remains only for export-contract fixture
-  checks; terrain behavior tests and benchmarks run through native Rust.
+  artifact. It owns the sine baseline terrain variant catalog, compatibility
+  height sampling, generated node mesh emission, stream scheduling, and the
+  narrow worker-build facade. The playable browser app reaches it through
+  `engine_web` as a Rust library and through the dedicated browser terrain build
+  worker; TypeScript does not own terrain scheduling or generation.
 
 crates/engine_web
   Browser-facing Rust game/render bridge built to wasm32-unknown-unknown. It
@@ -279,9 +279,8 @@ step.
 
 - Rust owns active browser player/camera state through `engine_web.wasm`, using
   `engine_core` as a Rust library.
-- Rust owns generated terrain sampling, Dual Contouring mesh emission, stream
-  scheduling, density stores, and terrain mesh packet stores through
-  `terrain_core` and `engine_web`.
+- Rust owns generated terrain sampling, mesh emission, stream scheduling, and
+  terrain mesh packet ownership through `terrain_core` and `engine_web`.
 - Rust owns browser WebGPU resource creation and draw submission through
   `engine_web.wasm` and `wgpu`.
 - TypeScript currently owns browser startup, DOM input collection, URL parameter

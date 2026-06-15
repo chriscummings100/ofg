@@ -1,51 +1,17 @@
-// Defines the terrain variant descriptor that editor tooling will tune.
-// Shape parameters are the Rust-owned source of truth for macro elevation,
-// density detail, and the preset catalog exposed to browser/debug surfaces.
+//! Minimal terrain variant metadata for the sine-wave baseline.
 
-use crate::*;
+use crate::node::DEFAULT_TERRAIN_PRESET;
 
-pub const TERRAIN_VARIANT_DESCRIPTOR_VERSION: u32 = 1;
-pub const TERRAIN_VARIANT_FLAT_VALUE_COUNT: usize = 32;
+pub const TERRAIN_VARIANT_DESCRIPTOR_VERSION: u32 = 2;
+pub const TERRAIN_VARIANT_FLAT_VALUE_COUNT: usize = 8;
 pub const TERRAIN_BASE_HEIGHT_MIN: f64 = -4096.0;
 pub const TERRAIN_BASE_HEIGHT_MAX: f64 = 4096.0;
-pub const TERRAIN_HEIGHT_SCALE_MIN: f64 = -2048.0;
+pub const TERRAIN_HEIGHT_SCALE_MIN: f64 = 0.0;
 pub const TERRAIN_HEIGHT_SCALE_MAX: f64 = 2048.0;
-pub const TERRAIN_RIDGE_HEIGHT_SCALE_MAX: f64 = 2048.0;
-pub const TERRAIN_CELLULAR_HEIGHT_SCALE_MAX: f64 = 1024.0;
-pub const TERRAIN_DETAIL_AMPLITUDE_MAX: f64 = 512.0;
-pub const TERRAIN_WARP_AMPLITUDE_MAX: f64 = 8192.0;
-const FNV_OFFSET_BASIS: u64 = 14_695_981_039_346_656_037;
-const FNV_PRIME: u64 = 1_099_511_628_211;
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TerrainPresetMetadata {
-    pub code: u32,
-    pub id: &'static str,
-    pub name: &'static str,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TerrainShapeParameters {
-    pub base_height: f64,
-    pub height_scale: f64,
-    pub large_feature_noise: FractalNoiseOptions,
-    pub ridge_height_scale: f64,
-    pub ridge_noise: RidgedFractalNoiseOptions,
-    pub warp: DomainWarpOptions,
-    pub cellular: CellularNoiseOptions,
-    pub cellular_height_scale: f64,
-    pub detail_noise: FractalNoiseOptions,
-    pub detail_amplitude: f64,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TerrainMaterialBias {
-    pub meadow: f64,
-    pub dry_ground: f64,
-    pub wetland: f64,
-    pub rock: f64,
-    pub snow: f64,
-}
+pub const TERRAIN_RIDGE_HEIGHT_SCALE_MAX: f64 = 0.0;
+pub const TERRAIN_CELLULAR_HEIGHT_SCALE_MAX: f64 = 0.0;
+pub const TERRAIN_DETAIL_AMPLITUDE_MAX: f64 = 0.0;
+pub const TERRAIN_WARP_AMPLITUDE_MAX: f64 = 0.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TerrainVariantDescriptor {
@@ -55,387 +21,224 @@ pub struct TerrainVariantDescriptor {
     pub material_bias: TerrainMaterialBias,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TerrainShapeParameters {
+    pub base_height: f64,
+    pub height_scale: f64,
+    pub wavelength_meters: f64,
+    pub secondary_scale: f64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TerrainMaterialBias {
+    pub grass: f64,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TerrainVariantValidationError {
-    InvalidFlatValueCount,
-    UnsupportedVersion,
-    InvalidPreset,
-    InvalidBaseHeight,
-    InvalidHeightScale,
-    InvalidRidgeHeightScale,
-    InvalidCellularHeightScale,
-    InvalidDetailAmplitude,
-    InvalidFractalNoise,
-    InvalidRidgedNoise,
-    InvalidWarpNoise,
-    InvalidCellularNoise,
-    InvalidMaterialBias,
+pub struct TerrainPresetMetadata {
+    pub code: u32,
+    pub id: &'static str,
+    pub name: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TerrainBiomeWeightsProbe {
+    pub grassland: f64,
+    pub temperate_forest: f64,
+    pub wetland: f64,
+    pub coast_beach: f64,
+    pub dry_badland: f64,
+    pub alpine_meadow: f64,
+    pub high_mountain_rock: f64,
+    pub snow_tundra: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TerrainVariantProbeSummary {
+    pub sample_count: usize,
+    pub height_min: f64,
+    pub height_max: f64,
+    pub slope_min: f64,
+    pub slope_max: f64,
+    pub macro_base_elevation: f64,
+    pub mountainness: f64,
+    pub ridge: f64,
+    pub cellular_edge: f64,
+    pub material_indices: [u32; 4],
+    pub material_weights: [f64; 4],
+    pub biome_weights: TerrainBiomeWeightsProbe,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TerrainVariantValidationError {
+    message: String,
+}
+
+impl TerrainVariantValidationError {
+    /// Creates a validation error with a stable diagnostic string.
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
 }
 
 impl std::fmt::Display for TerrainVariantValidationError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let message = match self {
-            TerrainVariantValidationError::InvalidFlatValueCount => {
-                "terrain variant flat value count is invalid"
-            }
-            TerrainVariantValidationError::UnsupportedVersion => {
-                "terrain variant descriptor version is unsupported"
-            }
-            TerrainVariantValidationError::InvalidPreset => {
-                "terrain variant preset code is invalid"
-            }
-            TerrainVariantValidationError::InvalidBaseHeight => {
-                "terrain variant base height is invalid"
-            }
-            TerrainVariantValidationError::InvalidHeightScale => {
-                "terrain variant height scale is invalid"
-            }
-            TerrainVariantValidationError::InvalidRidgeHeightScale => {
-                "terrain variant ridge height scale is invalid"
-            }
-            TerrainVariantValidationError::InvalidCellularHeightScale => {
-                "terrain variant cellular height scale is invalid"
-            }
-            TerrainVariantValidationError::InvalidDetailAmplitude => {
-                "terrain variant detail amplitude is invalid"
-            }
-            TerrainVariantValidationError::InvalidFractalNoise => {
-                "terrain variant fractal noise options are invalid"
-            }
-            TerrainVariantValidationError::InvalidRidgedNoise => {
-                "terrain variant ridged noise options are invalid"
-            }
-            TerrainVariantValidationError::InvalidWarpNoise => {
-                "terrain variant domain warp options are invalid"
-            }
-            TerrainVariantValidationError::InvalidCellularNoise => {
-                "terrain variant cellular noise options are invalid"
-            }
-            TerrainVariantValidationError::InvalidMaterialBias => {
-                "terrain variant material bias is invalid"
-            }
-        };
-        formatter.write_str(message)
+        formatter.write_str(&self.message)
     }
 }
 
 impl std::error::Error for TerrainVariantValidationError {}
 
-pub(crate) const TERRAIN_PRESET_METADATA: [TerrainPresetMetadata; 4] = [
-    TerrainPresetMetadata {
-        code: 0,
-        id: "seed",
-        name: "Lowland Plain",
-    },
-    TerrainPresetMetadata {
-        code: 1,
-        id: "rollingHills",
-        name: "Rolling Hills",
-    },
-    TerrainPresetMetadata {
-        code: 2,
-        id: "mountainValley",
-        name: "Mountain Valley",
-    },
-    TerrainPresetMetadata {
-        code: 3,
-        id: "rockyHighland",
-        name: "Rocky Highland",
-    },
-];
+pub const TERRAIN_PRESET_METADATA: [TerrainPresetMetadata; 1] = [TerrainPresetMetadata {
+    code: 0,
+    id: "sineGrass",
+    name: "Sine Grass",
+}];
 
-impl Default for TerrainMaterialBias {
-    fn default() -> Self {
-        Self {
-            meadow: 1.0,
-            dry_ground: 1.0,
-            wetland: 1.0,
-            rock: 1.0,
-            snow: 1.0,
-        }
-    }
-}
-
-impl TerrainVariantDescriptor {
-    pub fn validate(&self) -> Result<(), TerrainVariantValidationError> {
-        if self.version != TERRAIN_VARIANT_DESCRIPTOR_VERSION {
-            return Err(TerrainVariantValidationError::UnsupportedVersion);
-        }
-        if (self.preset as usize) >= terrain_preset_count() as usize {
-            return Err(TerrainVariantValidationError::InvalidPreset);
-        }
-        self.shape.validate()?;
-        self.material_bias.validate()
-    }
-}
-
-impl TerrainShapeParameters {
-    pub fn validate(&self) -> Result<(), TerrainVariantValidationError> {
-        validate_finite_range(
-            self.base_height,
-            TERRAIN_BASE_HEIGHT_MIN,
-            TERRAIN_BASE_HEIGHT_MAX,
-        )
-        .ok_or(TerrainVariantValidationError::InvalidBaseHeight)?;
-        validate_finite_range(
-            self.height_scale,
-            TERRAIN_HEIGHT_SCALE_MIN,
-            TERRAIN_HEIGHT_SCALE_MAX,
-        )
-        .ok_or(TerrainVariantValidationError::InvalidHeightScale)?;
-        validate_finite_range(self.ridge_height_scale, 0.0, TERRAIN_RIDGE_HEIGHT_SCALE_MAX)
-            .ok_or(TerrainVariantValidationError::InvalidRidgeHeightScale)?;
-        validate_finite_range(
-            self.cellular_height_scale,
-            0.0,
-            TERRAIN_CELLULAR_HEIGHT_SCALE_MAX,
-        )
-        .ok_or(TerrainVariantValidationError::InvalidCellularHeightScale)?;
-        validate_finite_range(self.detail_amplitude, 0.0, TERRAIN_DETAIL_AMPLITUDE_MAX)
-            .ok_or(TerrainVariantValidationError::InvalidDetailAmplitude)?;
-        validate_fractal_noise(self.large_feature_noise)
-            .ok_or(TerrainVariantValidationError::InvalidFractalNoise)?;
-        validate_ridged_noise(self.ridge_noise)
-            .ok_or(TerrainVariantValidationError::InvalidRidgedNoise)?;
-        validate_warp_noise(self.warp).ok_or(TerrainVariantValidationError::InvalidWarpNoise)?;
-        validate_cellular_noise(self.cellular)
-            .ok_or(TerrainVariantValidationError::InvalidCellularNoise)?;
-        validate_fractal_noise(self.detail_noise)
-            .ok_or(TerrainVariantValidationError::InvalidFractalNoise)
-    }
-}
-
-impl TerrainMaterialBias {
-    pub fn validate(&self) -> Result<(), TerrainVariantValidationError> {
-        for value in [
-            self.meadow,
-            self.dry_ground,
-            self.wetland,
-            self.rock,
-            self.snow,
-        ] {
-            validate_finite_range(value, 0.0, 4.0)
-                .ok_or(TerrainVariantValidationError::InvalidMaterialBias)?;
-        }
-
-        Ok(())
-    }
-}
-
+/// Returns the number of active baseline terrain presets.
 pub fn terrain_preset_count() -> u32 {
     TERRAIN_PRESET_METADATA.len() as u32
 }
 
-pub fn terrain_preset_metadata(preset: u32) -> TerrainPresetMetadata {
-    TERRAIN_PRESET_METADATA[terrain_preset_index(preset) as usize]
+/// Returns preset metadata, defaulting to the sine baseline for unknown codes.
+pub fn terrain_preset_metadata(code: u32) -> TerrainPresetMetadata {
+    TERRAIN_PRESET_METADATA
+        .iter()
+        .copied()
+        .find(|preset| preset.code == code)
+        .unwrap_or(TERRAIN_PRESET_METADATA[0])
 }
 
+/// Returns the baseline terrain variant for a preset code.
 pub fn terrain_variant_for_preset(preset: u32) -> TerrainVariantDescriptor {
-    let preset = terrain_preset_index(preset);
+    let _metadata = terrain_preset_metadata(preset);
     TerrainVariantDescriptor {
         version: TERRAIN_VARIANT_DESCRIPTOR_VERSION,
-        preset,
-        shape: terrain_preset(preset),
-        material_bias: TerrainMaterialBias::default(),
+        preset: DEFAULT_TERRAIN_PRESET,
+        shape: TerrainShapeParameters {
+            base_height: 0.0,
+            height_scale: 10.0,
+            wavelength_meters: 128.0,
+            secondary_scale: 0.35,
+        },
+        material_bias: TerrainMaterialBias { grass: 1.0 },
     }
 }
 
+impl TerrainVariantDescriptor {
+    /// Validates that the baseline descriptor has finite, usable values.
+    pub fn validate(self) -> Result<(), TerrainVariantValidationError> {
+        if self.version != TERRAIN_VARIANT_DESCRIPTOR_VERSION {
+            return Err(TerrainVariantValidationError::new(
+                "unsupported terrain variant descriptor version",
+            ));
+        }
+        if !self.shape.base_height.is_finite()
+            || !self.shape.height_scale.is_finite()
+            || !self.shape.wavelength_meters.is_finite()
+            || self.shape.height_scale < 0.0
+            || self.shape.wavelength_meters <= 0.0
+        {
+            return Err(TerrainVariantValidationError::new(
+                "invalid sine terrain variant shape",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Serializes a terrain descriptor to the flat browser editor shape.
 pub fn terrain_variant_flat_values(
     descriptor: TerrainVariantDescriptor,
 ) -> [f64; TERRAIN_VARIANT_FLAT_VALUE_COUNT] {
-    let shape = descriptor.shape;
-    let material = descriptor.material_bias;
-
     [
         descriptor.version as f64,
         descriptor.preset as f64,
-        shape.base_height,
-        shape.height_scale,
-        shape.large_feature_noise.octaves as f64,
-        shape.large_feature_noise.frequency,
-        shape.large_feature_noise.lacunarity,
-        shape.large_feature_noise.persistence,
-        shape.ridge_height_scale,
-        shape.ridge_noise.octaves as f64,
-        shape.ridge_noise.frequency,
-        shape.ridge_noise.lacunarity,
-        shape.ridge_noise.persistence,
-        shape.ridge_noise.ridge_offset,
-        shape.ridge_noise.ridge_sharpness,
-        shape.warp.octaves as f64,
-        shape.warp.frequency,
-        shape.warp.lacunarity,
-        shape.warp.persistence,
-        shape.warp.amplitude,
-        shape.cellular.frequency,
-        shape.cellular_height_scale,
-        shape.detail_noise.octaves as f64,
-        shape.detail_noise.frequency,
-        shape.detail_noise.lacunarity,
-        shape.detail_noise.persistence,
-        shape.detail_amplitude,
-        material.meadow,
-        material.dry_ground,
-        material.wetland,
-        material.rock,
-        material.snow,
+        descriptor.shape.base_height,
+        descriptor.shape.height_scale,
+        descriptor.shape.wavelength_meters,
+        descriptor.shape.secondary_scale,
+        descriptor.material_bias.grass,
+        terrain_variant_cache_key(descriptor) as f64,
     ]
 }
 
+/// Parses a flat terrain descriptor from browser values.
 pub fn terrain_variant_from_flat_values(
     values: &[f64],
 ) -> Result<TerrainVariantDescriptor, TerrainVariantValidationError> {
     if values.len() != TERRAIN_VARIANT_FLAT_VALUE_COUNT {
-        return Err(TerrainVariantValidationError::InvalidFlatValueCount);
+        return Err(TerrainVariantValidationError::new(
+            "terrain variant flat value count mismatch",
+        ));
     }
-
-    let mut cursor = 0;
     let descriptor = TerrainVariantDescriptor {
-        version: read_flat_u32(
-            values,
-            &mut cursor,
-            TerrainVariantValidationError::UnsupportedVersion,
-        )?,
-        preset: read_flat_u32(
-            values,
-            &mut cursor,
-            TerrainVariantValidationError::InvalidPreset,
-        )?,
+        version: values[0] as u32,
+        preset: values[1] as u32,
         shape: TerrainShapeParameters {
-            base_height: read_flat_f64(values, &mut cursor),
-            height_scale: read_flat_f64(values, &mut cursor),
-            large_feature_noise: FractalNoiseOptions {
-                octaves: read_flat_u32(
-                    values,
-                    &mut cursor,
-                    TerrainVariantValidationError::InvalidFractalNoise,
-                )?,
-                frequency: read_flat_f64(values, &mut cursor),
-                lacunarity: read_flat_f64(values, &mut cursor),
-                persistence: read_flat_f64(values, &mut cursor),
-            },
-            ridge_height_scale: read_flat_f64(values, &mut cursor),
-            ridge_noise: RidgedFractalNoiseOptions {
-                octaves: read_flat_u32(
-                    values,
-                    &mut cursor,
-                    TerrainVariantValidationError::InvalidRidgedNoise,
-                )?,
-                frequency: read_flat_f64(values, &mut cursor),
-                lacunarity: read_flat_f64(values, &mut cursor),
-                persistence: read_flat_f64(values, &mut cursor),
-                ridge_offset: read_flat_f64(values, &mut cursor),
-                ridge_sharpness: read_flat_f64(values, &mut cursor),
-            },
-            warp: DomainWarpOptions {
-                octaves: read_flat_u32(
-                    values,
-                    &mut cursor,
-                    TerrainVariantValidationError::InvalidWarpNoise,
-                )?,
-                frequency: read_flat_f64(values, &mut cursor),
-                lacunarity: read_flat_f64(values, &mut cursor),
-                persistence: read_flat_f64(values, &mut cursor),
-                amplitude: read_flat_f64(values, &mut cursor),
-            },
-            cellular: CellularNoiseOptions {
-                frequency: read_flat_f64(values, &mut cursor),
-            },
-            cellular_height_scale: read_flat_f64(values, &mut cursor),
-            detail_noise: FractalNoiseOptions {
-                octaves: read_flat_u32(
-                    values,
-                    &mut cursor,
-                    TerrainVariantValidationError::InvalidFractalNoise,
-                )?,
-                frequency: read_flat_f64(values, &mut cursor),
-                lacunarity: read_flat_f64(values, &mut cursor),
-                persistence: read_flat_f64(values, &mut cursor),
-            },
-            detail_amplitude: read_flat_f64(values, &mut cursor),
+            base_height: values[2],
+            height_scale: values[3],
+            wavelength_meters: values[4],
+            secondary_scale: values[5],
         },
-        material_bias: TerrainMaterialBias {
-            meadow: read_flat_f64(values, &mut cursor),
-            dry_ground: read_flat_f64(values, &mut cursor),
-            wetland: read_flat_f64(values, &mut cursor),
-            rock: read_flat_f64(values, &mut cursor),
-            snow: read_flat_f64(values, &mut cursor),
-        },
+        material_bias: TerrainMaterialBias { grass: values[6] },
     };
-
     descriptor.validate()?;
     Ok(descriptor)
 }
 
+/// Returns a small deterministic descriptor cache key.
 pub fn terrain_variant_cache_key(descriptor: TerrainVariantDescriptor) -> u64 {
-    let mut hash = FNV_OFFSET_BASIS;
-    for value in terrain_variant_flat_values(descriptor) {
-        hash ^= value.to_bits();
-        hash = hash.wrapping_mul(FNV_PRIME);
-    }
-
-    hash
+    let values = terrain_variant_flat_values_without_key(descriptor);
+    values.iter().fold(0xcbf29ce484222325_u64, |hash, value| {
+        (hash ^ value.to_bits()).wrapping_mul(0x100000001b3)
+    })
 }
 
-fn validate_fractal_noise(options: FractalNoiseOptions) -> Option<()> {
-    validate_octaves(options.octaves)?;
-    validate_finite_range(options.frequency, 0.000001, 1.0)?;
-    validate_finite_range(options.lacunarity, 1.0, 8.0)?;
-    validate_finite_range(options.persistence, 0.0, 1.5)
+/// Builds a probe summary for the current sine baseline.
+pub fn terrain_variant_probe_summary(
+    seed: u32,
+    descriptor: TerrainVariantDescriptor,
+    x: f64,
+    z: f64,
+    _radius_meters: f64,
+) -> Result<TerrainVariantProbeSummary, TerrainVariantValidationError> {
+    let center = crate::heightfield::height_at_for_variant(seed, descriptor, x, z)?;
+    Ok(TerrainVariantProbeSummary {
+        sample_count: 1,
+        height_min: center,
+        height_max: center,
+        slope_min: 0.0,
+        slope_max: 0.0,
+        macro_base_elevation: descriptor.shape.base_height,
+        mountainness: 0.0,
+        ridge: 0.0,
+        cellular_edge: 0.0,
+        material_indices: [0, 0, 0, 0],
+        material_weights: [1.0, 0.0, 0.0, 0.0],
+        biome_weights: TerrainBiomeWeightsProbe {
+            grassland: 1.0,
+            temperate_forest: 0.0,
+            wetland: 0.0,
+            coast_beach: 0.0,
+            dry_badland: 0.0,
+            alpine_meadow: 0.0,
+            high_mountain_rock: 0.0,
+            snow_tundra: 0.0,
+        },
+    })
 }
 
-fn validate_ridged_noise(options: RidgedFractalNoiseOptions) -> Option<()> {
-    validate_octaves(options.octaves)?;
-    validate_finite_range(options.frequency, 0.000001, 1.0)?;
-    validate_finite_range(options.lacunarity, 1.0, 8.0)?;
-    validate_finite_range(options.persistence, 0.0, 1.5)?;
-    validate_finite_range(options.ridge_offset, 0.000001, 4.0)?;
-    validate_finite_range(options.ridge_sharpness, 0.1, 8.0)
-}
-
-fn validate_warp_noise(options: DomainWarpOptions) -> Option<()> {
-    validate_octaves(options.octaves)?;
-    validate_finite_range(options.frequency, 0.000001, 1.0)?;
-    validate_finite_range(options.lacunarity, 1.0, 8.0)?;
-    validate_finite_range(options.persistence, 0.0, 1.5)?;
-    validate_finite_range(options.amplitude, 0.0, TERRAIN_WARP_AMPLITUDE_MAX)
-}
-
-fn validate_cellular_noise(options: CellularNoiseOptions) -> Option<()> {
-    validate_finite_range(options.frequency, 0.000001, 1.0)
-}
-
-fn validate_octaves(octaves: u32) -> Option<()> {
-    if (1..=8).contains(&octaves) {
-        Some(())
-    } else {
-        None
-    }
-}
-
-fn validate_finite_range(value: f64, min: f64, max: f64) -> Option<()> {
-    if value.is_finite() && value >= min && value <= max {
-        Some(())
-    } else {
-        None
-    }
-}
-
-fn read_flat_f64(values: &[f64], cursor: &mut usize) -> f64 {
-    let value = values[*cursor];
-    *cursor += 1;
-    value
-}
-
-fn read_flat_u32(
-    values: &[f64],
-    cursor: &mut usize,
-    error: TerrainVariantValidationError,
-) -> Result<u32, TerrainVariantValidationError> {
-    let value = read_flat_f64(values, cursor);
-    if value.is_finite() && value.fract() == 0.0 && value >= 0.0 && value <= u32::MAX as f64 {
-        Ok(value as u32)
-    } else {
-        Err(error)
-    }
+fn terrain_variant_flat_values_without_key(descriptor: TerrainVariantDescriptor) -> [f64; 7] {
+    [
+        descriptor.version as f64,
+        descriptor.preset as f64,
+        descriptor.shape.base_height,
+        descriptor.shape.height_scale,
+        descriptor.shape.wavelength_meters,
+        descriptor.shape.secondary_scale,
+        descriptor.material_bias.grass,
+    ]
 }

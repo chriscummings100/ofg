@@ -56,9 +56,9 @@ src/engine/math
 src/engine/render
   Shader contract tests. Actual browser WebGPU resource creation, terrain
   texture manifest interpretation, texture-array validation/upload, terrain mesh
-  generation/upload/pruning, water bathymetry/composite resources, active
-  draw-set ownership, and draw submission happen in Rust/wgpu through
-  `crates/engine_web`.
+  generation/upload/pruning, active draw-set ownership, and draw submission
+  happen in Rust/wgpu through `crates/engine_web`. The old water renderer
+  resources are dormant during the sine-grass terrain baseline.
 
 src/engine/web
   Browser-facing WASM loaders for Rust systems that are not pure engine core or
@@ -72,9 +72,9 @@ src/engine/web
   mesh upload live inside `engine_web.wasm`.
 
 src/engine/render/shaders
-  Shader source inputs. `uber.wgsl`, `post.wgsl`, and `water.wgsl` are compiled
-  into TypeScript artifacts for shader contract tests, and the Rust renderer
-  includes the shared WGSL source.
+  Shader source inputs. `uber.wgsl`, `post.wgsl`, and dormant `water.wgsl` are
+  compiled into TypeScript artifacts for shader contract tests, and the Rust
+  renderer includes the shared WGSL source.
 
 src/generated
   Deterministically generated TypeScript artifacts used by runtime code,
@@ -94,10 +94,9 @@ as a browser shell plus generic browser image decoder.
   first-person/third-person/debug-fly camera mode switching, scene mesh item
   resolution for the debug player marker and imported model items, frame packet
   construction, terrain stream advancement, terrain mesh upload/pruning, and
-  Rust/wgpu draw submission. It also owns the sea-level water renderer: water
-  settings, water status, terrain-job bathymetry packet upload, opaque scene
-  targets, optional planar reflection targets, and water compositing before
-  post-process.
+  Rust/wgpu draw submission. The sea-level water command/status surface remains
+  for compatibility, but the sine-grass baseline starts with water disabled and
+  bypasses water compositing.
 - `engine_core` remains the browser-free Rust logic crate for engine/player/world
   behavior and native tests. It owns the Rust scene/component model: one
   scene tree of entities addressed by stable generational `EntityId` handles,
@@ -108,28 +107,19 @@ as a browser shell plus generic browser image decoder.
   is linked into `engine_web`; no standalone `engine_core.wasm` browser artifact
   is built for the playable app.
 - `terrain_core` owns terrain preset metadata, terrain variant descriptor
-  validation, flat descriptor layout, height/density sampling, generated chunk
-  mesh emission, exact polygonized surface queries, mesh-backed placement sample
-  generation, terrain-job sea-depth packet generation, descriptor probe
-  summaries, stream scheduling, density storage, worker-pool request-state
-  tests, and the tested legacy terrain mesh packet store. The playable browser
-  path now reaches it through `engine_web` as a Rust library for scheduling,
-  sea-depth sampling, placement counting, and through a dedicated browser worker
-  `terrain_core.wasm` instance for build execution. The standalone
-  `terrain_core.wasm` artifact remains a narrow export-contract and
-  worker-build artifact, not a TypeScript terrain ownership boundary; native
-  Rust tests and `npm run bench:terrain:rust` cover terrain behavior and
-  benchmarking. The Rust terrain benchmark includes a profiled terrain-node
-  population sampled from streaming-style LOD bands, movement centers, multiple
-  presets, derived seeds, and explicit air/solid/surface probes so generation
-  cost is reported as distributions instead of single-chunk anecdotes.
+  validation, flat descriptor layout, sine height sampling, generated node mesh
+  emission, descriptor probe summaries, stream scheduling, and the narrow worker
+  facade. The playable browser path reaches it through `engine_web` as a Rust
+  library for scheduling and through a dedicated browser worker
+  `terrain_core.wasm` instance for build execution. Density storage, Dual
+  Contouring, placement sampling, transition-edge meshes, and water generation
+  were moved back to reference/future status during the reset.
 - `engine_web` owns the Rust/wgpu browser renderer and current GLTF model path:
   WebGPU canvas surface, adapter/device/queue, surface configuration, depth
   texture, HDR scene color, linear-depth, and half-resolution bloom
   post-process targets, shader modules, terrain, static-model, sky, bloom
-  extraction, depth-of-field CoC/blur sampling, distance fog, water opaque
-  color/depth targets, water bathymetry texture, water reflection targets,
-  water composite pipeline, and fullscreen post-process pipelines,
+  extraction, depth-of-field CoC/blur sampling, distance fog, and fullscreen
+  post-process pipelines,
   GLB parsing, model image/texture/sampler/material import, embedded PNG/JPEG decode,
   static model resource registration, non-skinned node animation sampling,
   skin joint/inverse bind import, CPU skinning for all active player-character
@@ -138,7 +128,8 @@ as a browser shell plus generic browser image decoder.
   counts, post-process tone-map/bloom/DoF/fog settings, debug view selection,
   and GPU resource pruning.
 - TypeScript collects DOM input, parses URL seed/preset values, starts WASM,
-  exposes debug hooks, displays terrain variant editor and water debug controls,
+  exposes debug hooks, displays terrain variant editor and compatibility water
+  debug controls,
   decodes Rust-provided generic texture-array URL requests into RGBA arrays,
   and fetches Rust-provided opaque byte asset requests for model loading.
   `src/app` no
@@ -147,14 +138,13 @@ as a browser shell plus generic browser image decoder.
   directly. The terrain worker client exists only to route Rust-issued opaque
   build requests and completions. Rust owns the terrain renderer vertex stride,
   terrain texture layer requests, terrain variant descriptor interpretation,
-  surface-placement sampling, stream status/debug snapshot, and active frame
-  construction at that facade.
+  stream status/debug snapshot, and active frame construction at that facade.
   TypeScript no longer creates WebGPU devices, pipelines, buffers, textures,
   render passes, shader uniform buffers, renderer resource handles, shader
   material packets, camera frames, light packets, player-marker mesh/material
-  data, scene mesh world matrices, normal matrices, water bathymetry data,
-  water visibility, terrain placement decisions, optical path length, or
-  reflection cameras.
+  data, scene mesh world matrices, normal matrices, terrain placement decisions,
+  water bathymetry data, water visibility, optical path length, or reflection
+  cameras.
 
 The retired TypeScript scene model is archived under `docs/archived/`. Future
 large-scale world state should move into Rust rather than recreating that graph.
@@ -163,60 +153,37 @@ The active direction is a small Rust-owned scene/component layer in
 
 ## Terrain Direction
 
-The visible seed terrain now defaults to a Rust-owned multi-LOD terrain view.
-Near terrain still uses the current highest-detail LOD0 Dual Contouring chunks,
-while farther bands render coarser LOD1 through LOD5 nodes with larger
-world-space cell sizes. The default horizon band renders a measured settled
-span above 7 km in X and Z, and the default Rust camera far plane is 3500 m.
-Default post-process fog starts at 200 m and reaches full skybox-matched blend
-at 3000 m, so the game has terrain just beyond the fogged horizon without
-keeping the earlier LOD6/18 km proof span. The runtime streamer schedules generated nodes as
-the active unit of work: a node build produces either a renderable mesh or an
-empty node, with density sampling kept as an internal meshing detail. It builds
-neighbor-aware meshes with deterministic same-LOD seam ownership, keeps
-generated mesh data cached, and selects a hole-free visible cover by keeping
-parent nodes rendered until their desired child group is generated or proven
-empty. Terrain stream scheduling, browser stream updates, renderer mesh IDs,
-and debug snapshots are node-keyed for a rootless multi-resolution LOD grid.
-Desired nodes are selected per `(lod, x, z)` column with Rust-owned vertical
-band resolution: the scheduler estimates a conservative world-space
-terrain-interest Y range for the column, converts it to node Y coordinates, and
-intersects it with a per-LOD player-centered vertical window. The browser
-default uses bounded vertical policies so LOD0 stays vertically close to the
-player while coarser LODs can cover taller terrain ranges. Fixed vertical
-offsets remain only as a fixture/migration policy.
+The visible seed terrain is being rebuilt from a small Rust-owned sine-grass
+baseline. The active generator emits grass-only heightfield meshes, no collision
+mesh, no aprons, no placement samples, no transition-edge meshes, and no water
+or bathymetry packets. Rich density fields, Dual Contouring, material
+classification, placement, aprons, and water are future milestones again; the
+previous implementation is preserved as reference under
+`docs/reference/terrain_legacy_2026_06_15/`.
 
-The stream also builds Rust-owned placement sample packets from accepted
-polygonized meshes and reports only aggregate placement candidate/sample/reject
-counts through debug status. For mixed-LOD boundaries, the stream derives
-separate Rust-owned transition edge meshes from cached child and parent
-polygonized meshes, uploads them as optional terrain drawables with keys
-distinct from canonical terrain nodes, and reports aggregate transition
-face/mesh/buffer counts. No foliage instances are rendered yet.
+The multi-LOD model remains the core architectural shape. `lod0` is the highest
+detail level, and larger LOD numbers are coarser. The current coarsest playable
+grid is `lod5`, which is rootless and infinite rather than one global tree.
+LOD0 nodes span 32x32x32 meters, contain 32 cells per axis, and use 33 shared
+edge samples. Coarser LODs keep 32 cells per axis and double world cell size per
+level. A parent node at `lod + 1` covers a 2x2x2 group of children at `lod`.
 
-The terrain data model is 3D from the start. A terrain density chunk has 32 cells
-per axis and 33 samples per axis, so adjacent chunks share boundary samples
-cleanly. The compiled TypeScript terrain generator/noise reference has been
-deleted; Rust is now the browser terrain source of truth for height, density,
-material classification, and mesh emission. `heightAt(x, z)` remains a Rust
-compatibility query for player grounding until movement is density/mesh aware,
-and it uses the active Rust terrain variant descriptor.
+The runtime streamer schedules one whole generated node per job. A generated
+node produces either a renderable mesh or an empty flag. The visible cover keeps
+a parent rendered until all eight children are generated or proven empty, then
+can flip the group in one visibility update. Desired child sets are derived from
+a 3x3x3 grid of parent nodes around the player, with bounded vertical policies
+so the model does not assume terrain lives in one fixed Y band. Dissolve
+transitions are the next active streaming milestone; the current baseline keeps
+the state model small and observable before adding shader transition masks.
 
-Terrain variants are Rust-owned shape descriptors for the current generator.
-They tune broad landform geometry such as base elevation, relief scale,
-large-feature noise, ridge strength, domain warp, cellular breakup, and detail
-noise. The browser terrain variant editor can duplicate catalog presets, edit
-numeric descriptor fields, apply them through the Rust command lane, preview the
-active draft at the world origin, import/export JSON, and display Rust probe
-summaries. It does not own the generator. Shape presets are also not biomes:
-future climate, biome, hydrology, rivers, lakes, water-body generation,
-vegetation, prop placement, material palette, and local feature systems should
-compose with these shape descriptors as separate Rust-owned layers rather than
-turning every terrain shape preset into an all-in-one world type. The current
-sea-level water is a renderer feature over the existing terrain height surface,
-not a terrain generator layer. Current built-in preset scales and remaining
-terrain-band constraints are recorded in
-`docs/TERRAIN_PRESET_SCALE.md`.
+Terrain variants are Rust-owned descriptors for the sine baseline. The current
+flat descriptor contains version, preset code, base height, sine height scale,
+wavelength, secondary wave scale, grass bias, and a cache key. The browser
+terrain variant editor can edit and forward those numbers, preview the active
+draft at the world origin, import/export JSON, and display Rust probe summaries.
+It does not own sampling, material classification, desired sets, or visibility.
+`sineGrass` is the only active preset.
 
 `engine_web` now keeps the playable browser terrain stream inside Rust. Its
 `BrowserTerrainStream` uses `terrain_core` as a Rust library for stream desired
@@ -248,19 +215,8 @@ and material weights from Rust `terrain_core`. Rust/wgpu owns the actual GPU
 mesh handles, node-keyed object handles, and active draw set. The old compiled
 TypeScript
 `TerrainChunkStreamer`, `TerrainRenderer`, `TerrainRenderPacketStore`,
-`TerrainCoreWorkerStreamer`, `terrainChunkWorkerClient`, `RenderWorld`,
-highest-surface mesher, and heightfield mesh path have been retired rather than
-kept as parallel terrain owners.
-
-The Dual Contouring implementation now lives in `crates/terrain_core`. The
-intended boundary is:
-
-- Density field interface: sample signed density and gradients at world positions,
-  with materials added once the surface representation is stable.
-- Chunk sampler: evaluate density at deterministic 33x33x33 chunk lattice points.
-- Mesher: produce compact per-chunk vertex/index/material buffers with smooth
-  normals and neighbor-aware boundary quads.
-- Renderer: upload chunk meshes without knowing how they were generated.
+`TerrainCoreWorkerStreamer`, `terrainChunkWorkerClient`, and `RenderWorld` have
+been retired rather than kept as parallel terrain owners.
 
 The first implementation used TypeScript for iteration speed. That phase is now
 over for scaling-sensitive systems: terrain, world state, render extraction, and
@@ -270,9 +226,9 @@ WebGPU ownership should stay on the Rust-first plan.
 
 Shader source sits behind `tools/build-shaders.mjs`. Current inputs include
 `src/engine/render/shaders/uber.wgsl` for opaque scene, sky, shadow, and model
-rendering, `src/engine/render/shaders/water.wgsl` for sea-level water
-compositing, and `src/engine/render/shaders/post.wgsl` for fullscreen
-post-process presentation. Generated runtime artifacts live under
+rendering, dormant `src/engine/render/shaders/water.wgsl`, and
+`src/engine/render/shaders/post.wgsl` for fullscreen post-process presentation.
+Generated runtime artifacts live under
 `src/generated/render/`.
 
 The Rust renderer includes the shared WGSL shader source, while TypeScript shader
@@ -280,29 +236,20 @@ tests still validate the generated metadata and vertex-layout contract. WGSL is
 the intended shader language for this project because it is browser-native,
 direct, and familiar enough for AI-driven changes.
 
-The browser scene pass now writes an HDR opaque color target and an `R32Float`
-opaque linear-depth/distance target. The water pass can then composite a fixed
-sea-level plane into the final HDR scene color and final linear-depth targets
-before a fullscreen Rust/wgpu post pass presents the selected output to the
-canvas. Terrain generation jobs emit optional node-local bathymetry packets for
-sea-level nodes; the renderer uploads visible packets into a bathymetry atlas and
-draws matching water-plane instances. The water shader samples those packets for
-vertical bottom depth and the opaque linear-depth target for eye-ray optical path
-length, then applies denser shallow-water tinting, small animated ripple normals,
-and procedural shoreline foam. Planar reflections are default-off because the
-current experimental reflection path has screen-edge artifacts; when explicitly
-enabled for diagnosis, a mirrored camera renders a half-resolution reflection
-color target for Fresnel-weighted sampling. Scene and water shaders output
-scene-linear color; the post shader owns exposure and filmic tone mapping, with
-the selected sRGB surface doing final display encoding. The
-post-process frame graph also writes a half-resolution `Rgba16Float` bloom
-target from bright HDR scene color and
-composites it before tone mapping. Depth of field is default-off and uses the
-linear-depth target to calculate a per-pixel circle of confusion before sampling
-a small HDR scene blur in the final pass. Distance fog is default-on and uses
-linear depth to fade opaque scene pixels toward the same procedural sky color
-used by the sky pass, with RGB fog controls acting as a sky tint before tone
-mapping while leaving sky pixels untouched. Debug hooks may select final
+The browser scene pass now writes an HDR scene color target and an `R32Float`
+linear-depth/distance target owned by the post-process resources. The sine-grass
+baseline has no active water pass, so the old water composite targets are not in
+the main frame graph. `water.wgsl` and `water_renderer.rs` remain only dormant
+compatibility until a later water milestone. Scene shaders output scene-linear
+color; the post shader owns exposure and filmic tone mapping, with the selected
+sRGB surface doing final display encoding. The post-process frame graph also
+writes a half-resolution `Rgba16Float` bloom target from bright HDR scene color
+and composites it before tone mapping. Depth of field is default-off and uses
+the linear-depth target to calculate a per-pixel circle of confusion before
+sampling a small HDR scene blur in the final pass. Distance fog is default-on
+and uses linear depth to fade opaque scene pixels toward the same procedural sky
+color used by the sky pass, with RGB fog controls acting as a sky tint before
+tone mapping while leaving sky pixels untouched. Debug hooks may select final
 output, scene color, linear depth, post-tone-map color, bloom contribution, DoF
 CoC, DoF blurred scene color, or fog factor, but TypeScript only sends commands
 and reads Rust-reported status.
@@ -371,15 +318,15 @@ pass. Browser TypeScript may expose debug/smoke sky values from
   Rust/wgpu renderer status, terrain worker transport counters, movement-delta
   frame/worker/upload telemetry, post-process debug view selection, and
   Rust-owned water debug/status controls.
-- Rust terrain tests cover height/density determinism, density chunk fill, mesh
-  buffers, retained stores, stream scheduling, and worker-pool fixtures. The
+- Rust terrain tests cover sine height determinism, mesh buffers, stream
+  scheduling, and the worker-build facade. The
   removed TypeScript terrain ownership adapters must not be recreated for test
   coverage; the dedicated browser build worker is the only TypeScript path that
   loads `terrain_core.wasm`.
 - Rust offscreen image smoke in `crates/ofg_test_harness` creates native `wgpu`
-  render targets, ticks Rust terrain streaming, renders terrain/sky/water PNGs,
-  writes `artifacts/rust-smoke/<run-id>/report.json`, reports water runtime and
-  bathymetry coverage, and owns terrain preset and seam/corner image smoke.
+  render targets, ticks Rust terrain streaming, renders terrain/sky PNGs, and
+  writes `artifacts/rust-smoke/<run-id>/report.json`. Water image smoke is a
+  future water-milestone gate.
 - Performance tests should be explicit scripts with stable scene seeds, not hidden
   assertions inside regular unit tests. Terrain generation performance is
   measured by `npm run bench:terrain:rust`, including aggregate, per-LOD,

@@ -3,23 +3,8 @@
 export const TERRAIN_PRESET_DEFINITIONS = [
   {
     "code": 0,
-    "id": "seed",
-    "name": "Lowland Plain"
-  },
-  {
-    "code": 1,
-    "id": "rollingHills",
-    "name": "Rolling Hills"
-  },
-  {
-    "code": 2,
-    "id": "mountainValley",
-    "name": "Mountain Valley"
-  },
-  {
-    "code": 3,
-    "id": "rockyHighland",
-    "name": "Rocky Highland"
+    "id": "sineGrass",
+    "name": "Sine Grass"
   }
 ] as const;
 

@@ -1,22 +1,35 @@
-// Terrain LOD node identity and parent/child helpers for the rootless
-// multi-resolution terrain grid.
+//! Terrain node identity and metric helpers.
 
-use crate::TerrainChunkCoord;
+pub const DEFAULT_TERRAIN_PRESET: u32 = 0;
+pub const MAX_PLAYABLE_LOD: u8 = 5;
+pub const TERRAIN_CHUNK_CELLS_PER_AXIS: u32 = 32;
+pub const TERRAIN_NODE_SAMPLES_PER_AXIS: u32 = TERRAIN_CHUNK_CELLS_PER_AXIS + 1;
+pub const LOD0_NODE_SIZE_METERS: f64 = 32.0;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TerrainChunkCoord {
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TerrainNodeKey {
     pub lod: u8,
     pub coord: TerrainChunkCoord,
 }
 
-impl TerrainNodeKey {
-    /// Returns the highest-detail node key for an existing chunk coordinate.
-    pub fn lod0(coord: TerrainChunkCoord) -> Self {
-        Self { lod: 0, coord }
-    }
+/// Returns the terrain node cell size for an LOD.
+pub fn terrain_node_cell_size(base_cell_size: f64, lod: u8) -> f64 {
+    base_cell_size * 2_f64.powi(i32::from(lod))
 }
 
-/// Formats a stable debug and renderer identity for one terrain LOD node.
+/// Returns the terrain node world span for an LOD.
+pub fn terrain_node_size(base_cell_size: f64, lod: u8) -> f64 {
+    terrain_node_cell_size(base_cell_size, lod) * TERRAIN_CHUNK_CELLS_PER_AXIS as f64
+}
+
+/// Returns the stable debug key for a terrain node.
 pub fn terrain_node_key(key: TerrainNodeKey) -> String {
     format!(
         "lod{}:{},{},{}",
@@ -24,14 +37,45 @@ pub fn terrain_node_key(key: TerrainNodeKey) -> String {
     )
 }
 
-/// Returns the world-space cell size for a node at `lod`.
-pub fn terrain_node_cell_size(base_cell_size: f64, lod: u8) -> f64 {
-    base_cell_size * 2_f64.powi(i32::from(lod))
+/// Returns the stable debug key for an LOD0 compatibility chunk.
+pub fn terrain_chunk_key(coord: TerrainChunkCoord) -> String {
+    format!("{},{},{}", coord.x, coord.y, coord.z)
 }
 
-/// Returns the next coarser parent in the rootless LOD grid.
+/// Returns the LOD0 chunk coordinate containing the world position.
+pub fn terrain_chunk_coord_containing_position(
+    x: f32,
+    y: f32,
+    z: f32,
+    cell_size: f64,
+) -> TerrainChunkCoord {
+    let span = terrain_node_size(cell_size, 0);
+    TerrainChunkCoord {
+        x: floor_to_i32(f64::from(x) / span),
+        y: floor_to_i32(f64::from(y) / span),
+        z: floor_to_i32(f64::from(z) / span),
+    }
+}
+
+/// Returns the node coordinate at `lod` containing the world position.
+pub fn terrain_node_coord_for_lod(
+    x: f64,
+    y: f64,
+    z: f64,
+    base_cell_size: f64,
+    lod: u8,
+) -> TerrainChunkCoord {
+    let span = terrain_node_size(base_cell_size, lod);
+    TerrainChunkCoord {
+        x: floor_to_i32(x / span),
+        y: floor_to_i32(y / span),
+        z: floor_to_i32(z / span),
+    }
+}
+
+/// Returns the next coarser parent node, if the key is below the playable root grid.
 pub fn terrain_node_parent(key: TerrainNodeKey) -> Option<TerrainNodeKey> {
-    if key.lod == u8::MAX {
+    if key.lod >= MAX_PLAYABLE_LOD {
         return None;
     }
 
@@ -45,98 +89,35 @@ pub fn terrain_node_parent(key: TerrainNodeKey) -> Option<TerrainNodeKey> {
     })
 }
 
-/// Returns the up-to-eight finer children covered by a coarser node.
+/// Returns the eight children covered by a coarser node.
 pub fn terrain_node_children(parent: TerrainNodeKey) -> Option<[TerrainNodeKey; 8]> {
     if parent.lod == 0 {
         return None;
     }
 
     let lod = parent.lod - 1;
-    let base_x = parent.coord.x.saturating_mul(2);
-    let base_y = parent.coord.y.saturating_mul(2);
-    let base_z = parent.coord.z.saturating_mul(2);
-
+    let base_x = parent.coord.x * 2;
+    let base_y = parent.coord.y * 2;
+    let base_z = parent.coord.z * 2;
     Some([
-        TerrainNodeKey {
-            lod,
-            coord: TerrainChunkCoord {
-                x: base_x,
-                y: base_y,
-                z: base_z,
-            },
-        },
-        TerrainNodeKey {
-            lod,
-            coord: TerrainChunkCoord {
-                x: base_x.saturating_add(1),
-                y: base_y,
-                z: base_z,
-            },
-        },
-        TerrainNodeKey {
-            lod,
-            coord: TerrainChunkCoord {
-                x: base_x,
-                y: base_y.saturating_add(1),
-                z: base_z,
-            },
-        },
-        TerrainNodeKey {
-            lod,
-            coord: TerrainChunkCoord {
-                x: base_x.saturating_add(1),
-                y: base_y.saturating_add(1),
-                z: base_z,
-            },
-        },
-        TerrainNodeKey {
-            lod,
-            coord: TerrainChunkCoord {
-                x: base_x,
-                y: base_y,
-                z: base_z.saturating_add(1),
-            },
-        },
-        TerrainNodeKey {
-            lod,
-            coord: TerrainChunkCoord {
-                x: base_x.saturating_add(1),
-                y: base_y,
-                z: base_z.saturating_add(1),
-            },
-        },
-        TerrainNodeKey {
-            lod,
-            coord: TerrainChunkCoord {
-                x: base_x,
-                y: base_y.saturating_add(1),
-                z: base_z.saturating_add(1),
-            },
-        },
-        TerrainNodeKey {
-            lod,
-            coord: TerrainChunkCoord {
-                x: base_x.saturating_add(1),
-                y: base_y.saturating_add(1),
-                z: base_z.saturating_add(1),
-            },
-        },
+        child(lod, base_x, base_y, base_z),
+        child(lod, base_x + 1, base_y, base_z),
+        child(lod, base_x, base_y + 1, base_z),
+        child(lod, base_x + 1, base_y + 1, base_z),
+        child(lod, base_x, base_y, base_z + 1),
+        child(lod, base_x + 1, base_y, base_z + 1),
+        child(lod, base_x, base_y + 1, base_z + 1),
+        child(lod, base_x + 1, base_y + 1, base_z + 1),
     ])
 }
 
-/// Converts a highest-detail chunk coordinate into the coordinate grid for `lod`.
-pub fn terrain_node_coord_for_lod(coord: TerrainChunkCoord, lod: u8) -> TerrainChunkCoord {
-    let scale = 1_i64.checked_shl(u32::from(lod)).unwrap_or(i64::MAX).max(1);
-
-    TerrainChunkCoord {
-        x: div_i32_by_i64(coord.x, scale),
-        y: div_i32_by_i64(coord.y, scale),
-        z: div_i32_by_i64(coord.z, scale),
+fn child(lod: u8, x: i32, y: i32, z: i32) -> TerrainNodeKey {
+    TerrainNodeKey {
+        lod,
+        coord: TerrainChunkCoord { x, y, z },
     }
 }
 
-fn div_i32_by_i64(value: i32, divisor: i64) -> i32 {
-    i64::from(value)
-        .div_euclid(divisor)
-        .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+fn floor_to_i32(value: f64) -> i32 {
+    value.floor().clamp(i32::MIN as f64, i32::MAX as f64) as i32
 }

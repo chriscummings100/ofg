@@ -34,25 +34,6 @@ type TerrainCoreExports = {
   ofg_mesh_vertex_buffer_len(): number;
   ofg_mesh_index_buffer_ptr(): number;
   ofg_mesh_index_buffer_len(): number;
-  ofg_build_water_node_packet_for_variant(
-    seed: number,
-    lod: number,
-    chunkX: number,
-    chunkY: number,
-    chunkZ: number,
-    cellSize: number,
-    seaLevel: number,
-    maxDepthMeters: number
-  ): number;
-  ofg_water_node_bathymetry_buffer_ptr(): number;
-  ofg_water_node_bathymetry_buffer_len(): number;
-  ofg_water_node_bathymetry_texel_count(): number;
-  ofg_water_node_bathymetry_origin_x(): number;
-  ofg_water_node_bathymetry_origin_z(): number;
-  ofg_water_node_bathymetry_world_span_x(): number;
-  ofg_water_node_bathymetry_world_span_z(): number;
-  ofg_water_node_bathymetry_sea_level(): number;
-  ofg_water_node_bathymetry_max_depth(): number;
 };
 
 type TerrainBuildWorkerScope = {
@@ -68,7 +49,6 @@ type TerrainBuildWorkerScope = {
 
 const worker = self as unknown as TerrainBuildWorkerScope;
 const wasmUrl = new URL("../../../assets/wasm/terrain_core.wasm", import.meta.url);
-const WATER_NODE_MAX_RELEVANT_DEPTH_METERS = 64;
 let terrainCorePromise: Promise<TerrainCoreExports> | undefined;
 
 worker.addEventListener(
@@ -105,17 +85,6 @@ async function handleRequest(envelope: BrowserWorkerRequestEnvelope<TerrainBuild
       terrainCore.ofg_mesh_index_buffer_ptr(),
       terrainCore.ofg_mesh_index_buffer_len()
     );
-    terrainCore.ofg_build_water_node_packet_for_variant(
-      request.seed,
-      request.lod,
-      request.x,
-      request.y,
-      request.z,
-      request.cellSize,
-      0,
-      WATER_NODE_MAX_RELEVANT_DEPTH_METERS
-    );
-    const waterDepths = copyOptionalWaterDepths(terrainCore);
     const payload: TerrainBuildCompletion = {
       requestId: request.requestId,
       generation: request.generation,
@@ -127,20 +96,9 @@ async function handleRequest(envelope: BrowserWorkerRequestEnvelope<TerrainBuild
       failed: false,
       vertices,
       indices,
-      waterTexelCount: terrainCore.ofg_water_node_bathymetry_texel_count(),
-      waterOriginX: terrainCore.ofg_water_node_bathymetry_origin_x(),
-      waterOriginZ: terrainCore.ofg_water_node_bathymetry_origin_z(),
-      waterWorldSpanX: terrainCore.ofg_water_node_bathymetry_world_span_x(),
-      waterWorldSpanZ: terrainCore.ofg_water_node_bathymetry_world_span_z(),
-      waterSeaLevelMeters: terrainCore.ofg_water_node_bathymetry_sea_level(),
-      waterMaxDepthMeters: terrainCore.ofg_water_node_bathymetry_max_depth(),
-      waterDepths,
       durationMs: performance.now() - startedAt
     };
     const transfer = [vertices.buffer, indices.buffer];
-    if (waterDepths !== undefined) {
-      transfer.push(waterDepths.buffer);
-    }
     const completion: BrowserWorkerCompletionEnvelope<TerrainBuildCompletion> = {
       type: "complete",
       requestId: envelope.requestId,
@@ -176,25 +134,6 @@ function copyFloat32Buffer(memory: WebAssembly.Memory, pointer: number, length: 
 
 function copyUint32Buffer(memory: WebAssembly.Memory, pointer: number, length: number): Uint32Array {
   return new Uint32Array(memory.buffer, pointer, length).slice();
-}
-
-function copyOptionalWaterDepths(terrainCore: TerrainCoreExports): Float32Array | undefined {
-  const texelCount = terrainCore.ofg_water_node_bathymetry_texel_count();
-  const length = terrainCore.ofg_water_node_bathymetry_buffer_len();
-  if (texelCount === 0 || length === 0) {
-    return undefined;
-  }
-  if (length !== texelCount * texelCount) {
-    throw new Error(
-      `Water bathymetry length ${length} did not match ${texelCount}x${texelCount}.`
-    );
-  }
-
-  return copyFloat32Buffer(
-    terrainCore.memory,
-    terrainCore.ofg_water_node_bathymetry_buffer_ptr(),
-    length
-  );
 }
 
 function writeTerrainVariantBuffer(

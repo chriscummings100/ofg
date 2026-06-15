@@ -1,7 +1,8 @@
-// Owns the browser game's terrain stream state inside Rust. This module keeps
-// TypeScript out of terrain scheduling and mesh packet semantics; the wasm
-// facade only exposes debug snapshots after meshes have been generated and
-// uploaded by Rust.
+// Owns the browser game's minimal terrain stream state inside Rust.
+//
+// The terrain rebuild starts from grass-only sine terrain. This wrapper keeps
+// TypeScript as an opaque worker transport while Rust owns LOD desired sets,
+// request ids, completion validation, visible cover, and mesh packets.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
@@ -10,23 +11,19 @@ use std::sync::OnceLock;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
-use crate::terrain_placement::{build_surface_placement_packet, placement_counter_totals};
-use crate::terrain_transitions::{BrowserTerrainTransitionMeshUpdate, TerrainTransitionMeshCache};
+use crate::terrain_transitions::BrowserTerrainTransitionMeshUpdate;
 use engine_core::Vec3;
 use terrain_core::{
-    build_node_mesh_for_variant, build_water_node_packet_for_variant,
-    terrain_chunk_coord_containing_position, terrain_chunk_key, terrain_node_cell_size,
-    terrain_node_children, terrain_node_key, terrain_node_parent, terrain_variant_for_preset,
-    MeshData, TerrainChunkCoord, TerrainLodBand, TerrainLodBoundedVerticalPolicy,
-    TerrainLodStatus as CoreTerrainLodStatus, TerrainNodeKey, TerrainPlacementSamplePacket,
+    build_node_mesh_for_variant, terrain_chunk_coord_containing_position, terrain_chunk_key,
+    terrain_node_cell_size, terrain_node_children, terrain_node_key, terrain_node_parent,
+    terrain_variant_for_preset, MeshData, TerrainChunkCoord, TerrainLodBand,
+    TerrainLodBoundedVerticalPolicy, TerrainLodStatus as CoreTerrainLodStatus, TerrainNodeKey,
     TerrainStreamConfig, TerrainStreamError, TerrainStreamJob, TerrainStreamScheduler,
     TerrainStreamStatus as CoreTerrainStreamStatus, TerrainTransitionMeshKey,
-    TerrainVariantDescriptor, TerrainVariantValidationError, WaterNodePacket, SEA_LEVEL_METERS,
-    TERRAIN_CHUNK_CELLS_PER_AXIS, WATER_NODE_MAX_RELEVANT_DEPTH_METERS,
+    TerrainVariantDescriptor, TerrainVariantValidationError, WaterNodePacket,
+    TERRAIN_CHUNK_CELLS_PER_AXIS,
 };
 
-const DEFAULT_TERRAIN_HORIZONTAL_RADIUS: i32 = 1;
-const DEFAULT_TERRAIN_VERTICAL_OFFSETS: [i32; 4] = [-2, -1, 0, 1];
 const DEFAULT_TERRAIN_CELL_SIZE: f64 = 1.0;
 const DEFAULT_TERRAIN_MAX_JOBS_PER_TICK: usize = 6;
 pub const MAX_SAFE_TERRAIN_WORKER_REQUEST_ID: u64 = 9_007_199_254_740_991;
@@ -158,13 +155,8 @@ pub struct BrowserTerrainStream {
     cell_size: f64,
     scheduler: TerrainStreamScheduler,
     last_center_coord: Option<TerrainChunkCoord>,
-    desired_mesh_nodes_cache: BTreeSet<TerrainNodeKey>,
     mesh_cache: BTreeMap<TerrainNodeKey, Arc<MeshData>>,
-    water_cache: BTreeMap<TerrainNodeKey, Arc<WaterNodePacket>>,
-    placement_cache: BTreeMap<TerrainNodeKey, Arc<TerrainPlacementSamplePacket>>,
-    transition_meshes: TerrainTransitionMeshCache,
     visible_nodes: BTreeSet<TerrainNodeKey>,
-    visible_water_nodes: BTreeSet<TerrainNodeKey>,
     visibility_dirty: bool,
     next_worker_request_id: u64,
     queued_worker_requests: VecDeque<BrowserTerrainBuildRequest>,
@@ -184,7 +176,11 @@ impl BrowserTerrainStream {
     }
 
     pub fn new_lod0(seed: u32, preset: u32) -> Result<Self, TerrainStreamError> {
-        Self::new_with_lod_bands(seed, preset, lod0_terrain_lod_bands())
+        Self::new_with_lod_bands(
+            seed,
+            preset,
+            vec![TerrainLodBand::fixed_offsets(0, 1, vec![0])],
+        )
     }
 
     pub fn new_with_lod_bands(
@@ -215,13 +211,8 @@ impl BrowserTerrainStream {
             cell_size: DEFAULT_TERRAIN_CELL_SIZE,
             scheduler,
             last_center_coord: None,
-            desired_mesh_nodes_cache: BTreeSet::new(),
             mesh_cache: BTreeMap::new(),
-            water_cache: BTreeMap::new(),
-            placement_cache: BTreeMap::new(),
-            transition_meshes: TerrainTransitionMeshCache::default(),
             visible_nodes: BTreeSet::new(),
-            visible_water_nodes: BTreeSet::new(),
             visibility_dirty: true,
             next_worker_request_id: 1,
             queued_worker_requests: VecDeque::new(),
@@ -238,7 +229,7 @@ impl BrowserTerrainStream {
 
     pub fn reset_game(&mut self, seed: u32, preset: u32, center: Vec3) -> Vec<TerrainNodeKey> {
         self.reset_game_with_variant(seed, terrain_variant_for_preset(preset), center)
-            .expect("catalog terrain variant should be valid")
+            .expect("catalog sine terrain variant should be valid")
     }
 
     pub fn reset_game_with_variant(
@@ -260,11 +251,7 @@ impl BrowserTerrainStream {
     pub fn reset_around(&mut self, center: Vec3) -> Vec<TerrainNodeKey> {
         let removed_nodes = self.visible_nodes.iter().copied().collect::<Vec<_>>();
         self.mesh_cache.clear();
-        self.water_cache.clear();
-        self.placement_cache.clear();
-        self.transition_meshes.clear();
         self.visible_nodes.clear();
-        self.visible_water_nodes.clear();
         self.queued_worker_requests.clear();
         self.in_flight_worker_requests.clear();
         self.last_density_job_stats = None;
@@ -273,78 +260,23 @@ impl BrowserTerrainStream {
         let center_coord = self.coord_containing_position(center);
         self.scheduler.reset(center_coord);
         self.last_center_coord = Some(center_coord);
-        self.refresh_desired_mesh_nodes_cache();
         self.visibility_dirty = true;
-
         removed_nodes
     }
 
     pub fn tick(&mut self, center: Vec3) -> BrowserTerrainStreamUpdate {
-        let mut update = BrowserTerrainStreamUpdate::default();
-        let sync_started_at_ms = terrain_stream_now_ms();
-        self.sync_around(center);
-        update.timings.sync_around_ms = terrain_stream_now_ms() - sync_started_at_ms;
-
-        let scheduler_started_at_ms = terrain_stream_now_ms();
-        let jobs = self.scheduler.tick();
-        update.timings.scheduler_tick_ms = terrain_stream_now_ms() - scheduler_started_at_ms;
-
-        let queue_started_at_ms = terrain_stream_now_ms();
-        for job in jobs {
-            match job {
-                TerrainStreamJob::BuildNode { generation, key } => {
-                    self.complete_node_job(generation, key);
-                }
-            }
-        }
-        update.timings.worker_request_queue_ms = terrain_stream_now_ms() - queue_started_at_ms;
-
-        if self.visibility_dirty {
-            let visibility_started_at_ms = terrain_stream_now_ms();
-            self.sync_visible_meshes(&mut update);
-            update.timings.visibility_sync_ms = terrain_stream_now_ms() - visibility_started_at_ms;
-            self.visibility_dirty = false;
-        }
-
-        update
+        self.tick_internal(center, false)
     }
 
     pub fn tick_for_workers(&mut self, center: Vec3) -> BrowserTerrainStreamUpdate {
-        let mut update = BrowserTerrainStreamUpdate::default();
-        let sync_started_at_ms = terrain_stream_now_ms();
-        self.sync_around(center);
-        update.timings.sync_around_ms = terrain_stream_now_ms() - sync_started_at_ms;
-
-        let scheduler_started_at_ms = terrain_stream_now_ms();
-        let jobs = self.scheduler.tick();
-        update.timings.scheduler_tick_ms = terrain_stream_now_ms() - scheduler_started_at_ms;
-
-        let queue_started_at_ms = terrain_stream_now_ms();
-        for job in jobs {
-            match job {
-                TerrainStreamJob::BuildNode { generation, key } => {
-                    self.queue_worker_build_request(generation, key);
-                }
-            }
-        }
-        update.timings.worker_request_queue_ms = terrain_stream_now_ms() - queue_started_at_ms;
-
-        if self.visibility_dirty {
-            let visibility_started_at_ms = terrain_stream_now_ms();
-            self.sync_visible_meshes(&mut update);
-            update.timings.visibility_sync_ms = terrain_stream_now_ms() - visibility_started_at_ms;
-            self.visibility_dirty = false;
-        }
-
-        update
+        self.tick_internal(center, true)
     }
 
     pub fn configure_worker_runtime(
         &mut self,
         worker_count: usize,
     ) -> Result<(), TerrainStreamError> {
-        let job_capacity = worker_count.max(1);
-        self.scheduler.set_max_in_flight_jobs(job_capacity)?;
+        self.scheduler.set_max_in_flight_jobs(worker_count.max(1))?;
         self.terrain_worker_count = worker_count;
         Ok(())
     }
@@ -367,9 +299,8 @@ impl BrowserTerrainStream {
             || request.variant_revision != completion.variant_revision
         {
             self.terrain_worker_stale_completion_count += 1;
-            if self.scheduler.fail_node(request.generation, request.key) {
-                self.visibility_dirty = true;
-            }
+            let _ = self.scheduler.fail_node(request.generation, request.key);
+            self.visibility_dirty = true;
             return false;
         }
 
@@ -378,9 +309,7 @@ impl BrowserTerrainStream {
             let failed = self
                 .scheduler
                 .fail_node(completion.generation, completion.key);
-            if failed {
-                self.visibility_dirty = true;
-            }
+            self.visibility_dirty |= failed;
             return failed;
         }
 
@@ -393,54 +322,10 @@ impl BrowserTerrainStream {
             return false;
         }
 
-        self.last_density_job_stats = Some(TerrainJobStats {
-            total_ms: 0.0,
-            vertex_count: 0,
-            index_count: 0,
-        });
-        self.last_chunk_job_stats = Some(TerrainJobStats {
-            total_ms: 0.0,
-            vertex_count: completion.vertices.len(),
-            index_count: completion.indices.len(),
-        });
         self.terrain_worker_completed_count += 1;
         self.visibility_dirty = true;
-
-        self.transition_meshes.remove_referencing(completion.key);
-        if empty {
-            self.mesh_cache.remove(&completion.key);
-            self.placement_cache.remove(&completion.key);
-        } else {
-            let mesh = MeshData {
-                vertices: completion.vertices,
-                indices: completion.indices,
-            };
-            self.cache_placement_packet_for_mesh(completion.key, request.cell_size, &mesh);
-            self.mesh_cache.insert(completion.key, Arc::new(mesh));
-        }
-        if let Some(water) = completion.water {
-            self.water_cache.insert(completion.key, Arc::new(water));
-        } else {
-            self.water_cache.remove(&completion.key);
-        }
-
+        self.cache_completed_mesh(completion.key, completion.vertices, completion.indices);
         true
-    }
-
-    fn cache_placement_packet_for_mesh(
-        &mut self,
-        key: TerrainNodeKey,
-        node_cell_size: f64,
-        mesh: &MeshData,
-    ) {
-        match build_surface_placement_packet(self.seed, key, self.cell_size, node_cell_size, mesh) {
-            Some(packet) => {
-                self.placement_cache.insert(key, Arc::new(packet));
-            }
-            None => {
-                self.placement_cache.remove(&key);
-            }
-        }
     }
 
     pub fn loaded_chunk_keys(&self) -> Vec<String> {
@@ -489,15 +374,13 @@ impl BrowserTerrainStream {
         let rendered_chunk_count = self.visible_nodes.iter().filter(|key| key.lod == 0).count();
         let (visible_world_span_x_meters, visible_world_span_z_meters) =
             visible_world_span(&self.visible_nodes, self.cell_size);
-        let placement_counts = placement_counter_totals(&self.placement_cache);
-        let transition_counts = self.transition_meshes.counter_totals();
 
         BrowserTerrainStreamStatus {
             generation: status.generation,
             pending: is_stream_pending(&status),
             loaded_chunk_count: status.desired_density_count,
             density_ready_chunk_count: status.density_ready_count,
-            shared_density_chunk_count: status.density_ready_count,
+            shared_density_chunk_count: 0,
             in_flight_density_count: status.in_flight_density_count,
             missing_density_count: status.missing_density_count,
             desired_render_chunk_count: status.desired_lod0_count,
@@ -518,15 +401,15 @@ impl BrowserTerrainStream {
                 .into_iter()
                 .map(|summary| browser_lod_status(summary, &self.visible_nodes))
                 .collect(),
-            placement_candidate_count: placement_counts.candidate_count,
-            placement_sample_count: placement_counts.sample_count,
-            placement_missed_surface_count: placement_counts.missed_surface_count,
-            placement_rejected_below_water_count: placement_counts.rejected_below_water_count,
-            placement_rejected_slope_count: placement_counts.rejected_slope_count,
-            transition_face_count: transition_counts.face_count,
-            transition_mesh_count: transition_counts.mesh_count,
-            transition_vertex_float_count: transition_counts.vertex_float_count,
-            transition_index_count: transition_counts.index_count,
+            placement_candidate_count: 0,
+            placement_sample_count: 0,
+            placement_missed_surface_count: 0,
+            placement_rejected_below_water_count: 0,
+            placement_rejected_slope_count: 0,
+            transition_face_count: 0,
+            transition_mesh_count: 0,
+            transition_vertex_float_count: 0,
+            transition_index_count: 0,
             max_concurrent_chunk_jobs: status.max_in_flight_jobs,
             terrain_worker_runtime: if self.terrain_worker_count == 0 {
                 "rust-sync"
@@ -557,35 +440,50 @@ impl BrowserTerrainStream {
         self.terrain_variant_revision
     }
 
+    fn tick_internal(&mut self, center: Vec3, use_workers: bool) -> BrowserTerrainStreamUpdate {
+        let mut update = BrowserTerrainStreamUpdate::default();
+        let sync_started_at_ms = terrain_stream_now_ms();
+        self.sync_around(center);
+        update.timings.sync_around_ms = terrain_stream_now_ms() - sync_started_at_ms;
+
+        let scheduler_started_at_ms = terrain_stream_now_ms();
+        let jobs = self.scheduler.tick();
+        update.timings.scheduler_tick_ms = terrain_stream_now_ms() - scheduler_started_at_ms;
+
+        let queue_started_at_ms = terrain_stream_now_ms();
+        for job in jobs {
+            match job {
+                TerrainStreamJob::BuildNode { generation, key } if use_workers => {
+                    self.queue_worker_build_request(generation, key);
+                }
+                TerrainStreamJob::BuildNode { generation, key } => {
+                    self.complete_node_job(generation, key);
+                }
+            }
+        }
+        update.timings.worker_request_queue_ms = terrain_stream_now_ms() - queue_started_at_ms;
+
+        if self.visibility_dirty {
+            let visibility_started_at_ms = terrain_stream_now_ms();
+            self.sync_visible_meshes(&mut update);
+            update.timings.visibility_sync_ms = terrain_stream_now_ms() - visibility_started_at_ms;
+            self.visibility_dirty = false;
+        }
+
+        update
+    }
+
     fn sync_around(&mut self, center: Vec3) {
         let center_coord = self.coord_containing_position(center);
         if self.last_center_coord != Some(center_coord) {
             self.scheduler.sync_center(center_coord);
             self.last_center_coord = Some(center_coord);
-            self.refresh_desired_mesh_nodes_cache();
+            self.mesh_cache.retain(|key, _mesh| {
+                self.visible_nodes.contains(key)
+                    || self.scheduler.desired_mesh_nodes().contains(key)
+            });
             self.visibility_dirty = true;
-            self.retain_desired_meshes();
         }
-    }
-
-    fn retain_desired_meshes(&mut self) {
-        let desired = &self.desired_mesh_nodes_cache;
-        self.mesh_cache
-            .retain(|key, _mesh| desired.contains(key) || self.visible_nodes.contains(key));
-        self.water_cache
-            .retain(|key, _water| desired.contains(key) || self.visible_water_nodes.contains(key));
-        self.placement_cache
-            .retain(|key, _packet| desired.contains(key) || self.visible_nodes.contains(key));
-        self.transition_meshes
-            .retain_desired(desired, &self.visible_nodes);
-    }
-
-    fn refresh_desired_mesh_nodes_cache(&mut self) {
-        self.desired_mesh_nodes_cache = self
-            .scheduler
-            .desired_mesh_nodes()
-            .into_iter()
-            .collect::<BTreeSet<_>>();
     }
 
     fn queue_worker_build_request(&mut self, generation: u64, key: TerrainNodeKey) {
@@ -621,7 +519,6 @@ impl BrowserTerrainStream {
 
         self.synchronous_build_count += 1;
         self.visibility_dirty = true;
-
         self.last_density_job_stats = Some(TerrainJobStats {
             total_ms: 0.0,
             vertex_count: 0,
@@ -633,37 +530,34 @@ impl BrowserTerrainStream {
             index_count: mesh.indices.len(),
         });
 
-        let node_cell_size = terrain_node_cell_size(self.cell_size, key.lod);
-        self.transition_meshes.remove_referencing(key);
-        if empty {
-            self.mesh_cache.remove(&key);
-            self.placement_cache.remove(&key);
-        } else {
-            self.cache_placement_packet_for_mesh(key, node_cell_size, &mesh);
-            self.mesh_cache.insert(key, Arc::new(mesh));
-        }
+        self.cache_mesh(key, mesh);
+    }
 
-        match build_water_node_packet_for_variant(
-            self.seed,
-            self.terrain_variant,
-            key,
-            node_cell_size,
-            SEA_LEVEL_METERS,
-            WATER_NODE_MAX_RELEVANT_DEPTH_METERS,
-        ) {
-            Ok(Some(water)) => {
-                self.water_cache.insert(key, Arc::new(water));
-            }
-            Ok(None) | Err(_) => {
-                self.water_cache.remove(&key);
-            }
+    fn cache_completed_mesh(&mut self, key: TerrainNodeKey, vertices: Vec<f32>, indices: Vec<u32>) {
+        self.last_density_job_stats = Some(TerrainJobStats {
+            total_ms: 0.0,
+            vertex_count: 0,
+            index_count: 0,
+        });
+        self.last_chunk_job_stats = Some(TerrainJobStats {
+            total_ms: 0.0,
+            vertex_count: vertices.len(),
+            index_count: indices.len(),
+        });
+        self.cache_mesh(key, MeshData { vertices, indices });
+    }
+
+    fn cache_mesh(&mut self, key: TerrainNodeKey, mesh: MeshData) {
+        if mesh.indices.is_empty() {
+            self.mesh_cache.remove(&key);
+        } else {
+            self.mesh_cache.insert(key, Arc::new(mesh));
         }
     }
 
     fn sync_visible_meshes(&mut self, update: &mut BrowserTerrainStreamUpdate) {
         let select_started_at_ms = terrain_stream_now_ms();
         let desired_visible = self.select_visible_nodes();
-        let desired_water_visible = self.select_visible_water_nodes();
         update.timings.visibility_select_ms = terrain_stream_now_ms() - select_started_at_ms;
 
         let status_started_at_ms = terrain_stream_now_ms();
@@ -674,18 +568,6 @@ impl BrowserTerrainStream {
         if desired_visible != self.visible_nodes {
             self.apply_visible_mesh_nodes(update, &desired_visible, stream_pending);
         }
-        if desired_water_visible != self.visible_water_nodes {
-            self.apply_visible_water_nodes(update, &desired_water_visible, stream_pending);
-        }
-        let transition_delta =
-            self.transition_meshes
-                .sync(&self.visible_nodes, &self.mesh_cache, self.cell_size);
-        update
-            .removed_transition_meshes
-            .extend(transition_delta.removed);
-        update
-            .upserted_transition_meshes
-            .extend(transition_delta.upserted);
         update.timings.visibility_apply_ms = terrain_stream_now_ms() - apply_started_at_ms;
     }
 
@@ -733,52 +615,12 @@ impl BrowserTerrainStream {
         }
     }
 
-    fn apply_visible_water_nodes(
-        &mut self,
-        update: &mut BrowserTerrainStreamUpdate,
-        desired_visible: &BTreeSet<TerrainNodeKey>,
-        stream_pending: bool,
-    ) {
-        let desired_visible_ancestors = visible_ancestor_set(desired_visible);
-        let removed = self
-            .visible_water_nodes
-            .iter()
-            .filter(|key| {
-                !desired_visible.contains(key)
-                    && (!stream_pending
-                        || hierarchy_conflicts_with_visible(
-                            **key,
-                            desired_visible,
-                            &desired_visible_ancestors,
-                        ))
-            })
-            .copied()
-            .collect::<Vec<_>>();
-        let added = desired_visible
-            .iter()
-            .filter(|key| !self.visible_water_nodes.contains(key))
-            .copied()
-            .collect::<Vec<_>>();
-
-        for key in removed {
-            self.visible_water_nodes.remove(&key);
-            update.removed_water_nodes.push(key);
-        }
-
-        for key in added {
-            let Some(water) = self.water_cache.get(&key) else {
-                continue;
-            };
-            update.upserted_water.push(BrowserTerrainWaterUpdate {
-                key,
-                water: Arc::clone(water),
-            });
-            self.visible_water_nodes.insert(key);
-        }
-    }
-
     fn select_visible_nodes(&self) -> BTreeSet<TerrainNodeKey> {
-        let desired = &self.desired_mesh_nodes_cache;
+        let desired = self
+            .scheduler
+            .desired_mesh_nodes()
+            .into_iter()
+            .collect::<BTreeSet<_>>();
         let roots = desired
             .iter()
             .filter(|key| match terrain_node_parent(**key) {
@@ -791,25 +633,6 @@ impl BrowserTerrainStream {
 
         for root in roots {
             self.select_visible_node(root, &desired, &mut visible);
-        }
-
-        visible
-    }
-
-    fn select_visible_water_nodes(&self) -> BTreeSet<TerrainNodeKey> {
-        let desired = &self.desired_mesh_nodes_cache;
-        let roots = desired
-            .iter()
-            .filter(|key| match terrain_node_parent(**key) {
-                Some(parent) => !desired.contains(&parent),
-                None => true,
-            })
-            .copied()
-            .collect::<Vec<_>>();
-        let mut visible = BTreeSet::new();
-
-        for root in roots {
-            self.select_visible_water_node(root, desired, &mut visible);
         }
 
         visible
@@ -843,34 +666,6 @@ impl BrowserTerrainStream {
         }
     }
 
-    fn select_visible_water_node(
-        &self,
-        key: TerrainNodeKey,
-        desired: &BTreeSet<TerrainNodeKey>,
-        visible: &mut BTreeSet<TerrainNodeKey>,
-    ) {
-        if !self.scheduler.mesh_generated(key) {
-            return;
-        }
-
-        if let Some(children) = terrain_node_children(key) {
-            let children_cover_parent = children
-                .iter()
-                .all(|child| desired.contains(child) && self.scheduler.mesh_generated(*child));
-
-            if children_cover_parent {
-                for child in children {
-                    self.select_visible_water_node(child, desired, visible);
-                }
-                return;
-            }
-        }
-
-        if self.water_cache.contains_key(&key) {
-            visible.insert(key);
-        }
-    }
-
     fn coord_containing_position(&self, position: Vec3) -> TerrainChunkCoord {
         terrain_chunk_coord_containing_position(position.x, position.y, position.z, self.cell_size)
     }
@@ -878,25 +673,13 @@ impl BrowserTerrainStream {
 
 fn default_terrain_lod_bands() -> Vec<TerrainLodBand> {
     vec![
-        TerrainLodBand::bounded(
-            0,
-            DEFAULT_TERRAIN_HORIZONTAL_RADIUS,
-            bounded_vertical_policy(2, 1),
-        ),
-        TerrainLodBand::bounded(1, 2, bounded_vertical_policy(3, 2)),
-        TerrainLodBand::bounded(2, 3, bounded_vertical_policy(4, 3)),
-        TerrainLodBand::bounded(3, 2, bounded_vertical_policy(6, 5)),
-        TerrainLodBand::bounded(4, 3, bounded_vertical_policy(8, 7)),
-        TerrainLodBand::bounded(5, 3, bounded_vertical_policy(5, 4)),
+        TerrainLodBand::bounded(5, 1, bounded_vertical_policy(0, 0)),
+        TerrainLodBand::bounded(4, 1, bounded_vertical_policy(0, 0)),
+        TerrainLodBand::bounded(3, 1, bounded_vertical_policy(0, 0)),
+        TerrainLodBand::bounded(2, 1, bounded_vertical_policy(0, 0)),
+        TerrainLodBand::bounded(1, 1, bounded_vertical_policy(0, 0)),
+        TerrainLodBand::bounded(0, 1, bounded_vertical_policy(0, 0)),
     ]
-}
-
-fn lod0_terrain_lod_bands() -> Vec<TerrainLodBand> {
-    vec![TerrainLodBand::fixed_offsets(
-        0,
-        DEFAULT_TERRAIN_HORIZONTAL_RADIUS,
-        DEFAULT_TERRAIN_VERTICAL_OFFSETS.to_vec(),
-    )]
 }
 
 fn bounded_vertical_policy(

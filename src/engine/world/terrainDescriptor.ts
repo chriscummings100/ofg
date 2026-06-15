@@ -17,7 +17,7 @@ export type WorldDescriptor = {
 
 export const DEFAULT_TERRAIN_SEED = 0x0F6;
 export const DEFAULT_SEA_LEVEL = 0;
-export const DEFAULT_TERRAIN_PRESET: TerrainPresetId = "rollingHills";
+export const DEFAULT_TERRAIN_PRESET: TerrainPresetId = "sineGrass";
 
 export const DEFAULT_WORLD_DESCRIPTOR = createSeedWorldDescriptor();
 

@@ -1,7 +1,7 @@
-// WebGPU resources for the Rust-owned sea-level water composite pass.
-// The pass reads opaque scene color/depth plus a terrain-derived bathymetry
-// texture, then writes the final scene color/depth consumed by post-process.
-#![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+// Dormant WebGPU resources for the retired sea-level water composite pass.
+// The sine-grass terrain rebuild baseline has no water, so the active renderer
+// bypasses this module and writes the scene directly to post-process targets.
+#![allow(dead_code)]
 
 use std::collections::BTreeMap;
 
