@@ -15,6 +15,7 @@ mod noise;
 mod placement;
 mod presets;
 mod probe;
+pub mod rebuild;
 mod store;
 mod stream;
 mod stream_helpers;

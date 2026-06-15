@@ -58,13 +58,17 @@ a worker, with main-thread transition work close to a render-bit toggle.
   `docs/TERRAIN_PLAN.md` before drafting this rebuild plan.
 - [x] (2026-06-15 21:53+01:00) Researched Rust/WASM job library options and
   recorded the first decision point for `rayon` plus `wasm-bindgen-rayon`.
-- [ ] Preserve the current terrain implementation in a reference-only folder
-  with a README explaining that it is not compiled or authoritative.
-- [ ] Milestone 1: add a small tested Rust terrain specification model for LOD
+- [x] (2026-06-15 21:58+01:00) Preserved the current terrain implementation in
+  `docs/reference/terrain_legacy_2026_06_15/`, added a README explaining that
+  it is reference-only, committed the full dirty worktree as baseline
+  `7aaf3cf`, and pushed it to `origin/main`.
+- [x] (2026-06-15 22:04+01:00) Milestone 1: added a small tested Rust terrain
+  specification model in `crates/terrain_core/src/rebuild/mod.rs` for LOD
   identity, parent/child relationships, node sizing, desired child sets, and
   hole-free replacement readiness.
-- [ ] Run the repo-local `milestone-review` skill for Milestone 1 before
-  marking it complete.
+- [x] (2026-06-15 22:04+01:00) Ran the repo-local `milestone-review` skill for
+  Milestone 1 locally, fixed the required `TerrainLod` vocabulary alignment
+  finding, and reran validation.
 - [ ] Milestone 2: introduce the rebuilt generator contract and terrain node
   output packet, still callable synchronously for Rust tests.
 - [ ] Milestone 3: introduce the rebuilt stream state machine with one-job-per
@@ -102,6 +106,12 @@ a worker, with main-thread transition work close to a render-bit toggle.
   block. The terrain stream still needs an async completion model even if node
   execution uses Rayon internally.
 
+- Observation: the first rebuild slice can be validated without touching the
+  active runtime path.
+  Evidence: `cargo test -p terrain_core rebuild` passed 7 focused tests, and
+  `npm run test:rust` passed the Rust workspace after adding
+  `terrain_core::rebuild`.
+
 ## Decision Log
 
 - Decision: preserve the current terrain implementation by copying it into a
@@ -138,20 +148,23 @@ a worker, with main-thread transition work close to a render-bit toggle.
   Date/Author: 2026-06-15 / User and Codex.
 
 - Decision: evaluate `rayon` plus `wasm-bindgen-rayon` as the preferred
-  library path, but do not adopt it until a milestone proves the build pipeline
-  and browser smoke can support wasm atomics and thread-pool initialization.
+  library path only if benchmarks prove the current opaque browser worker path
+  has significant performance issues.
   Rationale: it is the strongest match for Rust-owned jobs on browser workers,
-  but it likely requires nightly wasm builds and a different wasm-bindgen output
-  path. The current TypeScript worker adapter remains the fallback until this is
-  validated.
-  Date/Author: 2026-06-15 / Codex.
+  but it likely requires atomics, nightly wasm standard-library builds, and a
+  different wasm-bindgen output path. The user is happy to keep the current
+  worker system if it does not show significant performance problems, so the
+  rebuild should not take on Rayon/WASM atomics complexity speculatively.
+  Date/Author: 2026-06-15 / User and Codex.
 
 ## Outcomes & Retrospective
 
-No implementation milestone is complete yet. This plan currently establishes
-the rebuild source of truth and the first safe path through a dirty worktree:
-preserve the existing code as reference, add a small tested terrain model, then
-replace behavior in vertical slices.
+Milestone 1 is complete. The rebuild now has an additive
+`terrain_core::rebuild` model that encodes LOD order, node metrics,
+parent/child relationships, 3x3x3 parent-region child selection, and child-group
+replacement readiness. It does not yet generate terrain, schedule jobs, dissolve
+transitions, or connect to the active renderer; those remain Milestones 2
+through 5.
 
 ## Contract and Quality Baseline
 
@@ -380,6 +393,32 @@ Thread-pool research notes:
 - OFG already serves COOP/COEP and smoke-tests `crossOriginIsolated` plus
   `SharedArrayBuffer`, which removes one browser prerequisite but not the Rust
   build-pipeline work.
+- The current opaque browser worker system remains the preferred path unless
+  benchmark evidence shows significant terrain generation or completion-routing
+  performance issues.
+
+Milestone 1 review:
+
+- Scope: additive rebuild model in `crates/terrain_core/src/rebuild/mod.rs`,
+  public module export in `crates/terrain_core/src/lib.rs`, and this ExecPlan.
+- Reviewers: contract, code quality, legacy, correctness, and validation passes
+  were performed locally using the repo-local `milestone-review` skill.
+  Sub-agents were not spawned because this was the plan-required gate, not an
+  explicit user request for delegated reviewers.
+- Required findings fixed: added the documented `TerrainLod` alias and used it
+  in public rebuild model fields/functions so the implementation matches the
+  Milestone 1 plan vocabulary.
+- Follow-ups recorded: coverage remains the plan completion gate; no coverage
+  run was needed for this additive model slice because focused and workspace
+  Rust tests passed and the plan still requires `npm run coverage:rust` before
+  completion.
+- Rejected findings: none.
+- Validation rerun: `cargo fmt -p terrain_core`, `cargo test -p terrain_core
+  rebuild`, `npm run test:rust`, and
+  `git -c safe.directory=C:/dev/ofg diff --check` all passed.
+- Remaining risk: the rebuild model is not yet the active runtime terrain path.
+  Generator, stream state machine, dissolve transitions, worker execution, and
+  renderer integration are still future milestones.
 
 ## Interfaces and Dependencies
 
