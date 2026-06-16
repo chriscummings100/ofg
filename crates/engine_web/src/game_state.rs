@@ -363,24 +363,45 @@ impl BrowserGameState {
     }
 
     pub fn tick(&mut self, input: BrowserGameInput) -> Result<(), BrowserGameStateError> {
-        self.ensure_player()?;
-        self.engine
-            .set_player_movement_intent(PlayerMovementIntent {
-                forward: input.forward,
-                right: input.right,
-                up: input.up,
-                fast: input.fast,
-                look_delta_x: input.look_delta_x,
-                look_delta_y: input.look_delta_y,
-            })?;
+        self.tick_with_terrain_height(input, None)
+    }
 
+    pub fn terrain_probe_position(
+        &mut self,
+        input: BrowserGameInput,
+    ) -> Result<Option<Vec3>, BrowserGameStateError> {
+        self.ensure_player()?;
+        self.apply_player_input(input)?;
+
+        if matches!(
+            self.player_mode()?,
+            PlayerMode::FirstPerson | PlayerMode::ThirdPerson
+        ) {
+            Ok(Some(
+                self.engine.preview_player_position(input.delta_seconds)?,
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn tick_with_terrain_height(
+        &mut self,
+        input: BrowserGameInput,
+        sampled_terrain_height: Option<f32>,
+    ) -> Result<(), BrowserGameStateError> {
+        self.ensure_player()?;
+        self.apply_player_input(input)?;
         let player_mode = self.player_mode()?;
         let terrain_height = if matches!(
             player_mode,
             PlayerMode::FirstPerson | PlayerMode::ThirdPerson
         ) {
             let preview = self.engine.preview_player_position(input.delta_seconds)?;
-            Some(self.terrain_height_at(preview.x, preview.z)?)
+            Some(match sampled_terrain_height {
+                Some(height) => validate_terrain_height(height, preview.x, preview.z)?,
+                None => self.terrain_height_at(preview.x, preview.z)?,
+            })
         } else {
             None
         };
@@ -435,8 +456,20 @@ impl BrowserGameState {
         x: f32,
         z: f32,
     ) -> Result<Vec3, BrowserGameStateError> {
+        self.set_player_position_xz_with_height(x, z, None)
+    }
+
+    pub fn set_player_position_xz_with_height(
+        &mut self,
+        x: f32,
+        z: f32,
+        sampled_terrain_height: Option<f32>,
+    ) -> Result<Vec3, BrowserGameStateError> {
         self.ensure_player()?;
-        let height = self.terrain_height_at(x, z)?;
+        let height = match sampled_terrain_height {
+            Some(height) => validate_terrain_height(height, x, z)?,
+            None => self.terrain_height_at(x, z)?,
+        };
         let position = Vec3::new(x, height, z);
         self.engine.set_player_position(position)?;
         self.sync_player_character_scene()?;
@@ -558,6 +591,19 @@ impl BrowserGameState {
         }
 
         self.reset_game_with_variant(self.terrain_seed, self.terrain_variant)
+    }
+
+    fn apply_player_input(&mut self, input: BrowserGameInput) -> Result<(), BrowserGameStateError> {
+        self.engine
+            .set_player_movement_intent(PlayerMovementIntent {
+                forward: input.forward,
+                right: input.right,
+                up: input.up,
+                fast: input.fast,
+                look_delta_x: input.look_delta_x,
+                look_delta_y: input.look_delta_y,
+            })?;
+        Ok(())
     }
 
     fn update_terrain_component(&mut self) -> Result<(), BrowserGameStateError> {
@@ -946,11 +992,7 @@ impl BrowserGameState {
             f64::from(z),
         )
         .map_err(BrowserGameStateError::TerrainVariant)? as f32;
-        if !height.is_finite() {
-            return Err(BrowserGameStateError::InvalidTerrainHeight { x, z });
-        }
-
-        Ok(height)
+        validate_terrain_height(height, x, z)
     }
 }
 
@@ -1058,6 +1100,14 @@ fn validate_model_scene_transform(
     }
 
     Ok(())
+}
+
+fn validate_terrain_height(height: f32, x: f32, z: f32) -> Result<f32, BrowserGameStateError> {
+    if !height.is_finite() {
+        return Err(BrowserGameStateError::InvalidTerrainHeight { x, z });
+    }
+
+    Ok(height)
 }
 
 pub fn player_mode_code(mode: PlayerMode) -> u32 {

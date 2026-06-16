@@ -1,5 +1,7 @@
 import { equal } from "node:assert/strict";
 import {
+  formatOptionalNumber,
+  formatOptionalRoundedNumber,
   shadowCascadeMaskFromChecks,
   terrainLodMaskToMode,
   terrainLodModeToMask
@@ -26,5 +28,12 @@ describe("render debug UI helpers", () => {
   it("keeps the previous shadow cascade mask when all boxes are unchecked", () => {
     equal(shadowCascadeMaskFromChecks([true, false, true, false], 0b1111), 0b0101);
     equal(shadowCascadeMaskFromChecks([false, false, false, false], 0b0010), 0b0010);
+  });
+
+  it("formats dormant numeric renderer diagnostics without throwing", () => {
+    equal(formatOptionalNumber(undefined as unknown as number, 1), "n/a");
+    equal(formatOptionalNumber(1.25, 1), "1.3");
+    equal(formatOptionalRoundedNumber(undefined as unknown as number), "n/a");
+    equal(formatOptionalRoundedNumber(12.6), "13");
   });
 });

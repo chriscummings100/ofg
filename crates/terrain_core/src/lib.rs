@@ -16,7 +16,10 @@ mod stream;
 mod variant;
 
 pub use heightfield::{height_at, height_at_for_variant, height_at_with_shape};
-pub use mesh::{build_chunk_mesh, build_node_mesh, build_node_mesh_for_variant, MeshData};
+pub use mesh::{
+    build_chunk_mesh, build_node_mesh, build_node_mesh_for_variant, mesh_height_at, MeshData,
+    TERRAIN_VERTEX_FLOATS,
+};
 pub use node::{
     terrain_chunk_coord_containing_position, terrain_chunk_key, terrain_node_cell_size,
     terrain_node_children, terrain_node_coord_for_lod, terrain_node_key, terrain_node_parent,
@@ -160,6 +163,47 @@ mod tests {
         };
         let empty = build_node_mesh(0, DEFAULT_TERRAIN_PRESET, high_key, 1.0);
         assert!(empty.indices.is_empty());
+    }
+
+    #[test]
+    fn mesh_height_query_uses_generated_triangle_vertices() {
+        let seed = 0x0F6;
+        let variant = terrain_variant_for_preset(DEFAULT_TERRAIN_PRESET);
+        let key = TerrainNodeKey {
+            lod: 0,
+            coord: TerrainChunkCoord { x: 0, y: -1, z: 0 },
+        };
+        let mesh = build_node_mesh_for_variant(seed, variant, key, 1.0);
+
+        let vertex_height = mesh.height_at(8.0, 12.0).unwrap();
+        let expected_vertex_height =
+            height_at_for_variant(seed, variant, 8.0, 12.0).unwrap() as f32;
+        assert!((vertex_height - expected_vertex_height).abs() <= 0.0001);
+
+        let triangle_height = mesh.height_at(0.25, 0.25).unwrap();
+        let a_y = mesh.vertices[1];
+        let b_y = mesh.vertices[TERRAIN_VERTEX_FLOATS + 1];
+        let c_y =
+            mesh.vertices[(TERRAIN_NODE_SAMPLES_PER_AXIS as usize * TERRAIN_VERTEX_FLOATS) + 1];
+        let expected_triangle_height = a_y * 0.5 + b_y * 0.25 + c_y * 0.25;
+        assert!((triangle_height - expected_triangle_height).abs() <= 0.0001);
+
+        assert_eq!(mesh.height_at(-1.0, -1.0), None);
+    }
+
+    #[test]
+    fn mesh_height_query_skips_malformed_triangles() {
+        let mut vertices = Vec::new();
+        for [x, y, z] in [[0.0, 1.0, 0.0], [1.0, 2.0, 0.0], [0.0, 3.0, 1.0]] {
+            vertices.extend_from_slice(&[x, y, z]);
+            vertices.resize(vertices.len() + TERRAIN_VERTEX_FLOATS - 3, 0.0);
+        }
+        let mesh = MeshData {
+            vertices,
+            indices: vec![99, 0, 1, 0, 1, 2],
+        };
+
+        assert!((mesh.height_at(0.25, 0.25).unwrap() - 1.75).abs() <= 0.0001);
     }
 
     #[test]

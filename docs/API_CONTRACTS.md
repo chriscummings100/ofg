@@ -64,6 +64,13 @@ TypeScript shell supplies the canvas and a generic asset loader.
 state, advances Rust terrain streaming, uploads/prunes terrain meshes, and
 submits rendering.
 
+For first-person and third-person movement, `engine_web` probes the Rust-owned
+visible terrain mesh cache on the main thread before updating the player. The
+height query interpolates from generated terrain triangles at the next player
+X/Z position. If no visible generated mesh covers that point yet, Rust falls
+back to the analytic sine-height sampler for that frame. TypeScript has no
+height-query API and must not sample or infer terrain collision itself.
+
 The wasm-bindgen game object also exposes internal terrain worker methods used
 only by `RustBrowserGameAdapter`: `configureTerrainWorkers(options)`,
 `takeTerrainBuildRequests()`, and `completeTerrainBuilds(completions)`.
@@ -281,6 +288,12 @@ fields retain density-shaped names such as `densityReadyChunkCount` or
 standalone `terrain_core.wasm` export checks. Browser code must treat these as
 opaque Rust-owned status values, not as a signal to reintroduce a browser terrain
 density pipeline.
+
+The minimal playable collision contract is a Rust-only height query against
+visible generated terrain triangles. It is intentionally not a separate physics
+mesh, not exposed to TypeScript, and not a promise of overhang or volume
+collision. Richer collision must be added through a future terrain/physics
+contract rather than browser-side sampling.
 
 Contract rules:
 

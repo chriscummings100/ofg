@@ -516,13 +516,26 @@ function syncWaterControls(elements: RenderDebugUiElements, state: WaterDebugSta
   elements.waterEnabledCheckbox.checked = state.waterEnabled;
   elements.waterReflectionCheckbox.checked = state.waterReflectionEnabled;
   elements.waterStatus.textContent = [
-    `sea ${state.waterSeaLevelMeters.toFixed(1)}m`,
+    `sea ${formatOptionalNumber(state.waterSeaLevelMeters, 1)}m`,
     `${state.waterBathymetryRuntime}`,
     `${state.waterBathymetryGridSize}x${state.waterBathymetryGridSize}`,
-    `span ${Math.round(state.waterBathymetryWorldSpanMeters)}m`,
-    `center ${state.waterBathymetryCenterX.toFixed(0)}, ${state.waterBathymetryCenterZ.toFixed(0)}`,
+    `span ${formatOptionalRoundedNumber(state.waterBathymetryWorldSpanMeters)}m`,
+    `center ${formatOptionalNumber(state.waterBathymetryCenterX, 0)}, ${formatOptionalNumber(
+      state.waterBathymetryCenterZ,
+      0
+    )}`,
     `refl ${state.waterReflectionWidth}x${state.waterReflectionHeight}`
   ].join(" | ");
+}
+
+/// Formats a renderer diagnostic number that may be absent while a feature is dormant.
+export function formatOptionalNumber(value: number, digits: number): string {
+  return Number.isFinite(value) ? value.toFixed(digits) : "n/a";
+}
+
+/// Formats a rounded renderer diagnostic number that may be absent while dormant.
+export function formatOptionalRoundedNumber(value: number): string {
+  return Number.isFinite(value) ? String(Math.round(value)) : "n/a";
 }
 
 /// Shows or hides the render-debug controls panel.

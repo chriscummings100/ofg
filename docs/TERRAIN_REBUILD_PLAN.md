@@ -26,10 +26,12 @@ chunk job; jobs are never split below one node.
 
 The active rebuild deliberately starts smaller than the destination terrain
 model. The first browser-visible baseline is a deterministic sine heightfield,
-grass material only, and no collision, apron, placement, water, bathymetry, or
-shore logic. It keeps the important architectural rule that `lod = 0` spans
-32x32x32 meters with 32 cells per axis and 33 shared samples per edge, while
-coarser LODs double world cell size per level. Rich density fields, overhangs,
+grass material only, and no separate collision mesh, apron, placement, water,
+bathymetry, or shore logic. A minimal height query samples generated visible
+triangles for player grounding, while richer collision remains future work. It
+keeps the important architectural rule that `lod = 0` spans 32x32x32 meters
+with 32 cells per axis and 33 shared samples per edge, while coarser LODs
+double world cell size per level. Rich density fields, overhangs,
 biome/material classification, and water return only after the streaming and
 transition model is lean and observable.
 
@@ -93,6 +95,27 @@ render-bit toggle.
   `npm run check:wasm`, `npm run check:shaders`, and browser screenshot capture
   all passed. Screenshot:
   `artifacts/terrain-rebuild/sine-grass-baseline-after-build.png`.
+- [x] (2026-06-16) Added the minimal walkable-terrain slice: generated terrain
+  meshes now support triangle-backed height queries, `engine_web` exposes that
+  query to the Rust main-thread player tick, first-person/third-person movement
+  grounds against visible generated triangles when available, and the stream
+  requests one vertical node above and below the player to avoid assuming a
+  single fixed Y band.
+- [x] (2026-06-16) Validated the height-query slice with
+  `cargo test -p terrain_core`, `cargo check -p engine_web`, focused
+  `cargo test -p engine_web browser_game_state_ticks_player_with_supplied_mesh_height`,
+  focused
+  `cargo test -p engine_web browser_terrain_stream_queries_height_from_visible_generated_triangles`,
+  `npm run build`, `npm run check:wasm`, `git diff --check`, and a browser
+  screenshot at
+  `artifacts/terrain-rebuild/height-query-grounding.png`.
+- [x] (2026-06-16) Ran the milestone-review workflow locally for the
+  height-query slice. Sub-agent review tools were not used because the
+  available delegation tool requires an explicit user request for sub-agents.
+  Required finding fixed: public mesh height queries now skip malformed
+  triangles instead of aborting the whole mesh. Follow-ups recorded below:
+  TypeScript fixture tests and smoke harnesses still contain retired preset,
+  water, transition, and real-scale span expectations from before the reset.
 
 ## Surprises & Discoveries
 
@@ -142,6 +165,19 @@ render-bit toggle.
   Evidence: appending `ENGINE_WEB_WASM_METADATA.wasmHash` to the dynamic import
   URL made renderer diagnostics and the no-water composite fix appear reliably
   in the browser.
+
+- Observation: the first walkable baseline can render while several old gates
+  remain stale.
+  Evidence: a fresh browser capture at
+  `artifacts/terrain-rebuild/height-query-grounding.png` shows sky, sine-grass
+  terrain, and first-person HUD position `X 0.0 Y -5.5 Z 0.0` for seed `246`.
+  `npm run test:ts` still fails at stale fixture compile checks for retired
+  presets such as `rollingHills` and removed water packet fields such as
+  `waterTexelCount`. `npm run smoke:browser` builds and launches but times out
+  in `waitForTerrainLodFrame` because it still requires a 7000m visible span
+  plus mixed `lod0` and `lod5` keys. `npm run smoke:rust` fails to compile
+  `ofg_test_harness` because it still imports removed terrain surface,
+  transition, and rich descriptor APIs.
 
 ## Decision Log
 
@@ -203,6 +239,14 @@ render-bit toggle.
   current feature set and keeps sky visible when terrain is disabled.
   Date/Author: 2026-06-15 / Codex.
 
+- Decision: the first walkable baseline uses generated visible triangles as the
+  authoritative terrain height source when available, with the analytic sine
+  sampler only as a temporary fallback while the stream has no visible mesh at
+  the queried X/Z.
+  Rationale: this restores player grounding without reintroducing a separate
+  collision mesh, old density/placement code, or TypeScript terrain sampling.
+  Date/Author: 2026-06-16 / Codex.
+
 ## Outcomes & Retrospective
 
 Milestone 1 is complete. The rebuild first added an additive
@@ -220,6 +264,16 @@ apron, transition-edge mesh, and water-generation systems are out of the active
 compiled terrain path and preserved only in the reference snapshot. Milestone
 2C still needs focused replacement smoke tests, and Milestone 3 still needs the
 dissolve transition shader/state work.
+
+The height-query slice restores a minimal walkable baseline without widening
+scope back toward the old terrain system. `terrain_core::MeshData::height_at`
+interpolates generated triangle heights at world X/Z, `BrowserTerrainStream`
+queries the visible generated mesh cache on the Rust main thread, and
+`RustBrowserGame::tick` uses that sample to ground first-person/third-person
+player movement. The analytic sine sampler remains only as a fallback when no
+visible generated mesh covers the next X/Z yet. The browser screenshot artifact
+shows the player grounded at the generated terrain height while sky and terrain
+remain visible.
 
 ## Contract and Quality Baseline
 
@@ -304,9 +358,9 @@ Milestone 2A replaces the active terrain implementation with a compact
 sine-grass baseline. Define whole-node build request/output packets that include
 mesh data, empty state, generation timing, and grass material IDs. Keep
 compatibility fields only where the browser facade still requires them. Remove
-active collision, apron, placement, material classification, density-field,
-Dual Contouring, transition-edge mesh, and water generation code from the
-compiled terrain path.
+active separate collision meshes, apron, placement, material classification,
+density-field, Dual Contouring, transition-edge mesh, and water generation code
+from the compiled terrain path.
 
 Milestone 2B connects the lean stream to active `engine_web` terrain rendering,
 browser worker execution, generated WASM artifacts, and debug snapshots. Keep
@@ -396,6 +450,8 @@ The rebuilt terrain path is accepted only when these behaviors are observable:
 - Dissolve transitions keep both outgoing and incoming LOD nodes alive until
   their transition completes.
 - Terrain generation jobs are one whole node per job.
+- First-person/third-person player grounding samples generated visible terrain
+  triangles when available, without exposing terrain collision to TypeScript.
 - Browser TypeScript routes opaque terrain jobs only; it does not compute
   terrain desired sets, visibility, generation, materials, water, or rendering.
 - Rust image smoke captures nonblank multi-LOD terrain frames. Water-depth

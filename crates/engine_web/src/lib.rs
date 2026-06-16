@@ -131,9 +131,9 @@ pub use shadows::{
     SHADOW_MIN_EFFECTIVE_SUN_ELEVATION,
 };
 pub use terrain_stream::{
-    BrowserTerrainBuildCompletion, BrowserTerrainBuildRequest, BrowserTerrainLodStatus,
-    BrowserTerrainMeshUpdate, BrowserTerrainStream, BrowserTerrainStreamStatus,
-    BrowserTerrainStreamUpdate, TerrainJobStats,
+    BrowserTerrainBuildCompletion, BrowserTerrainBuildRequest, BrowserTerrainHeightSample,
+    BrowserTerrainLodStatus, BrowserTerrainMeshUpdate, BrowserTerrainStream,
+    BrowserTerrainStreamStatus, BrowserTerrainStreamUpdate, TerrainJobStats,
 };
 pub use terrain_textures::{
     terrain_texture_array_requests, terrain_texture_array_requests_from_manifest_json,

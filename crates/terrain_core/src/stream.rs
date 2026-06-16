@@ -552,7 +552,7 @@ fn validate_config(config: &TerrainStreamConfig) -> Result<(), TerrainStreamErro
 
 fn default_lod_bands() -> Vec<TerrainLodBand> {
     (0..=MAX_PLAYABLE_LOD)
-        .map(|lod| TerrainLodBand::fixed_offsets(lod, 1, vec![0]))
+        .map(|lod| TerrainLodBand::fixed_offsets(lod, 1, vec![-1, 0, 1]))
         .collect()
 }
 

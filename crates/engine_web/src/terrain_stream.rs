@@ -121,6 +121,12 @@ pub struct BrowserTerrainMeshUpdate {
     pub mesh: Arc<MeshData>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BrowserTerrainHeightSample {
+    pub key: TerrainNodeKey,
+    pub height: f32,
+}
+
 pub struct BrowserTerrainWaterUpdate {
     pub key: TerrainNodeKey,
     pub water: Arc<WaterNodePacket>,
@@ -179,7 +185,7 @@ impl BrowserTerrainStream {
         Self::new_with_lod_bands(
             seed,
             preset,
-            vec![TerrainLodBand::fixed_offsets(0, 1, vec![0])],
+            vec![TerrainLodBand::fixed_offsets(0, 1, vec![-1, 0, 1])],
         )
     }
 
@@ -440,6 +446,10 @@ impl BrowserTerrainStream {
         self.terrain_variant_revision
     }
 
+    pub fn height_at(&self, x: f32, z: f32) -> Option<BrowserTerrainHeightSample> {
+        self.height_at_from_nodes(x, z, self.visible_nodes.iter().copied())
+    }
+
     fn tick_internal(&mut self, center: Vec3, use_workers: bool) -> BrowserTerrainStreamUpdate {
         let mut update = BrowserTerrainStreamUpdate::default();
         let sync_started_at_ms = terrain_stream_now_ms();
@@ -669,16 +679,47 @@ impl BrowserTerrainStream {
     fn coord_containing_position(&self, position: Vec3) -> TerrainChunkCoord {
         terrain_chunk_coord_containing_position(position.x, position.y, position.z, self.cell_size)
     }
+
+    fn height_at_from_nodes(
+        &self,
+        x: f32,
+        z: f32,
+        nodes: impl Iterator<Item = TerrainNodeKey>,
+    ) -> Option<BrowserTerrainHeightSample> {
+        if !x.is_finite() || !z.is_finite() {
+            return None;
+        }
+
+        let mut best: Option<BrowserTerrainHeightSample> = None;
+        for key in nodes {
+            if !node_contains_xz(key, self.cell_size, x, z) {
+                continue;
+            }
+            let Some(mesh) = self.mesh_cache.get(&key) else {
+                continue;
+            };
+            let Some(height) = mesh.height_at(x, z) else {
+                continue;
+            };
+            let sample = BrowserTerrainHeightSample { key, height };
+            best = match best {
+                Some(previous) if previous.key.lod <= key.lod => Some(previous),
+                _ => Some(sample),
+            };
+        }
+
+        best
+    }
 }
 
 fn default_terrain_lod_bands() -> Vec<TerrainLodBand> {
     vec![
-        TerrainLodBand::bounded(5, 1, bounded_vertical_policy(0, 0)),
-        TerrainLodBand::bounded(4, 1, bounded_vertical_policy(0, 0)),
-        TerrainLodBand::bounded(3, 1, bounded_vertical_policy(0, 0)),
-        TerrainLodBand::bounded(2, 1, bounded_vertical_policy(0, 0)),
-        TerrainLodBand::bounded(1, 1, bounded_vertical_policy(0, 0)),
-        TerrainLodBand::bounded(0, 1, bounded_vertical_policy(0, 0)),
+        TerrainLodBand::bounded(5, 1, bounded_vertical_policy(1, 1)),
+        TerrainLodBand::bounded(4, 1, bounded_vertical_policy(1, 1)),
+        TerrainLodBand::bounded(3, 1, bounded_vertical_policy(1, 1)),
+        TerrainLodBand::bounded(2, 1, bounded_vertical_policy(1, 1)),
+        TerrainLodBand::bounded(1, 1, bounded_vertical_policy(1, 1)),
+        TerrainLodBand::bounded(0, 1, bounded_vertical_policy(1, 1)),
     ]
 }
 
@@ -738,6 +779,18 @@ fn visible_world_span(nodes: &BTreeSet<TerrainNodeKey>, base_cell_size: f64) -> 
     }
 
     (max_x - min_x, max_z - min_z)
+}
+
+fn node_contains_xz(key: TerrainNodeKey, base_cell_size: f64, x: f32, z: f32) -> bool {
+    let node_size =
+        terrain_node_cell_size(base_cell_size, key.lod) * TERRAIN_CHUNK_CELLS_PER_AXIS as f64;
+    let min_x = key.coord.x as f64 * node_size;
+    let min_z = key.coord.z as f64 * node_size;
+    let max_x = min_x + node_size;
+    let max_z = min_z + node_size;
+    let x = f64::from(x);
+    let z = f64::from(z);
+    x >= min_x - 0.001 && x <= max_x + 0.001 && z >= min_z - 0.001 && z <= max_z + 0.001
 }
 
 fn hierarchy_conflicts_with_visible(

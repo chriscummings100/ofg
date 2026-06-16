@@ -108,9 +108,10 @@ as a browser shell plus generic browser image decoder.
   is built for the playable app.
 - `terrain_core` owns terrain preset metadata, terrain variant descriptor
   validation, flat descriptor layout, sine height sampling, generated node mesh
-  emission, descriptor probe summaries, stream scheduling, and the narrow worker
-  facade. The playable browser path reaches it through `engine_web` as a Rust
-  library for scheduling and through a dedicated browser worker
+  emission, generated-triangle height queries, descriptor probe summaries,
+  stream scheduling, and the narrow worker facade. The playable browser path
+  reaches it through `engine_web` as a Rust library for scheduling and
+  main-thread height queries, and through a dedicated browser worker
   `terrain_core.wasm` instance for build execution. Density storage, Dual
   Contouring, placement sampling, transition-edge meshes, and water generation
   were moved back to reference/future status during the reset.
@@ -154,11 +155,13 @@ The active direction is a small Rust-owned scene/component layer in
 ## Terrain Direction
 
 The visible seed terrain is being rebuilt from a small Rust-owned sine-grass
-baseline. The active generator emits grass-only heightfield meshes, no collision
-mesh, no aprons, no placement samples, no transition-edge meshes, and no water
-or bathymetry packets. Rich density fields, Dual Contouring, material
-classification, placement, aprons, and water are future milestones again; the
-previous implementation is preserved as reference under
+baseline. The active generator emits grass-only heightfield meshes, no separate
+collision mesh, no aprons, no placement samples, no transition-edge meshes, and
+no water or bathymetry packets. A minimal main-thread height query samples the
+generated visible terrain triangles so first-person/third-person player
+grounding follows the streamed mesh once available. Rich density fields, Dual
+Contouring, material classification, placement, aprons, and water are future
+milestones again; the previous implementation is preserved as reference under
 `docs/reference/terrain_legacy_2026_06_15/`.
 
 The multi-LOD model remains the core architectural shape. `lod0` is the highest
@@ -193,7 +196,10 @@ TypeScript routes them through a browser worker pool, and each worker calls the
 raw `terrain_core.wasm` mesh-build export with the Rust-authored flat terrain
 variant descriptor and variant revision before returning typed-array mesh
 buffers to Rust. Rust rejects stale completions whose generation, node key, or
-variant revision no longer matches. The `terrain_core` scheduler and
+variant revision no longer matches. The visible generated mesh cache also owns
+the runtime terrain height query used by the Rust player tick; if no visible
+mesh covers the next player X/Z yet, the game state falls back to the analytic
+sine sampler until streaming catches up. The `terrain_core` scheduler and
 renderer-facing stream
 updates address work as
 `TerrainNodeKey { lod, coord }`, with LOD0 chunk compatibility adapters and

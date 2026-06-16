@@ -7,12 +7,20 @@ use crate::node::{
 };
 use crate::variant::{terrain_variant_for_preset, TerrainVariantDescriptor};
 
-const TERRAIN_VERTEX_FLOATS: usize = 19;
+pub const TERRAIN_VERTEX_FLOATS: usize = 19;
+const POINT_IN_TRIANGLE_EPSILON: f64 = 0.0001;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct MeshData {
     pub vertices: Vec<f32>,
     pub indices: Vec<u32>,
+}
+
+impl MeshData {
+    /// Samples the generated triangle surface at a world X/Z point.
+    pub fn height_at(&self, x: f32, z: f32) -> Option<f32> {
+        mesh_height_at(self, x, z)
+    }
 }
 
 /// Builds an LOD0 compatibility mesh.
@@ -112,6 +120,34 @@ pub fn build_node_mesh_for_variant(
     MeshData { vertices, indices }
 }
 
+/// Interpolates terrain height from generated mesh triangles at world X/Z.
+pub fn mesh_height_at(mesh: &MeshData, x: f32, z: f32) -> Option<f32> {
+    if !x.is_finite()
+        || !z.is_finite()
+        || mesh.vertices.len() % TERRAIN_VERTEX_FLOATS != 0
+        || mesh.indices.len() % 3 != 0
+    {
+        return None;
+    }
+
+    let mut best_height: Option<f64> = None;
+    for triangle in mesh.indices.chunks_exact(3) {
+        let (Some(a), Some(b), Some(c)) = (
+            vertex_position(mesh, triangle[0]),
+            vertex_position(mesh, triangle[1]),
+            vertex_position(mesh, triangle[2]),
+        ) else {
+            continue;
+        };
+        let Some(height) = triangle_height_at_xz(a, b, c, f64::from(x), f64::from(z)) else {
+            continue;
+        };
+        best_height = Some(best_height.map_or(height, |previous| previous.max(height)));
+    }
+
+    best_height.map(|height| height as f32)
+}
+
 fn push_grass_vertex(
     vertices: &mut Vec<f32>,
     world_x: f64,
@@ -170,4 +206,37 @@ fn normal_at_sample(
 
 fn height_sample(x: u32, z: u32, sample_count: u32, heights: &[f64]) -> f64 {
     heights[(z * sample_count + x) as usize]
+}
+
+fn vertex_position(mesh: &MeshData, index: u32) -> Option<[f64; 3]> {
+    let start = index as usize * TERRAIN_VERTEX_FLOATS;
+    let end = start.checked_add(3)?;
+    let values = mesh.vertices.get(start..end)?;
+    let x = f64::from(values[0]);
+    let y = f64::from(values[1]);
+    let z = f64::from(values[2]);
+    if x.is_finite() && y.is_finite() && z.is_finite() {
+        Some([x, y, z])
+    } else {
+        None
+    }
+}
+
+fn triangle_height_at_xz(a: [f64; 3], b: [f64; 3], c: [f64; 3], x: f64, z: f64) -> Option<f64> {
+    let denominator = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2]);
+    if denominator.abs() <= f64::EPSILON {
+        return None;
+    }
+
+    let wa = ((b[2] - c[2]) * (x - c[0]) + (c[0] - b[0]) * (z - c[2])) / denominator;
+    let wb = ((c[2] - a[2]) * (x - c[0]) + (a[0] - c[0]) * (z - c[2])) / denominator;
+    let wc = 1.0 - wa - wb;
+    if wa < -POINT_IN_TRIANGLE_EPSILON
+        || wb < -POINT_IN_TRIANGLE_EPSILON
+        || wc < -POINT_IN_TRIANGLE_EPSILON
+    {
+        return None;
+    }
+
+    Some(wa * a[1] + wb * b[1] + wc * c[1])
 }

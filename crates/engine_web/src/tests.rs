@@ -1563,6 +1563,31 @@ fn browser_game_state_ticks_player_and_grounds_against_terrain() {
 }
 
 #[test]
+fn browser_game_state_ticks_player_with_supplied_mesh_height() {
+    let mut state = BrowserGameState::new();
+    state.reset_game(0x0F6, 1).unwrap();
+
+    state
+        .tick_with_terrain_height(
+            BrowserGameInput {
+                delta_seconds: 1.0,
+                forward: 1.0,
+                right: 0.0,
+                up: 0.0,
+                fast: false,
+                look_delta_x: 0.0,
+                look_delta_y: 0.0,
+            },
+            Some(42.0),
+        )
+        .unwrap();
+
+    let after = state.player_position().unwrap();
+    assert!(after.z > 0.0);
+    assert_close(after.y, 42.0);
+}
+
+#[test]
 fn browser_game_state_public_controls_cover_player_and_debug_camera_api() {
     let mut state = BrowserGameState::new();
 
@@ -1707,6 +1732,21 @@ fn browser_terrain_stream_generates_and_prunes_meshes_in_rust() {
     settle_terrain_stream(&mut stream, moved, 80);
 
     assert!(!stream.render_chunk_keys().contains(&"0,0,0".to_string()));
+}
+
+#[test]
+fn browser_terrain_stream_queries_height_from_visible_generated_triangles() {
+    let mut stream = BrowserTerrainStream::new_lod0(0x0F6, 1).unwrap();
+    let origin = Vec3::new(0.0, 0.0, 0.0);
+    stream.reset_around(origin);
+
+    settle_terrain_stream(&mut stream, origin, 20);
+
+    let sample = stream.height_at(8.0, 12.0).unwrap();
+    let expected = height_at(0x0F6, 1, 8.0, 12.0) as f32;
+    assert_eq!(sample.key.lod, 0);
+    assert!((sample.height - expected).abs() <= 0.0001);
+    assert_eq!(stream.height_at(-128.0, -128.0), None);
 }
 
 #[test]

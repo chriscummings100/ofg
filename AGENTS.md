@@ -16,7 +16,8 @@ The current playable seed is still simple:
 - Runtime terrain meshed as whole generated LOD nodes, grass material only.
 - Poly Haven terrain materials rendered from global WebGPU texture arrays.
 - Rust terrain core library/artifact that owns terrain height sampling, node
-  meshing, stream scheduling, and worker build packets.
+  meshing, stream scheduling, worker build packets, and minimal triangle-backed
+  height queries for player grounding.
 - Rust-owned first-person camera/player movement through `engine_web.wasm`,
   backed by `engine_core`.
 - Rust/wgpu WebGPU renderer through `engine_web.wasm`; Rust owns browser draw
@@ -29,8 +30,10 @@ The current playable seed is still simple:
 
 The previous density/Dual Contouring terrain implementation is preserved only as
 reference under `docs/reference/terrain_legacy_2026_06_15/`. The active terrain
-rebuild starts from sine grass, no collision, no aprons, no placement, and no
-water so the multi-LOD streaming and transition model can stay lean.
+rebuild starts from sine grass, no separate collision mesh, no aprons, no
+placement, and no water so the multi-LOD streaming and transition model can
+stay lean. First-person/third-person player grounding uses the generated
+visible terrain triangles when available.
 
 ## Read These When Needed
 

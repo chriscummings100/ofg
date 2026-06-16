@@ -657,7 +657,18 @@ impl RustBrowserGame {
         let input_parse_ms = perf_now_ms() - input_started_at_ms;
 
         let game_state_started_at_ms = perf_now_ms();
-        self.game_state.tick(input).map_err(js_error)?;
+        let sampled_terrain_height = self
+            .game_state
+            .terrain_probe_position(input)
+            .map_err(js_error)?
+            .and_then(|position| {
+                self.terrain_stream
+                    .height_at(position.x, position.z)
+                    .map(|sample| sample.height)
+            });
+        self.game_state
+            .tick_with_terrain_height(input, sampled_terrain_height)
+            .map_err(js_error)?;
         let game_state_tick_ms = perf_now_ms() - game_state_started_at_ms;
 
         let player_character_started_at_ms = perf_now_ms();
@@ -847,8 +858,12 @@ impl RustBrowserGame {
             "setPlayerPosition" => {
                 let x = js_required_f32(&command, "x", "command.x")?;
                 let z = js_required_f32(&command, "z", "command.z")?;
+                let sampled_terrain_height = self
+                    .terrain_stream
+                    .height_at(x, z)
+                    .map(|sample| sample.height);
                 self.game_state
-                    .set_player_position_xz(x, z)
+                    .set_player_position_xz_with_height(x, z, sampled_terrain_height)
                     .map(|_| ())
                     .map_err(js_error)?;
             }
