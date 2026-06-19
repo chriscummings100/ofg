@@ -656,10 +656,27 @@ impl RustBrowserGame {
         let input = browser_game_input_from_js(&frame)?;
         let input_parse_ms = perf_now_ms() - input_started_at_ms;
 
-        let game_state_started_at_ms = perf_now_ms();
-        let sampled_terrain_height = self
+        let terrain_probe_position = self
             .game_state
             .terrain_probe_position(input)
+            .map_err(js_error)?;
+
+        let terrain_stream_started_at_ms = perf_now_ms();
+        let terrain_stream_center = terrain_probe_position
+            .or_else(|| self.game_state.player_position().ok())
+            .ok_or_else(|| js_error("Rust browser game is missing a terrain stream center."))?;
+        self.update_terrain_stream_around(terrain_stream_center)?;
+        let terrain_stream_update_ms = perf_now_ms() - terrain_stream_started_at_ms;
+
+        let game_state_started_at_ms = perf_now_ms();
+        let sampled_terrain_height = terrain_probe_position.and_then(|position| {
+            self.terrain_stream
+                .height_at(position.x, position.z)
+                .map(|sample| sample.height)
+        });
+        let sampled_camera_terrain_height = self
+            .game_state
+            .third_person_camera_probe_position(input, sampled_terrain_height)
             .map_err(js_error)?
             .and_then(|position| {
                 self.terrain_stream
@@ -667,17 +684,13 @@ impl RustBrowserGame {
                     .map(|sample| sample.height)
             });
         self.game_state
-            .tick_with_terrain_height(input, sampled_terrain_height)
+            .tick_with_terrain_heights(input, sampled_terrain_height, sampled_camera_terrain_height)
             .map_err(js_error)?;
         let game_state_tick_ms = perf_now_ms() - game_state_started_at_ms;
 
         let player_character_started_at_ms = perf_now_ms();
         self.update_player_character_mesh(input)?;
         let player_character_update_ms = perf_now_ms() - player_character_started_at_ms;
-
-        let terrain_stream_started_at_ms = perf_now_ms();
-        self.update_terrain_stream()?;
-        let terrain_stream_update_ms = perf_now_ms() - terrain_stream_started_at_ms;
 
         let render_frame_started_at_ms = perf_now_ms();
         let render_result = self.render_frame()?;
@@ -1552,13 +1565,12 @@ impl RustBrowserGame {
         Ok(())
     }
 
-    fn update_terrain_stream(&mut self) -> Result<(), JsValue> {
+    fn update_terrain_stream_around(&mut self, player_position: Vec3) -> Result<(), JsValue> {
         let started_at_ms = terrain_update_now_ms();
         let mut removed_mesh_count = 0_u32;
         let mut upserted_mesh_count = 0_u32;
         let mut uploaded_vertex_float_count = 0_u32;
         let mut uploaded_index_count = 0_u32;
-        let player_position = self.game_state.player_position().map_err(js_error)?;
         let stream_tick_started_at_ms = terrain_update_now_ms();
         let update = self.terrain_stream.tick_for_workers(player_position);
         let stream_tick_ms = terrain_update_now_ms() - stream_tick_started_at_ms;

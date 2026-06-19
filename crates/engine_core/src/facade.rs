@@ -149,6 +149,11 @@ pub extern "C" fn ofg_engine_update_player(
                 } else {
                     Some(terrain_height)
                 },
+                if has_terrain == 0 {
+                    None
+                } else {
+                    Some(terrain_height)
+                },
             )
             .map(|_| 1)
             .unwrap_or(0)

@@ -6,8 +6,8 @@ use engine_core::{
     RENDER_SNAPSHOT_FLOAT_COUNT,
 };
 use terrain_core::{
-    height_at_for_variant, terrain_variant_for_preset, TerrainVariantDescriptor,
-    TerrainVariantValidationError, DEFAULT_TERRAIN_PRESET,
+    terrain_variant_for_preset, TerrainVariantDescriptor, TerrainVariantValidationError,
+    DEFAULT_TERRAIN_PRESET,
 };
 
 use crate::model_animation::ModelAnimationClip;
@@ -195,7 +195,7 @@ impl BrowserGameState {
             .set_terrain(Some(terrain_entity))
             .map_err(EngineError::from)?;
 
-        let initial_height = self.terrain_height_at(INITIAL_PLAYER_X, INITIAL_PLAYER_Z)?;
+        let initial_height = 0.0;
         self.engine.create_player(Vec3::new(
             INITIAL_PLAYER_X,
             initial_height,
@@ -237,15 +237,6 @@ impl BrowserGameState {
         self.terrain_variant = terrain_variant;
         self.update_terrain_component()?;
 
-        if matches!(
-            self.player_mode()?,
-            PlayerMode::FirstPerson | PlayerMode::ThirdPerson
-        ) {
-            let position = self.engine.player_position()?;
-            let height = self.terrain_height_at(position.x, position.z)?;
-            self.engine
-                .set_player_position(Vec3::new(position.x, height, position.z))?;
-        }
         self.sync_player_character_scene()?;
 
         Ok(())
@@ -385,29 +376,64 @@ impl BrowserGameState {
         }
     }
 
+    pub fn third_person_camera_probe_position(
+        &mut self,
+        input: BrowserGameInput,
+        sampled_terrain_height: Option<f32>,
+    ) -> Result<Option<Vec3>, BrowserGameStateError> {
+        self.ensure_player()?;
+        self.apply_player_input(input)?;
+        let player_mode = self.player_mode()?;
+        let terrain_height = self.preview_player_terrain_height(
+            input.delta_seconds,
+            sampled_terrain_height,
+            player_mode,
+        )?;
+
+        self.engine
+            .preview_third_person_camera_goal(input.delta_seconds, terrain_height)
+            .map_err(BrowserGameStateError::Engine)
+    }
+
     pub fn tick_with_terrain_height(
         &mut self,
         input: BrowserGameInput,
         sampled_terrain_height: Option<f32>,
     ) -> Result<(), BrowserGameStateError> {
+        self.tick_with_terrain_heights(input, sampled_terrain_height, None)
+    }
+
+    pub fn tick_with_terrain_heights(
+        &mut self,
+        input: BrowserGameInput,
+        sampled_terrain_height: Option<f32>,
+        sampled_camera_terrain_height: Option<f32>,
+    ) -> Result<(), BrowserGameStateError> {
         self.ensure_player()?;
         self.apply_player_input(input)?;
         let player_mode = self.player_mode()?;
-        let terrain_height = if matches!(
+        let terrain_height = self.preview_player_terrain_height(
+            input.delta_seconds,
+            sampled_terrain_height,
             player_mode,
-            PlayerMode::FirstPerson | PlayerMode::ThirdPerson
-        ) {
-            let preview = self.engine.preview_player_position(input.delta_seconds)?;
-            Some(match sampled_terrain_height {
-                Some(height) => validate_terrain_height(height, preview.x, preview.z)?,
-                None => self.terrain_height_at(preview.x, preview.z)?,
-            })
+        )?;
+        let third_person_camera_ground_height = if player_mode == PlayerMode::ThirdPerson {
+            let camera_goal = self
+                .engine
+                .preview_third_person_camera_goal(input.delta_seconds, terrain_height)?
+                .ok_or(EngineError::MissingPlayer)?;
+            sampled_camera_terrain_height
+                .map(|height| validate_terrain_height(height, camera_goal.x, camera_goal.z))
+                .transpose()?
         } else {
             None
         };
 
-        self.engine
-            .update_player(input.delta_seconds, terrain_height)?;
+        self.engine.update_player(
+            input.delta_seconds,
+            terrain_height,
+            third_person_camera_ground_height,
+        )?;
         self.engine.update(EngineUpdateInput {
             delta_seconds: input.delta_seconds,
         })?;
@@ -468,7 +494,7 @@ impl BrowserGameState {
         self.ensure_player()?;
         let height = match sampled_terrain_height {
             Some(height) => validate_terrain_height(height, x, z)?,
-            None => self.terrain_height_at(x, z)?,
+            None => self.engine.player_position()?.y,
         };
         let position = Vec3::new(x, height, z);
         self.engine.set_player_position(position)?;
@@ -643,8 +669,7 @@ impl BrowserGameState {
             return Ok(());
         };
 
-        let terrain_height =
-            self.terrain_height_at(INITIAL_STATIC_MODEL_X, INITIAL_STATIC_MODEL_Z)?;
+        let terrain_height = 0.0;
         let node_transform = config
             .animation
             .as_ref()
@@ -984,15 +1009,23 @@ impl BrowserGameState {
             .unwrap_or(false))
     }
 
-    fn terrain_height_at(&self, x: f32, z: f32) -> Result<f32, BrowserGameStateError> {
-        let height = height_at_for_variant(
-            self.terrain_seed,
-            self.terrain_variant,
-            f64::from(x),
-            f64::from(z),
-        )
-        .map_err(BrowserGameStateError::TerrainVariant)? as f32;
-        validate_terrain_height(height, x, z)
+    fn preview_player_terrain_height(
+        &self,
+        delta_seconds: f32,
+        sampled_terrain_height: Option<f32>,
+        player_mode: PlayerMode,
+    ) -> Result<Option<f32>, BrowserGameStateError> {
+        if !matches!(
+            player_mode,
+            PlayerMode::FirstPerson | PlayerMode::ThirdPerson
+        ) {
+            return Ok(None);
+        }
+
+        let preview = self.engine.preview_player_position(delta_seconds)?;
+        sampled_terrain_height
+            .map(|height| validate_terrain_height(height, preview.x, preview.z))
+            .transpose()
     }
 }
 

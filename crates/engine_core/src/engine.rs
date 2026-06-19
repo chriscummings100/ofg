@@ -317,10 +317,44 @@ impl Engine {
         }
     }
 
+    pub fn preview_third_person_camera_goal(
+        &self,
+        delta_seconds: f32,
+        terrain_height: Option<f32>,
+    ) -> Result<Option<Vec3>, EngineError> {
+        validate_delta_seconds(delta_seconds)?;
+        let (player_entity, mut player) = self.player_component()?;
+        if player.mode != PlayerMode::ThirdPerson {
+            return Ok(None);
+        }
+
+        player.yaw -= player.intent.look_delta_x * player.config.look_sensitivity;
+        player.pitch = (player.pitch - player.intent.look_delta_y * player.config.look_sensitivity)
+            .clamp(-player.config.max_pitch, player.config.max_pitch);
+        let next_position = self.preview_grounded_player_position_at_yaw(
+            player_entity,
+            player,
+            player.yaw,
+            delta_seconds,
+        )?;
+        let grounded_position = Vec3::new(
+            next_position.x,
+            terrain_height.unwrap_or(next_position.y),
+            next_position.z,
+        );
+
+        Ok(Some(third_person_camera_goal(
+            grounded_position,
+            player,
+            grounded_position.y,
+        )))
+    }
+
     pub fn update_player(
         &mut self,
         delta_seconds: f32,
         terrain_height: Option<f32>,
+        third_person_camera_ground_height: Option<f32>,
     ) -> Result<EyeTransform, EngineError> {
         validate_delta_seconds(delta_seconds)?;
         let (player_entity, mut player) = self.player_component()?;
@@ -346,7 +380,9 @@ impl Engine {
                     update_third_person_camera(
                         &mut player,
                         grounded_position,
-                        terrain_height.unwrap_or(grounded_position.y),
+                        third_person_camera_ground_height
+                            .or(terrain_height)
+                            .unwrap_or(grounded_position.y),
                     );
                 }
                 self.scene.set_local_transform(
@@ -506,7 +542,7 @@ fn update_third_person_camera(
     ground_height: f32,
 ) {
     let goal = third_person_camera_goal(player_position, *player, ground_height);
-    player.third_person_camera_position = if player.third_person_camera_initialized {
+    let next_position = if player.third_person_camera_initialized {
         lerp_vec3(
             player.third_person_camera_position,
             goal,
@@ -515,6 +551,11 @@ fn update_third_person_camera(
     } else {
         goal
     };
+    player.third_person_camera_position = clamp_camera_above_ground(
+        next_position,
+        ground_height,
+        player.config.third_person_camera_min_ground_clearance,
+    );
     player.third_person_camera_initialized = true;
 }
 
@@ -531,6 +572,14 @@ fn third_person_camera_goal(
     let min_y = ground_height + player.config.third_person_camera_min_ground_clearance;
 
     Vec3::new(desired.x, desired.y.max(min_y), desired.z)
+}
+
+fn clamp_camera_above_ground(position: Vec3, ground_height: f32, min_clearance: f32) -> Vec3 {
+    Vec3::new(
+        position.x,
+        position.y.max(ground_height + min_clearance),
+        position.z,
+    )
 }
 
 fn third_person_camera_target(player_position: Vec3, player: PlayerComponent) -> Vec3 {

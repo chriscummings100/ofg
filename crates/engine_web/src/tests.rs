@@ -1588,6 +1588,34 @@ fn browser_game_state_ticks_player_with_supplied_mesh_height() {
 }
 
 #[test]
+fn browser_game_state_tick_without_mesh_height_preserves_player_y() {
+    let mut state = BrowserGameState::new();
+    state.reset_game(0x0F6, 1).unwrap();
+    state
+        .set_player_position_xz_with_height(0.0, 0.0, Some(123.0))
+        .unwrap();
+
+    state
+        .tick_with_terrain_height(
+            BrowserGameInput {
+                delta_seconds: 1.0,
+                forward: 1.0,
+                right: 0.0,
+                up: 0.0,
+                fast: false,
+                look_delta_x: 0.0,
+                look_delta_y: 0.0,
+            },
+            None,
+        )
+        .unwrap();
+
+    let after = state.player_position().unwrap();
+    assert!(after.z > 0.0);
+    assert_close(after.y, 123.0);
+}
+
+#[test]
 fn browser_game_state_public_controls_cover_player_and_debug_camera_api() {
     let mut state = BrowserGameState::new();
 

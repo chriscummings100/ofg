@@ -137,6 +137,13 @@ render-bit toggle.
   user. Required finding fixed: removed a redundant `mesh.rs` purpose comment.
   Follow-up validation debt remains the stale broad `engine_web`, Rust smoke,
   and browser smoke gates listed above.
+- [x] (2026-06-19) Removed analytic heightfield fallback from runtime
+  player/camera terrain contact. Browser movement now passes generated visible
+  mesh samples or `None`, terrain streaming is advanced around the predicted
+  player position before collision sampling, and the third-person camera uses a
+  separate mesh sample at its chase position. Verified with a new 50-frame
+  capture at
+  `artifacts/terrain-rebuild/third-person-mesh-collision-raised-camera/`.
 
 ## Surprises & Discoveries
 
@@ -194,6 +201,21 @@ render-bit toggle.
   generated terrain indices from `[a, b, c, c, b, d]` to `[a, c, b, b, c, d]`;
   `baseline_mesh_triangles_face_up_for_culled_rendering` now guards the
   positive-Y winding expected by the culled terrain pipeline.
+
+- Observation: analytic fallback heights made player/camera collision
+  debugging ambiguous.
+  Evidence: the third-person capture looked like the player and camera were
+  disagreeing with the rendered mesh. After removing the fallback, captured
+  player Y values still changed every frame and matched the generated mesh
+  height within about a millimetre, which isolated the remaining visual issue to
+  camera framing/foreground terrain rather than a constant player height.
+
+- Observation: the browser frame order could sample collision from one terrain
+  visible set and render another.
+  Evidence: before this fix, `RustBrowserGame::tick` sampled terrain height,
+  moved the player, then advanced/uploaded the terrain stream before rendering.
+  The stream now advances around the predicted player position before mesh
+  collision samples are taken.
 
 - Observation: the first walkable baseline can render while several old gates
   remain stale.
@@ -284,6 +306,13 @@ render-bit toggle.
   camera system.
   Date/Author: 2026-06-19 / User and Codex.
 
+- Decision: runtime terrain contact is mesh-collision-only.
+  Rationale: while the sine field generates the baseline terrain mesh, using it
+  as a runtime fallback hides whether player/camera bugs are caused by collision
+  mesh coverage, visible-set selection, or camera framing. Missing mesh samples
+  now pass `None` so failures are observable.
+  Date/Author: 2026-06-19 / User and Codex.
+
 ## Outcomes & Retrospective
 
 Milestone 1 is complete. The rebuild first added an additive
@@ -320,6 +349,14 @@ from the same frame-dump workflow used for terrain inspection. The corrected
 capture lives at
 `artifacts/terrain-rebuild/third-person-camera-walk-after-winding/` and keeps
 all 50 source frames for per-frame inspection.
+
+The follow-up mesh-only collision pass removed runtime analytic height fallback
+from browser movement and player repositioning, samples camera ground at the
+camera chase X/Z, and updates the terrain stream before collision sampling so
+the rendered visible set and collision source are from the same frame. The
+raised-camera capture at
+`artifacts/terrain-rebuild/third-person-mesh-collision-raised-camera/` includes
+per-frame player positions; Y changes on every captured frame.
 
 ## Contract and Quality Baseline
 

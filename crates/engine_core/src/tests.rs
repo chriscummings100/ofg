@@ -103,7 +103,7 @@ fn engine_player_api_reports_missing_player_before_creation() {
         Err(EngineError::MissingPlayer)
     );
     assert_eq!(
-        engine.update_player(0.0, None),
+        engine.update_player(0.0, None, None),
         Err(EngineError::MissingPlayer)
     );
     assert!(engine.render_mesh_items().unwrap().is_empty());
@@ -190,7 +190,7 @@ fn first_person_player_moves_and_grounds_against_terrain_height() {
         engine.preview_player_position(1.0).unwrap(),
         Vec3::new(0.0, 0.0, 5.5),
     );
-    let eye = engine.update_player(1.0, Some(4.0)).unwrap();
+    let eye = engine.update_player(1.0, Some(4.0), None).unwrap();
 
     assert_vec3_near(engine.player_position().unwrap(), Vec3::new(0.0, 4.0, 5.5));
     assert_vec3_near(eye.position, Vec3::new(0.0, 5.65, 5.5));
@@ -207,7 +207,7 @@ fn first_person_player_preserves_height_without_terrain() {
         })
         .unwrap();
 
-    engine.update_player(1.0, None).unwrap();
+    engine.update_player(1.0, None, None).unwrap();
 
     assert_vec3_near(engine.player_position().unwrap(), Vec3::new(0.0, 3.0, 5.5));
 }
@@ -224,7 +224,7 @@ fn first_person_player_uses_fast_right_movement() {
         })
         .unwrap();
 
-    engine.update_player(1.0, None).unwrap();
+    engine.update_player(1.0, None, None).unwrap();
 
     assert_vec3_near(engine.player_position().unwrap(), Vec3::new(16.5, 0.0, 0.0));
 }
@@ -245,12 +245,12 @@ fn third_person_player_moves_like_grounded_player_with_chase_camera() {
         engine.preview_player_position(1.0).unwrap(),
         Vec3::new(0.0, 2.0, 5.5),
     );
-    let eye = engine.update_player(1.0, Some(4.0)).unwrap();
+    let eye = engine.update_player(1.0, Some(4.0), None).unwrap();
 
     assert_vec3_near(engine.player_position().unwrap(), Vec3::new(0.0, 4.0, 5.5));
-    assert_vec3_near(eye.position, Vec3::new(0.0, 5.25, -3.25));
+    assert_vec3_near(eye.position, Vec3::new(0.0, 7.0, -3.25));
     assert_close(eye.yaw, 0.0);
-    assert_close(eye.pitch, 0.4_f32.atan2(8.75));
+    assert_close(eye.pitch, (-1.35_f32).atan2(8.75));
 }
 
 #[test]
@@ -263,7 +263,7 @@ fn third_person_camera_resets_on_mode_entry_and_clamps_above_ground() {
     engine.set_player_mode(PlayerMode::ThirdPerson).unwrap();
 
     let first_eye = engine.player_eye_transform().unwrap();
-    assert!(first_eye.position.y >= 11.0);
+    assert!(first_eye.position.y >= 13.0);
 
     engine.set_player_mode(PlayerMode::FirstPerson).unwrap();
     engine
@@ -272,8 +272,20 @@ fn third_person_camera_resets_on_mode_entry_and_clamps_above_ground() {
     engine.set_player_mode(PlayerMode::ThirdPerson).unwrap();
 
     let reset_eye = engine.player_eye_transform().unwrap();
-    assert!(reset_eye.position.y >= 21.0);
+    assert!(reset_eye.position.y >= 23.0);
     assert!((reset_eye.position.x - 10.0).abs() <= 0.001);
+}
+
+#[test]
+fn third_person_camera_clamps_against_camera_ground_after_smoothing() {
+    let mut engine = Engine::new();
+    engine.create_player(Vec3::new(0.0, 4.0, 0.0));
+    engine.set_player_mode(PlayerMode::ThirdPerson).unwrap();
+
+    let eye = engine.update_player(0.0, Some(4.0), Some(20.0)).unwrap();
+
+    assert_vec3_near(engine.player_position().unwrap(), Vec3::new(0.0, 4.0, 0.0));
+    assert!(eye.position.y >= 23.0);
 }
 
 #[test]
@@ -288,7 +300,7 @@ fn player_look_deltas_update_yaw_and_clamp_pitch() {
         })
         .unwrap();
 
-    let eye = engine.update_player(0.0, None).unwrap();
+    let eye = engine.update_player(0.0, None, None).unwrap();
 
     assert_close(eye.yaw, -0.25);
     assert_close(eye.pitch, -std::f32::consts::PI * 0.48);
@@ -323,7 +335,7 @@ fn debug_fly_player_moves_without_grounding() {
         })
         .unwrap();
 
-    let eye = engine.update_player(1.0, Some(100.0)).unwrap();
+    let eye = engine.update_player(1.0, Some(100.0), Some(100.0)).unwrap();
 
     assert_vec3_near(engine.player_position().unwrap(), Vec3::ZERO);
     assert_vec3_near(eye.position, Vec3::new(0.0, 23.0, 0.0));
