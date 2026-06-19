@@ -450,6 +450,16 @@ impl BrowserTerrainStream {
         self.height_at_from_nodes(x, z, self.visible_nodes.iter().copied())
     }
 
+    /// Samples height from an explicit terrain node set, usually the uploaded render set.
+    pub fn height_at_in_nodes(
+        &self,
+        x: f32,
+        z: f32,
+        nodes: impl IntoIterator<Item = TerrainNodeKey>,
+    ) -> Option<BrowserTerrainHeightSample> {
+        self.height_at_from_nodes(x, z, nodes.into_iter())
+    }
+
     fn tick_internal(&mut self, center: Vec3, use_workers: bool) -> BrowserTerrainStreamUpdate {
         let mut update = BrowserTerrainStreamUpdate::default();
         let sync_started_at_ms = terrain_stream_now_ms();

@@ -144,6 +144,11 @@ render-bit toggle.
   separate mesh sample at its chase position. Verified with a new 50-frame
   capture at
   `artifacts/terrain-rebuild/third-person-mesh-collision-raised-camera/`.
+- [x] (2026-06-19) Fixed the remaining player-grounding mismatch by sampling
+  player/camera terrain contact from the uploaded/rendered terrain mesh set
+  rather than the CPU stream's future visible set. Added a focused explicit-node
+  height-query regression and captured a clearer 50-frame walk at
+  `artifacts/terrain-rebuild/rendered-mesh-collision-walk/`.
 
 ## Surprises & Discoveries
 
@@ -216,6 +221,15 @@ render-bit toggle.
   moved the player, then advanced/uploaded the terrain stream before rendering.
   The stream now advances around the predicted player position before mesh
   collision samples are taken.
+
+- Observation: the CPU stream's selected visible set can still be ahead of the
+  terrain actually drawn by the renderer because terrain GPU uploads are
+  budgeted across frames.
+  Evidence: the player looked clipped into the terrain even after analytic
+  fallback removal and stream-before-sample ordering. Sampling from a separate
+  uploaded/rendered node set fixed the third-person capture; frame 25 at
+  `artifacts/terrain-rebuild/rendered-mesh-collision-walk/frames/frame_0025.png`
+  shows the full lower body above the rendered surface.
 
 - Observation: the first walkable baseline can render while several old gates
   remain stale.
@@ -313,6 +327,14 @@ render-bit toggle.
   now pass `None` so failures are observable.
   Date/Author: 2026-06-19 / User and Codex.
 
+- Decision: runtime terrain contact samples uploaded/rendered terrain meshes,
+  not merely CPU-selected visible meshes.
+  Rationale: the browser facade uploads terrain meshes under a per-frame budget.
+  Collision against a generated-but-not-yet-uploaded node can put the player on
+  a surface the renderer has not displayed, recreating the exact ambiguity the
+  mesh-only rule was meant to remove.
+  Date/Author: 2026-06-19 / Codex.
+
 ## Outcomes & Retrospective
 
 Milestone 1 is complete. The rebuild first added an additive
@@ -357,6 +379,14 @@ the rendered visible set and collision source are from the same frame. The
 raised-camera capture at
 `artifacts/terrain-rebuild/third-person-mesh-collision-raised-camera/` includes
 per-frame player positions; Y changes on every captured frame.
+
+The rendered-mesh collision pass tightened that further by separating the CPU
+stream's intended visible set from the meshes that have actually completed GPU
+upload. Player and third-person camera ground queries now sample only uploaded
+terrain nodes, so the collision source matches the draw set even when terrain
+upload work is deferred. The clearer diagnostic capture at
+`artifacts/terrain-rebuild/rendered-mesh-collision-walk/` keeps all 50 frames
+and shows full legs above the surface.
 
 ## Contract and Quality Baseline
 

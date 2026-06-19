@@ -176,6 +176,18 @@ impl PlayerCharacterModel {
         self.part_vertices_for_pose(&pose)
     }
 
+    /// Returns the render-space Y offset that places the character's lowest vertex on ground.
+    pub fn ground_alignment_offset(&self) -> Result<f32, PlayerCharacterModelError> {
+        let part_vertices = self.current_part_vertices()?;
+        let Some((min_y, _max_y)) = vertex_y_bounds(&part_vertices) else {
+            return Err(PlayerCharacterModelError::RenderAsset(
+                ModelRenderAssetError::MissingPrimitive,
+            ));
+        };
+
+        Ok(-min_y)
+    }
+
     /// Advances locomotion animation and returns renderer-ready skinned vertices.
     pub fn tick_vertices(
         &mut self,
@@ -305,6 +317,31 @@ impl PlayerCharacterModel {
 
         Ok(model_primitive_vertex_floats(&skinned_primitive))
     }
+}
+
+/// Computes vertical bounds from renderer-ready interleaved character vertices.
+fn vertex_y_bounds(part_vertices: &[Vec<f32>]) -> Option<(f32, f32)> {
+    let stride = crate::config::MODEL_VERTEX_FLOATS as usize;
+    let mut min_y = f32::INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    let mut saw_vertex = false;
+
+    for vertices in part_vertices {
+        if vertices.is_empty() || vertices.len() % stride != 0 {
+            return None;
+        }
+        for vertex in vertices.chunks_exact(stride) {
+            let y = vertex[1];
+            if !y.is_finite() {
+                return None;
+            }
+            min_y = min_y.min(y);
+            max_y = max_y.max(y);
+            saw_vertex = true;
+        }
+    }
+
+    saw_vertex.then_some((min_y, max_y))
 }
 
 impl LocomotionAnimationController {

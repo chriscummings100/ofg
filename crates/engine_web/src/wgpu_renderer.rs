@@ -2,7 +2,7 @@
 // submission, and render-facing GLTF model resources for the playable browser path.
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::rc::Rc;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::OnceLock;
@@ -106,6 +106,7 @@ pub struct RustBrowserGame {
     terrain_stream: BrowserTerrainStream,
     renderer: BrowserWgpuRenderer,
     terrain_mesh_handles_by_key: HashMap<String, ResourceHandle>,
+    terrain_render_nodes: BTreeSet<TerrainNodeKey>,
     terrain_transition_mesh_handles_by_key: HashMap<TerrainTransitionMeshKey, ResourceHandle>,
     terrain_textures: Option<TerrainTextureHandles>,
     object_handles_by_id: HashMap<String, ResourceHandle>,
@@ -394,6 +395,7 @@ struct PlayerCharacterSlot {
     model: PlayerCharacterModel,
     mesh_handles: Vec<ResourceHandle>,
     scene_parts: Vec<(String, String)>,
+    ground_alignment_offset: f32,
     material_count: usize,
     texture_count: usize,
     non_fallback_albedo_part_count: usize,
@@ -494,7 +496,6 @@ const IDENTITY_WORLD_MATRIX: [f32; WORLD_MATRIX_FLOATS] = [
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
 ];
 const PLAYER_CHARACTER_SCENE_SCALE: f32 = 1.0;
-const PLAYER_CHARACTER_HEIGHT_OFFSET: f32 = 0.0;
 const SPECULAR_GLOSSINESS_FIXTURE_SCALE: f32 = 4.0;
 const SPECULAR_GLOSSINESS_FIXTURE_HEIGHT_OFFSET: f32 = 0.08;
 
@@ -530,6 +531,10 @@ impl RustBrowserGame {
                 &animation_model,
             )
             .map_err(js_error)?;
+            let ground_alignment_offset = player_character
+                .ground_alignment_offset()
+                .map_err(js_error)?
+                * PLAYER_CHARACTER_SCENE_SCALE;
             let part_vertices = player_character.current_part_vertices().map_err(js_error)?;
             let mut model_texture_handles_by_index = HashMap::new();
             let mut mesh_handles = Vec::with_capacity(player_character.part_count());
@@ -566,6 +571,7 @@ impl RustBrowserGame {
                 model: player_character,
                 mesh_handles,
                 scene_parts,
+                ground_alignment_offset,
                 material_count: body_model.material_count(),
                 texture_count: body_model.texture_count(),
                 non_fallback_albedo_part_count,
@@ -602,7 +608,7 @@ impl RustBrowserGame {
             .configure_player_character_scene_parts(
                 active_player_character.scene_parts.clone(),
                 PLAYER_CHARACTER_SCENE_SCALE,
-                PLAYER_CHARACTER_HEIGHT_OFFSET,
+                active_player_character.ground_alignment_offset,
             )
             .map_err(js_error)?;
         game_state
@@ -620,6 +626,7 @@ impl RustBrowserGame {
                 .map_err(js_error)?,
             renderer,
             terrain_mesh_handles_by_key: HashMap::new(),
+            terrain_render_nodes: BTreeSet::new(),
             terrain_transition_mesh_handles_by_key: HashMap::new(),
             terrain_textures: None,
             object_handles_by_id: HashMap::new(),
@@ -670,8 +677,7 @@ impl RustBrowserGame {
 
         let game_state_started_at_ms = perf_now_ms();
         let sampled_terrain_height = terrain_probe_position.and_then(|position| {
-            self.terrain_stream
-                .height_at(position.x, position.z)
+            self.rendered_terrain_height_at(position.x, position.z)
                 .map(|sample| sample.height)
         });
         let sampled_camera_terrain_height = self
@@ -679,8 +685,7 @@ impl RustBrowserGame {
             .third_person_camera_probe_position(input, sampled_terrain_height)
             .map_err(js_error)?
             .and_then(|position| {
-                self.terrain_stream
-                    .height_at(position.x, position.z)
+                self.rendered_terrain_height_at(position.x, position.z)
                     .map(|sample| sample.height)
             });
         self.game_state
@@ -872,8 +877,7 @@ impl RustBrowserGame {
                 let x = js_required_f32(&command, "x", "command.x")?;
                 let z = js_required_f32(&command, "z", "command.z")?;
                 let sampled_terrain_height = self
-                    .terrain_stream
-                    .height_at(x, z)
+                    .rendered_terrain_height_at(x, z)
                     .map(|sample| sample.height);
                 self.game_state
                     .set_player_position_xz_with_height(x, z, sampled_terrain_height)
@@ -1506,11 +1510,11 @@ impl RustBrowserGame {
     }
 
     fn set_player_character(&mut self, character_id: PlayerCharacterId) -> Result<(), JsValue> {
-        let scene_parts = self
+        let (scene_parts, ground_alignment_offset) = self
             .player_characters
             .iter()
             .find(|slot| slot.descriptor.id == character_id)
-            .map(|slot| slot.scene_parts.clone())
+            .map(|slot| (slot.scene_parts.clone(), slot.ground_alignment_offset))
             .ok_or_else(|| {
                 js_error(format!(
                     "Rust browser game cannot select unavailable player character '{character_id}'."
@@ -1521,7 +1525,7 @@ impl RustBrowserGame {
             .configure_player_character_scene_parts(
                 scene_parts,
                 PLAYER_CHARACTER_SCENE_SCALE,
-                PLAYER_CHARACTER_HEIGHT_OFFSET,
+                ground_alignment_offset,
             )
             .map_err(js_error)
     }
@@ -1722,6 +1726,16 @@ impl RustBrowserGame {
         Ok(())
     }
 
+    /// Samples terrain height from meshes that have actually been uploaded for rendering.
+    fn rendered_terrain_height_at(
+        &self,
+        x: f32,
+        z: f32,
+    ) -> Option<crate::terrain_stream::BrowserTerrainHeightSample> {
+        self.terrain_stream
+            .height_at_in_nodes(x, z, self.terrain_render_nodes.iter().copied())
+    }
+
     fn remove_pending_terrain_upload(&mut self, key: TerrainNodeKey) -> bool {
         let original_len = self.pending_terrain_uploads.len();
         self.pending_terrain_uploads
@@ -1745,12 +1759,14 @@ impl RustBrowserGame {
         let node_key = terrain_node_key(key);
         if let Some(handle) = self.terrain_mesh_handles_by_key.remove(&node_key) {
             self.renderer.destroy_mesh(handle)?;
+            self.terrain_render_nodes.remove(&key);
         }
 
         let handle = self
             .renderer
             .register_mesh(vertices, indices, TERRAIN_VERTEX_FLOATS)?;
         self.terrain_mesh_handles_by_key.insert(node_key, handle);
+        self.terrain_render_nodes.insert(key);
         Ok(())
     }
 
@@ -1774,6 +1790,7 @@ impl RustBrowserGame {
 
     fn destroy_terrain_mesh(&mut self, key: TerrainNodeKey) -> Result<(), JsValue> {
         self.renderer.remove_water_patch(key);
+        self.terrain_render_nodes.remove(&key);
         self.destroy_terrain_mesh_by_key(&terrain_node_key(key))
     }
 
@@ -1817,6 +1834,7 @@ impl RustBrowserGame {
         for node_key in node_keys {
             self.destroy_terrain_mesh_by_key(&node_key)?;
         }
+        self.terrain_render_nodes.clear();
         let transition_keys =
             sorted_terrain_transition_mesh_keys(&self.terrain_transition_mesh_handles_by_key);
         for key in transition_keys {

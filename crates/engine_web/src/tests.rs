@@ -830,6 +830,7 @@ fn quaternius_player_asset_imports_skin_and_idle_walk_clips() {
         let mut character =
             PlayerCharacterModel::from_body_and_animation_models(body_model, &animation_model)
                 .unwrap();
+        let ground_alignment_offset = character.ground_alignment_offset().unwrap();
         let initial_vertices = character.current_vertices().unwrap();
         let initial_part_vertices = character.current_part_vertices().unwrap();
         assert_eq!(initial_vertices.len() % MODEL_VERTEX_FLOATS as usize, 0);
@@ -838,6 +839,12 @@ fn quaternius_player_asset_imports_skin_and_idle_walk_clips() {
         assert!(initial_part_vertices
             .iter()
             .all(|vertices| vertices.len() % MODEL_VERTEX_FLOATS as usize == 0));
+        assert!(ground_alignment_offset.is_finite());
+        assert!(ground_alignment_offset >= 0.0);
+        assert!(
+            ground_alignment_offset < 0.25,
+            "player character ground offset should stay near its foot contact point: {ground_alignment_offset}"
+        );
         assert!(!character.indices().is_empty());
         assert_eq!(character.part_indices(0), character.indices());
         assert!(character
@@ -1775,6 +1782,27 @@ fn browser_terrain_stream_queries_height_from_visible_generated_triangles() {
     assert_eq!(sample.key.lod, 0);
     assert!((sample.height - expected).abs() <= 0.0001);
     assert_eq!(stream.height_at(-128.0, -128.0), None);
+}
+
+#[test]
+fn browser_terrain_stream_can_query_height_from_explicit_render_nodes() {
+    let mut stream = BrowserTerrainStream::new_lod0(0x0F6, 1).unwrap();
+    let origin = Vec3::new(0.0, 0.0, 0.0);
+    stream.reset_around(origin);
+
+    settle_terrain_stream(&mut stream, origin, 20);
+
+    let visible_sample = stream.height_at(8.0, 12.0).unwrap();
+    let rendered_sample = stream
+        .height_at_in_nodes(8.0, 12.0, [visible_sample.key])
+        .unwrap();
+
+    assert_eq!(
+        stream.height_at_in_nodes(8.0, 12.0, Vec::<TerrainNodeKey>::new()),
+        None
+    );
+    assert_eq!(rendered_sample.key, visible_sample.key);
+    assert_close(rendered_sample.height, visible_sample.height);
 }
 
 #[test]
