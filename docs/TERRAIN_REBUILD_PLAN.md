@@ -116,6 +116,27 @@ render-bit toggle.
   triangles instead of aborting the whole mesh. Follow-ups recorded below:
   TypeScript fixture tests and smoke harnesses still contain retired preset,
   water, transition, and real-scale span expectations from before the reset.
+- [x] (2026-06-19) Added a small third-person camera feature to make walkable
+  terrain inspection easier: aim at the player's head, keep a desired chase
+  transform driven by the existing third-person look controls, clamp the camera
+  goal above sampled ground, lerp the current camera position halfway to the
+  goal every frame, reset the camera state when entering/leaving third-person
+  mode, and verify with a regenerated 10s third-person walk GIF at
+  `artifacts/terrain-rebuild/third-person-camera-walk-after-winding/`.
+- [x] (2026-06-19) Validated the third-person camera and terrain winding slice
+  with `cargo test -p terrain_core`, `cargo test -p engine_core`, focused
+  `cargo test -p engine_web browser_game_state_third_person_draws_character_while_grounding_player`,
+  `npm run build`, `npm run check:wasm`, `git diff --check`, and the browser
+  50-frame third-person capture. Full `cargo test -p engine_web`,
+  `npm run smoke:rust`, and `npm run smoke:browser` were attempted but still
+  hit stale post-reset gates: retired preset/water/transition expectations,
+  old `ofg_test_harness` terrain APIs, and the pre-reset browser LOD span wait.
+- [x] (2026-06-19) Ran the milestone-review workflow locally for the
+  camera/winding slice. Sub-agent review tools were not used because the
+  milestone review was policy-triggered rather than explicitly requested by the
+  user. Required finding fixed: removed a redundant `mesh.rs` purpose comment.
+  Follow-up validation debt remains the stale broad `engine_web`, Rust smoke,
+  and browser smoke gates listed above.
 
 ## Surprises & Discoveries
 
@@ -165,6 +186,14 @@ render-bit toggle.
   Evidence: appending `ENGINE_WEB_WASM_METADATA.wasmHash` to the dynamic import
   URL made renderer diagnostics and the no-water composite fix appear reliably
   in the browser.
+
+- Observation: the first third-person camera capture still looked like the
+  player was walking through sky because the sine terrain mesh triangles were
+  wound for their underside.
+  Evidence: the rendered terrain became visible under the player after changing
+  generated terrain indices from `[a, b, c, c, b, d]` to `[a, c, b, b, c, d]`;
+  `baseline_mesh_triangles_face_up_for_culled_rendering` now guards the
+  positive-Y winding expected by the culled terrain pipeline.
 
 - Observation: the first walkable baseline can render while several old gates
   remain stale.
@@ -247,6 +276,14 @@ render-bit toggle.
   collision mesh, old density/placement code, or TypeScript terrain sampling.
   Date/Author: 2026-06-16 / Codex.
 
+- Decision: third-person inspection uses a small smoothed chase state rather
+  than changing first-person or debug-fly camera behavior.
+  Rationale: the current need is fast terrain inspection. Keeping a desired
+  third-person camera position, clamping it above sampled ground, aiming at the
+  player's head, and lerping by 50% gives a stable view without widening the
+  camera system.
+  Date/Author: 2026-06-19 / User and Codex.
+
 ## Outcomes & Retrospective
 
 Milestone 1 is complete. The rebuild first added an additive
@@ -274,6 +311,15 @@ player movement. The analytic sine sampler remains only as a fallback when no
 visible generated mesh covers the next X/Z yet. The browser screenshot artifact
 shows the player grounded at the generated terrain height while sky and terrain
 remain visible.
+
+The third-person camera inspection slice is part of the walkable-terrain
+debugging baseline, not a full camera system. It should stay inside
+`engine_core` player/camera state, leave first-person and debug-fly behavior
+unchanged, and be validated by focused engine tests plus a fresh browser capture
+from the same frame-dump workflow used for terrain inspection. The corrected
+capture lives at
+`artifacts/terrain-rebuild/third-person-camera-walk-after-winding/` and keeps
+all 50 source frames for per-frame inspection.
 
 ## Contract and Quality Baseline
 

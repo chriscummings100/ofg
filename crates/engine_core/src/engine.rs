@@ -168,7 +168,14 @@ impl Engine {
 
     pub fn set_player_mode(&mut self, mode: PlayerMode) -> Result<(), EngineError> {
         let (player_entity, mut player) = self.player_component()?;
+        let previous_mode = player.mode;
         player.mode = mode;
+        if mode == PlayerMode::ThirdPerson && previous_mode != PlayerMode::ThirdPerson {
+            let position = self.scene.world_transform(player_entity)?.translation;
+            reset_third_person_camera(&mut player, position);
+        } else if previous_mode == PlayerMode::ThirdPerson && mode != PlayerMode::ThirdPerson {
+            player.third_person_camera_initialized = false;
+        }
         self.set_player_component(player_entity, player)?;
         self.sync_player_camera()
     }
@@ -200,7 +207,7 @@ impl Engine {
     }
 
     pub fn set_player_position(&mut self, position: Vec3) -> Result<(), EngineError> {
-        let (player_entity, player) = self.player_component()?;
+        let (player_entity, mut player) = self.player_component()?;
         self.scene.set_local_transform(
             player_entity,
             LocalTransform {
@@ -209,6 +216,10 @@ impl Engine {
                 scale: Vec3::ONE,
             },
         )?;
+        if player.mode == PlayerMode::ThirdPerson {
+            reset_third_person_camera(&mut player, position);
+            self.set_player_component(player_entity, player)?;
+        }
         self.sync_player_camera()
     }
 
@@ -331,6 +342,13 @@ impl Engine {
                     terrain_height.unwrap_or(next_position.y),
                     next_position.z,
                 );
+                if player.mode == PlayerMode::ThirdPerson {
+                    update_third_person_camera(
+                        &mut player,
+                        grounded_position,
+                        terrain_height.unwrap_or(grounded_position.y),
+                    );
+                }
                 self.scene.set_local_transform(
                     player_entity,
                     LocalTransform {
@@ -446,13 +464,17 @@ impl Engine {
         let player_position = self.scene.world_transform(player_entity)?.translation;
 
         if player.mode == PlayerMode::ThirdPerson {
-            let camera_forward = yaw_pitch_forward(player.yaw, player.pitch);
+            let head_target = third_person_camera_target(player_position, player);
+            let camera_position = if player.third_person_camera_initialized {
+                player.third_person_camera_position
+            } else {
+                third_person_camera_goal(player_position, player, player_position.y)
+            };
+            let (yaw, pitch) = yaw_pitch_to_target(camera_position, head_target);
             return Ok(EyeTransform {
-                position: player_position
-                    .add(Vec3::UP.scale(player.config.third_person_camera_height))
-                    .add(camera_forward.scale(-player.config.third_person_camera_distance)),
-                yaw: player.yaw,
-                pitch: player.pitch,
+                position: camera_position,
+                yaw,
+                pitch,
             });
         }
 
@@ -470,6 +492,67 @@ fn planar_movement(player: PlayerComponent, yaw: f32, delta_seconds: f32) -> Vec
         .add(yaw_right(yaw).scale(player.intent.right))
         .normalize()
         .scale(player.config.move_speed * speed_multiplier(player.intent) * delta_seconds)
+}
+
+fn reset_third_person_camera(player: &mut PlayerComponent, player_position: Vec3) {
+    player.third_person_camera_position =
+        third_person_camera_goal(player_position, *player, player_position.y);
+    player.third_person_camera_initialized = true;
+}
+
+fn update_third_person_camera(
+    player: &mut PlayerComponent,
+    player_position: Vec3,
+    ground_height: f32,
+) {
+    let goal = third_person_camera_goal(player_position, *player, ground_height);
+    player.third_person_camera_position = if player.third_person_camera_initialized {
+        lerp_vec3(
+            player.third_person_camera_position,
+            goal,
+            player.config.third_person_camera_lerp,
+        )
+    } else {
+        goal
+    };
+    player.third_person_camera_initialized = true;
+}
+
+fn third_person_camera_goal(
+    player_position: Vec3,
+    player: PlayerComponent,
+    ground_height: f32,
+) -> Vec3 {
+    let horizontal_forward = yaw_pitch_forward(player.yaw, 0.0);
+    let pitch_height = -player.pitch.sin() * player.config.third_person_camera_distance;
+    let desired = player_position
+        .add(Vec3::UP.scale(player.config.third_person_camera_height + pitch_height))
+        .add(horizontal_forward.scale(-player.config.third_person_camera_distance));
+    let min_y = ground_height + player.config.third_person_camera_min_ground_clearance;
+
+    Vec3::new(desired.x, desired.y.max(min_y), desired.z)
+}
+
+fn third_person_camera_target(player_position: Vec3, player: PlayerComponent) -> Vec3 {
+    player_position.add(Vec3::UP.scale(player.config.third_person_camera_target_height))
+}
+
+fn lerp_vec3(from: Vec3, to: Vec3, amount: f32) -> Vec3 {
+    let t = amount.clamp(0.0, 1.0);
+    from.scale(1.0 - t).add(to.scale(t))
+}
+
+fn yaw_pitch_to_target(camera_position: Vec3, target: Vec3) -> (f32, f32) {
+    let direction = target.add(camera_position.scale(-1.0));
+    let horizontal_length = (direction.x * direction.x + direction.z * direction.z).sqrt();
+    if horizontal_length <= f32::EPSILON && direction.y.abs() <= f32::EPSILON {
+        return (0.0, 0.0);
+    }
+
+    (
+        direction.x.atan2(direction.z),
+        direction.y.atan2(horizontal_length),
+    )
 }
 
 fn debug_fly_movement(player: PlayerComponent, yaw: f32, pitch: f32, delta_seconds: f32) -> Vec3 {

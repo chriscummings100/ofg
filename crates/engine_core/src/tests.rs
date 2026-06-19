@@ -248,9 +248,32 @@ fn third_person_player_moves_like_grounded_player_with_chase_camera() {
     let eye = engine.update_player(1.0, Some(4.0)).unwrap();
 
     assert_vec3_near(engine.player_position().unwrap(), Vec3::new(0.0, 4.0, 5.5));
-    assert_vec3_near(eye.position, Vec3::new(0.0, 6.25, -0.5));
+    assert_vec3_near(eye.position, Vec3::new(0.0, 5.25, -3.25));
     assert_close(eye.yaw, 0.0);
-    assert_close(eye.pitch, 0.0);
+    assert_close(eye.pitch, 0.4_f32.atan2(8.75));
+}
+
+#[test]
+fn third_person_camera_resets_on_mode_entry_and_clamps_above_ground() {
+    let mut engine = Engine::new();
+    engine.create_player(Vec3::new(0.0, 10.0, 0.0));
+    engine
+        .set_player_view(0.0, std::f32::consts::PI * 0.45)
+        .unwrap();
+    engine.set_player_mode(PlayerMode::ThirdPerson).unwrap();
+
+    let first_eye = engine.player_eye_transform().unwrap();
+    assert!(first_eye.position.y >= 11.0);
+
+    engine.set_player_mode(PlayerMode::FirstPerson).unwrap();
+    engine
+        .set_player_position(Vec3::new(10.0, 20.0, 10.0))
+        .unwrap();
+    engine.set_player_mode(PlayerMode::ThirdPerson).unwrap();
+
+    let reset_eye = engine.player_eye_transform().unwrap();
+    assert!(reset_eye.position.y >= 21.0);
+    assert!((reset_eye.position.x - 10.0).abs() <= 0.001);
 }
 
 #[test]

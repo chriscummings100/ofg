@@ -1,5 +1,4 @@
 //! Grass-only heightfield mesh generation for terrain nodes.
-
 use crate::heightfield::height_at_for_variant;
 use crate::node::{
     terrain_node_cell_size, terrain_node_size, TerrainChunkCoord, TerrainNodeKey,
@@ -113,7 +112,7 @@ pub fn build_node_mesh_for_variant(
             let b = a + 1;
             let c = a + sample_count;
             let d = c + 1;
-            indices.extend_from_slice(&[a, b, c, c, b, d]);
+            indices.extend_from_slice(&[a, c, b, b, c, d]);
         }
     }
 

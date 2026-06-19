@@ -57,6 +57,9 @@ pub struct PlayerConfig {
     pub eye_height: f32,
     pub third_person_camera_distance: f32,
     pub third_person_camera_height: f32,
+    pub third_person_camera_target_height: f32,
+    pub third_person_camera_min_ground_clearance: f32,
+    pub third_person_camera_lerp: f32,
     pub look_sensitivity: f32,
     pub max_pitch: f32,
 }
@@ -69,6 +72,9 @@ impl Default for PlayerConfig {
             eye_height: 1.65,
             third_person_camera_distance: 6.0,
             third_person_camera_height: 2.25,
+            third_person_camera_target_height: 1.65,
+            third_person_camera_min_ground_clearance: 1.0,
+            third_person_camera_lerp: 0.5,
             look_sensitivity: 0.0025,
             max_pitch: std::f32::consts::PI * 0.48,
         }

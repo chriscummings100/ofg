@@ -166,6 +166,27 @@ mod tests {
     }
 
     #[test]
+    fn baseline_mesh_triangles_face_up_for_culled_rendering() {
+        let key = TerrainNodeKey {
+            lod: 0,
+            coord: TerrainChunkCoord { x: 0, y: -1, z: 0 },
+        };
+        let mesh = build_node_mesh(0x0F6, DEFAULT_TERRAIN_PRESET, key, 1.0);
+        let [a, b, c] = [mesh.indices[0], mesh.indices[1], mesh.indices[2]];
+        let [ax, _, az] = mesh_vertex_position(&mesh, a);
+        let [bx, _, bz] = mesh_vertex_position(&mesh, b);
+        let [cx, _, cz] = mesh_vertex_position(&mesh, c);
+
+        let ab_x = bx - ax;
+        let ab_z = bz - az;
+        let ac_x = cx - ax;
+        let ac_z = cz - az;
+        let normal_y = ab_z * ac_x - ab_x * ac_z;
+
+        assert!(normal_y > 0.0);
+    }
+
+    #[test]
     fn mesh_height_query_uses_generated_triangle_vertices() {
         let seed = 0x0F6;
         let variant = terrain_variant_for_preset(DEFAULT_TERRAIN_PRESET);
@@ -204,6 +225,15 @@ mod tests {
         };
 
         assert!((mesh.height_at(0.25, 0.25).unwrap() - 1.75).abs() <= 0.0001);
+    }
+
+    fn mesh_vertex_position(mesh: &MeshData, index: u32) -> [f32; 3] {
+        let start = index as usize * TERRAIN_VERTEX_FLOATS;
+        [
+            mesh.vertices[start],
+            mesh.vertices[start + 1],
+            mesh.vertices[start + 2],
+        ]
     }
 
     #[test]
