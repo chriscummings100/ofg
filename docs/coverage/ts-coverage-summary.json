@@ -1,0 +1,112 @@
+{
+  "total": {
+    "lines": {
+      "total": 447,
+      "covered": 369,
+      "skipped": 0,
+      "pct": 82.55
+    },
+    "statements": {
+      "total": 447,
+      "covered": 369,
+      "skipped": 0,
+      "pct": 82.55
+    },
+    "functions": {
+      "total": 30,
+      "covered": 27,
+      "skipped": 0,
+      "pct": 90
+    },
+    "branches": {
+      "total": 68,
+      "covered": 61,
+      "skipped": 0,
+      "pct": 89.7
+    },
+    "branchesTrue": {
+      "total": 0,
+      "covered": 0,
+      "skipped": 0,
+      "pct": "Unknown"
+    }
+  },
+  "C:\\dev\\ofg\\src\\app\\canvasHost.ts": {
+    "lines": {
+      "total": 201,
+      "covered": 196,
+      "skipped": 0,
+      "pct": 97.51
+    },
+    "functions": {
+      "total": 13,
+      "covered": 12,
+      "skipped": 0,
+      "pct": 92.3
+    },
+    "statements": {
+      "total": 201,
+      "covered": 196,
+      "skipped": 0,
+      "pct": 97.51
+    },
+    "branches": {
+      "total": 34,
+      "covered": 28,
+      "skipped": 0,
+      "pct": 82.35
+    }
+  },
+  "C:\\dev\\ofg\\src\\app\\main.ts": {
+    "lines": {
+      "total": 66,
+      "covered": 0,
+      "skipped": 0,
+      "pct": 0
+    },
+    "functions": {
+      "total": 1,
+      "covered": 0,
+      "skipped": 0,
+      "pct": 0
+    },
+    "statements": {
+      "total": 66,
+      "covered": 0,
+      "skipped": 0,
+      "pct": 0
+    },
+    "branches": {
+      "total": 1,
+      "covered": 0,
+      "skipped": 0,
+      "pct": 0
+    }
+  },
+  "C:\\dev\\ofg\\src\\app\\wasmRuntime.ts": {
+    "lines": {
+      "total": 180,
+      "covered": 173,
+      "skipped": 0,
+      "pct": 96.11
+    },
+    "functions": {
+      "total": 16,
+      "covered": 15,
+      "skipped": 0,
+      "pct": 93.75
+    },
+    "statements": {
+      "total": 180,
+      "covered": 173,
+      "skipped": 0,
+      "pct": 96.11
+    },
+    "branches": {
+      "total": 33,
+      "covered": 33,
+      "skipped": 0,
+      "pct": 100
+    }
+  }
+}

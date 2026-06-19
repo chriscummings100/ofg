@@ -7,4 +7,5 @@ target/
 assets/wasm/ofg_web/
 
 npm-debug.log*
+.dev-server.log
 *.tsbuildinfo

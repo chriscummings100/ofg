@@ -18,6 +18,8 @@ const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SmokeContract {
+    // Shared visual contract with browser smoke so both paths prove the same
+    // bootstrap image rather than drifting into separate expectations.
     width: u32,
     height: u32,
     resize_probe_width: u32,
@@ -34,6 +36,8 @@ struct SmokeContract {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RenderSmokeReport {
+    // The report is intentionally exact and machine-readable; CI and humans can
+    // inspect the same file without scraping terminal output.
     png_path: String,
     report_path: String,
     width: u32,
@@ -66,6 +70,8 @@ struct SmokeThresholds {
 
 #[derive(Debug)]
 struct PixelReport {
+    // Ratios are computed from sampled pixels, not every pixel, to keep the
+    // harness fast while still catching blank frames and shader drift.
     sampled_pixels: u32,
     triangle_pixels: u32,
     background_pixels: u32,
@@ -92,6 +98,8 @@ async fn run() -> Result<(), Box<dyn Error>> {
     let out_dir = parse_out_dir()?;
     fs::create_dir_all(&out_dir)?;
     let contract = read_smoke_contract()?;
+    // The native harness should fail loudly if the renderer's public clear
+    // color changes without updating the cross-system smoke contract.
     if contract.clear_color_rgba8 != clear_color_rgba8() {
         return Err(format!(
             "Smoke contract clear color {:?} does not match ofg_render {:?}.",
@@ -127,6 +135,8 @@ async fn run() -> Result<(), Box<dyn Error>> {
         .await?;
 
     let renderer = BootstrapRenderer::new(&device, TEXTURE_FORMAT);
+    // Render into a copyable offscreen texture so the smoke can run on machines
+    // without opening or automating a browser window.
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("ofg native smoke texture"),
         size: wgpu::Extent3d {
@@ -144,6 +154,8 @@ async fn run() -> Result<(), Box<dyn Error>> {
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
     let unpadded_bytes_per_row = extent.width * BYTES_PER_PIXEL;
+    // WebGPU requires copy rows to be aligned. The PNG writer wants tightly
+    // packed rows, so read_pixels strips this padding after map_async returns.
     let padded_bytes_per_row = align_to(unpadded_bytes_per_row, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
     let readback_size = padded_bytes_per_row as u64 * extent.height as u64;
     let readback_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -180,6 +192,8 @@ async fn run() -> Result<(), Box<dyn Error>> {
     );
 
     let submission_index = queue.submit(std::iter::once(encoder.finish()));
+    // Waiting on the exact submission keeps failures local to this frame and
+    // makes timeout reports include adapter/backend diagnostics.
     let pixels = read_pixels(
         &device,
         &readback_buffer,
@@ -232,6 +246,8 @@ fn parse_out_dir() -> Result<PathBuf, Box<dyn Error>> {
 fn read_smoke_contract() -> Result<SmokeContract, Box<dyn Error>> {
     let path = Path::new("tools/smoke-contract.json");
     let contract: SmokeContract = serde_json::from_str(&fs::read_to_string(path)?)?;
+    // Validate contract fields here so malformed thresholds do not masquerade
+    // as renderer failures later in the harness.
     if contract.width == 0 || contract.height == 0 {
         return Err("Smoke contract dimensions must be non-zero.".into());
     }
@@ -259,6 +275,8 @@ fn read_pixels(
     slice.map_async(wgpu::MapMode::Read, move |result| {
         let _ = sender.send(result);
     });
+    // Polling with a finite timeout prevents headless GPU or driver failures
+    // from hanging the test process forever.
     device.poll(wgpu::PollType::Wait {
         submission_index: Some(submission_index),
         timeout: Some(MAP_TIMEOUT),
@@ -273,6 +291,8 @@ fn read_pixels(
     let expected_len = (unpadded_bytes_per_row * extent.height) as usize;
     let mut pixels = vec![0; expected_len];
     for row in 0..extent.height as usize {
+        // Remove the per-row GPU padding while preserving the rendered row
+        // order expected by png::Encoder.
         let src_start = row * padded_bytes_per_row as usize;
         let src_end = src_start + unpadded_bytes_per_row as usize;
         let dst_start = row * unpadded_bytes_per_row as usize;
@@ -336,6 +356,9 @@ fn inspect_pixels(
                 background_pixels += 1;
             } else {
                 triangle_pixels += 1;
+                // Bucket colors coarsely so antialiasing and adapter-specific
+                // interpolation still prove that more than one triangle color
+                // reached the target.
                 buckets.insert((
                     pixel[0] / contract.bucket_divisor,
                     pixel[1] / contract.bucket_divisor,

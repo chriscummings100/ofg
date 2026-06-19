@@ -9,6 +9,8 @@ use crate::RuntimeDebugStatus;
 #[wasm_bindgen]
 pub struct BrowserGame {
     frame_state: FrameState,
+    // Dropping the runtime releases browser WebGPU handles while keeping the
+    // JS-facing object alive enough to report a useful disposed status.
     runtime: Option<BrowserWgpuRuntime>,
     last_error: Option<String>,
 }
@@ -32,6 +34,8 @@ impl BrowserGame {
         height: u32,
         device_pixel_ratio: f64,
     ) -> Result<(), JsValue> {
+        // Keep the wasm facade narrow: TypeScript supplies only physical canvas
+        // size and DPR; Rust decides whether that implies a surface configure.
         let result = self
             .runtime
             .as_mut()
@@ -52,6 +56,8 @@ impl BrowserGame {
     pub fn frame(&mut self, time_ms: f64) -> Result<(), JsValue> {
         let result = match self.runtime.as_mut() {
             Some(runtime) => {
+                // Simulation/frame state advances in Rust even during the
+                // bootstrap phase so the eventual game loop has one owner.
                 self.frame_state.tick(time_ms);
                 runtime.render()
             }
@@ -85,6 +91,8 @@ impl BrowserGame {
 }
 
 struct BrowserWgpuRuntime {
+    // The instance is retained so a lost browser surface can be recreated
+    // against the same canvas without asking TypeScript to rebuild the game.
     instance: wgpu::Instance,
     canvas: web_sys::HtmlCanvasElement,
     surface: wgpu::Surface<'static>,
@@ -104,6 +112,8 @@ struct BrowserWgpuRuntime {
 
 impl BrowserWgpuRuntime {
     async fn new(canvas: web_sys::HtmlCanvasElement) -> Result<Self, JsValue> {
+        // Browser builds must use the WebGPU backend explicitly; native smoke
+        // covers the offscreen adapter path in ofg_test_harness instead.
         let mut instance_descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
         instance_descriptor.backends = wgpu::Backends::BROWSER_WEBGPU;
         let instance = wgpu::Instance::new(instance_descriptor);
@@ -129,6 +139,8 @@ impl BrowserWgpuRuntime {
             .await
             .map_err(js_error)?;
         let capabilities = surface.get_capabilities(&adapter);
+        // Prefer an sRGB surface when the browser offers one, but fall back to
+        // the adapter's first legal format so bootstrap runs on modest devices.
         let format = capabilities
             .formats
             .iter()
@@ -160,6 +172,8 @@ impl BrowserWgpuRuntime {
             device_pixel_ratio: 1.0,
             surface_configure_count: 0,
         };
+        // The canvas may already have a size before wasm starts; configuring
+        // once here makes the first requested frame deterministic.
         runtime
             .resize(runtime.canvas.width(), runtime.canvas.height(), 1.0)
             .map_err(js_error)?;
@@ -173,6 +187,9 @@ impl BrowserWgpuRuntime {
             ));
         }
 
+        // DPR participates in the configure decision even though wgpu only
+        // sees physical pixels. This keeps debug status aligned with the host
+        // resize policy and catches DPR-only changes in tests.
         let should_configure = needs_surface_configure(
             self.width,
             self.height,
@@ -187,6 +204,8 @@ impl BrowserWgpuRuntime {
         self.device_pixel_ratio = device_pixel_ratio;
 
         if width == 0 || height == 0 {
+            // Hidden or not-yet-laid-out canvases are recoverable. Preserve the
+            // zero size in status and skip surface configuration until visible.
             self.width = width;
             self.height = height;
             self.config = None;
@@ -217,6 +236,8 @@ impl BrowserWgpuRuntime {
 
     fn render(&mut self) -> Result<(), String> {
         if self.config.is_none() {
+            // A zero-size canvas has no valid surface texture; reporting success
+            // lets the browser loop continue until layout produces pixels.
             return Ok(());
         }
 
@@ -224,13 +245,18 @@ impl BrowserWgpuRuntime {
             wgpu::CurrentSurfaceTexture::Success(frame) => (frame, false),
             wgpu::CurrentSurfaceTexture::Suboptimal(frame) => (frame, true),
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                // Browsers may temporarily throttle or occlude surfaces. This is
+                // not fatal, so leave the current configuration in place.
                 return Ok(());
             }
             wgpu::CurrentSurfaceTexture::Outdated => {
+                // The browser can invalidate swapchain details after resize; the
+                // next animation frame will acquire from the refreshed config.
                 self.reconfigure_surface();
                 return Ok(());
             }
             wgpu::CurrentSurfaceTexture::Lost => {
+                // Surface loss is recoverable if the canvas is still valid.
                 self.recreate_surface()?;
                 return Ok(());
             }
@@ -271,6 +297,8 @@ impl BrowserWgpuRuntime {
 
     fn status(&self, frame_state: &FrameState, last_error: Option<String>) -> RuntimeDebugStatus {
         let counters = self.renderer.counters();
+        // Status JSON is the public inspection contract for TS tests, browser
+        // smoke, and future in-game diagnostics.
         RuntimeDebugStatus {
             initialized: self.config.is_some(),
             frame_count: frame_state.frame_count(),
