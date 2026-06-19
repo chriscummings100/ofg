@@ -21,7 +21,7 @@ mod resources;
 #[cfg(target_arch = "wasm32")]
 mod shadow_renderer;
 mod shadows;
-#[cfg(any(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod terrain_removal;
 mod terrain_stream;
 mod terrain_textures;
@@ -94,12 +94,12 @@ pub use model_render_assets::{
 pub use model_skinning::{model_node_world_matrices, skin_joint_matrices, skin_primitive_vertices};
 pub use model_texture_assets::{decode_model_texture, ModelRgbaImage, ModelTextureAssetError};
 pub use perf::{
-    default_shadow_cascade_mask, terrain_lod_from_node_key, FramePerfReport, FramePerfRing,
-    FramePerfSample, GpuPassTimingSummary, GpuPassTimings, GpuTimedPass, GpuTimerStatus,
-    GpuTimestampPair, NumericSummary, RenderCounterSample, RenderCounterSummary,
-    RenderDebugOptions, RenderDebugOptionsError, RenderDebugOptionsUpdate, RenderMaterialDebugMode,
-    RustCpuFrameSummary, RustCpuFrameTimings, ShadowCascadeCounter, TerrainLodCounter,
-    DEFAULT_TERRAIN_LOD_MASK, MAX_TRACKED_TERRAIN_LODS, PERF_HISTORY_CAPACITY,
+    default_shadow_cascade_mask, terrain_lod_from_node_key, visible_terrain_render_nodes,
+    FramePerfReport, FramePerfRing, FramePerfSample, GpuPassTimingSummary, GpuPassTimings,
+    GpuTimedPass, GpuTimerStatus, GpuTimestampPair, NumericSummary, RenderCounterSample,
+    RenderCounterSummary, RenderDebugOptions, RenderDebugOptionsError, RenderDebugOptionsUpdate,
+    RenderMaterialDebugMode, RustCpuFrameSummary, RustCpuFrameTimings, ShadowCascadeCounter,
+    TerrainLodCounter, DEFAULT_TERRAIN_LOD_MASK, MAX_TRACKED_TERRAIN_LODS, PERF_HISTORY_CAPACITY,
 };
 pub use player_character::{
     player_character_descriptor, PlayerCharacterDescriptor, PlayerCharacterId,
@@ -117,7 +117,8 @@ pub use render_uniforms::{
     build_frame_uniform_values, build_object_uniform_values, build_shadow_uniform_values,
     RenderUniformError, FRAME_PACKET_FLOATS, FRAME_UNIFORM_FLOATS,
     FRAME_UNIFORM_SKY_CLOUD_COVERAGE_OFFSET, MATERIAL_PACKET_FLOATS, OBJECT_UNIFORM_FLOATS,
-    SHADOW_DEBUG_MODE_OFFSET, SHADOW_STRENGTH_OFFSET, SHADOW_UNIFORM_FLOATS, WORLD_MATRIX_FLOATS,
+    OBJECT_UNIFORM_TERRAIN_LOD_OFFSET, SHADOW_DEBUG_MODE_OFFSET, SHADOW_STRENGTH_OFFSET,
+    SHADOW_UNIFORM_FLOATS, WORLD_MATRIX_FLOATS,
 };
 pub use renderer::{
     MeshResource, RendererResourceCounts, RendererState, RendererStateError, TextureResource,

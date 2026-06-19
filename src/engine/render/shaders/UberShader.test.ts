@@ -97,6 +97,12 @@ describe("uber shader build", () => {
     ok(UBER_SHADER_SOURCE.includes("worldPosition.xy * textureScale"));
   });
 
+  it("contains the terrain LOD color debug contract", () => {
+    ok(UBER_SHADER_SOURCE.includes("MATERIAL_DEBUG_LOD_COLOR"));
+    ok(UBER_SHADER_SOURCE.includes("fn terrainLodDebugColor"));
+    ok(UBER_SHADER_SOURCE.includes("terrainLodDebugColor(object.textureOptions.z)"));
+  });
+
   it("keeps gltf material channel semantics distinct from terrain", () => {
     ok(UBER_SHADER_SOURCE.includes("MATERIAL_WORKFLOW_METALLIC_ROUGHNESS"));
     ok(UBER_SHADER_SOURCE.includes("MATERIAL_WORKFLOW_SPECULAR_GLOSSINESS"));

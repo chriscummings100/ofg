@@ -42,7 +42,7 @@ export type PostProcessFogSettings = {
 
 export type WaterDebugView = "final" | "bottomDepth" | "pathLength" | "fresnel" | "reflection";
 
-export type RenderMaterialDebugMode = "full" | "lambert";
+export type RenderMaterialDebugMode = "full" | "lambert" | "lodColor";
 
 export type ShadowSunMode = "production" | "overhead" | "angled" | "low";
 

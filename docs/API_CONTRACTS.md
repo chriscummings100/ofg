@@ -65,19 +65,23 @@ state, advances Rust terrain streaming, uploads/prunes terrain meshes, and
 submits rendering.
 
 For first-person and third-person movement, `engine_web` probes the Rust-owned
-visible terrain mesh cache on the main thread before updating the player. The
-height query interpolates from generated terrain triangles at the next player
-X/Z position. If no visible generated mesh covers that point yet, Rust falls
-back to the analytic sine-height sampler for that frame. TypeScript has no
-height-query API and must not sample or infer terrain collision itself.
+uploaded/rendered terrain mesh set on the main thread before updating the
+player. The height query interpolates from generated terrain triangles at the
+next player X/Z position. If no uploaded visible mesh covers that point yet,
+Rust treats the terrain sample as missing for that frame rather than falling
+back to the analytic sine-height sampler. TypeScript has no height-query API
+and must not sample or infer terrain collision itself.
 
-The wasm-bindgen game object also exposes internal terrain worker methods used
+The wasm-bindgen game object still exposes internal terrain worker methods used
 only by `RustBrowserGameAdapter`: `configureTerrainWorkers(options)`,
-`takeTerrainBuildRequests()`, and `completeTerrainBuilds(completions)`.
-Rust owns the request ids, generation numbers, node keys, retry semantics, and
-completion validation. TypeScript may route these opaque packets through browser
-workers, but it must not decide desired terrain, LOD visibility, fallback cover,
-or whether a returned mesh is current.
+`takeTerrainBuildRequests()`, and `completeTerrainBuilds(completions)`. During
+the sine-grass rebuild baseline these are compatibility no-ops because
+`terrain_core` generates whole-node meshes synchronously inside the Rust browser
+facade and reports `terrainWorkerPoolRuntime === "rust-sync"`. If browser
+workers return later, Rust still owns request ids, generation numbers, node
+keys, retry semantics, and completion validation. TypeScript may route opaque
+packets only; it must not decide desired terrain, LOD visibility, fallback
+cover, or whether a returned mesh is current.
 
     export type BrowserFrameInput = {
       readonly deltaSeconds: number;
@@ -238,13 +242,17 @@ The root debug snapshot also includes:
     terrainVariantProbe
 
 The terrain update fields are Rust-owned CPU-side diagnostics for the latest
-terrain stream update on the browser game tick. The stream timing split covers
-completion ingest, request draining, scheduler ticking, desired-center sync,
-worker request queueing, visibility selection/status/apply, deferred mesh
-destruction, and GPU mesh upload/registration. Budget fields report whether
-mesh upload or removal work remains queued after the current frame. These
-fields are intended for smoke and performance reports, not for browser-side
-terrain scheduling decisions. OFG is targeting a 60fps game feel: terrain,
+terrain stream update on the browser game tick. In the sine-grass baseline,
+`terrain_core` computes the exact desired node set, emits mesh-created and
+mesh-destroyed events, and returns the visible node cover; `engine_web` mirrors
+that into GPU mesh cache updates and the draw list. The stream timing split
+keeps compatibility fields for completion ingest, request draining, scheduler
+ticking, desired-center sync, worker request queueing, visibility
+selection/status/apply, mesh destruction, and GPU mesh upload/registration.
+Budget fields are currently expected to remain clear because mesh
+creation/removal is applied directly. These fields are intended for smoke and
+performance reports, not for browser-side terrain scheduling decisions. OFG is
+targeting a 60fps game feel: terrain,
 renderer, and streaming changes are not complete if normal play produces
 regular large frame spikes. A 500ms terrain update or frame spike is a failure
 to fix or explicitly quarantine behind a non-default diagnostic path, not an
@@ -270,13 +278,16 @@ has no desired nodes and otherwise report the desired vertical node range after
 bounded vertical band resolution. Placement and transition mesh counters remain
 in the debug packet for compatibility, but the sine-grass baseline reports them
 as zero because placement, aprons, and transition-edge meshes are not active.
-The default playable stream reaches LOD5 through Rust-owned desired-node
-scheduling; any settled span requirement should be re-established by the new
-smoke tests rather than inherited from the retired terrain implementation.
-The browser playable path reports `workerPoolRuntime === "browser-worker"`,
-the actual `terrainWorkerCount`, worker in-flight/queued/completed/stale/failed
-counters, and `synchronousBuildCount`. Native tests and Rust smoke can still
-use the synchronous stream path, where the runtime reports `"rust-sync"`.
+The default playable stream starts from the LOD5 3x3x3 root grid around the
+player and recursively descends through desired, ready child octets. A visible
+node hides all ancestors and descendants; a child group replaces its parent only
+when all eight children are generated or proven empty. Settled stream tests
+should verify this exact cover directly rather than inherit span requirements
+from the retired terrain implementation. The current browser playable path
+reports `workerPoolRuntime === "rust-sync"`, `terrainWorkerCount === 0`, and
+zero active browser worker queues. Future worker-backed builds may report a
+browser worker runtime, but that must not move desired-node or visibility
+policy out of Rust.
 Browser TypeScript may display or assert these values but must not compute
 desired nodes, LOD selection, fallback cover, density dependencies, mesh
 visibility, or renderer state.
@@ -383,12 +394,14 @@ Current hook categories:
   vertices/indices/triangles, GPU timer availability, latest render counters,
   active render debug options, and latest GPU pass timings when available.
 - Browser CPU frame-loop perf summaries from `src/app/perfDebug.ts`, combined
-  with Rust-provided `rustPerfStats` and browser worker-bridge timings only for
-  DevTools dumps and capture artifacts. The browser worker bridge may report
-  completion budget, pending/drained completion counts, drained vertex/index
-  bytes, submitted request count, worker in-flight count, and browser-side
-  timing around completion drain, Rust completion ingest, Rust tick, request
-  drain, and worker request submission. Current debug hooks are
+  with Rust-provided `rustPerfStats` and compatibility worker-bridge timings
+  only for DevTools dumps and capture artifacts. During the synchronous
+  sine-grass baseline, browser worker counts and queues should stay at zero.
+  If worker-backed builds return, the bridge may report completion budget,
+  pending/drained completion counts, drained vertex/index bytes, submitted
+  request count, worker in-flight count, and browser-side timing around
+  completion drain, Rust completion ingest, Rust tick, request drain, and
+  worker request submission. Current debug hooks are
   `getPerfStats()`, `dumpPerfStats()`, and `resetPerfStats()`.
 - Render diagnostic controls through `setRenderDebugOptions(...)`,
   `getRenderDebugOptions()`, and `resetRenderDebugOptions()`. Options can
@@ -396,9 +409,10 @@ Current hook categories:
   cloud noise while keeping the analytic sky visible, disable shadow-map passes,
   choose active shadow cascades, disable shadow sampling, force deterministic
   shadow sun modes for capture diagnostics, force diagnostic white texture
-  sampling, and use a basic Lambert material mode. These controls must default
-  to production rendering and must not mutate terrain streaming, mesh
-  generation, resource lifetime, or ownership policy. Shadow sun modes are
+  sampling, use a basic Lambert material mode, and color terrain by submitted
+  LOD for capture diagnostics. These controls must default to production
+  rendering and must not mutate terrain streaming, mesh generation, resource
+  lifetime, or ownership policy. Shadow sun modes are
   Rust-owned renderer diagnostics: `production` uses the engine sky, `overhead`
   forces a vertical sun for tight culling probes, `angled` forces a non-vertical
   daylight sun, and `low` forces a near-horizon sun that should fade/disable
@@ -434,11 +448,12 @@ Current hook categories:
 
 Compatibility fields:
 
-- `terrainWorkerPoolRuntime` and `terrainWorkerCount` are active debug fields
-  for the browser worker transport. They describe the runtime actually used for
-  terrain build requests, not LOD policy ownership. The playable browser runtime
-  should report `"browser-worker"` with a positive worker count; synchronous
-  Rust-only harnesses may report `"rust-sync"`.
+- `terrainWorkerPoolRuntime` and `terrainWorkerCount` describe the runtime
+  actually used for terrain build requests, not LOD policy ownership. The
+  current playable browser runtime reports `"rust-sync"` with a zero worker
+  count; future browser-worker terrain builds may report `"browser-worker"` if
+  the worker path is reintroduced without moving stream policy into
+  TypeScript.
 
 Contract rules:
 
@@ -575,12 +590,13 @@ terrain WASM memory buffers, call terrain density/mesh/scheduler exports, or
 validate generated TypeScript metadata for the standalone terrain artifact.
 
 The standalone `assets/wasm/terrain_core.wasm` artifact still exists as an
-export-contract fixture and as the implementation loaded by the dedicated
-browser terrain build worker. It is not a TypeScript-owned terrain runtime:
-Rust still schedules requests through `engine_web`, validates completions, owns
-visibility, and uploads renderer resources. `tools/build-terrain-wasm.mjs`
-builds the artifact and validates the expected raw export names directly from
-the WASM module; it no longer writes a generated TypeScript metadata module.
+export-contract fixture and as compatibility scaffolding for a dedicated
+browser terrain build worker. The current playable sine-grass runtime does not
+depend on browser worker mesh generation. It is not a TypeScript-owned terrain
+runtime: Rust still owns scheduling, completion validation, visibility, height
+queries, and renderer resource updates. `tools/build-terrain-wasm.mjs` builds
+the artifact and validates the expected raw export names directly from the WASM
+module; it no longer writes a generated TypeScript metadata module.
 Terrain performance benchmarking now uses `npm run bench:terrain:rust`, which
 calls `terrain_core` from Rust and writes JSON under `artifacts/terrain-bench/`.
 The terrain benchmark report must sample a realistic multi-node terrain
@@ -589,9 +605,9 @@ generation timing distributions. During the sine-grass baseline it should
 measure heightfield sampling, mesh emission, and buffer copy cost; richer phase
 breakdowns return with richer terrain generation.
 
-The dedicated browser terrain build worker may use the fixture exports needed
-to satisfy Rust-issued build requests, including the Rust flat terrain variant
-buffer and variant mesh-build entry point:
+A future dedicated browser terrain build worker may use the fixture exports
+needed to satisfy Rust-issued build requests, including the Rust flat terrain
+variant buffer and variant mesh-build entry point:
 
     ofg_terrain_variant_flat_value_count
     ofg_terrain_variant_buffer_ptr
@@ -807,8 +823,10 @@ These are known contract risks for milestone reviewers:
 - Terrain preset ID/code metadata is generated from Rust, but the terrain
   variant flat descriptor layout is still mirrored by the editor UI until a
   generated field schema exists.
-- Browser terrain generation now uses browser workers for the playable path,
-  while Rust retains scheduler, validation, visibility, and renderer ownership.
+- Browser terrain generation is currently synchronous inside Rust for the
+  playable sine-grass baseline. The browser worker transport remains
+  compatibility scaffolding and must not regain terrain policy ownership if it
+  is reactivated.
 - `crates/engine_web/src/wgpu_renderer.rs` is still over the maximum preferred
   file size, `crates/engine_web/src/model_assets.rs` is over the split-pressure
   threshold, and `crates/terrain_core/src/facade.rs` is also oversized. Continue

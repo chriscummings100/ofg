@@ -79,7 +79,9 @@ render-bit toggle.
   browser terrain stream code with the lean sine-grass generator,
   one-job-per-node packets, and parent-retained multi-LOD stream scheduler.
 - [x] (2026-06-15 23:18+01:00) Milestone 2B: connected the lean stream to the
-  browser worker path and Rust/wgpu renderer without TypeScript terrain policy.
+  Rust/wgpu renderer without TypeScript terrain policy. The initial slice kept
+  worker compatibility paths; the current exact-stream baseline runs
+  synchronously in Rust.
 - [ ] Milestone 2C: add focused smoke tests for nonblank sine-grass rendering,
   parent/child replacement readiness, and transition retention.
 - [ ] Milestone 3: add dissolve shader/state integration for one-level-at-a-time
@@ -149,6 +151,30 @@ render-bit toggle.
   rather than the CPU stream's future visible set. Added a focused explicit-node
   height-query regression and captured a clearer 50-frame walk at
   `artifacts/terrain-rebuild/rendered-mesh-collision-walk/`.
+- [x] (2026-06-19) Fixed the visible LOD overlap diagnosis: renderer draw
+  submission now uses the active terrain render-node set rather than every
+  cached uploaded mesh, removals toggle nodes out of that set immediately while
+  destruction remains budgeted, terrain LOD color debug mode is available from
+  the material debug dropdown, and heightfield triangles are assigned to one
+  vertical node by centroid height. Evidence screenshot:
+  `artifacts/terrain-rebuild/lod-color-active-draw-set-after-vertical-ownership/lod-color-active-draw-set.png`.
+- [x] (2026-06-19) Rewrote the active stream policy around the exact
+  parent-grid contract. `terrain_core` now reports mesh-created events,
+  mesh-destroyed events, and the visible node list; `engine_web` mirrors those
+  into GPU mesh cache updates and rendering only. The current baseline is
+  synchronous in Rust and reports `rust-sync`, with browser worker methods left
+  as compatibility no-ops.
+- [x] (2026-06-19) Added recursive visible-cover tests that start from the
+  streamed LOD5 3x3x3 root grid, descend through desired child octets, and fail
+  if any visible node has a visible ancestor, visible descendant, incomplete
+  sibling subtree, or gap not represented by a visible or empty node.
+- [x] (2026-06-19) Validated the exact-stream slice with
+  `cargo test -p terrain_core stream --lib` and focused
+  `cargo test -p engine_web browser_terrain_stream --lib`. A browser LOD-color
+  capture after the reset-event fix showed `loadedNodeCount: 1107`,
+  `desiredRenderNodeCount: 1107`, `renderedNodeCount: 270`,
+  `missingNodeCount: 0`, and visible LODs with no parent/child duplication at
+  `artifacts/terrain-rebuild/exact-stream-lod-color/lod-color.png`.
 
 ## Surprises & Discoveries
 
@@ -231,6 +257,46 @@ render-bit toggle.
   `artifacts/terrain-rebuild/rendered-mesh-collision-walk/frames/frame_0025.png`
   shows the full lower body above the rendered surface.
 
+- Observation: uploaded terrain mesh handles are a cache, not the visible cover.
+  Evidence: hiding `lod3+` made the player-local terrain look correct because
+  `render_frame` submitted every key in `terrain_mesh_handles_by_key`, including
+  cached coarser LODs that were no longer active render nodes. It now submits
+  only `terrain_render_nodes`; the captured LOD-color report shows 39 cached
+  mesh resources but 32 active terrain render nodes and 30 submitted terrain
+  draws after frustum culling.
+
+- Observation: the heightfield baseline was also producing vertical sibling
+  overlap because a node emitted the full X/Z grid if any sample touched its Y
+  band.
+  Evidence: the first LOD-color screenshot showed `lod5` cyan over the
+  player-local area even after the active draw-set fix. `MeshData` generation
+  now emits only triangles whose centroid height belongs to that node's vertical
+  span, and `baseline_mesh_assigns_surface_triangles_to_one_vertical_node`
+  guards the local lower/upper sibling case.
+
+- Observation: keeping the previous renderer-side visibility selector preserved
+  the failure mode in a different form.
+  Evidence: the engine side still had enough policy to lose sync with
+  `terrain_core`. The active rewrite now has one source of truth:
+  `TerrainStreamScheduler::sync_position` reports created meshes, destroyed
+  meshes, and visible nodes, and `BrowserWgpuRenderer` only mirrors those
+  events into GPU resources and draw submission.
+
+- Observation: resetting the stream could accidentally swallow all first-frame
+  mesh-created events.
+  Evidence: the first exact-stream browser capture failed with a missing mesh
+  for `lod0:-2,-1,-1`. `BrowserTerrainStream::reset_around` had called `tick`
+  internally, which consumed the core's created-node events before the renderer
+  could upload them. Reset now only invalidates old visibility; the next normal
+  tick emits the uploadable created meshes.
+
+- Observation: the dormant water resource path still matters to browser
+  health even though water is disabled.
+  Evidence: the exact-stream capture rendered correctly but reported WebGPU
+  warnings for a zero-size water bathymetry atlas. The dormant resource now
+  allocates a 1x1 dummy texture so the compatibility bind group remains valid
+  while the active stream emits no water packets.
+
 - Observation: the first walkable baseline can render while several old gates
   remain stale.
   Evidence: a fresh browser capture at
@@ -279,14 +345,15 @@ render-bit toggle.
   removal rules tractable.
   Date/Author: 2026-06-15 / User and Codex.
 
-- Decision: evaluate `rayon` plus `wasm-bindgen-rayon` as the preferred
-  library path only if benchmarks prove the current opaque browser worker path
-  has significant performance issues.
+- Decision: evaluate `rayon` plus `wasm-bindgen-rayon` as a future execution
+  path only if benchmarks prove the synchronous Rust baseline or any
+  reintroduced opaque browser worker path has significant performance issues.
   Rationale: it is the strongest match for Rust-owned jobs on browser workers,
   but it likely requires atomics, nightly wasm standard-library builds, and a
   different wasm-bindgen output path. The user is happy to keep the current
   worker system if it does not show significant performance problems, so the
-  rebuild should not take on Rayon/WASM atomics complexity speculatively.
+  rebuild should not take on Rayon/WASM atomics complexity speculatively while
+  the core stream model is still being simplified.
   Date/Author: 2026-06-15 / User and Codex.
 
 - Decision: the active reset starts from sine heightfield terrain with a single
@@ -305,9 +372,10 @@ render-bit toggle.
   Date/Author: 2026-06-15 / Codex.
 
 - Decision: the first walkable baseline uses generated visible triangles as the
-  authoritative terrain height source when available, with the analytic sine
-  sampler only as a temporary fallback while the stream has no visible mesh at
-  the queried X/Z.
+  authoritative terrain height source when available. The first version used
+  the analytic sine sampler as a temporary fallback while the stream had no
+  visible mesh at the queried X/Z; that fallback was removed by the later
+  mesh-collision-only decision below.
   Rationale: this restores player grounding without reintroducing a separate
   collision mesh, old density/placement code, or TypeScript terrain sampling.
   Date/Author: 2026-06-16 / Codex.
@@ -335,6 +403,38 @@ render-bit toggle.
   mesh-only rule was meant to remove.
   Date/Author: 2026-06-19 / Codex.
 
+- Decision: renderer terrain submission must be driven by active
+  `terrain_render_nodes`, not by uploaded mesh-handle caches.
+  Rationale: cached resources can safely outlive visibility for budgeted
+  destruction, but using the cache as the draw list renders multiple LODs on the
+  same surface and breaks the "toggle what renders" streaming model.
+  Date/Author: 2026-06-19 / User and Codex.
+
+- Decision: until full volumetric clipping exists, each sine-heightfield
+  triangle belongs to exactly one vertical terrain node, selected by centroid
+  height.
+  Rationale: the baseline is a no-overhang heightfield, so duplicating the same
+  triangle into multiple vertical siblings creates visible overlap. Centroid
+  ownership is a small deterministic stopgap that preserves mesh-only
+  collision and keeps the rebuild lean.
+  Date/Author: 2026-06-19 / Codex.
+
+- Decision: make `terrain_core` the sole owner of desired-node computation,
+  generated/empty state, visible-cover selection, mesh cache events, and
+  mesh-backed height queries.
+  Rationale: the streaming algorithm is intentionally tree-simple. Splitting
+  visibility policy between terrain core and `engine_web` recreated overlapping
+  LODs. The browser renderer should cache meshes on created/destroyed events
+  and render exactly the node list reported by the core.
+  Date/Author: 2026-06-19 / User and Codex.
+
+- Decision: keep the current baseline synchronous in Rust until performance
+  evidence justifies reintroducing browser worker execution.
+  Rationale: the user preferred a clean, correct stream model over preserving
+  the existing async adapter. The worker methods remain as compatibility no-ops
+  so the app boundary is stable while the algorithm is tested.
+  Date/Author: 2026-06-19 / User and Codex.
+
 ## Outcomes & Retrospective
 
 Milestone 1 is complete. The rebuild first added an additive
@@ -344,10 +444,12 @@ replacement readiness.
 
 Milestones 2A and 2B are complete for the lean reset checkpoint. Active
 `terrain_core` now consists of small sine-heightfield, mesh, variant, node,
-stream, facade, and benchmark modules. The browser worker bridge routes opaque
-Rust-issued node build requests and returns mesh buffers without TypeScript
-terrain policy. Rust/wgpu renders terrain directly into post-process scene
-targets with water disabled. The old density, Dual Contouring, placement,
+stream, facade, and benchmark modules. The current exact-stream baseline uses
+`terrain_core` synchronously from `engine_web` for generated nodes, visible
+cover, mesh cache events, and height queries; browser worker paths remain
+compatibility scaffolding without TypeScript terrain policy. Rust/wgpu renders
+terrain directly into post-process scene targets with water disabled. The old
+density, Dual Contouring, placement,
 apron, transition-edge mesh, and water-generation systems are out of the active
 compiled terrain path and preserved only in the reference snapshot. Milestone
 2C still needs focused replacement smoke tests, and Milestone 3 still needs the
@@ -358,10 +460,11 @@ scope back toward the old terrain system. `terrain_core::MeshData::height_at`
 interpolates generated triangle heights at world X/Z, `BrowserTerrainStream`
 queries the visible generated mesh cache on the Rust main thread, and
 `RustBrowserGame::tick` uses that sample to ground first-person/third-person
-player movement. The analytic sine sampler remains only as a fallback when no
-visible generated mesh covers the next X/Z yet. The browser screenshot artifact
-shows the player grounded at the generated terrain height while sky and terrain
-remain visible.
+player movement. The initial analytic sine fallback from this slice has since
+been removed; current runtime contact is mesh-only and returns a missing sample
+when uploaded visible terrain does not cover the next X/Z. The browser
+screenshot artifact shows the player grounded at the generated terrain height
+while sky and terrain remain visible.
 
 The third-person camera inspection slice is part of the walkable-terrain
 debugging baseline, not a full camera system. It should stay inside
@@ -388,14 +491,37 @@ upload work is deferred. The clearer diagnostic capture at
 `artifacts/terrain-rebuild/rendered-mesh-collision-walk/` keeps all 50 frames
 and shows full legs above the surface.
 
+The visible LOD overlap pass fixed two separate sources of confusing terrain
+draws. First, active rendering now uses the explicit render-node set and removes
+nodes from that set immediately when the stream swaps cover; cached GPU meshes
+may remain only as non-drawable resources waiting for budgeted destruction.
+Second, sine-heightfield mesh emission assigns each triangle to one vertical
+node so sibling Y bands do not render the same surface. The LOD color debug
+material mode maps `lod0` red, `lod1` blue, `lod2` green, `lod3` yellow,
+`lod4` magenta, and `lod5` cyan; the latest browser evidence lives at
+`artifacts/terrain-rebuild/lod-color-active-draw-set-after-vertical-ownership/`.
+
+The exact-stream rewrite removes the second visibility policy from
+`engine_web`. `terrain_core` computes the full desired set for the current
+player position, generates missing desired nodes synchronously, prunes old mesh
+cache entries, and returns one visible cover. Its tests now check the desired
+parent-grid counts from many positive and negative positions, require a fully
+streamed visible set to match the expected cover, and recursively prove there
+are no gaps or visible ancestors/descendants under the streamed LOD5 roots.
+`engine_web` tests verify the browser stream mirrors the core visible list and
+height queries stay mesh-backed. The LOD-color browser capture at
+`artifacts/terrain-rebuild/exact-stream-lod-color/lod-color.png` shows the
+expected red local LOD0 terrain with coarser colors only outside refined cover.
+
 ## Contract and Quality Baseline
 
 This plan preserves the active OFG contracts:
 
 - `OFG-API-001`: the browser shell continues to use `RustBrowserGame.create`,
   `resize`, `tick`, `command`, and `debugSnapshot`. Terrain scheduler,
-  visibility, worker request IDs, stale completion checks, and renderer updates
-  remain Rust-owned.
+  visibility, mesh-created/mesh-destroyed events, and renderer updates remain
+  Rust-owned. Worker request IDs and stale completion checks are compatibility
+  scaffolding while the baseline runs as `rust-sync`.
 - `OFG-API-003`: debug hooks may report Rust-assembled terrain state, stream
   timings, transition counts, and worker status. Browser code must not compute
   desired terrain sets, LOD selection, terrain visibility, material selection,
@@ -476,10 +602,11 @@ density-field, Dual Contouring, transition-edge mesh, and water generation code
 from the compiled terrain path.
 
 Milestone 2B connects the lean stream to active `engine_web` terrain rendering,
-browser worker execution, generated WASM artifacts, and debug snapshots. Keep
-the current opaque browser worker adapter unless benchmark evidence proves it is
-the bottleneck. TypeScript may route opaque build requests and typed arrays, but
-must not own desired sets, material choices, visibility, or rendering policy.
+generated WASM artifacts, and debug snapshots. The current baseline may run
+synchronously in Rust while the stream model is being proved. Browser worker
+execution can return later if benchmark evidence shows it is needed, but
+TypeScript may only route opaque build requests and typed arrays; it must not
+own desired sets, material choices, visibility, or rendering policy.
 
 Milestone 2C validates the new baseline with focused Rust tests, build/wasm
 checks, and immediate browser screenshots. Old smoke tests may be broken while
@@ -565,12 +692,13 @@ The rebuilt terrain path is accepted only when these behaviors are observable:
 - Terrain generation jobs are one whole node per job.
 - First-person/third-person player grounding samples generated visible terrain
   triangles when available, without exposing terrain collision to TypeScript.
-- Browser TypeScript routes opaque terrain jobs only; it does not compute
-  terrain desired sets, visibility, generation, materials, water, or rendering.
+- Browser TypeScript may route opaque terrain jobs if worker execution returns;
+  it does not compute terrain desired sets, visibility, generation, materials,
+  water, or rendering.
 - Rust image smoke captures nonblank multi-LOD terrain frames. Water-depth
   behavior is out of scope for the sine-grass baseline and must be covered by a
   later water milestone.
-- Browser smoke passes with Rust-owned runtime sentinel strings, worker/job
+- Browser smoke passes with Rust-owned runtime sentinel strings, terrain job
   status, reload health, and nonblank frames.
 - `npm run bench:terrain:rust` reports generation timings and flags any normal
   node class that regularly exceeds the 30ms target.
@@ -585,7 +713,7 @@ The reference snapshot can be recreated by deleting only
 terrain files again from Git history or the latest reference source. If a
 Rayon/WASM thread-pool experiment destabilizes the build, revert only the
 experiment files from that milestone, record the result here, and continue with
-the minimal opaque browser worker adapter.
+the synchronous Rust stream baseline.
 
 Because the worktree starts dirty, every milestone should inspect `git status`
 before broad moves or deletions. Never use `git reset --hard` or `git checkout
@@ -605,6 +733,8 @@ Expected generated validation artifacts:
 - Rust coverage summaries under `artifacts/coverage/rust/`.
 - Sine-grass reset screenshot:
   `artifacts/terrain-rebuild/sine-grass-baseline-after-build.png`.
+- LOD-color active draw-set screenshot:
+  `artifacts/terrain-rebuild/lod-color-active-draw-set-after-vertical-ownership/lod-color-active-draw-set.png`.
 
 Thread-pool research notes:
 
@@ -615,9 +745,9 @@ Thread-pool research notes:
 - OFG already serves COOP/COEP and smoke-tests `crossOriginIsolated` plus
   `SharedArrayBuffer`, which removes one browser prerequisite but not the Rust
   build-pipeline work.
-- The current opaque browser worker system remains the preferred path unless
-  benchmark evidence shows significant terrain generation or completion-routing
-  performance issues.
+- The current synchronous Rust stream baseline remains the preferred path unless
+  benchmark evidence shows significant terrain generation cost that justifies
+  reintroducing worker-backed whole-node execution.
 
 Milestone 1 review:
 

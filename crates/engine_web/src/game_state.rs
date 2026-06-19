@@ -412,6 +412,23 @@ impl BrowserGameState {
         self.ensure_player()?;
         self.apply_player_input(input)?;
         let player_mode = self.player_mode()?;
+        let grounded_player_needs_mesh = matches!(
+            player_mode,
+            PlayerMode::FirstPerson | PlayerMode::ThirdPerson
+        );
+        let input = if grounded_player_needs_mesh && sampled_terrain_height.is_none() {
+            let blocked_input = BrowserGameInput {
+                forward: 0.0,
+                right: 0.0,
+                up: 0.0,
+                fast: false,
+                ..input
+            };
+            self.apply_player_input(blocked_input)?;
+            blocked_input
+        } else {
+            input
+        };
         let terrain_height = self.preview_player_terrain_height(
             input.delta_seconds,
             sampled_terrain_height,
@@ -482,7 +499,12 @@ impl BrowserGameState {
         x: f32,
         z: f32,
     ) -> Result<Vec3, BrowserGameStateError> {
-        self.set_player_position_xz_with_height(x, z, None)
+        self.ensure_player()?;
+        let height = self.engine.player_position()?.y;
+        let position = Vec3::new(x, height, z);
+        self.engine.set_player_position(position)?;
+        self.sync_player_character_scene()?;
+        Ok(position)
     }
 
     pub fn set_player_position_xz_with_height(
@@ -494,7 +516,7 @@ impl BrowserGameState {
         self.ensure_player()?;
         let height = match sampled_terrain_height {
             Some(height) => validate_terrain_height(height, x, z)?,
-            None => self.engine.player_position()?.y,
+            None => return self.player_position(),
         };
         let position = Vec3::new(x, height, z);
         self.engine.set_player_position(position)?;

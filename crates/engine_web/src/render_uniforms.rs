@@ -8,6 +8,7 @@ pub const WORLD_MATRIX_FLOATS: usize = 16;
 pub const MATERIAL_PACKET_FLOATS: usize = 10;
 pub const SHADOW_UNIFORM_FLOATS: usize = 76;
 pub const FRAME_UNIFORM_SKY_CLOUD_COVERAGE_OFFSET: usize = 49;
+pub const OBJECT_UNIFORM_TERRAIN_LOD_OFFSET: usize = 42;
 pub const SHADOW_DEBUG_MODE_OFFSET: usize = 72;
 pub const SHADOW_STRENGTH_OFFSET: usize = 75;
 

@@ -821,7 +821,11 @@ function validateRenderDebugOptionsUpdate(
     );
   }
   if (options.materialMode !== undefined) {
-    if (options.materialMode !== "full" && options.materialMode !== "lambert") {
+    if (
+      options.materialMode !== "full" &&
+      options.materialMode !== "lambert" &&
+      options.materialMode !== "lodColor"
+    ) {
       throw new Error(`Invalid material debug mode '${options.materialMode}'.`);
     }
     update.materialMode = options.materialMode;

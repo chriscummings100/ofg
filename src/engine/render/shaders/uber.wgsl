@@ -51,6 +51,7 @@ const SHADOW_DEBUG_VISIBILITY: i32 = 2;
 const SHADOW_DEBUG_DEPTH_CASCADE0: i32 = 3;
 const MATERIAL_DEBUG_FULL: i32 = 0;
 const MATERIAL_DEBUG_LAMBERT: i32 = 1;
+const MATERIAL_DEBUG_LOD_COLOR: i32 = 2;
 
 struct VertexInput {
   @location(0) position: vec3<f32>,
@@ -279,6 +280,29 @@ fn shadowDebugColor(input: VertexOutput) -> vec4<f32> {
     );
   }
   return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}
+
+fn terrainLodDebugColor(lod: f32) -> vec3<f32> {
+  let lodIndex = i32(round(lod));
+  if (lodIndex == 0) {
+    return vec3<f32>(1.0, 0.02, 0.02);
+  }
+  if (lodIndex == 1) {
+    return vec3<f32>(0.05, 0.20, 1.0);
+  }
+  if (lodIndex == 2) {
+    return vec3<f32>(0.02, 0.85, 0.12);
+  }
+  if (lodIndex == 3) {
+    return vec3<f32>(1.0, 0.86, 0.04);
+  }
+  if (lodIndex == 4) {
+    return vec3<f32>(1.0, 0.04, 0.85);
+  }
+  if (lodIndex == 5) {
+    return vec3<f32>(0.0, 0.95, 1.0);
+  }
+  return vec3<f32>(1.0, 1.0, 1.0);
 }
 
 fn sampleTerrainAlbedoLayer(uv: vec2<f32>, layer: f32) -> vec3<f32> {
@@ -534,6 +558,13 @@ fn fragmentMain(input: VertexOutput) -> SceneFragmentOutput {
 
   let viewDirection = normalize(camera.eyeWorld.xyz - input.worldPosition);
   let normal = normalize(input.worldNormal);
+  if (materialDebugMode() == MATERIAL_DEBUG_LOD_COLOR &&
+      materialWorkflowIs(MATERIAL_WORKFLOW_TERRAIN)) {
+    var lodOutput: SceneFragmentOutput;
+    lodOutput.color = vec4<f32>(terrainLodDebugColor(object.textureOptions.z), object.albedoFactor.a);
+    lodOutput.linearDepth = linearDepth;
+    return lodOutput;
+  }
   if (materialDebugMode() == MATERIAL_DEBUG_LAMBERT) {
     var lambertOutput: SceneFragmentOutput;
     lambertOutput.color = shadeLambert(input, normal);

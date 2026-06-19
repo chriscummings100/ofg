@@ -8,6 +8,7 @@ use crate::variant::{terrain_variant_for_preset, TerrainVariantDescriptor};
 
 pub const TERRAIN_VERTEX_FLOATS: usize = 19;
 const POINT_IN_TRIANGLE_EPSILON: f64 = 0.0001;
+const RAY_SURFACE_EPSILON: f64 = 0.001;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct MeshData {
@@ -19,6 +20,11 @@ impl MeshData {
     /// Samples the generated triangle surface at a world X/Z point.
     pub fn height_at(&self, x: f32, z: f32) -> Option<f32> {
         mesh_height_at(self, x, z)
+    }
+
+    /// Samples the highest generated triangle below a downward ray start.
+    pub fn height_at_below(&self, x: f32, z: f32, ray_start_y: f32) -> Option<f32> {
+        mesh_height_at_below(self, x, z, ray_start_y)
     }
 }
 
@@ -67,19 +73,13 @@ pub fn build_node_mesh_for_variant(
     let sample_count = TERRAIN_CHUNK_CELLS_PER_AXIS + 1;
 
     let mut heights = Vec::with_capacity((sample_count * sample_count) as usize);
-    let mut intersects_node = false;
     for z in 0..sample_count {
         for x in 0..sample_count {
             let world_x = origin_x + f64::from(x) * cell_size;
             let world_z = origin_z + f64::from(z) * cell_size;
             let height = height_at_for_variant(seed, variant, world_x, world_z).unwrap_or(0.0);
-            intersects_node |= height >= node_min_y && height <= node_max_y;
             heights.push(height);
         }
-    }
-
-    if !intersects_node {
-        return MeshData::default();
     }
 
     let mut vertices =
@@ -112,15 +112,72 @@ pub fn build_node_mesh_for_variant(
             let b = a + 1;
             let c = a + sample_count;
             let d = c + 1;
-            indices.extend_from_slice(&[a, c, b, b, c, d]);
+            push_triangle_if_owned_by_vertical_node(
+                &mut indices,
+                &heights,
+                [a, c, b],
+                node_min_y,
+                node_max_y,
+            );
+            push_triangle_if_owned_by_vertical_node(
+                &mut indices,
+                &heights,
+                [b, c, d],
+                node_min_y,
+                node_max_y,
+            );
         }
+    }
+
+    if indices.is_empty() {
+        return MeshData::default();
     }
 
     MeshData { vertices, indices }
 }
 
+fn push_triangle_if_owned_by_vertical_node(
+    indices: &mut Vec<u32>,
+    heights: &[f64],
+    triangle: [u32; 3],
+    node_min_y: f64,
+    node_max_y: f64,
+) {
+    let centroid_height = triangle
+        .iter()
+        .map(|index| heights[*index as usize])
+        .sum::<f64>()
+        / 3.0;
+    if centroid_height >= node_min_y && centroid_height < node_max_y {
+        indices.extend_from_slice(&triangle);
+    }
+}
+
 /// Interpolates terrain height from generated mesh triangles at world X/Z.
 pub fn mesh_height_at(mesh: &MeshData, x: f32, z: f32) -> Option<f32> {
+    mesh_height_at_with_ceiling(mesh, x, z, None)
+}
+
+/// Interpolates the highest terrain triangle below a downward ray start.
+pub fn mesh_height_at_below(mesh: &MeshData, x: f32, z: f32, ray_start_y: f32) -> Option<f32> {
+    if !ray_start_y.is_finite() {
+        return None;
+    }
+
+    mesh_height_at_with_ceiling(
+        mesh,
+        x,
+        z,
+        Some(f64::from(ray_start_y) + RAY_SURFACE_EPSILON),
+    )
+}
+
+fn mesh_height_at_with_ceiling(
+    mesh: &MeshData,
+    x: f32,
+    z: f32,
+    max_height: Option<f64>,
+) -> Option<f32> {
     if !x.is_finite()
         || !z.is_finite()
         || mesh.vertices.len() % TERRAIN_VERTEX_FLOATS != 0
@@ -141,6 +198,9 @@ pub fn mesh_height_at(mesh: &MeshData, x: f32, z: f32) -> Option<f32> {
         let Some(height) = triangle_height_at_xz(a, b, c, f64::from(x), f64::from(z)) else {
             continue;
         };
+        if max_height.map(|ceiling| height > ceiling).unwrap_or(false) {
+            continue;
+        }
         best_height = Some(best_height.map_or(height, |previous| previous.max(height)));
     }
 

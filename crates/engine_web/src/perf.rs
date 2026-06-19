@@ -2,8 +2,11 @@
 // The types here are intentionally small data containers so frame timing,
 // render counters, and debug render options stay testable outside WebGPU.
 
+use std::collections::BTreeSet;
+
 use crate::config::SHADOW_CASCADE_COUNT;
 use crate::shadows::ShadowSunMode;
+use terrain_core::TerrainNodeKey;
 
 pub const PERF_HISTORY_CAPACITY: usize = 600;
 pub const MAX_TRACKED_TERRAIN_LODS: usize = 8;
@@ -183,6 +186,7 @@ pub struct FramePerfRing {
 pub enum RenderMaterialDebugMode {
     Full,
     Lambert,
+    LodColor,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -607,6 +611,7 @@ impl RenderDebugOptions {
         match self.material_mode {
             RenderMaterialDebugMode::Full => 0.0,
             RenderMaterialDebugMode::Lambert => 1.0,
+            RenderMaterialDebugMode::LodColor => 2.0,
         }
     }
 }
@@ -625,6 +630,20 @@ pub fn terrain_lod_from_node_key(node_key: &str) -> Option<u8> {
     let rest = node_key.strip_prefix("lod")?;
     let (lod, _coord) = rest.split_once(':')?;
     lod.parse::<u8>().ok()
+}
+
+/// Returns terrain nodes that should be submitted for the current render debug mask.
+pub fn visible_terrain_render_nodes(
+    render_nodes: &BTreeSet<TerrainNodeKey>,
+    options: RenderDebugOptions,
+) -> Vec<(TerrainNodeKey, u8)> {
+    render_nodes
+        .iter()
+        .filter_map(|key| {
+            let lod = key.lod;
+            options.terrain_lod_enabled(lod).then_some((*key, lod))
+        })
+        .collect()
 }
 
 fn summarize_rust_cpu(samples: &[&FramePerfSample]) -> RustCpuFrameSummary {

@@ -166,6 +166,16 @@ fn debug_options_validate_masks_and_partial_updates() {
     assert_eq!(updated.shadow_sun_mode, ShadowSunMode::Overhead);
     assert_eq!(updated.material_mode_code(), 1.0);
     assert_eq!(
+        updated
+            .apply_update(RenderDebugOptionsUpdate {
+                material_mode: Some(RenderMaterialDebugMode::LodColor),
+                ..RenderDebugOptionsUpdate::default()
+            })
+            .unwrap()
+            .material_mode_code(),
+        2.0
+    );
+    assert_eq!(
         defaults.apply_update(RenderDebugOptionsUpdate {
             terrain_lod_mask: Some(0),
             ..RenderDebugOptionsUpdate::default()

@@ -36,8 +36,8 @@ src/engine/input
 
 src/engine/browser
   Generic browser substrate helpers. `BrowserWorkerHost` remains as a tested
-  generic worker substrate; the terrain worker client uses it only to route
-  Rust-issued opaque build requests and completions. `textureAssetLoader.ts`
+  generic worker substrate, but the current sine-grass terrain baseline does
+  not use browser workers for playable terrain generation. `textureAssetLoader.ts`
   decodes Rust-provided generic texture-array URL requests into RGBA arrays and
   fetches opaque byte asset requests without owning terrain material, model, or
   animation semantics.
@@ -66,10 +66,11 @@ src/engine/web
   and applies a narrow browser compatibility shim for the pinned `wgpu` limit
   name. `rustBrowserGameRuntime.ts` is the TypeScript shell around debug hooks
   and browser game input types. `terrainWorkerClient.ts` and
-  `terrainBuildWorker.ts` host browser worker execution for Rust-issued terrain
-  build requests, but terrain scheduling, completion validation, texture
-  manifest ownership, GLTF model loading/animation/skinning, visibility, and
-  mesh upload live inside `engine_web.wasm`.
+  `terrainBuildWorker.ts` remain compatibility scaffolding for possible future
+  Rust-issued terrain build requests; the active baseline reports `rust-sync`.
+  Terrain scheduling, completion validation, texture manifest ownership, GLTF
+  model loading/animation/skinning, visibility, and mesh upload live inside
+  `engine_web.wasm`.
 
 src/engine/render/shaders
   Shader source inputs. `uber.wgsl`, `post.wgsl`, and dormant `water.wgsl` are
@@ -109,12 +110,12 @@ as a browser shell plus generic browser image decoder.
 - `terrain_core` owns terrain preset metadata, terrain variant descriptor
   validation, flat descriptor layout, sine height sampling, generated node mesh
   emission, generated-triangle height queries, descriptor probe summaries,
-  stream scheduling, and the narrow worker facade. The playable browser path
-  reaches it through `engine_web` as a Rust library for scheduling and
-  main-thread height queries, and through a dedicated browser worker
-  `terrain_core.wasm` instance for build execution. Density storage, Dual
-  Contouring, placement sampling, transition-edge meshes, and water generation
-  were moved back to reference/future status during the reset.
+  stream scheduling, exact visible-cover selection, and the narrow fixture
+  facade. The playable browser path reaches it through `engine_web` as a Rust
+  library for scheduling, whole-node mesh generation, and main-thread height
+  queries. Density storage, Dual Contouring, placement sampling,
+  transition-edge meshes, and water generation were moved back to
+  reference/future status during the reset.
 - `engine_web` owns the Rust/wgpu browser renderer and current GLTF model path:
   WebGPU canvas surface, adapter/device/queue, surface configuration, depth
   texture, HDR scene color, linear-depth, and half-resolution bloom
@@ -136,10 +137,11 @@ as a browser shell plus generic browser image decoder.
   `src/app` no
   longer constructs the terrain scheduler, density store, render packet store,
   mirrored terrain sink, texture upload path, or terrain height sampler
-  directly. The terrain worker client exists only to route Rust-issued opaque
-  build requests and completions. Rust owns the terrain renderer vertex stride,
-  terrain texture layer requests, terrain variant descriptor interpretation,
-  stream status/debug snapshot, and active frame construction at that facade.
+  directly. The terrain worker client exists only as compatibility scaffolding
+  while the baseline stream runs synchronously in Rust. Rust owns the terrain
+  renderer vertex stride, terrain texture layer requests, terrain variant
+  descriptor interpretation, stream status/debug snapshot, and active frame
+  construction at that facade.
   TypeScript no longer creates WebGPU devices, pipelines, buffers, textures,
   render passes, shader uniform buffers, renderer resource handles, shader
   material packets, camera frames, light packets, player-marker mesh/material
@@ -171,14 +173,17 @@ LOD0 nodes span 32x32x32 meters, contain 32 cells per axis, and use 33 shared
 edge samples. Coarser LODs keep 32 cells per axis and double world cell size per
 level. A parent node at `lod + 1` covers a 2x2x2 group of children at `lod`.
 
-The runtime streamer schedules one whole generated node per job. A generated
-node produces either a renderable mesh or an empty flag. The visible cover keeps
-a parent rendered until all eight children are generated or proven empty, then
-can flip the group in one visibility update. Desired child sets are derived from
-a 3x3x3 grid of parent nodes around the player, with bounded vertical policies
-so the model does not assume terrain lives in one fixed Y band. Dissolve
-transitions are the next active streaming milestone; the current baseline keeps
-the state model small and observable before adding shader transition masks.
+The runtime streamer generates one whole terrain node per job. A generated node
+produces either a renderable mesh or an empty flag. The visible cover starts
+from the LOD5 3x3x3 root grid around the player and recursively descends
+through desired child octets only when all eight children are generated or
+proven empty. A visible node hides all ancestors and descendants, so the settled
+cover has no duplicate parent/child terrain and no gaps under the LOD5 roots.
+Desired child sets are derived from a 3x3x3 grid of parent nodes around the
+player, with bounded vertical policies so the model does not assume terrain
+lives in one fixed Y band. Dissolve transitions are the next active streaming
+milestone; the current baseline keeps the state model small and observable
+before adding shader transition masks.
 
 Terrain variants are Rust-owned descriptors for the sine baseline. The current
 flat descriptor contains version, preset code, base height, sine height scale,
@@ -189,33 +194,24 @@ It does not own sampling, material classification, desired sets, or visibility.
 `sineGrass` is the only active preset.
 
 `engine_web` now keeps the playable browser terrain stream inside Rust. Its
-`BrowserTerrainStream` uses `terrain_core` as a Rust library for stream desired
-sets, generated/empty state, request ids, retry state, and completion
-validation. On the browser path, Rust emits opaque terrain build requests,
-TypeScript routes them through a browser worker pool, and each worker calls the
-raw `terrain_core.wasm` mesh-build export with the Rust-authored flat terrain
-variant descriptor and variant revision before returning typed-array mesh
-buffers to Rust. Rust rejects stale completions whose generation, node key, or
-variant revision no longer matches. The visible generated mesh cache also owns
-the runtime terrain height query used by the Rust player tick; if no visible
-mesh covers the next player X/Z yet, the game state falls back to the analytic
-sine sampler until streaming catches up. The `terrain_core` scheduler and
-renderer-facing stream
-updates address work as
-`TerrainNodeKey { lod, coord }`, with LOD0 chunk compatibility adapters and
-legacy density-named status fields retained for current HUD/smoke fields and
-the fixture-only facade. The wasm-bindgen facade has no public terrain mesh
-upload, destroy, retain, clear, or render-frame method; `tick(frame)` advances
-player/camera state, advances terrain streaming, uploads/prunes terrain meshes,
-and submits the frame. Loaded chunk keys and terrain node keys are exposed only
-in the Rust-assembled debug snapshot.
-The browser worker bridge drains a bounded number of completions per frame.
-Inside Rust, terrain mesh upload/registration and mesh destruction are also
-budgeted, and `BrowserTerrainStream` caches the desired node set and recomputes
-visible cover only when the stream center or generated/empty node state changes.
-These smoothing mechanisms are Rust-owned runtime policy; TypeScript only
-routes opaque worker packets and displays/debug-captures reported timings and
-budget status.
+`BrowserTerrainStream` delegates stream policy to `terrain_core`: desired
+nodes, generated/empty state, mesh-created events, mesh-destroyed events,
+visible cover, and height queries all come from the core scheduler. The current
+browser path generates those nodes synchronously in Rust and reports
+`rust-sync`; the browser worker methods remain compatibility no-ops until
+worker-backed whole-node execution is worth reintroducing. The rendered terrain
+mesh set also owns the runtime terrain height query used by the Rust player
+tick; if no rendered visible mesh covers the next player X/Z yet, the game
+state treats the terrain sample as missing for that frame rather than sampling
+the analytic sine field. The `terrain_core` scheduler and renderer-facing
+stream updates address work as `TerrainNodeKey { lod, coord }`, with LOD0 chunk
+compatibility adapters and legacy density-named status fields retained for
+current HUD/smoke fields and the fixture-only facade. The wasm-bindgen facade
+has no public terrain mesh upload, destroy, retain, clear, or render-frame
+method; `tick(frame)` advances player/camera state, advances terrain streaming,
+mirrors core mesh events into GPU resources, and submits the frame. Loaded
+chunk keys and terrain node keys are exposed only in the Rust-assembled debug
+snapshot. TypeScript displays/debug-captures reported timings and status only.
 Runtime terrain meshes carry position, color, normal, uv, material layer indices,
 and material weights from Rust `terrain_core`. Rust/wgpu owns the actual GPU
 mesh handles, node-keyed object handles, and active draw set. The old compiled

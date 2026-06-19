@@ -31,7 +31,7 @@ use crate::model_materials::{ModelMaterial, ModelMaterialWorkflow, ModelTextureI
 use crate::model_render_assets::model_material_packet;
 use crate::model_texture_assets::decode_model_texture;
 use crate::perf::{
-    terrain_lod_from_node_key, FramePerfReport, FramePerfRing, FramePerfSample, GpuPassTimings,
+    visible_terrain_render_nodes, FramePerfReport, FramePerfRing, FramePerfSample, GpuPassTimings,
     GpuTimedPass, GpuTimerStatus, GpuTimestampPair, RenderCounterSample, RenderCounterSummary,
     RenderDebugOptions, RenderDebugOptionsError, RenderDebugOptionsUpdate, RenderMaterialDebugMode,
     RustCpuFrameTimings, ShadowCascadeCounter, TerrainLodCounter,
@@ -54,7 +54,8 @@ use crate::render_uniforms::{
     build_frame_uniform_values, build_object_uniform_values, build_shadow_uniform_values,
     inverse_mat4, FRAME_PACKET_FLOATS, FRAME_UNIFORM_FLOATS,
     FRAME_UNIFORM_SKY_CLOUD_COVERAGE_OFFSET, MATERIAL_PACKET_FLOATS, OBJECT_UNIFORM_FLOATS,
-    SHADOW_DEBUG_MODE_OFFSET, SHADOW_STRENGTH_OFFSET, WORLD_MATRIX_FLOATS,
+    OBJECT_UNIFORM_TERRAIN_LOD_OFFSET, SHADOW_DEBUG_MODE_OFFSET, SHADOW_STRENGTH_OFFSET,
+    WORLD_MATRIX_FLOATS,
 };
 use crate::resources::{ResourceHandle, ResourceStore};
 use crate::shadow_renderer::{
@@ -65,7 +66,6 @@ use crate::shadows::{
     shadow_caster_intersects_cascade, shadow_strength_for_sun_elevation, shadow_sun_mode_direction,
     ShadowCascadeSet, ShadowSunMode,
 };
-use crate::terrain_removal::pop_ready_terrain_removal;
 use crate::terrain_stream::{
     BrowserTerrainBuildCompletion, BrowserTerrainBuildRequest, BrowserTerrainMeshUpdate,
     BrowserTerrainStream, BrowserTerrainStreamStatus, TerrainJobStats,
@@ -96,9 +96,6 @@ const SHADOW_NORMAL_BIAS: f32 = 0.0;
 const SHADOW_DEBUG_MATERIAL_MODE_OFFSET: usize = SHADOW_DEBUG_MODE_OFFSET + 1;
 const SHADOW_DEBUG_WHITE_TEXTURES_OFFSET: usize = SHADOW_DEBUG_MODE_OFFSET + 2;
 const GPU_TIMESTAMP_QUERY_COUNT: u32 = 16;
-const TERRAIN_UPLOAD_MAX_MESHES_PER_FRAME: u32 = 2;
-const TERRAIN_UPLOAD_MAX_VERTEX_FLOATS_PER_FRAME: u32 = 350_000;
-const TERRAIN_REMOVAL_MAX_MESHES_PER_FRAME: u32 = 4;
 
 #[wasm_bindgen]
 pub struct RustBrowserGame {
@@ -495,6 +492,7 @@ impl ShadowDebugView {
 const IDENTITY_WORLD_MATRIX: [f32; WORLD_MATRIX_FLOATS] = [
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
 ];
+const PLAYER_TERRAIN_RAY_START_HEIGHT_METERS: f32 = 1.0;
 const PLAYER_CHARACTER_SCENE_SCALE: f32 = 1.0;
 const SPECULAR_GLOSSINESS_FIXTURE_SCALE: f32 = 4.0;
 const SPECULAR_GLOSSINESS_FIXTURE_HEIGHT_OFFSET: f32 = 0.08;
@@ -667,17 +665,18 @@ impl RustBrowserGame {
             .game_state
             .terrain_probe_position(input)
             .map_err(js_error)?;
+        let terrain_probe_ray_start = terrain_probe_position.map(terrain_collision_ray_start);
 
         let terrain_stream_started_at_ms = perf_now_ms();
-        let terrain_stream_center = terrain_probe_position
+        let terrain_stream_center = terrain_probe_ray_start
             .or_else(|| self.game_state.player_position().ok())
             .ok_or_else(|| js_error("Rust browser game is missing a terrain stream center."))?;
         self.update_terrain_stream_around(terrain_stream_center)?;
         let terrain_stream_update_ms = perf_now_ms() - terrain_stream_started_at_ms;
 
         let game_state_started_at_ms = perf_now_ms();
-        let sampled_terrain_height = terrain_probe_position.and_then(|position| {
-            self.rendered_terrain_height_at(position.x, position.z)
+        let sampled_terrain_height = terrain_probe_ray_start.and_then(|position| {
+            self.rendered_terrain_height_below(position.x, position.z, position.y)
                 .map(|sample| sample.height)
         });
         let sampled_camera_terrain_height = self
@@ -685,7 +684,8 @@ impl RustBrowserGame {
             .third_person_camera_probe_position(input, sampled_terrain_height)
             .map_err(js_error)?
             .and_then(|position| {
-                self.rendered_terrain_height_at(position.x, position.z)
+                let ray_start = terrain_collision_ray_start(position);
+                self.rendered_terrain_height_below(ray_start.x, ray_start.z, ray_start.y)
                     .map(|sample| sample.height)
             });
         self.game_state
@@ -876,8 +876,14 @@ impl RustBrowserGame {
             "setPlayerPosition" => {
                 let x = js_required_f32(&command, "x", "command.x")?;
                 let z = js_required_f32(&command, "z", "command.z")?;
+                let ray_start_y = self
+                    .game_state
+                    .player_position()
+                    .map(terrain_collision_ray_start)
+                    .map(|position| position.y)
+                    .unwrap_or(PLAYER_TERRAIN_RAY_START_HEIGHT_METERS);
                 let sampled_terrain_height = self
-                    .rendered_terrain_height_at(x, z)
+                    .rendered_terrain_height_below(x, z, ray_start_y)
                     .map(|sample| sample.height);
                 self.game_state
                     .set_player_position_xz_with_height(x, z, sampled_terrain_height)
@@ -1301,16 +1307,8 @@ impl RustBrowserGame {
         let scene_mesh_items = self.game_state.render_mesh_items().map_err(js_error)?;
         let aspect = self.renderer.aspect_ratio();
         let render_debug_options = self.renderer.render_debug_options();
-        let terrain_node_keys = sorted_terrain_node_keys(&self.terrain_mesh_handles_by_key);
-        let visible_terrain_node_keys = terrain_node_keys
-            .iter()
-            .filter_map(|node_key| {
-                let lod = terrain_lod_from_node_key(node_key).unwrap_or(0);
-                render_debug_options
-                    .terrain_lod_enabled(lod)
-                    .then_some((node_key, lod))
-            })
-            .collect::<Vec<_>>();
+        let visible_terrain_node_keys =
+            visible_terrain_render_nodes(&self.terrain_render_nodes, render_debug_options);
         let terrain_transition_mesh_keys =
             sorted_terrain_transition_mesh_keys(&self.terrain_transition_mesh_handles_by_key);
         let visible_terrain_transition_mesh_keys = terrain_transition_mesh_keys
@@ -1335,16 +1333,18 @@ impl RustBrowserGame {
             material: self.renderer.fallback_material,
         });
 
-        for (terrain_node_key, lod) in visible_terrain_node_keys {
-            let mesh_handle = *self
-                .terrain_mesh_handles_by_key
-                .get(terrain_node_key)
-                .ok_or_else(|| {
-                    js_error(format!(
-                        "Rust browser game is missing terrain mesh '{terrain_node_key}'."
-                    ))
-                })?;
-            let object_handle = self.object_handle_for_id(terrain_node_key)?;
+        for (terrain_key, lod) in visible_terrain_node_keys {
+            let node_key = terrain_node_key(terrain_key);
+            let mesh_handle =
+                *self
+                    .terrain_mesh_handles_by_key
+                    .get(&node_key)
+                    .ok_or_else(|| {
+                        js_error(format!(
+                            "Rust browser game is missing terrain mesh '{node_key}'."
+                        ))
+                    })?;
+            let object_handle = self.object_handle_for_id(&node_key)?;
 
             mesh_handles.push(handle_to_js(mesh_handle));
             object_handles.push(handle_to_js(object_handle));
@@ -1579,117 +1579,67 @@ impl RustBrowserGame {
         let update = self.terrain_stream.tick_for_workers(player_position);
         let stream_tick_ms = terrain_update_now_ms() - stream_tick_started_at_ms;
         let stream_timings = update.timings;
+        let visible_nodes = update
+            .visible_nodes
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>();
 
+        let destroy_started_at_ms = terrain_update_now_ms();
         for key in update.removed_nodes {
-            if !self.remove_pending_terrain_upload(key) {
-                self.pending_terrain_removals.push_back(key);
-            }
+            self.remove_pending_terrain_upload(key);
+            self.remove_pending_terrain_removal(key);
+            self.destroy_terrain_mesh(key)?;
+            removed_mesh_count = removed_mesh_count.saturating_add(1);
         }
         for key in update.removed_transition_meshes {
-            if !self.remove_pending_terrain_transition_upload(key) {
-                self.pending_terrain_transition_removals.push_back(key);
-            }
+            self.remove_pending_terrain_transition_upload(key);
+            self.remove_pending_terrain_transition_removal(key);
+            self.destroy_terrain_transition_mesh(key)?;
+            removed_mesh_count = removed_mesh_count.saturating_add(1);
         }
         for key in update.removed_water_nodes {
             self.renderer.remove_water_patch(key);
         }
+        let mesh_destroy_ms = terrain_update_now_ms() - destroy_started_at_ms;
 
+        let upload_started_at_ms = terrain_update_now_ms();
         for mesh_update in update.upserted_meshes {
             self.remove_pending_terrain_upload(mesh_update.key);
-            self.pending_terrain_uploads.push_back(mesh_update);
+            self.remove_pending_terrain_removal(mesh_update.key);
+            uploaded_vertex_float_count = uploaded_vertex_float_count
+                .saturating_add(mesh_update.mesh.vertices.len().min(u32::MAX as usize) as u32);
+            uploaded_index_count = uploaded_index_count
+                .saturating_add(mesh_update.mesh.indices.len().min(u32::MAX as usize) as u32);
+            self.upsert_terrain_mesh(
+                mesh_update.key,
+                &mesh_update.mesh.vertices,
+                &mesh_update.mesh.indices,
+            )?;
+            upserted_mesh_count = upserted_mesh_count.saturating_add(1);
         }
         for mesh_update in update.upserted_transition_meshes {
             self.remove_pending_terrain_transition_upload(mesh_update.key);
-            self.pending_terrain_transition_uploads
-                .push_back(mesh_update);
+            self.remove_pending_terrain_transition_removal(mesh_update.key);
+            uploaded_vertex_float_count = uploaded_vertex_float_count
+                .saturating_add(mesh_update.mesh.vertices.len().min(u32::MAX as usize) as u32);
+            uploaded_index_count = uploaded_index_count
+                .saturating_add(mesh_update.mesh.indices.len().min(u32::MAX as usize) as u32);
+            self.upsert_terrain_transition_mesh(
+                mesh_update.key,
+                &mesh_update.mesh.vertices,
+                &mesh_update.mesh.indices,
+            )?;
+            upserted_mesh_count = upserted_mesh_count.saturating_add(1);
         }
         for water_update in update.upserted_water {
             self.renderer
                 .upsert_water_patch(water_update.key, &water_update.water)
                 .map_err(js_error)?;
         }
-
-        let upload_started_at_ms = terrain_update_now_ms();
-        loop {
-            let Some((next_vertex_float_count, next_index_count, transition_upload)) = self
-                .pending_terrain_uploads
-                .front()
-                .map(|mesh_update| {
-                    (
-                        mesh_update.mesh.vertices.len().min(u32::MAX as usize) as u32,
-                        mesh_update.mesh.indices.len().min(u32::MAX as usize) as u32,
-                        false,
-                    )
-                })
-                .or_else(|| {
-                    self.pending_terrain_transition_uploads
-                        .front()
-                        .map(|mesh_update| {
-                            (
-                                mesh_update.mesh.vertices.len().min(u32::MAX as usize) as u32,
-                                mesh_update.mesh.indices.len().min(u32::MAX as usize) as u32,
-                                true,
-                            )
-                        })
-                })
-            else {
-                break;
-            };
-            let upload_count_budget_hit =
-                upserted_mesh_count >= TERRAIN_UPLOAD_MAX_MESHES_PER_FRAME;
-            let upload_vertex_budget_hit = upserted_mesh_count > 0
-                && uploaded_vertex_float_count.saturating_add(next_vertex_float_count)
-                    > TERRAIN_UPLOAD_MAX_VERTEX_FLOATS_PER_FRAME;
-            if upload_count_budget_hit || upload_vertex_budget_hit {
-                break;
-            }
-
-            uploaded_vertex_float_count =
-                uploaded_vertex_float_count.saturating_add(next_vertex_float_count);
-            uploaded_index_count = uploaded_index_count.saturating_add(next_index_count);
-            if transition_upload {
-                let mesh_update = self
-                    .pending_terrain_transition_uploads
-                    .pop_front()
-                    .expect("front terrain transition upload exists");
-                self.upsert_terrain_transition_mesh(
-                    mesh_update.key,
-                    &mesh_update.mesh.vertices,
-                    &mesh_update.mesh.indices,
-                )?;
-            } else {
-                let mesh_update = self
-                    .pending_terrain_uploads
-                    .pop_front()
-                    .expect("front terrain upload exists");
-                self.upsert_terrain_mesh(
-                    mesh_update.key,
-                    &mesh_update.mesh.vertices,
-                    &mesh_update.mesh.indices,
-                )?;
-            }
-            upserted_mesh_count = upserted_mesh_count.saturating_add(1);
-        }
         let mesh_upload_ms = terrain_update_now_ms() - upload_started_at_ms;
 
-        let destroy_started_at_ms = terrain_update_now_ms();
-        while removed_mesh_count < TERRAIN_REMOVAL_MAX_MESHES_PER_FRAME {
-            if let Some(key) = pop_ready_terrain_removal(
-                &mut self.pending_terrain_removals,
-                &self.pending_terrain_uploads,
-            ) {
-                self.destroy_terrain_mesh(key)?;
-                removed_mesh_count = removed_mesh_count.saturating_add(1);
-                continue;
-            }
-
-            let Some(key) = self.pending_terrain_transition_removals.pop_front() else {
-                break;
-            };
-            self.destroy_terrain_transition_mesh(key)?;
-            removed_mesh_count = removed_mesh_count.saturating_add(1);
-        }
-        let mesh_destroy_ms = terrain_update_now_ms() - destroy_started_at_ms;
+        self.terrain_render_nodes = visible_nodes;
 
         self.last_terrain_update_stats = TerrainUpdateStats {
             total_ms: terrain_update_now_ms() - started_at_ms,
@@ -1717,23 +1667,21 @@ impl RustBrowserGame {
                 .len()
                 .saturating_add(self.pending_terrain_transition_removals.len())
                 .min(u32::MAX as usize) as u32,
-            upload_budget_hit: !self.pending_terrain_uploads.is_empty()
-                || !self.pending_terrain_transition_uploads.is_empty(),
-            removal_budget_hit: !self.pending_terrain_removals.is_empty()
-                || !self.pending_terrain_transition_removals.is_empty(),
+            upload_budget_hit: false,
+            removal_budget_hit: false,
         };
 
         Ok(())
     }
 
-    /// Samples terrain height from meshes that have actually been uploaded for rendering.
-    fn rendered_terrain_height_at(
+    /// Samples terrain height from terrain_core's authoritative visible mesh cover.
+    fn rendered_terrain_height_below(
         &self,
         x: f32,
         z: f32,
+        ray_start_y: f32,
     ) -> Option<crate::terrain_stream::BrowserTerrainHeightSample> {
-        self.terrain_stream
-            .height_at_in_nodes(x, z, self.terrain_render_nodes.iter().copied())
+        self.terrain_stream.height_at_below(x, z, ray_start_y)
     }
 
     fn remove_pending_terrain_upload(&mut self, key: TerrainNodeKey) -> bool {
@@ -1743,11 +1691,25 @@ impl RustBrowserGame {
         original_len != self.pending_terrain_uploads.len()
     }
 
+    fn remove_pending_terrain_removal(&mut self, key: TerrainNodeKey) -> bool {
+        let original_len = self.pending_terrain_removals.len();
+        self.pending_terrain_removals
+            .retain(|pending_key| *pending_key != key);
+        original_len != self.pending_terrain_removals.len()
+    }
+
     fn remove_pending_terrain_transition_upload(&mut self, key: TerrainTransitionMeshKey) -> bool {
         let original_len = self.pending_terrain_transition_uploads.len();
         self.pending_terrain_transition_uploads
             .retain(|mesh_update| mesh_update.key != key);
         original_len != self.pending_terrain_transition_uploads.len()
+    }
+
+    fn remove_pending_terrain_transition_removal(&mut self, key: TerrainTransitionMeshKey) -> bool {
+        let original_len = self.pending_terrain_transition_removals.len();
+        self.pending_terrain_transition_removals
+            .retain(|pending_key| *pending_key != key);
+        original_len != self.pending_terrain_transition_removals.len()
     }
 
     fn upsert_terrain_mesh(
@@ -2567,12 +2529,14 @@ impl BrowserWgpuRenderer {
             world_matrix.copy_from_slice(
                 &world_matrices[index * WORLD_MATRIX_FLOATS..(index + 1) * WORLD_MATRIX_FLOATS],
             );
-            let object_uniforms = build_object_uniform_values(
+            let mut object_uniforms = build_object_uniform_values(
                 &world_matrix,
                 &material_packets
                     [index * MATERIAL_PACKET_FLOATS..(index + 1) * MATERIAL_PACKET_FLOATS],
             )
             .map_err(js_error)?;
+            object_uniforms[OBJECT_UNIFORM_TERRAIN_LOD_OFFSET] =
+                terrain_lod.map(f32::from).unwrap_or(-1.0);
             self.update_object(
                 object_handle,
                 albedo_texture,
@@ -3886,6 +3850,15 @@ fn player_locomotion_speed_meters_per_second(input: BrowserGameInput) -> f32 {
     PlayerConfig::default().move_speed * speed_multiplier * horizontal_magnitude
 }
 
+/// Returns the downward terrain collision ray start for a foot-level probe.
+pub(crate) fn terrain_collision_ray_start(foot_position: Vec3) -> Vec3 {
+    Vec3::new(
+        foot_position.x,
+        foot_position.y + PLAYER_TERRAIN_RAY_START_HEIGHT_METERS,
+        foot_position.z,
+    )
+}
+
 fn register_static_model_scene_item(
     renderer: &mut BrowserWgpuRenderer,
     scene_mesh_handles_by_label: &mut HashMap<String, ResourceHandle>,
@@ -4147,6 +4120,7 @@ fn render_material_debug_mode_from_js_name(
     match mode_name {
         "full" => Ok(RenderMaterialDebugMode::Full),
         "lambert" => Ok(RenderMaterialDebugMode::Lambert),
+        "lodColor" => Ok(RenderMaterialDebugMode::LodColor),
         _ => Err(js_error(format!(
             "Rust WebGPU renderer received unknown material debug mode '{mode_name}'."
         ))),
@@ -5438,6 +5412,7 @@ fn render_material_debug_mode_to_js_name(mode: RenderMaterialDebugMode) -> &'sta
     match mode {
         RenderMaterialDebugMode::Full => "full",
         RenderMaterialDebugMode::Lambert => "lambert",
+        RenderMaterialDebugMode::LodColor => "lodColor",
     }
 }
 

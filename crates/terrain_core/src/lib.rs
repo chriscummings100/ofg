@@ -17,8 +17,8 @@ mod variant;
 
 pub use heightfield::{height_at, height_at_for_variant, height_at_with_shape};
 pub use mesh::{
-    build_chunk_mesh, build_node_mesh, build_node_mesh_for_variant, mesh_height_at, MeshData,
-    TERRAIN_VERTEX_FLOATS,
+    build_chunk_mesh, build_node_mesh, build_node_mesh_for_variant, mesh_height_at,
+    mesh_height_at_below, MeshData, TERRAIN_VERTEX_FLOATS,
 };
 pub use node::{
     terrain_chunk_coord_containing_position, terrain_chunk_key, terrain_node_cell_size,
@@ -27,9 +27,10 @@ pub use node::{
     MAX_PLAYABLE_LOD, TERRAIN_CHUNK_CELLS_PER_AXIS, TERRAIN_NODE_SAMPLES_PER_AXIS,
 };
 pub use stream::{
-    TerrainLodBand, TerrainLodBoundedVerticalPolicy, TerrainLodStatus, TerrainLodVerticalPolicy,
-    TerrainStreamConfig, TerrainStreamError, TerrainStreamJob, TerrainStreamScheduler,
-    TerrainStreamStatus,
+    exact_parent_grid_desired_nodes_for_position, TerrainLodBand, TerrainLodBandSource,
+    TerrainLodBoundedVerticalPolicy, TerrainLodStatus, TerrainLodVerticalPolicy,
+    TerrainStreamConfig, TerrainStreamError, TerrainStreamHeightSample, TerrainStreamJob,
+    TerrainStreamMeshUpdate, TerrainStreamScheduler, TerrainStreamStatus, TerrainStreamUpdate,
 };
 pub use variant::{
     terrain_preset_count, terrain_preset_metadata, terrain_variant_cache_key,
@@ -166,6 +167,23 @@ mod tests {
     }
 
     #[test]
+    fn baseline_mesh_assigns_surface_triangles_to_one_vertical_node() {
+        let lower_key = TerrainNodeKey {
+            lod: 0,
+            coord: TerrainChunkCoord { x: 0, y: -1, z: 0 },
+        };
+        let upper_key = TerrainNodeKey {
+            lod: 0,
+            coord: TerrainChunkCoord { x: 0, y: 0, z: 0 },
+        };
+        let lower = build_node_mesh(0x0F6, DEFAULT_TERRAIN_PRESET, lower_key, 1.0);
+        let upper = build_node_mesh(0x0F6, DEFAULT_TERRAIN_PRESET, upper_key, 1.0);
+
+        assert!(lower.height_at(0.25, 0.25).is_some());
+        assert_eq!(upper.height_at(0.25, 0.25), None);
+    }
+
+    #[test]
     fn baseline_mesh_triangles_face_up_for_culled_rendering() {
         let key = TerrainNodeKey {
             lod: 0,
@@ -210,6 +228,21 @@ mod tests {
         assert!((triangle_height - expected_triangle_height).abs() <= 0.0001);
 
         assert_eq!(mesh.height_at(-1.0, -1.0), None);
+    }
+
+    #[test]
+    fn mesh_height_query_casts_down_from_supplied_ray_start() {
+        let seed = 0x0F6;
+        let variant = terrain_variant_for_preset(DEFAULT_TERRAIN_PRESET);
+        let key = TerrainNodeKey {
+            lod: 0,
+            coord: TerrainChunkCoord { x: 0, y: -1, z: 0 },
+        };
+        let mesh = build_node_mesh_for_variant(seed, variant, key, 1.0);
+        let height = mesh.height_at(8.0, 12.0).unwrap();
+
+        assert!((mesh.height_at_below(8.0, 12.0, height + 1.0).unwrap() - height).abs() <= 0.0001);
+        assert_eq!(mesh.height_at_below(8.0, 12.0, height - 0.1), None);
     }
 
     #[test]
