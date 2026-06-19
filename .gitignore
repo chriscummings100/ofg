@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-test/
+.deploy/
+artifacts/
+target/
+assets/wasm/ofg_web/
+
+npm-debug.log*
+*.tsbuildinfo
