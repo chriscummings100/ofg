@@ -3,8 +3,7 @@ dist/
 dist-test/
 .deploy/
 artifacts/
-target/
-assets/wasm/ofg_web/
+assets/wasm/ofg_cpp/
 
 npm-debug.log*
 .dev-server.log

@@ -143,6 +143,7 @@ try {
   server.kill();
 }
 
+// Waits for the local dev server to print its review URL.
 function waitForServerUrl(child) {
   return new Promise((resolveUrl, reject) => {
     const timeout = setTimeout(() => {
@@ -166,6 +167,7 @@ function waitForServerUrl(child) {
   });
 }
 
+// Finds the Chromium-family browser used for WebGPU smoke tests.
 function findBrowserPath() {
   if (process.env.OFG_BROWSER_PATH !== undefined) {
     return process.env.OFG_BROWSER_PATH;
@@ -184,12 +186,14 @@ function findBrowserPath() {
   return found;
 }
 
+// Asserts that a required deployment/security header is present.
 function assertHeader(headers, name, expected) {
   if (headers[name] !== expected) {
     throw new Error(`Expected ${name}: ${expected}; got ${headers[name] ?? "<missing>"}.`);
   }
 }
 
+// Samples the screenshot and verifies it matches the shared triangle contract.
 function inspectScreenshot(path) {
   const png = PNG.sync.read(readFileSync(path));
   let backgroundPixels = 0;
@@ -244,6 +248,7 @@ function inspectScreenshot(path) {
   };
 }
 
+// Computes RGB distance while ignoring alpha, matching native smoke behavior.
 function colorDistance(left, right) {
   const dr = left[0] - right[0];
   const dg = left[1] - right[1];

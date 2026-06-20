@@ -20,7 +20,7 @@ rmSync(coverageDir, { recursive: true, force: true });
 mkdirSync(coverageDir, { recursive: true });
 
 run("node", ["tools/clean-dist.mjs"]);
-run("node", ["tools/build-wasm.mjs"]);
+run("node", ["tools/build-cpp-wasm.mjs"]);
 run("node", ["./node_modules/typescript/bin/tsc", "-p", "tsconfig.app.json"]);
 run("node", ["./node_modules/typescript/bin/tsc", "-p", "tsconfig.test.json"]);
 run("node", [
@@ -57,6 +57,7 @@ for (const [path, reason] of lineCoverageExceptions) {
   console.log(`TypeScript coverage exception: ${path} (${reason})`);
 }
 
+// Collects source files below the configured TypeScript line threshold.
 function collectCoverageFailures(summary) {
   const failures = [];
   for (const [filename, fileSummary] of Object.entries(summary)) {
@@ -86,6 +87,7 @@ function collectCoverageFailures(summary) {
   return failures;
 }
 
+// Converts an absolute coverage filename into a workspace-relative path.
 function workspaceRelativePath(path) {
   const relativePath = relative(root, resolve(path));
   if (
@@ -99,10 +101,12 @@ function workspaceRelativePath(path) {
   return normalizePath(relativePath);
 }
 
+// Normalizes Windows paths so exception keys are stable across platforms.
 function normalizePath(path) {
   return path.replaceAll("\\", "/");
 }
 
+// Runs a command and exits with the same failing status.
 function run(command, args) {
   const result = spawnSync(command, args, {
     cwd: root,

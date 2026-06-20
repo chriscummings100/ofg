@@ -1,28 +1,20 @@
+// Tests for the default C++/WASM TypeScript runtime adapter.
+//
+// These tests run without loading real WASM. They validate Embind ownership,
+// async module creation, and the shared debug-status parser used by the app.
 import assert from "node:assert/strict";
 import {
+  createBrowserGameRuntimeFromModule,
   createBrowserGameRuntimeFromRaw,
   parseRuntimeDebugStatus,
+  type GeneratedWasmModule,
   type RawBrowserGame
 } from "../../src/app/wasmRuntime.js";
 
 describe("wasm runtime wrapper", () => {
-  it("parses runtime debug status JSON from Rust", () => {
-    const status = parseRuntimeDebugStatus(
-      JSON.stringify({
-        initialized: true,
-        frameCount: 2,
-        canvasWidth: 800,
-        canvasHeight: 450,
-        devicePixelRatio: 1,
-        surfaceFormat: "Bgra8UnormSrgb",
-        adapterName: "test adapter",
-        backend: "BrowserWebGpu",
-        pipelineCreateCount: 1,
-        bufferCreateCount: 1,
-        surfaceConfigureCount: 1,
-        lastError: null
-      })
-    );
+  // Verifies the parser accepts the C++ runtime debug-status contract.
+  it("parses runtime debug status JSON from C++", () => {
+    const status = parseRuntimeDebugStatus(JSON.stringify(validStatusPayload()));
 
     assert.equal(status.initialized, true);
     assert.equal(status.frameCount, 2);
@@ -30,6 +22,7 @@ describe("wasm runtime wrapper", () => {
     assert.equal(status.pipelineCreateCount, 1);
   });
 
+  // Verifies missing fields fail with useful parser errors.
   it("rejects missing runtime debug status fields", () => {
     assert.throws(
       () => parseRuntimeDebugStatus(JSON.stringify({ initialized: true })),
@@ -37,6 +30,7 @@ describe("wasm runtime wrapper", () => {
     );
   });
 
+  // Verifies numeric contract validation catches invalid counters.
   it("rejects runtime debug status fields with invalid types", () => {
     const payload = validStatusPayload();
     payload.frameCount = -1;
@@ -47,26 +41,10 @@ describe("wasm runtime wrapper", () => {
     );
   });
 
-  it("delegates lifecycle calls to the raw wasm-bindgen runtime", () => {
+  // Verifies wrapper calls delegate to the raw Embind runtime and delete once.
+  it("delegates lifecycle calls to the raw Embind runtime", () => {
     const calls: string[] = [];
-    const raw: RawBrowserGame = {
-      resize(width, height, devicePixelRatio) {
-        calls.push(`resize:${width}:${height}:${devicePixelRatio}`);
-      },
-      frame(timeMs) {
-        calls.push(`frame:${timeMs}`);
-      },
-      debug_status_json() {
-        calls.push("debug");
-        return JSON.stringify(validStatusPayload());
-      },
-      dispose() {
-        calls.push("dispose");
-      },
-      free() {
-        calls.push("free");
-      }
-    };
+    const raw = fakeRawBrowserGame(calls);
 
     const runtime = createBrowserGameRuntimeFromRaw(raw);
     runtime.resize(800, 450, 1);
@@ -80,7 +58,7 @@ describe("wasm runtime wrapper", () => {
       "frame:16.5",
       "debug",
       "dispose",
-      "free"
+      "delete"
     ]);
     assert.throws(
       () => runtime.frame(33),
@@ -88,13 +66,32 @@ describe("wasm runtime wrapper", () => {
     );
   });
 
-  it("rejects non-object runtime debug status payloads", () => {
-    assert.throws(
-      () => parseRuntimeDebugStatus("null"),
-      /must be an object/
-    );
+  // Verifies Embind's create result can be sync or promise-like.
+  it("normalizes async C++ module creation", async () => {
+    const calls: string[] = [];
+    const canvas = document.createElement("canvas");
+    const module: GeneratedWasmModule = {
+      BrowserGame: {
+        async create(receivedCanvas: HTMLCanvasElement): Promise<RawBrowserGame> {
+          calls.push(receivedCanvas === canvas ? "canvas" : "wrong canvas");
+          return fakeRawBrowserGame(calls);
+        }
+      }
+    };
+
+    const runtime = await createBrowserGameRuntimeFromModule(module, canvas);
+    runtime.frame(1);
+    runtime.dispose();
+
+    assert.deepEqual(calls, ["canvas", "frame:1", "dispose", "delete"]);
   });
 
+  // Verifies non-object JSON payloads fail before field validation.
+  it("rejects non-object runtime debug status payloads", () => {
+    assert.throws(() => parseRuntimeDebugStatus("null"), /must be an object/);
+  });
+
+  // Verifies scalar field type errors remain precise for diagnostics.
   it("rejects invalid boolean, string, and nullable string fields", () => {
     const invalidInitialized = validStatusPayload();
     invalidInitialized.initialized = "yes";
@@ -119,6 +116,34 @@ describe("wasm runtime wrapper", () => {
   });
 });
 
+// Builds a fake raw Embind object that records every lifecycle call.
+function fakeRawBrowserGame(calls: string[]): RawBrowserGame {
+  return {
+    // Records resize forwarding.
+    resize(width, height, devicePixelRatio) {
+      calls.push(`resize:${width}:${height}:${devicePixelRatio}`);
+    },
+    // Records frame forwarding.
+    frame(timeMs) {
+      calls.push(`frame:${timeMs}`);
+    },
+    // Records debug-status reads and returns a valid status payload.
+    debug_status_json() {
+      calls.push("debug");
+      return JSON.stringify(validStatusPayload());
+    },
+    // Records runtime disposal.
+    dispose() {
+      calls.push("dispose");
+    },
+    // Records Embind wrapper deletion.
+    delete() {
+      calls.push("delete");
+    }
+  };
+}
+
+// Returns a valid C++ runtime debug-status payload for parser tests.
 function validStatusPayload(): Record<string, unknown> {
   return {
     initialized: true,

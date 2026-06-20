@@ -13,14 +13,16 @@ The goal is to hit a high bar, and prove that it is possible to write a fully fu
 ## Languages + Tests
 
 We will use 2 languages for this job:
-- the vast majority of the code should be in rust / web assembly
+- the vast majority of the code should be in C++ / web assembly
 - with a type script based web front end
 
 Tests are critical for both languages.
-- rust: https://doc.rust-lang.org/rust-by-example/testing/unit_testing.html
+- C++: use Clang-only builds, doctest test executables registered with CMake/CTest, and LLVM/Clang source-based coverage
 - type script: https://mochajs.org/
 
-Coverage is part of the testing contract for both Rust and TypeScript. Use `COVERAGE.md` for how to run it, how to interpret exceptions, and where results are stored. Latest committed coverage summaries belong in `docs/coverage`; generated local reports belong in `artifacts/coverage`.
+Coverage is part of the testing contract for both C++ and TypeScript. Use `COVERAGE.md` for how to run it, how to interpret exceptions, and where results are stored. Latest committed coverage summaries belong in `docs/coverage`; generated local reports belong in `artifacts/coverage`.
+
+The project retired Rust from active runtime work under `docs/archived/cpp-wasm-migration-plan.md`. Do not start new Rust engine work unless a later plan explicitly reverses this decision.
 
 ## Plans
 
@@ -33,33 +35,54 @@ Coverage is part of the testing contract for both Rust and TypeScript. Use `COVE
 
 Guiding principles for code development are in [GUIDES.md](GUIDES.md). These principles can and should be added to over time.
 
+## Comments and readability
+
+Code should remain readable to a human at all times. Every function written should have doc strings or comments attached defining its purpose, and larger functions (over 50 lines) should contain comments internally to explain their workings.
+
+Files should have detailed and maintained comments at the top to document their purpose and how they function.
+
+## File sizes
+
+Large files make for poor readability, small files are just noise:
+- Files between 500-1000 lines should begin to be of small concern
+- Files above 1000 lines should be broken into smaller units
+- Files above 2000 lines should be considered a critical architectural problem
+
+## Engine references
+
+- The Bevy documentation is a useful reference for game-engine patterns, especially asset handles and `Assets<T>` style collections: https://docs.rs/bevy/latest/bevy/index.html. Use it as design reference only; OFG should remain written from the ground up and should not take a dependency on Bevy unless a future plan explicitly decides to.
+
 ## Existing Commands
 
 Run commands from the repository root, `C:\dev\ofg`.
 
 - `npm install`: installs Node/TypeScript tooling from `package-lock.json`.
 - `npm run clean`: removes generated TypeScript build output.
-- `npm run build:wasm`: builds the Rust `ofg_web` WASM package and generated JS glue into `assets/wasm/ofg_web`.
+- `npm run setup:emscripten`: installs the pinned Emscripten SDK under `artifacts/toolchains/emsdk`.
+- `npm run setup:dawn`: installs the pinned Dawn source checkout under `artifacts/toolchains/dawn/src` for native C++ render smoke.
+- `npm run setup:llvm`: installs the pinned native LLVM/Clang bundle under `artifacts/toolchains/llvm`.
+- `npm run setup:ninja`: installs the pinned Ninja generator under `artifacts/toolchains/ninja`.
+- `npm run build:wasm`: builds the C++/WASM package and generated JS glue into `assets/wasm/ofg_cpp`.
 - `npm run build`: cleans, builds WASM, and compiles the browser TypeScript app.
 - `npm run package:site`: rebuilds the app and packages Cloudflare Pages output into `.deploy`.
 - `npm run package:site:from-build`: packages `.deploy` from an already-built app, useful when a caller has just run `npm run build`.
 - `npm run build:cloudflare`: Cloudflare Pages build command; packages the site and reports deployable WASM size.
 - `npm run dev`: builds the app and starts the local static dev server, normally at `http://127.0.0.1:5173`.
 - `npm run smoke:browser`: builds the app, controls a browser through Playwright core, and validates browser startup/render behavior.
-- `npm run smoke:render`: renders the shared Rust bootstrap renderer without a browser and writes a PNG/report.
-- `npm run smoke`: runs browser smoke followed by native render smoke.
-- `npm run coverage:rust`: runs the Rust coverage gate through `cargo-llvm-cov`.
+- `npm run smoke:browser:cpp`: runs the focused C++/WASM browser fixture and validates WebGPU initialization/status behavior plus bootstrap triangle pixels.
+- `npm run smoke:render`: builds/runs the Clang-native C++ Dawn render smoke without a browser and writes a PNG/report.
+- `npm run smoke`: runs browser smoke followed by native C++ render smoke.
+- `npm run coverage:cpp`: runs the C++ coverage gate through Clang/LLVM source-based coverage.
 - `npm run coverage:ts`: runs the TypeScript coverage gate through `c8`.
-- `npm run coverage`: runs both Rust and TypeScript coverage gates.
+- `npm run coverage`: runs both C++ and TypeScript coverage gates.
 
 ## Test Commands
 
-- `npm run test:rust`: runs all native Rust unit tests in the workspace with `cargo test --workspace`.
-- `npm run test:wasm`: verifies the `ofg_web` browser-facing contract, runs wasm32 tests, and type-checks the WASM target.
+- `npm run test:cpp`: runs native C++ doctest tests through CMake/CTest.
 - `npm run test:ts`: builds the app/test output and runs Mocha tests against the TypeScript browser host and WASM runtime wrapper.
-- `npm test`: runs `test:rust`, `test:wasm`, and `test:ts`; this is the default unit/integration test gate.
+- `npm test`: runs `test:cpp` and `test:ts`; this is the default unit/integration test gate.
 - `npm run smoke:browser`: validates the built browser app with Playwright core and should be used when TypeScript host, WASM loading, resize, browser WebGPU, or deployment shell behavior changes.
-- `npm run smoke:render`: validates the Rust renderer can produce a browser-free PNG and JSON diagnostics.
+- `npm run smoke:render`: validates the C++ Dawn renderer can produce a browser-free PNG and JSON diagnostics.
 - `npm run coverage`: validates coverage thresholds and records generated summaries under `artifacts/coverage`.
 
 ## Dev Server

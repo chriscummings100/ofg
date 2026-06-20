@@ -6,63 +6,69 @@ The active cross-system contracts are recorded in `docs/API_CONTRACTS.md`. This 
 
 ## BrowserHost
 
-The browser host owns the web page shell. It creates or finds the canvas, sizes it from the viewport and device pixel ratio, reports fatal startup errors, and provides the local static dev server. It does not own gameplay simulation, scene graph data, GPU pipeline creation, or draw submission.
+The browser host owns the web page shell. It creates or finds the canvas, sizes it from the viewport and device pixel ratio, reports fatal startup errors, loads the C++/WASM module, and provides the local static dev server. It does not own gameplay simulation, scene graph data, GPU pipeline creation, or draw submission.
 
 Public interfaces:
 
 - `src/app/canvasHost.ts` exposes the canvas host factory and host operations used by the TypeScript entrypoint.
 - `src/app/main.ts` boots the browser page, loads the WASM runtime, wires resize/frame callbacks, and reports fatal errors.
+- `src/app/wasmRuntime.ts` adapts the generated Emscripten/Embind module to the stable `BrowserGameRuntime` TypeScript interface.
 - `tools/dev-server.mjs` serves the built static app for human review and browser smoke.
 - `index.html` and `src/app/styles.css` provide the minimal browser shell.
 
 Communication contracts:
 
 - BrowserHost supplies physical canvas width, physical canvas height, and clamped device pixel ratio to BootstrapRuntime.
-- BrowserHost must preserve zero-size canvas axes. Zero size is a recoverable state that Rust reports through debug status instead of a host-side failure.
+- BrowserHost must preserve zero-size canvas axes. Zero size is a recoverable state that C++ reports through debug status instead of a host-side failure.
 - BrowserHost may inspect runtime debug JSON and display fatal startup failures, but must not reach into renderer internals or generated WASM glue.
 
 ## BootstrapRuntime
 
-The bootstrap runtime is the Rust/WASM facade exposed to TypeScript. It owns frame counting, WebGPU instance/adapter/device/surface setup in the browser, surface resize policy, frame submission, and debug-status serialization.
+The bootstrap runtime is the C++/WASM facade exposed to TypeScript. It owns frame counting, debug-status serialization, WebGPU instance/adapter/device/surface setup in the browser, surface resize policy, frame submission, and Embind lifecycle ownership.
 
 Public interfaces:
 
-- `crates/ofg_web/src/browser.rs` exposes `BrowserGame.create(canvas)`, `resize(width, height, devicePixelRatio)`, `frame(timeMs)`, `debug_status_json()`, and `dispose()` through `wasm-bindgen`.
-- `crates/ofg_web/src/status.rs` defines `RuntimeDebugStatus`, the JSON shape used by tests and smoke diagnostics.
-- `src/app/wasmRuntime.ts` is the TypeScript wrapper that imports generated WASM glue and presents a narrow host-facing runtime API.
-- Generated files under `assets/wasm/ofg_web/` are runtime artifacts produced by `npm run build:wasm`.
+- `cpp/CMakeLists.txt` defines the C++ core library, doctest executable, CTest registration, browser Emscripten module, and native Dawn smoke target.
+- `cpp/include/ofg/runtime/browser_runtime.hpp` owns portable runtime state and lifecycle behavior.
+- `cpp/include/ofg/web/browser_game.hpp` exposes the Embind-facing `BrowserGame` facade.
+- `tools/build-cpp-wasm.mjs` builds `assets/wasm/ofg_cpp/ofg_cpp.js` and `assets/wasm/ofg_cpp/ofg_cpp.wasm` through CMake and Emscripten.
+- `tools/test-cpp.mjs` runs the C++ doctest executable through CMake/CTest.
+- `src/app/wasmRuntime.ts` loads `/assets/wasm/ofg_cpp/ofg_cpp.js`, resolves `ofg_cpp.wasm`, and maps Embind `delete()` into the app runtime interface.
+- Generated files under `assets/wasm/ofg_cpp/` are runtime artifacts produced by `npm run build:wasm`.
 
 Communication contracts:
 
 - BootstrapRuntime consumes only the canvas and resize/frame calls supplied by BrowserHost.
-- BootstrapRuntime delegates all draw submission to BootstrapRenderer and should keep simulation/game ownership in Rust.
+- BootstrapRuntime delegates draw encoding to BootstrapRenderer and keeps simulation/game ownership in C++.
 - The `debug_status_json()` fields are a public inspection contract for TypeScript tests, Playwright smoke, and later diagnostics.
-- `dispose()` makes the runtime inert while preserving a useful disposed status for callers.
+- `dispose()` releases WebGPU resources and makes the runtime inert while preserving useful disposed-call errors for callers.
 
 ## BootstrapRenderer
 
-The bootstrap renderer is shared Rust rendering code. It owns the initial WGSL shader, triangle vertex data, clear color, render pipeline, vertex buffer, resource counters, and draw submission used by both browser and native render paths.
+The bootstrap renderer is the C++ renderer used by both browser WebGPU and native Dawn smoke. It owns the initial WGSL shader, triangle vertex data, clear color, render pipeline, vertex buffer, resource counters, and draw submission for the current visual contract.
 
 Public interfaces:
 
-- `crates/ofg_render/src/renderer.rs` exposes `BootstrapRenderer::new(device, format)`, `render_to_view(encoder, view)`, and `counters()`.
-- `crates/ofg_render/src/bootstrap_scene.rs` owns bootstrap scene data and the public clear-color helper.
-- `crates/ofg_render/src/shaders/bootstrap.wgsl` is the shared shader source.
+- `cpp/include/ofg/render/bootstrap_renderer.hpp` exposes `BootstrapRenderer::create(device, queue, format, error)`, `render_to_view(encoder, view, error)`, and `counters()`.
+- `cpp/include/ofg/render/bootstrap_scene.hpp` owns deterministic triangle data, vertex layout helpers, and the clear-color helper.
+- `cpp/include/ofg/render/webgpu_common.hpp` provides small WebGPU string/enum helpers shared by browser and native paths.
 
 Communication contracts:
 
-- BootstrapRuntime and NativeRenderSmoke must use the same renderer, shader, scene data, and clear color.
+- BootstrapRuntime and NativeRenderSmoke must use equivalent renderer, shader, scene data, and clear color.
 - The renderer requests no optional GPU features and creates durable resources during initialization, not every frame.
 - Surface/texture format may differ between browser and native targets, but the visual contract remains a dark blue-gray background plus red/green/blue triangle.
 
 ## BrowserSmoke
 
-Browser smoke validates that the built site loads in a real browser-like environment controlled by Playwright core. It proves the TypeScript host can load generated WASM, initialize WebGPU, resize, render frames, and read debug status.
+Browser smoke validates that the built site loads in a real browser-like environment controlled by Playwright core. It proves the TypeScript host can load generated C++/WASM, initialize WebGPU, resize, render frames, and read debug status.
 
 Public interfaces:
 
-- `npm run smoke:browser` runs the browser smoke.
+- `npm run smoke:browser` runs the default browser smoke against the built app.
 - `tools/browser-smoke.mjs` controls the browser through Playwright core and writes smoke artifacts under `artifacts/browser-smoke`.
+- `npm run smoke:browser:cpp` runs the focused C++ fixture smoke under `tools/cpp-webgpu-smoke.html`.
+- `tools/browser-smoke-cpp.mjs` writes focused artifacts under `artifacts/browser-smoke-cpp`.
 - `tools/smoke-contract.json` provides the shared visual and resize expectations used by browser and native smoke.
 
 Communication contracts:
@@ -73,27 +79,29 @@ Communication contracts:
 
 ## NativeRenderSmoke
 
-The native render smoke is a browser-free render harness. It creates a native `wgpu` device, renders BootstrapRenderer into an offscreen texture, copies pixels through a padded readback buffer, writes a PNG, and records color-coverage diagnostics.
+The native render smoke is a browser-free C++ render harness. It builds a pinned Dawn native backend with Clang, creates a Vulkan WebGPU device, renders the C++ BootstrapRenderer into an offscreen texture, copies pixels through a padded readback buffer, writes a PNG, and records color-coverage diagnostics.
 
 Public interfaces:
 
 - `npm run smoke:render` runs the harness with the default output directory.
-- `crates/ofg_test_harness/src/bin/ofg-render-frame.rs` provides the `ofg-render-frame [--out <dir>]` binary.
+- `tools/setup-dawn.mjs` pins the Dawn source checkout used by the native C++ smoke.
+- `tools/smoke-render-cpp.mjs` configures/builds/runs the C++ Dawn executable and passes in `tools/smoke-contract.json`.
+- `cpp/src/native/render_smoke_main.cpp` provides the native C++ smoke executable entry point.
 - Output artifacts are `bootstrap.png` and `report.json` in the chosen output directory, normally `artifacts/render-smoke`.
 
 Communication contracts:
 
-- NativeRenderSmoke reads `tools/smoke-contract.json` and fails if the contract disagrees with `ofg_render::clear_color_rgba8()`.
-- NativeRenderSmoke shares renderer code with BootstrapRuntime but uses an offscreen texture instead of a browser surface.
+- NativeRenderSmoke reads `tools/smoke-contract.json` through the Node wrapper and passes those values to the native executable.
+- NativeRenderSmoke shares C++ renderer code with browser smoke but uses an offscreen texture instead of a browser surface.
 - The report JSON is the machine-readable contract for CI, human review, and coverage runs.
 
 ## CoverageGuardrails
 
-Coverage guardrails own the first quality gates around test visibility and TypeScript/Rust ownership boundaries. They are pass/fail gates, not just report generators.
+Coverage guardrails own the quality gates around test visibility and C++/TypeScript ownership boundaries. They are pass/fail gates, not just report generators.
 
 Public interfaces:
 
-- `npm run coverage:rust` runs Rust coverage through `tools/rust-coverage.mjs`.
+- `npm run coverage:cpp` runs C++ coverage through `tools/cpp-coverage.mjs`.
 - `npm run coverage:ts` runs TypeScript coverage through `tools/ts-coverage.mjs`.
 - `npm run coverage` runs both coverage gates.
 - `COVERAGE.md` explains how to run and interpret coverage.
@@ -103,12 +111,12 @@ Public interfaces:
 Communication contracts:
 
 - Checked implementation files must meet the documented line coverage threshold, currently 90%.
-- Exceptions must be explicit. Current exceptions cover browser-only WASM/WebGPU code through `test:wasm` and `smoke:browser`, and native-smoke failure handling through the instrumented smoke path.
+- Exceptions must be explicit. Current exceptions cover browser-only C++ WASM/WebGPU glue and draw submission through browser smoke, native Dawn smoke behavior through `npm run smoke:render`, and browser entrypoint behavior through `npm run smoke:browser`.
 - Global summary percentages can include exception files; use the wrapper pass/fail output to decide whether the gate passed.
 
 ## DeploymentPackaging
 
-Deployment packaging owns the static Cloudflare Pages output. It rebuilds the app, copies only runtime files into `.deploy`, writes cross-origin isolation headers required by WebGPU, verifies required files, and reports the generated WASM size.
+Deployment packaging owns the static Cloudflare Pages output. It rebuilds the app, copies only runtime files into `.deploy`, writes cross-origin isolation headers required by WebGPU, verifies required files, and reports the generated C++ WASM size.
 
 Public interfaces:
 
@@ -121,5 +129,6 @@ Public interfaces:
 Communication contracts:
 
 - Cloudflare Pages should use build command `npm run build:cloudflare` and output directory `.deploy`.
+- DeploymentPackaging must publish `assets/wasm/ofg_cpp/ofg_cpp.js` and `assets/wasm/ofg_cpp/ofg_cpp.wasm`.
 - DeploymentPackaging must not publish source-only files, tests, or large build directories.
 - Browser WebGPU requires cross-origin isolation headers, so `_headers` is part of the deployment contract.

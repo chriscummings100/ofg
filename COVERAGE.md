@@ -6,16 +6,15 @@ Coverage is a testing gate for the OFG bootstrap, not just a report. The wrapper
 
 Run from `C:\dev\ofg`.
 
-- `npm run coverage:rust`: runs `tools/rust-coverage.mjs`, which uses `cargo-llvm-cov` for Rust unit tests and the native render-smoke binary.
+- `npm run coverage:cpp`: runs `tools/cpp-coverage.mjs`, which uses Clang source-based coverage for native C++ doctest executables.
 - `npm run coverage:ts`: runs `tools/ts-coverage.mjs`, which uses `c8` around the Mocha TypeScript tests.
-- `npm run coverage`: runs the Rust gate and then the TypeScript gate.
+- `npm run coverage`: runs the C++ gate and then the TypeScript gate.
 
 Use `npm run coverage` before completing implementation plans. Use the language-specific commands when iterating on one side of the codebase.
 
 ## Output Locations
 
-- `artifacts/coverage/rust/summary.json`: generated Rust machine-readable summary.
-- `artifacts/coverage/rust/summary.pretty.json`: generated Rust pretty-printed summary.
+- `artifacts/coverage/cpp/cpp-summary.json`: generated C++ machine-readable summary.
 - `artifacts/coverage/ts/coverage-summary.json`: generated TypeScript summary.
 - `docs/coverage/`: committed latest coverage information for human review and task history.
 
@@ -25,14 +24,14 @@ Use `npm run coverage` before completing implementation plans. Use the language-
 
 The wrapper scripts enforce per-file line coverage for checked source files. If a wrapper prints that coverage passed, the gate passed even if a global summary includes lower percentages from documented exceptions.
 
-Current Rust exceptions:
-
-- `crates/ofg_web/src/browser.rs`: browser-only WASM/WebGPU facade. It is covered by `npm run test:wasm` and `npm run smoke:browser` rather than native `cargo-llvm-cov`.
-- `crates/ofg_test_harness/src/bin/ofg-render-frame.rs`: exercised by the instrumented native smoke path; remaining uncovered lines are mostly failure handling and environment error cases.
-
 Current TypeScript exception:
 
 - `src/app/main.ts`: browser entrypoint exercised by `npm run smoke:browser` rather than Node-based Mocha coverage.
+
+Current C++ exception:
+
+- `cpp/src/web/` and `cpp/src/render/bootstrap_renderer.cpp`: browser-only Emscripten/Embind/WebGPU glue and draw submission. They are covered by `npm run build:wasm`, TypeScript adapter tests, and `npm run smoke:browser` / `npm run smoke:browser:cpp` rather than native line coverage.
+- `cpp/src/native/`: native Dawn smoke harness code. It is covered by `npm run smoke:render` because its value is the produced PNG/report and GPU readback behavior, not line-only unit coverage.
 
 When adding an exception, document it in the relevant coverage script, active ExecPlan, and this file. Prefer adding targeted tests over adding exceptions.
 

@@ -1,5 +1,7 @@
-// Browser entry point for the OFG bootstrap. It hosts the canvas and delegates
-// rendering to the Rust/WASM runtime.
+// Browser entry point for the OFG bootstrap.
+//
+// The app owns the canvas host and status text, while the C++/WASM runtime owns
+// frame state, WebGPU resources, and draw submission.
 
 import { createCanvasHost } from "./canvasHost.js";
 import {
@@ -14,6 +16,7 @@ declare global {
   }
 }
 
+// Creates the canvas/runtime pair and starts the animation loop.
 async function main(): Promise<void> {
   const status = document.getElementById("ofg-status");
 
@@ -33,6 +36,7 @@ async function main(): Promise<void> {
   }
 }
 
+// Handles one animation frame, including host resize and runtime rendering.
 function renderFrame(
   host: ReturnType<typeof createCanvasHost>,
   runtime: BrowserGameRuntime,
@@ -48,7 +52,7 @@ function renderFrame(
     const debugStatus = runtime.debugStatus();
     statusMessage(
       status,
-      `Rust/WASM WebGPU frame ${debugStatus.frameCount} - ${debugStatus.canvasWidth}x${debugStatus.canvasHeight} - ${debugStatus.surfaceFormat}`
+      `C++/WASM WebGPU frame ${debugStatus.frameCount} - ${debugStatus.canvasWidth}x${debugStatus.canvasHeight} - ${debugStatus.surfaceFormat}`
     );
   } catch (error) {
     statusMessage(status, error instanceof Error ? error.message : String(error));
@@ -57,6 +61,7 @@ function renderFrame(
   requestAnimationFrame((nextTimeMs) => renderFrame(host, runtime, status, nextTimeMs));
 }
 
+// Writes transient runtime status text when the status element exists.
 function statusMessage(element: HTMLElement | null, message: string): void {
   if (element !== null) {
     element.textContent = message;

@@ -1,3 +1,7 @@
+// Tests for the TypeScript/C++ runtime ownership boundary.
+//
+// TypeScript may load the generated C++/WASM module through wasmRuntime.ts, but
+// it must not reach into generated assets elsewhere or own WebGPU rendering.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
@@ -9,10 +13,10 @@ const allowedGeneratedWasmImporters = new Set([
   normalizePath("src/app/wasmRuntime.ts")
 ]);
 const generatedWasmPatterns = [
-  /assets\/wasm\/ofg_web/,
-  /assets\\wasm\\ofg_web/,
-  /ofg_web_bg\.wasm/,
-  /ofg_web\.js/
+  /assets\/wasm\/ofg_cpp/,
+  /assets\\wasm\\ofg_cpp/,
+  /ofg_cpp\.wasm/,
+  /ofg_cpp\.js/
 ];
 const forbiddenRenderOwnershipPatterns = [
   /\bnavigator\.gpu\b/,
@@ -38,6 +42,7 @@ const forbiddenRenderOwnershipPatterns = [
 ];
 
 describe("TypeScript ownership boundary", () => {
+  // Verifies generated C++/WASM asset paths stay behind wasmRuntime.ts.
   it("loads generated WASM internals only through wasmRuntime.ts", () => {
     for (const file of appSourceFiles()) {
       const source = readFileSync(file, "utf8");
@@ -54,6 +59,7 @@ describe("TypeScript ownership boundary", () => {
     }
   });
 
+  // Verifies app TypeScript does not create or submit WebGPU render work.
   it("keeps WebGPU draw ownership out of TypeScript app code", () => {
     for (const file of appSourceFiles()) {
       const source = readFileSync(file, "utf8");
@@ -67,6 +73,7 @@ describe("TypeScript ownership boundary", () => {
     }
   });
 
+  // Verifies the denylist detects representative WebGPU ownership snippets.
   it("recognizes representative TypeScript WebGPU ownership snippets", () => {
     const snippets = [
       "await navigator.gpu.requestAdapter()",
@@ -90,10 +97,12 @@ describe("TypeScript ownership boundary", () => {
   });
 });
 
+// Lists app TypeScript files inspected by ownership tests.
 function appSourceFiles(): string[] {
   return collectTypeScriptFiles(appDir);
 }
 
+// Recursively collects TypeScript files from one directory.
 function collectTypeScriptFiles(dir: string): string[] {
   const files: string[] = [];
   for (const entry of readdirSync(dir)) {
@@ -108,6 +117,7 @@ function collectTypeScriptFiles(dir: string): string[] {
   return files;
 }
 
+// Normalizes Windows paths so allowlists are stable across platforms.
 function normalizePath(path: string): string {
   return path.replaceAll("\\", "/");
 }

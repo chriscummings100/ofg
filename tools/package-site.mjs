@@ -1,4 +1,4 @@
-// Packages the browser app into .deploy for Cloudflare Pages.
+// Packages the C++/WASM browser app into .deploy for Cloudflare Pages.
 
 import {
   existsSync,
@@ -20,8 +20,8 @@ const runtimeFiles = [
   "dist/app/canvasHost.js",
   "dist/app/wasmRuntime.js",
   "src/app/styles.css",
-  "assets/wasm/ofg_web/ofg_web.js",
-  "assets/wasm/ofg_web/ofg_web_bg.wasm"
+  "assets/wasm/ofg_cpp/ofg_cpp.js",
+  "assets/wasm/ofg_cpp/ofg_cpp.wasm"
 ];
 const expectedOutputPaths = ["_headers", ...runtimeFiles].sort();
 const headers = [
@@ -55,6 +55,7 @@ writeFileSync(resolve(deployDir, "_headers"), headers);
 verifyRequiredOutputs();
 console.log(`Packaged Cloudflare Pages site at ${deployDir}`);
 
+// Copies one required runtime file into the deploy directory.
 function copyRuntimeFile(runtimeFile) {
   const source = resolve(root, runtimeFile);
   const destination = resolve(deployDir, runtimeFile);
@@ -72,6 +73,7 @@ function copyRuntimeFile(runtimeFile) {
   writeFileSync(destination, readFileSync(source));
 }
 
+// Fails if packaging omitted or added files outside the deployment contract.
 function verifyRequiredOutputs() {
   const actualOutputPaths = listFiles(deployDir)
     .map((file) => relative(deployDir, file).replaceAll("\\", "/"))
@@ -93,6 +95,7 @@ function verifyRequiredOutputs() {
   }
 }
 
+// Recursively lists files under a directory for deploy contract verification.
 function listFiles(dir) {
   const files = [];
   for (const entry of readdirSync(dir)) {
@@ -107,6 +110,7 @@ function listFiles(dir) {
   return files;
 }
 
+// Refuses file operations that resolve outside the repository root.
 function assertWorkspaceChild(path, label) {
   const relativePath = relative(root, path);
   if (

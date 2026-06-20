@@ -1,4 +1,8 @@
-// Narrow TypeScript wrapper around the Rust/WASM browser runtime.
+// Default TypeScript wrapper around the C++/WASM browser runtime.
+//
+// The TypeScript host owns module loading, canvas lifecycle calls, debug-status
+// parsing, and Embind object deletion. C++ owns runtime state, WebGPU setup,
+// renderer resources, and draw submission.
 
 export interface RuntimeDebugStatus {
   readonly initialized: boolean;
@@ -16,78 +20,114 @@ export interface RuntimeDebugStatus {
 }
 
 export interface BrowserGameRuntime {
+  // Receives physical canvas size and device-pixel ratio from the host.
   resize(width: number, height: number, devicePixelRatio: number): void;
+  // Advances the runtime by one requestAnimationFrame timestamp.
   frame(timeMs: number): void;
+  // Returns validated debug status for UI, smoke tests, and diagnostics.
   debugStatus(): RuntimeDebugStatus;
+  // Releases runtime resources and makes later calls fail clearly.
   dispose(): void;
 }
 
 export interface RawBrowserGame {
+  // Forwards the physical canvas size to the C++ runtime.
   resize(width: number, height: number, devicePixelRatio: number): void;
+  // Advances the C++ runtime by one frame timestamp.
   frame(timeMs: number): void;
+  // Returns the raw debug-status JSON string from C++.
   debug_status_json(): string;
+  // Releases WebGPU resources owned by the C++ runtime.
   dispose(): void;
-  free(): void;
+  // Releases the Embind wrapper object.
+  delete(): void;
 }
 
-interface GeneratedWasmModule {
-  default(): Promise<unknown>;
+export interface GeneratedWasmModule {
   BrowserGame: {
-    create(canvas: HTMLCanvasElement): Promise<RawBrowserGame>;
+    // Creates the Embind BrowserGame facade for a host canvas.
+    create(canvas: HTMLCanvasElement): RawBrowserGame | Promise<RawBrowserGame>;
   };
+}
+
+interface GeneratedWasmFactory {
+  // Instantiates the generated Emscripten module.
+  default(options: {
+    // Resolves sidecar WASM assets relative to the generated module.
+    locateFile(path: string): string;
+  }): Promise<GeneratedWasmModule>;
 }
 
 type RuntimeDebugStatusRecord = Record<keyof RuntimeDebugStatus, unknown>;
 
-const WASM_MODULE_URL = "/assets/wasm/ofg_web/ofg_web.js";
+const WASM_MODULE_URL = "/assets/wasm/ofg_cpp/ofg_cpp.js";
 
+// Loads the generated C++/WASM module and creates an app-facing runtime.
 export async function createBrowserGameRuntime(
   canvas: HTMLCanvasElement
 ): Promise<BrowserGameRuntime> {
-  const wasmModule = (await import(WASM_MODULE_URL)) as GeneratedWasmModule;
-  await wasmModule.default();
-  const game = await wasmModule.BrowserGame.create(canvas);
-  return createBrowserGameRuntimeFromRaw(game);
+  const wasmFactory = (await import(WASM_MODULE_URL)) as GeneratedWasmFactory;
+  const module = await wasmFactory.default({
+    locateFile(path: string) {
+      return `/assets/wasm/ofg_cpp/${path}`;
+    }
+  });
+  return createBrowserGameRuntimeFromModule(module, canvas);
 }
 
-export function createBrowserGameRuntimeFromRaw(
-  game: RawBrowserGame
-): BrowserGameRuntime {
-  return new RustBrowserGameRuntime(game);
+// Creates an app-facing runtime from an already-instantiated C++ module.
+export async function createBrowserGameRuntimeFromModule(
+  module: GeneratedWasmModule,
+  canvas: HTMLCanvasElement
+): Promise<BrowserGameRuntime> {
+  const raw = await Promise.resolve(module.BrowserGame.create(canvas));
+  return createBrowserGameRuntimeFromRaw(raw);
 }
 
-class RustBrowserGameRuntime implements BrowserGameRuntime {
+// Wraps a raw Embind object behind the BrowserGameRuntime interface.
+export function createBrowserGameRuntimeFromRaw(game: RawBrowserGame): BrowserGameRuntime {
+  return new CppBrowserGameRuntime(game);
+}
+
+// Owns the raw Embind BrowserGame object and enforces dispose-before-use errors.
+class CppBrowserGameRuntime implements BrowserGameRuntime {
   readonly #game: RawBrowserGame;
   #disposed = false;
 
+  // Stores the raw Embind object for lifecycle delegation.
   constructor(game: RawBrowserGame) {
     this.#game = game;
   }
 
+  // Forwards resize only while the wrapper is live.
   resize(width: number, height: number, devicePixelRatio: number): void {
     this.#assertLive();
     this.#game.resize(width, height, devicePixelRatio);
   }
 
+  // Forwards frame only while the wrapper is live.
   frame(timeMs: number): void {
     this.#assertLive();
     this.#game.frame(timeMs);
   }
 
+  // Parses the C++ debug-status JSON through the shared validator.
   debugStatus(): RuntimeDebugStatus {
     this.#assertLive();
     return parseRuntimeDebugStatus(this.#game.debug_status_json());
   }
 
+  // Disposes the C++ runtime once and releases the Embind wrapper.
   dispose(): void {
     if (this.#disposed) {
       return;
     }
     this.#game.dispose();
-    this.#game.free();
+    this.#game.delete();
     this.#disposed = true;
   }
 
+  // Throws the stable disposed-runtime error used by tests and callers.
   #assertLive(): void {
     if (this.#disposed) {
       throw new Error("Browser game runtime has been disposed.");
@@ -95,6 +135,7 @@ class RustBrowserGameRuntime implements BrowserGameRuntime {
   }
 }
 
+// Parses and validates the runtime debug-status JSON payload.
 export function parseRuntimeDebugStatus(json: string): RuntimeDebugStatus {
   const value = JSON.parse(json) as unknown;
   if (!isRecord(value)) {
@@ -118,10 +159,12 @@ export function parseRuntimeDebugStatus(json: string): RuntimeDebugStatus {
   };
 }
 
+// Reports whether a parsed JSON value is an object record.
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// Requires a debug-status field to be boolean.
 function requireBoolean(
   record: Partial<RuntimeDebugStatusRecord>,
   key: keyof RuntimeDebugStatus
@@ -133,6 +176,7 @@ function requireBoolean(
   return value;
 }
 
+// Requires a debug-status field to be a string.
 function requireString(
   record: Partial<RuntimeDebugStatusRecord>,
   key: keyof RuntimeDebugStatus
@@ -144,6 +188,7 @@ function requireString(
   return value;
 }
 
+// Requires a debug-status field to be a string or null.
 function requireNullableString(
   record: Partial<RuntimeDebugStatusRecord>,
   key: keyof RuntimeDebugStatus
@@ -155,6 +200,7 @@ function requireNullableString(
   throw new Error(`Runtime debug status field ${key} must be a string or null.`);
 }
 
+// Requires a debug-status field to be a finite number.
 function requireFiniteNumber(
   record: Partial<RuntimeDebugStatusRecord>,
   key: keyof RuntimeDebugStatus
@@ -166,6 +212,7 @@ function requireFiniteNumber(
   return value;
 }
 
+// Requires a debug-status field to be a non-negative integer.
 function requireNonNegativeInteger(
   record: Partial<RuntimeDebugStatusRecord>,
   key: keyof RuntimeDebugStatus
