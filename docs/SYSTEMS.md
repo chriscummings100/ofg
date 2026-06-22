@@ -18,18 +18,19 @@ Public interfaces:
 
 Communication contracts:
 
-- BrowserHost supplies physical canvas width, physical canvas height, and clamped device pixel ratio to BootstrapRuntime.
+- BrowserHost supplies physical canvas width, physical canvas height, and clamped device pixel ratio to the C++ `BrowserGame` facade.
 - BrowserHost must preserve zero-size canvas axes. Zero size is a recoverable state that C++ reports through debug status instead of a host-side failure.
 - BrowserHost may inspect runtime debug JSON and display fatal startup failures, but must not reach into renderer internals or generated WASM glue.
 
 ## BootstrapRuntime
 
-The bootstrap runtime is the C++/WASM facade exposed to TypeScript. It owns frame counting, debug-status serialization, WebGPU instance/adapter/device/surface setup in the browser, surface resize policy, frame submission, and Embind lifecycle ownership.
+The bootstrap runtime is the C++/WASM facade exposed to TypeScript. `BrowserGame` owns the browser-specific frame driver: WebGPU instance/adapter/device/surface setup, surface resize policy, surface texture acquisition, command encoder creation, command-buffer finish, queue submit, and Embind lifecycle ownership. Shared `Game` owns frame counting, debug-status serialization, renderer resources, target validation, and render command recording for one WebGPU device lifetime.
 
 Public interfaces:
 
 - `cpp/CMakeLists.txt` defines the C++ core library, doctest executable, CTest registration, browser Emscripten module, and native Dawn smoke target.
-- `cpp/include/ofg/runtime/browser_runtime.hpp` owns portable runtime state and lifecycle behavior.
+- `cpp/include/ofg/game/game.hpp` exposes the shared device-bound `Game` object used by browser and native frame drivers.
+- `cpp/include/ofg/game/game_runtime.hpp` owns portable runtime state, lifecycle behavior, debug status, and renderer counters.
 - `cpp/include/ofg/web/browser_game.hpp` exposes the Embind-facing `BrowserGame` facade.
 - `tools/build-cpp-wasm.mjs` builds `assets/wasm/ofg_cpp/ofg_cpp.js` and `assets/wasm/ofg_cpp/ofg_cpp.wasm` through CMake and Emscripten.
 - `tools/test-cpp.mjs` runs the C++ doctest executable through CMake/CTest.
@@ -39,13 +40,13 @@ Public interfaces:
 Communication contracts:
 
 - BootstrapRuntime consumes only the canvas and resize/frame calls supplied by BrowserHost.
-- BootstrapRuntime delegates draw encoding to BootstrapRenderer and keeps simulation/game ownership in C++.
+- `BrowserGame` delegates frame state and render command recording to `Game`, while keeping browser surface acquisition and one queue submit per frame in the browser frame driver.
 - The `debug_status_json()` fields are a public inspection contract for TypeScript tests, Playwright smoke, and later diagnostics.
-- `dispose()` releases WebGPU resources and makes the runtime inert while preserving useful disposed-call errors for callers.
+- `dispose()` destroys `Game` before releasing borrowed WebGPU device and queue handles, then releases browser WebGPU resources.
 
 ## BootstrapRenderer
 
-The bootstrap renderer is the C++ renderer used by both browser WebGPU and native Dawn smoke. It owns the initial WGSL shader, triangle vertex data, clear color, render pipeline, vertex buffer, resource counters, and draw submission for the current visual contract.
+The bootstrap renderer is the current C++ triangle renderer used behind shared `Game` in browser and native frame drivers. It owns the initial WGSL shader, triangle vertex data, clear color, render pipeline, vertex buffer, resource counters, and render command encoding for the current visual contract.
 
 Public interfaces:
 
@@ -55,7 +56,7 @@ Public interfaces:
 
 Communication contracts:
 
-- BootstrapRuntime and NativeRenderSmoke must use equivalent renderer, shader, scene data, and clear color.
+- Shared `Game` must use equivalent renderer, shader, scene data, and clear color regardless of whether the frame target comes from the browser surface or native offscreen texture.
 - The renderer requests no optional GPU features and creates durable resources during initialization, not every frame.
 - Surface/texture format may differ between browser and native targets, but the visual contract remains a dark blue-gray background plus red/green/blue triangle.
 
@@ -79,20 +80,20 @@ Communication contracts:
 
 ## NativeRenderSmoke
 
-The native render smoke is a browser-free C++ render harness. It builds a pinned Dawn native backend with Clang, creates a Vulkan WebGPU device, renders the C++ BootstrapRenderer into an offscreen texture, copies pixels through a padded readback buffer, writes a PNG, and records color-coverage diagnostics.
+The native render smoke is a browser-free C++ render harness. It builds an installed Dawn native backend with Clang, creates a Vulkan WebGPU device, renders the shared `Game` into an offscreen texture, copies pixels through a padded readback buffer, writes a PNG, and records color-coverage diagnostics.
 
 Public interfaces:
 
 - `npm run smoke:render` runs the harness with the default output directory.
-- `tools/setup-dawn.mjs` pins the Dawn source checkout used by the native C++ smoke.
-- `tools/smoke-render-cpp.mjs` configures/builds/runs the C++ Dawn executable and passes in `tools/smoke-contract.json`.
+- `OFG_DAWN_SOURCE_DIR` points at the installed Dawn source checkout used by the native C++ smoke.
+- `tools/smoke-render-cpp.mjs` verifies the Dawn checkout, configures/builds/runs the C++ Dawn executable, and passes in `tools/smoke-contract.json`.
 - `cpp/src/native/render_smoke_main.cpp` provides the native C++ smoke executable entry point.
 - Output artifacts are `bootstrap.png` and `report.json` in the chosen output directory, normally `artifacts/render-smoke`.
 
 Communication contracts:
 
 - NativeRenderSmoke reads `tools/smoke-contract.json` through the Node wrapper and passes those values to the native executable.
-- NativeRenderSmoke shares C++ renderer code with browser smoke but uses an offscreen texture instead of a browser surface.
+- NativeRenderSmoke shares the C++ `Game` render path with browser smoke but uses an offscreen texture instead of a browser surface.
 - The report JSON is the machine-readable contract for CI, human review, and coverage runs.
 
 ## CoverageGuardrails
@@ -111,7 +112,7 @@ Public interfaces:
 Communication contracts:
 
 - Checked implementation files must meet the documented line coverage threshold, currently 90%.
-- Exceptions must be explicit. Current exceptions cover browser-only C++ WASM/WebGPU glue and draw submission through browser smoke, native Dawn smoke behavior through `npm run smoke:render`, and browser entrypoint behavior through `npm run smoke:browser`.
+- Exceptions must be explicit. Current exceptions cover browser-only C++ WASM/WebGPU glue and frame-driver submission through browser smoke, device-bound `Game` command encoding through WASM/native smoke, native Dawn smoke behavior through `npm run smoke:render`, and browser entrypoint behavior through `npm run smoke:browser`.
 - Global summary percentages can include exception files; use the wrapper pass/fail output to decide whether the gate passed.
 
 ## DeploymentPackaging
@@ -123,6 +124,7 @@ Public interfaces:
 - `npm run package:site` rebuilds and packages the deploy directory.
 - `npm run package:site:from-build` packages an already-built app.
 - `npm run build:cloudflare` is the Cloudflare Pages build command.
+- `npm run deploy -- --project-name=ofg` packages and uploads the site through local Wrangler.
 - `.deploy/` is the generated Pages output directory.
 - `.deploy/_headers` defines the cross-origin isolation and cache policy for the static app.
 

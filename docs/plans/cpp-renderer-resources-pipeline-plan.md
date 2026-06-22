@@ -32,12 +32,32 @@ This is not intended to become a full asset database yet. The goal is a concrete
 - [x] (2026-06-20 18:05Z) Confirmed the active runtime is C++/WASM with TypeScript as a narrow host, browser WebGPU through Emdawnwebgpu, native offscreen rendering through pinned Dawn, C++ tests through doctest/CTest, and coverage through Clang/LLVM.
 - [x] (2026-06-20 18:05Z) Drafted this C++-first replacement plan at `C:\dev\ofg\docs\plans\cpp-renderer-resources-pipeline-plan.md`.
 - [x] (2026-06-20 18:15Z) Reviewed this plan through local correctness, completeness, clarity, efficiency, performance, contract, code-quality, legacy, and validation passes during Milestone 6 of the C++/WASM migration.
+- [x] (2026-06-21 21:56Z) Aligned the future renderer entry-point sketch with the shared `Game::render` boundary; explicit asset mutation APIs may still receive `GpuContext`.
 - [ ] Re-review and refine this plan before implementation if resource ownership, shader variant, asset loading, or scope expectations change.
 - [ ] Milestone 1: add CPU-side C++ typed handles, stores, asset records, property bags, validation, and doctest coverage.
 - [ ] Milestone 2: add single-device WebGPU state and mutation/update methods to Texture, Shader, Material, and Mesh.
 - [ ] Milestone 3: replace the BootstrapRenderer path with an opaque-pass renderer that consumes DrawList and asset stores.
 - [ ] Milestone 4: build the animated plane-and-cubes demo scene in C++ and integrate it into browser and native smoke.
 - [ ] Milestone 5: update docs, API contracts, visual smoke contracts, screenshots, coverage records, and any package/deployment assumptions.
+
+## TODO
+
+Deferred post-migration code-review suggestions from 2026-06-20. These are recorded here for planning only; do not treat them as implemented until a later milestone explicitly takes them on.
+
+- [ ] Fix device-lost and uncaptured-error callback userdata lifetime in `cpp/src/web/browser_game.cpp`. The current device callback userdata is owned by `BrowserGame` and can be reset during teardown; move it to storage that cannot be freed while callbacks may still fire, or add a safe inactive/cancellation path.
+- [ ] Finish surface-loss recovery in `BrowserGame::render_frame_if_ready`. `Timeout` and `Outdated` now stay recoverable while preserving durable `Game` resources; surface-loss-style states still need a clearer recreate path.
+- [ ] Preserve WebGPU subsystem errors until real recovery. `Game::tick` and valid `resize` calls should not erase adapter/device/render failures before TypeScript or smoke diagnostics can observe them.
+- [ ] Decide and align the device-pixel-ratio reconfiguration contract. Either include DPR in the runtime/browser surface configuration key and tests, or update `docs/API_CONTRACTS.md` and smoke expectations to say only backing-size changes reconfigure the surface.
+- [ ] Escape or replace existing canvas ids before building the Emdawn CSS selector. Valid DOM ids such as `game.canvas` should not break `BrowserGame::create`.
+- [ ] Require pinned desktop LLVM for `npm run test:cpp`. Remove the Emscripten/PATH Clang fallback from `tools/test-cpp.mjs` so native tests prove the same compiler-family contract as coverage and native smoke.
+- [ ] Reduce per-frame TypeScript debug/status overhead in `src/app/main.ts`. Keep `window.__ofgDebugStatus` available for smoke and diagnostics, but throttle or debug-gate JSON status serialization/parsing and DOM text updates.
+- [ ] Replace per-frame canvas layout polling with a lower-overhead resize path before the browser UI grows. Consider `ResizeObserver`, DPR-change handling, and dirty-size tracking so `getBoundingClientRect()` is not read every animation frame.
+- [ ] Add failure-path WebGPU coverage for adapter/device request failures, device loss, uncaptured errors, surface acquisition failure, encoder/finish failure, and dispose-before-callback behavior.
+- [ ] Add PNG artifact validation for native smoke output, either through a small doctest around `write_rgba_png` or by having `tools/smoke-render-cpp.mjs` decode the generated PNG with `pngjs`.
+- [ ] Add direct tests for WebGPU helper functions such as enum/status string names, `failure_message`, and surface format selection/fallback behavior.
+- [ ] Deduplicate shared WebGPU string/format helpers between `cpp/src/render/webgpu_common.cpp` and `cpp/src/web/webgpu_utils.cpp` so browser/native labels cannot drift.
+- [ ] Extract shared native C++ toolchain helpers from `tools/test-cpp.mjs`, `tools/cpp-coverage.mjs`, and `tools/smoke-render-cpp.mjs` before the next build-tooling expansion.
+- [ ] Harden native smoke argument parsing in `cpp/src/native/render_smoke.cpp`: require full-string numeric consumption, reject signed unsigned values consistently, and validate finite/sensible threshold ranges.
 
 ## Surprises & Discoveries
 
@@ -67,6 +87,10 @@ This is not intended to become a full asset database yet. The goal is a concrete
 - Decision: Do not make the device global.
   Rationale: Browser runtime and native smoke own the active `WGPUDevice` and `WGPUQueue`. Asset mutation methods should receive an explicit borrowed GPU context only when they need GPU work.
   Date/Author: 2026-06-20 / Codex
+
+- Decision: Treat `Game::render` as the top-level browser/native render boundary for this renderer-resource plan.
+  Rationale: Browser and native frame drivers should acquire targets, create command encoders, append platform work, finish command buffers, and submit; shared game/renderer code should record render commands through a plain `render` method without receiving a per-frame `GpuContext`.
+  Date/Author: 2026-06-21 / User and Codex
 
 - Decision: Keep pipeline caching in the renderer, not in generic asset stores.
   Rationale: Render pipelines depend on shader revision, variant, target color/depth formats, vertex layout, primitive state, depth state, sample count, and bind group layouts. They are render-state combinations rather than standalone assets.
@@ -98,7 +122,7 @@ This plan must preserve or intentionally update the active contracts in `C:\dev\
 
 OFG-BOOT-001 TypeScript Host Ownership is preserved. TypeScript may keep creating the canvas, resizing it, loading WASM, and displaying errors. It must not own asset stores, mesh/material/texture/shader mutation, GPU pipeline setup, scene data, or draw submission.
 
-OFG-BOOT-002 C++ Runtime Ownership is preserved and expanded. C++ continues to own frame state, scene data, WebGPU resources, renderer setup, draw submission, browser runtime behavior, and native Dawn offscreen rendering. The hard-coded bootstrap scene becomes a C++ demo scene built from mutable asset stores.
+OFG-BOOT-002 C++ Runtime Ownership is preserved and expanded. C++ continues to own frame state, scene data, WebGPU resources, renderer setup, browser runtime behavior, native Dawn offscreen rendering, and platform queue submission. Shared `Game` owns renderer resources and render command recording; browser and native frame drivers own target acquisition, command-buffer finish, and submit. The hard-coded bootstrap scene becomes a C++ demo scene built from mutable asset stores.
 
 OFG-BOOT-003 WASM Facade is preserved. The browser facade should still expose create, resize, frame, debug status, and dispose. The existing `frame(time_ms)` input supplies time to C++; this plan does not require a new TypeScript render API.
 
@@ -120,7 +144,7 @@ Quality constraints from `C:\dev\ofg\AGENTS.md` apply: every function written sh
 
 The repository root is `C:\dev\ofg`. It is now a C++/WASM runtime with a TypeScript browser host.
 
-`C:\dev\ofg\cpp\CMakeLists.txt` builds the portable core library, doctest executable, browser Emscripten module, and native Dawn render-smoke executable. C++ browser builds use Emscripten, Embind, and Emdawnwebgpu. Native render smoke uses pinned Dawn through `tools/setup-dawn.mjs` and `tools/smoke-render-cpp.mjs`.
+`C:\dev\ofg\cpp\CMakeLists.txt` builds one shared WebGPU-capable OFG C++ library, the doctest executable, browser Emscripten module, and native Dawn render-smoke executable. C++ browser builds use Emscripten, Embind, and Emdawnwebgpu. Native render smoke uses an installed Dawn checkout supplied through `OFG_DAWN_SOURCE_DIR` and `tools/smoke-render-cpp.mjs`.
 
 `C:\dev\ofg\cpp\include\ofg\render\bootstrap_renderer.hpp` and `C:\dev\ofg\cpp\src\render\bootstrap_renderer.cpp` contain the current hard-coded bootstrap renderer. It creates one shader module, one render pipeline, and one vertex buffer for the red/green/blue triangle.
 
@@ -501,9 +525,8 @@ Renderer interface:
           WGPUDevice device,
           WGPUTextureFormat color_format,
           std::string& error);
-      bool resize(WGPUDevice device, uint32_t width, uint32_t height, std::string& error);
-      bool render_to_view(
-          GpuContext gpu,
+      bool resize(uint32_t width, uint32_t height, std::string& error);
+      bool render(
           WGPUCommandEncoder encoder,
           WGPUTextureView target,
           const Assets& assets,

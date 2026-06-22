@@ -8,13 +8,10 @@
 
 #include <string>
 
-#ifdef OFG_ENABLE_WEBGPU_RENDERER
 #include <webgpu/webgpu.h>
-#endif
 
 namespace ofg::gpu {
 
-#ifdef OFG_ENABLE_WEBGPU_RENDERER
 // Builds a null-terminated WebGPU string view from a string literal.
 [[nodiscard]] WGPUStringView cstring_view(const char* value) noexcept;
 
@@ -29,6 +26,5 @@ namespace ofg::gpu {
 
 // Converts a native Dawn backend type into the smoke report label.
 [[nodiscard]] std::string backend_type_name(WGPUBackendType backend);
-#endif
 
 } // namespace ofg::gpu

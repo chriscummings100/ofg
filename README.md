@@ -4,14 +4,10 @@ OFG is a browser-native online factory game. The current bootstrap is C++/WASM p
 
 ## Commands
 
-Use Node.js 20 or newer locally; Cloudflare Pages is pinned with `.node-version`. C++ builds use pinned Emscripten, LLVM/Clang, Ninja, and Dawn toolchain sources managed by npm setup scripts.
+Use Node.js 20 or newer locally; Cloudflare Pages is pinned with `.node-version`. C++ builds use system-installed Emscripten, LLVM/Clang, Ninja, CMake, and Dawn as described in `DEVELOPING.md`. Repository commands verify and use those tools; they do not install compiler toolchains.
 
 ```powershell
 npm install
-npm run setup:emscripten
-npm run setup:llvm
-npm run setup:ninja
-npm run setup:dawn
 npm run build:wasm
 npm run build
 npm run test:cpp
@@ -25,6 +21,7 @@ npm run coverage:ts
 npm run coverage
 npm run package:site
 npm run build:cloudflare
+npm run deploy -- --project-name=ofg
 npm run dev
 ```
 
@@ -45,4 +42,4 @@ Use Cloudflare Pages for this bootstrap deploy:
 - Build output directory: `.deploy`
 - Node version: `.node-version`
 
-`npm run package:site` rebuilds and recreates `.deploy/` with only runtime files, then writes `_headers` with the cross-origin isolation headers required by WebGPU. The previous OFG attempt used a Workers/static-assets route with `wrangler deploy`; that is historical only here and should not be used until a future plan adds a real `wrangler.jsonc` and Workers validation.
+`npm run package:site` rebuilds and recreates `.deploy/` with only runtime files, then writes `_headers` with the cross-origin isolation headers required by WebGPU. `npm run deploy -- --project-name=ofg` packages the site and uploads it through the local Wrangler dependency. The previous OFG attempt used a Workers/static-assets route with `wrangler deploy`; that is historical only here and should not be used until a future plan adds a real `wrangler.jsonc` and Workers validation.

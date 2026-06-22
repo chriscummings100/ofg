@@ -8,15 +8,12 @@
   },
   "scripts": {
     "clean": "node tools/clean-dist.mjs",
-    "setup:emscripten": "node tools/setup-emscripten.mjs",
-    "setup:dawn": "node tools/setup-dawn.mjs",
-    "setup:llvm": "node tools/setup-llvm.mjs",
-    "setup:ninja": "node tools/setup-ninja.mjs",
     "build:wasm": "node tools/build-cpp-wasm.mjs",
     "build": "npm run clean && npm run build:wasm && tsc -p tsconfig.app.json",
     "package:site": "npm run build && npm run package:site:from-build",
     "package:site:from-build": "node tools/package-site.mjs",
     "build:cloudflare": "node tools/cloudflare-build.mjs",
+    "deploy": "node tools/deploy-cloudflare-pages.mjs",
     "test:cpp": "node tools/test-cpp.mjs",
     "test:ts": "npm run build && tsc -p tsconfig.test.json && node --import ./dist-test/tests/ts/setupDom.js ./node_modules/mocha/bin/mocha.js \"dist-test/tests/ts/**/*.test.js\"",
     "test": "npm run test:cpp && npm run test:ts",
@@ -37,6 +34,7 @@
     "mocha": "^11.7.6",
     "playwright-core": "^1.61.0",
     "pngjs": "^7.0.0",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "wrangler": "^4.103.0"
   }
 }

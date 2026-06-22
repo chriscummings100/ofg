@@ -8,7 +8,7 @@ TypeScript may own DOM boot, canvas lookup/creation, canvas resize policy, fatal
 
 ## OFG-BOOT-002 C++ Runtime Ownership
 
-C++ owns frame state, debug status, bootstrap scene data, renderer setup, WebGPU resource creation, draw submission, browser WebGPU runtime behavior, and native Dawn offscreen rendering. The TypeScript host may call the narrow runtime facade, but it must not own renderer internals or GPU handles.
+C++ owns frame state, debug status, bootstrap scene data, renderer setup, WebGPU resource creation, browser WebGPU runtime behavior, and native Dawn offscreen rendering. Shared `Game` owns renderer resources and render command recording for one WebGPU device lifetime. Browser/native C++ frame drivers own platform target acquisition, command-buffer finish, and queue submit. The TypeScript host may call the narrow runtime facade, but it must not own renderer internals or GPU handles.
 
 ## OFG-BOOT-003 WASM Facade
 
@@ -16,7 +16,7 @@ The browser facade is narrow. TypeScript can create the runtime, resize it, requ
 
 ## OFG-BOOT-004 Renderer Compatibility
 
-Browser and native smoke must validate equivalent bootstrap renderer behavior: the same dark blue-gray clear color, the same red/green/blue triangle categories, durable pipeline/buffer creation outside ordinary frames, and reported adapter/backend/format diagnostics. Browser smoke uses Emdawnwebgpu and the browser's WebGPU implementation; native smoke uses pinned Dawn through the same `webgpu.h` style renderer API. Their visual contract and smoke thresholds stay aligned through `tools/smoke-contract.json`.
+Browser and native smoke must validate equivalent bootstrap renderer behavior: the same dark blue-gray clear color, the same red/green/blue triangle categories, durable pipeline/buffer creation outside ordinary frames, and reported adapter/backend/format diagnostics. Browser smoke uses Emdawnwebgpu and the browser's WebGPU implementation; native smoke uses an installed Dawn checkout through the same `webgpu.h` style renderer API. Their visual contract and smoke thresholds stay aligned through `tools/smoke-contract.json`.
 
 ## OFG-BOOT-005 WebGPU Baseline
 
@@ -32,8 +32,8 @@ Pipeline, shader module, vertex buffer, and bind-group-like resources must be cr
 
 ## OFG-BOOT-008 Deployment
 
-The default deployment target is Cloudflare Pages with build output directory `.deploy`. Packaged runtime files include the TypeScript app output and `assets/wasm/ofg_cpp/ofg_cpp.js` / `assets/wasm/ofg_cpp/ofg_cpp.wasm`. Workers static-assets deployment is documentation-only until a later plan adds `wrangler.jsonc`, a pinned `wrangler` dependency, and Workers validation.
+The default deployment target is Cloudflare Pages with build output directory `.deploy`. Packaged runtime files include the TypeScript app output and `assets/wasm/ofg_cpp/ofg_cpp.js` / `assets/wasm/ofg_cpp/ofg_cpp.wasm`. Local deployment uses `npm run deploy -- --project-name=ofg`, which packages the site and uploads through the Wrangler dependency pinned in `package-lock.json`. Workers static-assets deployment is documentation-only until a later plan adds `wrangler.jsonc` and Workers validation.
 
 ## OFG-BOOT-009 Coverage
 
-Implementation files should meet 90% line coverage unless an exception is recorded in the active ExecPlan. C++ native-checkable code is covered by `npm run coverage:cpp`; TypeScript is covered by `npm run coverage:ts`. Browser-only C++ WebGPU glue and draw submission are covered by `npm run build:wasm`, TypeScript adapter tests, and browser smoke. Native C++ Dawn rendering is covered by `npm run smoke:render`.
+Implementation files should meet 90% line coverage unless an exception is recorded in the active ExecPlan. C++ native-checkable code is covered by `npm run coverage:cpp`; TypeScript is covered by `npm run coverage:ts`. Browser-only C++ WebGPU glue and frame-driver submission are covered by `npm run build:wasm`, TypeScript adapter tests, and browser smoke. Native C++ Dawn rendering is covered by `npm run smoke:render`.

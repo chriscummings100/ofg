@@ -30,7 +30,9 @@ Current TypeScript exception:
 
 Current C++ exception:
 
-- `cpp/src/web/` and `cpp/src/render/bootstrap_renderer.cpp`: browser-only Emscripten/Embind/WebGPU glue and draw submission. They are covered by `npm run build:wasm`, TypeScript adapter tests, and `npm run smoke:browser` / `npm run smoke:browser:cpp` rather than native line coverage.
+- `cpp/src/game/game.cpp`: device-bound `Game` renderer ownership and command encoding. Native tests cover invalid setup before WebGPU calls, while full render behavior is covered by `npm run build:wasm`, `npm run smoke:browser:cpp`, and `npm run smoke:render` through the browser/native frame drivers that call `Game`.
+- `cpp/src/web/`: browser-only Emscripten/Embind/WebGPU glue and frame-driver submission. It is covered by `npm run build:wasm`, TypeScript adapter tests, and `npm run smoke:browser` / `npm run smoke:browser:cpp` rather than native line coverage.
+- `cpp/src/render/bootstrap_renderer.cpp`: device-bound bootstrap WebGPU renderer creation and command encoding. It is covered through `Game` by browser and native smoke rather than native line coverage.
 - `cpp/src/native/`: native Dawn smoke harness code. It is covered by `npm run smoke:render` because its value is the produced PNG/report and GPU readback behavior, not line-only unit coverage.
 
 When adding an exception, document it in the relevant coverage script, active ExecPlan, and this file. Prefer adding targeted tests over adding exceptions.

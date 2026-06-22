@@ -5,8 +5,6 @@
 // reports without repeating low-level string-view rules.
 #include "ofg/render/webgpu_common.hpp"
 
-#ifdef OFG_ENABLE_WEBGPU_RENDERER
-
 namespace ofg::gpu {
 
 // Builds a null-terminated WebGPU string view from a string literal.
@@ -75,5 +73,3 @@ std::string backend_type_name(WGPUBackendType backend) {
 }
 
 } // namespace ofg::gpu
-
-#endif

@@ -1,8 +1,8 @@
 // Embind-facing browser game facade for the C++/WASM runtime.
 #pragma once
 
-#include "ofg/render/bootstrap_renderer.hpp"
-#include "ofg/runtime/browser_runtime.hpp"
+#include "ofg/game/game.hpp"
+#include "ofg/game/game_runtime.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -67,6 +67,12 @@ private:
   void configure_surface_if_ready();
   // Acquires the current surface texture and submits one bootstrap draw.
   void render_frame_if_ready();
+  // Applies the latest accepted browser size to Game after async setup finishes.
+  bool apply_pending_resize_to_game();
+  // Records a recoverable platform error in the active status owner.
+  void record_error(std::string message);
+  // Records a GPU/device error in the active status owner.
+  void record_gpu_error(std::string message);
   // Releases all WebGPU handles in dependency order.
   void release_webgpu();
 
@@ -111,13 +117,20 @@ private:
   WGPUDevice device_{nullptr};
   WGPUQueue queue_{nullptr};
   WGPUTextureFormat surface_format_{WGPUTextureFormat_Undefined};
-  std::unique_ptr<BootstrapRenderer> renderer_;
+  std::unique_ptr<Game> game_;
+  GameRuntime setup_runtime_{
+    "Browser game runtime has been disposed.",
+    "Browser WebGPU device is not ready."
+  };
+  std::uint32_t pending_width_{0};
+  std::uint32_t pending_height_{0};
+  double pending_device_pixel_ratio_{1.0};
   std::uint32_t configured_width_{0};
   std::uint32_t configured_height_{0};
+  bool has_pending_size_{false};
   bool surface_configured_{false};
+  bool disposed_{false};
 #endif
-
-  BrowserRuntime runtime_;
 };
 
 } // namespace ofg

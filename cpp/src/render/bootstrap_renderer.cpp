@@ -5,8 +5,6 @@
 // each frame only encodes render commands into a caller-owned command encoder.
 #include "ofg/render/bootstrap_renderer.hpp"
 
-#ifdef OFG_ENABLE_WEBGPU_RENDERER
-
 #include "ofg/render/bootstrap_scene.hpp"
 #include "ofg/render/webgpu_common.hpp"
 
@@ -297,5 +295,3 @@ RendererCounters BootstrapRenderer::counters() const noexcept {
 }
 
 } // namespace ofg
-
-#endif

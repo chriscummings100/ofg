@@ -1,9 +1,8 @@
 // Cloudflare Pages build wrapper for the C++/WASM browser app.
 //
-// Pages builds need the pinned Emscripten and Ninja tools before CMake can
-// produce the browser module. The actual app build and package steps stay behind
-// npm scripts so local and deployment behavior remain aligned.
-
+// Cloudflare should receive prebuilt static files. This command builds the app,
+// packages `.deploy`, and reports the WASM size without installing any compiler
+// toolchain or Dawn checkout.
 import { existsSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
@@ -12,8 +11,6 @@ import { fileURLToPath } from "node:url";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const wasmPath = resolve(root, "assets/wasm/ofg_cpp/ofg_cpp.wasm");
 
-runNpmScript("setup:emscripten");
-runNpmScript("setup:ninja");
 runNpmScript("build");
 runNpmScript("package:site:from-build");
 printWasmSize();
@@ -30,19 +27,23 @@ function printWasmSize() {
 
 // Runs an npm script in a platform-compatible way.
 function runNpmScript(scriptName) {
-  if (process.platform === "win32") {
-    run(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `npm run ${scriptName}`]);
+  const npmExecPath = process.env.npm_execpath;
+  if (npmExecPath && existsSync(npmExecPath)) {
+    run(process.execPath, [npmExecPath, "run", scriptName]);
     return;
   }
-  run("npm", ["run", scriptName]);
+
+  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+  run(npmCommand, ["run", scriptName], { shell: process.platform === "win32" });
 }
 
-// Runs a deployment command and exits with the same failing status.
-function run(command, args) {
+// Runs a build command and exits with the same failing status.
+function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: root,
     env: process.env,
-    stdio: "inherit"
+    stdio: "inherit",
+    ...options
   });
   if (result.error !== undefined) {
     throw result.error;

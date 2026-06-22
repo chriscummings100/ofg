@@ -10,9 +10,7 @@
 #include <memory>
 #include <string>
 
-#ifdef OFG_ENABLE_WEBGPU_RENDERER
 #include <webgpu/webgpu.h>
-#endif
 
 namespace ofg {
 
@@ -21,7 +19,6 @@ struct RendererCounters {
   std::uint32_t buffer_create_count{0};
 };
 
-#ifdef OFG_ENABLE_WEBGPU_RENDERER
 // Owns bootstrap GPU resources and encodes the deterministic triangle pass.
 class BootstrapRenderer {
 public:
@@ -56,6 +53,5 @@ private:
   WGPUBuffer vertex_buffer_{nullptr};
   RendererCounters counters_{};
 };
-#endif
 
 } // namespace ofg

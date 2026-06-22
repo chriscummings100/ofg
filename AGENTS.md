@@ -58,15 +58,12 @@ Run commands from the repository root, `C:\dev\ofg`.
 
 - `npm install`: installs Node/TypeScript tooling from `package-lock.json`.
 - `npm run clean`: removes generated TypeScript build output.
-- `npm run setup:emscripten`: installs the pinned Emscripten SDK under `artifacts/toolchains/emsdk`.
-- `npm run setup:dawn`: installs the pinned Dawn source checkout under `artifacts/toolchains/dawn/src` for native C++ render smoke.
-- `npm run setup:llvm`: installs the pinned native LLVM/Clang bundle under `artifacts/toolchains/llvm`.
-- `npm run setup:ninja`: installs the pinned Ninja generator under `artifacts/toolchains/ninja`.
 - `npm run build:wasm`: builds the C++/WASM package and generated JS glue into `assets/wasm/ofg_cpp`.
 - `npm run build`: cleans, builds WASM, and compiles the browser TypeScript app.
 - `npm run package:site`: rebuilds the app and packages Cloudflare Pages output into `.deploy`.
 - `npm run package:site:from-build`: packages `.deploy` from an already-built app, useful when a caller has just run `npm run build`.
 - `npm run build:cloudflare`: Cloudflare Pages build command; packages the site and reports deployable WASM size.
+- `npm run deploy -- --project-name=ofg`: packages `.deploy` and uploads it to the Cloudflare Pages project through local Wrangler.
 - `npm run dev`: builds the app and starts the local static dev server, normally at `http://127.0.0.1:5173`.
 - `npm run smoke:browser`: builds the app, controls a browser through Playwright core, and validates browser startup/render behavior.
 - `npm run smoke:browser:cpp`: runs the focused C++/WASM browser fixture and validates WebGPU initialization/status behavior plus bootstrap triangle pixels.

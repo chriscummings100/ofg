@@ -2,8 +2,12 @@
 #include "ofg/web/browser_game.hpp"
 #include "ofg/web/webgpu_utils.hpp"
 
+#include <cmath>
 #include <cstdint>
+#include <limits>
 #include <memory>
+#include <optional>
+#include <sstream>
 #include <string>
 #include <utility>
 
@@ -15,6 +19,32 @@ struct BrowserGameWebGpuCallbackContext {
 };
 
 namespace {
+
+// Formats numeric validation failures consistently for runtime status JSON.
+std::string number_message(const char* label, double value) {
+  std::ostringstream out;
+  out << label << " must be a non-negative integer within uint32 range, got " << value << ".";
+  return out.str();
+}
+
+// Converts JavaScript numeric dimensions into the uint32 WebGPU size domain.
+std::optional<std::uint32_t> parse_dimension(
+  const char* label,
+  double value,
+  std::string& error
+) {
+  if (!std::isfinite(value) || value < 0.0 || std::trunc(value) != value) {
+    error = number_message(label, value);
+    return std::nullopt;
+  }
+  constexpr double max_dimension =
+    static_cast<double>(std::numeric_limits<std::uint32_t>::max());
+  if (value > max_dimension) {
+    error = number_message(label, value);
+    return std::nullopt;
+  }
+  return static_cast<std::uint32_t>(value);
+}
 
 // Reclaims callback heap context exactly once when Emdawn invokes a callback.
 std::unique_ptr<BrowserGameWebGpuCallbackContext> consume_context(void* context) {
@@ -62,10 +92,53 @@ void BrowserGame::resize(
   double height,
   double device_pixel_ratio
 ) {
-  if (runtime_.resize(width, height, device_pixel_ratio)) {
+  if (disposed_) {
+    record_error("Browser game runtime has been disposed.");
+    return;
+  }
+
+  std::string error;
+  const std::optional<std::uint32_t> parsed_width =
+    parse_dimension("Canvas width", width, error);
+  if (!parsed_width.has_value()) {
+    record_error(error);
+    return;
+  }
+  const std::optional<std::uint32_t> parsed_height =
+    parse_dimension("Canvas height", height, error);
+  if (!parsed_height.has_value()) {
+    record_error(error);
+    return;
+  }
+
+  if (game_ != nullptr) {
+    if (game_->resize(
+          *parsed_width,
+          *parsed_height,
+          device_pixel_ratio,
+          error
+        )) {
+      pending_width_ = *parsed_width;
+      pending_height_ = *parsed_height;
+      pending_device_pixel_ratio_ = device_pixel_ratio;
+      has_pending_size_ = true;
 #ifdef __EMSCRIPTEN__
-    configure_surface_if_ready();
+      configure_surface_if_ready();
 #endif
+    }
+    return;
+  }
+
+  if (setup_runtime_.resize(
+        *parsed_width,
+        *parsed_height,
+        device_pixel_ratio,
+        error
+      )) {
+    pending_width_ = *parsed_width;
+    pending_height_ = *parsed_height;
+    pending_device_pixel_ratio_ = device_pixel_ratio;
+    has_pending_size_ = true;
   }
 }
 
@@ -76,16 +149,30 @@ void BrowserGame::frame(double time_ms) {
     wgpuInstanceProcessEvents(instance_);
   }
 #endif
-  if (runtime_.frame(time_ms)) {
-#ifdef __EMSCRIPTEN__
-    render_frame_if_ready();
-#endif
+  if (disposed_) {
+    record_error("Browser game runtime has been disposed.");
+    return;
   }
+
+  std::string error;
+  if (game_ != nullptr) {
+    if (game_->tick(time_ms, error)) {
+#ifdef __EMSCRIPTEN__
+      render_frame_if_ready();
+#endif
+    }
+    return;
+  }
+
+  (void)setup_runtime_.tick(time_ms, error);
 }
 
 // Returns the browser-facing debug-status JSON payload.
 std::string BrowserGame::debug_status_json() const {
-  return runtime_.debug_status_json();
+  if (game_ != nullptr) {
+    return game_->debug_status_json();
+  }
+  return setup_runtime_.debug_status_json();
 }
 
 // Releases WebGPU resources and makes later lifecycle calls fail clearly.
@@ -93,7 +180,8 @@ void BrowserGame::dispose() {
 #ifdef __EMSCRIPTEN__
   release_webgpu();
 #endif
-  runtime_.dispose();
+  disposed_ = true;
+  setup_runtime_.dispose();
 }
 
 #ifdef __EMSCRIPTEN__
@@ -102,7 +190,7 @@ void BrowserGame::start_webgpu_initialization(std::weak_ptr<BrowserGame> self) {
   WGPUInstanceDescriptor instance_descriptor = WGPU_INSTANCE_DESCRIPTOR_INIT;
   instance_ = wgpuCreateInstance(&instance_descriptor);
   if (instance_ == nullptr) {
-    (void)runtime_.mark_webgpu_error("wgpuCreateInstance returned null.");
+    record_gpu_error("wgpuCreateInstance returned null.");
     return;
   }
 
@@ -115,7 +203,7 @@ void BrowserGame::start_webgpu_initialization(std::weak_ptr<BrowserGame> self) {
   surface_descriptor.label = webgpu::cstring_view("OFG C++ WebGPU canvas surface");
   surface_ = wgpuInstanceCreateSurface(instance_, &surface_descriptor);
   if (surface_ == nullptr) {
-    (void)runtime_.mark_webgpu_error("wgpuInstanceCreateSurface returned null.");
+    record_gpu_error("wgpuInstanceCreateSurface returned null.");
     return;
   }
 
@@ -165,7 +253,7 @@ void BrowserGame::on_adapter_request(
   WGPUStringView message,
   std::weak_ptr<BrowserGame> self
 ) {
-  if (runtime_.disposed()) {
+  if (disposed_) {
     if (adapter != nullptr) {
       wgpuAdapterRelease(adapter);
     }
@@ -173,7 +261,7 @@ void BrowserGame::on_adapter_request(
   }
 
   if (status != WGPURequestAdapterStatus_Success || adapter == nullptr) {
-    (void)runtime_.mark_webgpu_error(
+    record_gpu_error(
       webgpu::failure_message(
         "requestAdapter",
         webgpu::request_adapter_status_name(status),
@@ -193,7 +281,7 @@ void BrowserGame::on_device_request(
   WGPUDevice device,
   WGPUStringView message
 ) {
-  if (runtime_.disposed()) {
+  if (disposed_) {
     if (device != nullptr) {
       wgpuDeviceRelease(device);
     }
@@ -201,7 +289,7 @@ void BrowserGame::on_device_request(
   }
 
   if (status != WGPURequestDeviceStatus_Success || device == nullptr) {
-    (void)runtime_.mark_webgpu_error(
+    record_gpu_error(
       webgpu::failure_message(
         "requestDevice",
         webgpu::request_device_status_name(status),
@@ -214,7 +302,7 @@ void BrowserGame::on_device_request(
   device_ = device;
   queue_ = wgpuDeviceGetQueue(device_);
   if (queue_ == nullptr) {
-    (void)runtime_.mark_webgpu_error("wgpuDeviceGetQueue returned null.");
+    record_gpu_error("wgpuDeviceGetQueue returned null.");
     return;
   }
 
@@ -224,37 +312,37 @@ void BrowserGame::on_device_request(
     wgpuSurfaceGetCapabilities(surface_, adapter_, &capabilities);
   if (capabilities_status != WGPUStatus_Success || capabilities.formatCount == 0) {
     wgpuSurfaceCapabilitiesFreeMembers(capabilities);
-    (void)runtime_.mark_webgpu_error("wgpuSurfaceGetCapabilities returned no formats.");
+    record_gpu_error("wgpuSurfaceGetCapabilities returned no formats.");
     return;
   }
 
   surface_format_ = webgpu::choose_surface_format(capabilities);
   wgpuSurfaceCapabilitiesFreeMembers(capabilities);
   if (surface_format_ == WGPUTextureFormat_Undefined) {
-    (void)runtime_.mark_webgpu_error("No usable WebGPU surface format was found.");
+    record_gpu_error("No usable WebGPU surface format was found.");
     return;
   }
 
-  // Build shader/pipeline/buffer resources once after device creation.
-  std::string renderer_error;
-  renderer_ =
-    BootstrapRenderer::create(device_, queue_, surface_format_, renderer_error);
-  if (!renderer_) {
-    (void)runtime_.mark_webgpu_error(std::move(renderer_error));
+  // Create the shared Game once after browser device and format selection.
+  std::string game_error;
+  game_ = Game::create(
+    GpuContext{
+      device_,
+      queue_,
+      webgpu::adapter_name_from_info(adapter_),
+      "BrowserWebGpu"
+    },
+    surface_format_,
+    game_error
+  );
+  if (!game_) {
+    record_gpu_error(std::move(game_error));
     return;
   }
 
-  (void)runtime_.mark_webgpu_ready(
-    webgpu::adapter_name_from_info(adapter_),
-    "BrowserWebGpu",
-    webgpu::texture_format_name(surface_format_)
-  );
-  const RendererCounters counters = renderer_->counters();
-  (void)runtime_.mark_renderer_counters(
-    counters.pipeline_create_count,
-    counters.buffer_create_count
-  );
-  configure_surface_if_ready();
+  if (apply_pending_resize_to_game()) {
+    configure_surface_if_ready();
+  }
 }
 
 // Records device-loss callbacks into runtime debug status.
@@ -262,10 +350,10 @@ void BrowserGame::on_device_lost(
   WGPUDeviceLostReason reason,
   WGPUStringView message
 ) {
-  if (runtime_.disposed()) {
+  if (disposed_) {
     return;
   }
-  (void)runtime_.mark_webgpu_error(
+  record_gpu_error(
     webgpu::failure_message(
       "device lost",
       webgpu::device_lost_reason_name(reason),
@@ -276,10 +364,10 @@ void BrowserGame::on_device_lost(
 
 // Records uncaptured WebGPU errors into runtime debug status.
 void BrowserGame::on_uncaptured_error(WGPUErrorType type, WGPUStringView message) {
-  if (runtime_.disposed()) {
+  if (disposed_) {
     return;
   }
-  (void)runtime_.mark_webgpu_error(
+  record_gpu_error(
     webgpu::failure_message(
       "uncaptured WebGPU error",
       webgpu::error_type_name(type),
@@ -291,15 +379,16 @@ void BrowserGame::on_uncaptured_error(WGPUErrorType type, WGPUStringView message
 // Configures or unconfigures the surface to match the current canvas size.
 void BrowserGame::configure_surface_if_ready() {
   if (
+    game_ == nullptr ||
     surface_ == nullptr ||
     device_ == nullptr ||
     surface_format_ == WGPUTextureFormat_Undefined ||
-    runtime_.disposed()
+    disposed_
   ) {
     return;
   }
 
-  const RuntimeDebugStatus& status = runtime_.status();
+  const RuntimeDebugStatus& status = game_->status();
   if (status.canvas_width == 0 || status.canvas_height == 0) {
     if (surface_configured_) {
       wgpuSurfaceUnconfigure(surface_);
@@ -307,7 +396,6 @@ void BrowserGame::configure_surface_if_ready() {
       configured_width_ = 0;
       configured_height_ = 0;
     }
-    (void)runtime_.mark_surface_configured();
     return;
   }
 
@@ -333,13 +421,12 @@ void BrowserGame::configure_surface_if_ready() {
   surface_configured_ = true;
   configured_width_ = status.canvas_width;
   configured_height_ = status.canvas_height;
-  (void)runtime_.mark_surface_configured();
 }
 
 // Acquires the current surface texture and submits one bootstrap draw.
 void BrowserGame::render_frame_if_ready() {
   if (
-    !runtime_.status().initialized ||
+    game_ == nullptr ||
     surface_ == nullptr ||
     device_ == nullptr ||
     queue_ == nullptr ||
@@ -347,8 +434,9 @@ void BrowserGame::render_frame_if_ready() {
   ) {
     return;
   }
-  if (!renderer_) {
-    (void)runtime_.mark_webgpu_error("Bootstrap renderer is not initialized.");
+
+  const RuntimeDebugStatus& status = game_->status();
+  if (status.canvas_width == 0 || status.canvas_height == 0) {
     return;
   }
 
@@ -359,18 +447,33 @@ void BrowserGame::render_frame_if_ready() {
     surface_texture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal ||
     surface_texture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal;
   if (!texture_ready || surface_texture.texture == nullptr) {
-    (void)runtime_.mark_webgpu_error(
+    if (surface_texture.texture != nullptr) {
+      wgpuTextureRelease(surface_texture.texture);
+    }
+    const std::string message =
       "wgpuSurfaceGetCurrentTexture failed with status " +
-      webgpu::surface_texture_status_name(surface_texture.status) +
-      "."
-    );
+      webgpu::surface_texture_status_name(surface_texture.status) + ".";
+    if (
+      surface_texture.status == WGPUSurfaceGetCurrentTextureStatus_Timeout ||
+      surface_texture.status == WGPUSurfaceGetCurrentTextureStatus_Outdated
+    ) {
+      record_error(message);
+      if (surface_texture.status == WGPUSurfaceGetCurrentTextureStatus_Outdated) {
+        surface_configured_ = false;
+        configured_width_ = 0;
+        configured_height_ = 0;
+        configure_surface_if_ready();
+      }
+    } else {
+      record_gpu_error(message);
+    }
     return;
   }
 
   WGPUTextureView view = wgpuTextureCreateView(surface_texture.texture, nullptr);
   if (view == nullptr) {
     wgpuTextureRelease(surface_texture.texture);
-    (void)runtime_.mark_webgpu_error("wgpuTextureCreateView returned null.");
+    record_gpu_error("wgpuTextureCreateView returned null.");
     return;
   }
 
@@ -383,16 +486,19 @@ void BrowserGame::render_frame_if_ready() {
   if (encoder == nullptr) {
     wgpuTextureViewRelease(view);
     wgpuTextureRelease(surface_texture.texture);
-    (void)runtime_.mark_webgpu_error("wgpuDeviceCreateCommandEncoder returned null.");
+    record_gpu_error("wgpuDeviceCreateCommandEncoder returned null.");
     return;
   }
 
   std::string render_error;
-  if (!renderer_->render_to_view(encoder, view, render_error)) {
+  if (!game_->render(
+        encoder,
+        RenderTarget{view, surface_format_, status.canvas_width, status.canvas_height},
+        render_error
+      )) {
     wgpuCommandEncoderRelease(encoder);
     wgpuTextureViewRelease(view);
     wgpuTextureRelease(surface_texture.texture);
-    (void)runtime_.mark_webgpu_error(std::move(render_error));
     return;
   }
 
@@ -405,7 +511,7 @@ void BrowserGame::render_frame_if_ready() {
     wgpuCommandEncoderRelease(encoder);
     wgpuTextureViewRelease(view);
     wgpuTextureRelease(surface_texture.texture);
-    (void)runtime_.mark_webgpu_error("wgpuCommandEncoderFinish returned null.");
+    record_gpu_error("wgpuCommandEncoderFinish returned null.");
     return;
   }
 
@@ -418,6 +524,39 @@ void BrowserGame::render_frame_if_ready() {
   wgpuTextureRelease(surface_texture.texture);
 }
 
+// Applies the latest accepted browser size to Game after async setup finishes.
+bool BrowserGame::apply_pending_resize_to_game() {
+  if (game_ == nullptr || !has_pending_size_) {
+    return game_ != nullptr;
+  }
+
+  std::string error;
+  return game_->resize(
+    pending_width_,
+    pending_height_,
+    pending_device_pixel_ratio_,
+    error
+  );
+}
+
+// Records a recoverable platform error in the active status owner.
+void BrowserGame::record_error(std::string message) {
+  if (game_ != nullptr) {
+    (void)game_->record_error(std::move(message));
+    return;
+  }
+  (void)setup_runtime_.mark_error(std::move(message));
+}
+
+// Records a GPU/device error in the active status owner.
+void BrowserGame::record_gpu_error(std::string message) {
+  if (game_ != nullptr) {
+    (void)game_->record_gpu_error(std::move(message));
+    return;
+  }
+  (void)setup_runtime_.mark_gpu_error(std::move(message));
+}
+
 // Releases all WebGPU handles in dependency order.
 void BrowserGame::release_webgpu() {
   if (surface_ != nullptr && surface_configured_) {
@@ -426,7 +565,10 @@ void BrowserGame::release_webgpu() {
   surface_configured_ = false;
   configured_width_ = 0;
   configured_height_ = 0;
-  renderer_.reset();
+  if (game_ != nullptr) {
+    game_->dispose();
+    game_.reset();
+  }
 
   if (queue_ != nullptr) {
     wgpuQueueRelease(queue_);

@@ -2,16 +2,15 @@
 //
 // This file owns the browser-free renderer validation path for the C++/WASM
 // migration. It creates a native Dawn instance/device, renders OFG's bootstrap
-// triangle through the shared WebGPU renderer, reads the offscreen texture back
+// triangle through the shared Game render path, reads the offscreen texture back
 // into CPU memory, writes a PNG, and records the same threshold diagnostics as
 // the browser smoke. The native backend is intentionally constrained to Vulkan
 // for this Windows migration path so it cannot quietly pass through Dawn's null
 // backend.
 #include "ofg/native/render_smoke.hpp"
 
+#include "ofg/game/game.hpp"
 #include "ofg/native/png_writer.hpp"
-#include "ofg/render/bootstrap_renderer.hpp"
-#include "ofg/render/bootstrap_scene.hpp"
 #include "ofg/render/webgpu_common.hpp"
 
 #include <algorithm>
@@ -570,17 +569,26 @@ void validate_contract(const SmokeContract& contract) {
   GpuContext& context,
   const SmokeContract& contract
 ) {
-  // Build the same durable renderer resources used by the browser path.
-  std::string renderer_error;
-  std::unique_ptr<BootstrapRenderer> renderer =
-    BootstrapRenderer::create(
+  // Build the same device-bound Game used by the browser path.
+  std::string game_error;
+  std::unique_ptr<ofg::Game> game = ofg::Game::create(
+    ofg::GpuContext{
       context.device,
       context.queue,
-      kRenderFormat,
-      renderer_error
-    );
-  if (!renderer) {
-    throw std::runtime_error(renderer_error);
+      context.adapter_name,
+      context.backend
+    },
+    kRenderFormat,
+    game_error
+  );
+  if (!game) {
+    throw std::runtime_error(game_error);
+  }
+  if (!game->resize(contract.width, contract.height, 1.0, game_error)) {
+    throw std::runtime_error(game_error);
+  }
+  if (!game->tick(0.0, game_error)) {
+    throw std::runtime_error(game_error);
   }
 
   // Render into a copyable offscreen texture.
@@ -638,8 +646,19 @@ void validate_contract(const SmokeContract& contract) {
     throw std::runtime_error("wgpuDeviceCreateCommandEncoder returned null.");
   }
 
-  if (!renderer->render_to_view(encoder.value, view.value, renderer_error)) {
-    throw std::runtime_error(renderer_error);
+  if (
+    !game->render(
+      encoder.value,
+      ofg::RenderTarget{
+        view.value,
+        kRenderFormat,
+        contract.width,
+        contract.height
+      },
+      game_error
+    )
+  ) {
+    throw std::runtime_error(game_error);
   }
 
   WGPUTexelCopyTextureInfo source = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
