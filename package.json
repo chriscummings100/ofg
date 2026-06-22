@@ -14,6 +14,8 @@
     "package:site:from-build": "node tools/package-site.mjs",
     "build:cloudflare": "node tools/cloudflare-build.mjs",
     "deploy": "node tools/deploy-cloudflare-pages.mjs",
+    "format:cpp": "node tools/format-cpp.mjs",
+    "format:cpp:check": "node tools/format-cpp.mjs --check",
     "test:cpp": "node tools/test-cpp.mjs",
     "test:ts": "npm run build && tsc -p tsconfig.test.json && node --import ./dist-test/tests/ts/setupDom.js ./node_modules/mocha/bin/mocha.js \"dist-test/tests/ts/**/*.test.js\"",
     "test": "npm run test:cpp && npm run test:ts",

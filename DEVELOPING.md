@@ -176,6 +176,13 @@ Browser build:
 
     npm run build
 
+CMake native test preset:
+
+    cd cpp
+    cmake --preset native-tests-debug
+    cmake --build --preset native-tests-debug
+    ctest --preset native-tests
+
 C++ native tests:
 
     npm run test:cpp

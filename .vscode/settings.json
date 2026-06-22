@@ -1,3 +1,4 @@
 {
-    "cmake.sourceDirectory": "C:/dev/ofg/artifacts/toolchains/dawn/src/src/dawn/native"
+    "cmake.sourceDirectory": "${workspaceFolder}/cpp",
+    "cmake.useCMakePresets": "always"
 }

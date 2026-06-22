@@ -8,3 +8,4 @@ assets/wasm/ofg_cpp/
 npm-debug.log*
 .dev-server.log
 *.tsbuildinfo
+CMakeUserPresets.json

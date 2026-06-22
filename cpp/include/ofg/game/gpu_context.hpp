@@ -11,10 +11,10 @@
 namespace ofg {
 
 struct GpuContext {
-  WGPUDevice device{nullptr};
-  WGPUQueue queue{nullptr};
-  std::string adapter_name{"Unavailable"};
-  std::string backend{"SharedGame"};
+    WGPUDevice m_device{nullptr};
+    WGPUQueue m_queue{nullptr};
+    std::string m_adapter_name{"Unavailable"};
+    std::string m_backend{"SharedGame"};
 };
 
 } // namespace ofg

@@ -1,0 +1,148 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 26,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "native-tests-debug",
+      "displayName": "Native tests (Debug)",
+      "description": "Clang/Ninja native doctest build used by npm run test:cpp.",
+      "generator": "Ninja",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "toolset": {
+        "value": "ClangCL",
+        "strategy": "external"
+      },
+      "binaryDir": "${sourceDir}/../artifacts/build/cpp-native",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "OFG_BUILD_TESTS": true,
+        "OFG_BUILD_WASM": false,
+        "OFG_BUILD_NATIVE_SMOKE": false,
+        "OFG_ENABLE_COVERAGE": false
+      }
+    },
+    {
+      "name": "native-smoke-release",
+      "displayName": "Native render smoke (Release)",
+      "description": "Clang/Ninja Dawn render-smoke build used by npm run smoke:render.",
+      "generator": "Ninja",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "toolset": {
+        "value": "ClangCL",
+        "strategy": "external"
+      },
+      "binaryDir": "${sourceDir}/../artifacts/build/cpp-render-smoke",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "OFG_BUILD_TESTS": false,
+        "OFG_BUILD_WASM": false,
+        "OFG_BUILD_NATIVE_SMOKE": true,
+        "OFG_ENABLE_COVERAGE": false
+      }
+    },
+    {
+      "name": "wasm-release",
+      "displayName": "Browser WASM (Release)",
+      "description": "Emscripten browser WebAssembly build used by npm run build:wasm. Requires EMSDK in the environment.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/../artifacts/build/cpp-wasm",
+      "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "OFG_BUILD_TESTS": false,
+        "OFG_BUILD_WASM": true,
+        "OFG_BUILD_NATIVE_SMOKE": false,
+        "OFG_ENABLE_COVERAGE": false
+      }
+    },
+    {
+      "name": "native-coverage-debug",
+      "displayName": "Native coverage (Debug)",
+      "description": "Coverage-instrumented native doctest build. The npm coverage wrapper still handles profile collection and reporting.",
+      "generator": "Ninja",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "toolset": {
+        "value": "ClangCL",
+        "strategy": "external"
+      },
+      "binaryDir": "${sourceDir}/../artifacts/build/cpp-coverage",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "OFG_BUILD_TESTS": true,
+        "OFG_BUILD_WASM": false,
+        "OFG_BUILD_NATIVE_SMOKE": false,
+        "OFG_ENABLE_COVERAGE": true,
+        "OFG_CLANG_PROFILE_LIB_PATH": {
+          "type": "FILEPATH",
+          "value": "$env{OFG_CLANG_PROFILE_LIB_PATH}"
+        },
+        "OFG_CLANG_PROFILE_LIB_DIR": {
+          "type": "PATH",
+          "value": "$env{OFG_CLANG_PROFILE_LIB_DIR}"
+        }
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "native-tests-debug",
+      "displayName": "Build native tests",
+      "configurePreset": "native-tests-debug",
+      "targets": [
+        "ofg_cpp_tests"
+      ]
+    },
+    {
+      "name": "native-smoke-release",
+      "displayName": "Build native render smoke",
+      "configurePreset": "native-smoke-release",
+      "targets": [
+        "ofg_render_smoke_cpp"
+      ]
+    },
+    {
+      "name": "wasm-release",
+      "displayName": "Build browser WASM",
+      "configurePreset": "wasm-release",
+      "targets": [
+        "ofg_cpp_wasm"
+      ]
+    },
+    {
+      "name": "native-coverage-debug",
+      "displayName": "Build coverage tests",
+      "configurePreset": "native-coverage-debug",
+      "targets": [
+        "ofg_cpp_tests"
+      ]
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "native-tests",
+      "displayName": "Run native tests",
+      "configurePreset": "native-tests-debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "filter": {
+        "include": {
+          "name": "^ofg_cpp_tests$"
+        }
+      }
+    }
+  ]
+}

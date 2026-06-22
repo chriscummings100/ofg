@@ -3,5 +3,5 @@
 
 // Returns null while forcing the linker to resolve the Emdawn WebGPU type.
 extern "C" WGPUInstance ofg_emdawnwebgpu_probe_null_instance() {
-  return nullptr;
+    return nullptr;
 }

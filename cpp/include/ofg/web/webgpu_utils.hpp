@@ -26,22 +26,14 @@ namespace ofg::webgpu {
 // Converts uncaptured WebGPU error types into stable debug text.
 [[nodiscard]] std::string error_type_name(WGPUErrorType type);
 // Converts surface-texture acquisition status into stable debug text.
-[[nodiscard]] std::string surface_texture_status_name(
-  WGPUSurfaceGetCurrentTextureStatus status
-);
+[[nodiscard]] std::string surface_texture_status_name(WGPUSurfaceGetCurrentTextureStatus status);
 
 // Combines an operation name, status string, and optional WebGPU message.
-[[nodiscard]] std::string failure_message(
-  const char* operation,
-  const std::string& status,
-  WGPUStringView message
-);
+[[nodiscard]] std::string failure_message(const char* operation, const std::string& status, WGPUStringView message);
 // Converts texture formats used by the bootstrap smoke into contract names.
 [[nodiscard]] std::string texture_format_name(WGPUTextureFormat format);
 // Chooses a browser surface format from capabilities using OFG preferences.
-[[nodiscard]] WGPUTextureFormat choose_surface_format(
-  const WGPUSurfaceCapabilities& capabilities
-);
+[[nodiscard]] WGPUTextureFormat choose_surface_format(const WGPUSurfaceCapabilities& capabilities);
 // Extracts the best available adapter name for debug status.
 [[nodiscard]] std::string adapter_name_from_info(WGPUAdapter adapter);
 #endif

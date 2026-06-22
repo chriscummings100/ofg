@@ -143,6 +143,41 @@ export function findNativeClangTools(rootDir, { frontend = "gnu" } = {}) {
   };
 }
 
+// Finds clang-format from an override, PATH, or installed LLVM toolchains.
+export function findClangFormat(rootDir) {
+  const candidateList = [
+    process.env.CLANG_FORMAT,
+    ...preferredWindowsClangFormatCandidates(),
+    ...nativeLlvmCandidates(exe("clang-format")),
+    ...lookupCommand("clang-format")
+  ].filter(Boolean);
+
+  for (const candidate of candidateList) {
+    const resolved = resolveExistingCommand(candidate);
+    if (resolved) {
+      rejectRepoToolchain(rootDir, resolved);
+      return resolved;
+    }
+  }
+
+  throw new Error(
+    "Could not find clang-format. Install clang-format, set CLANG_FORMAT, or install Visual Studio C++ LLVM tools."
+  );
+}
+
+// Prefers the current Visual Studio LLVM layout before older vswhere results.
+function preferredWindowsClangFormatCandidates() {
+  if (process.platform !== "win32") {
+    return [];
+  }
+  return [
+    "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\Llvm\\x64\\bin\\clang-format.exe",
+    "C:\\Program Files\\Microsoft Visual Studio\\18\\BuildTools\\VC\\Tools\\Llvm\\x64\\bin\\clang-format.exe",
+    "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\Llvm\\x64\\bin\\clang-format.exe",
+    "C:\\Program Files\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\Llvm\\x64\\bin\\clang-format.exe"
+  ];
+}
+
 // Finds Windows SDK resource helpers used by CMake.
 export function findWindowsSdkTool(toolName) {
   if (process.platform !== "win32") {

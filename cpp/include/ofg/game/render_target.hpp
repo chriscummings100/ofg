@@ -13,19 +13,17 @@
 namespace ofg {
 
 struct RenderTarget {
-  WGPUTextureView view{nullptr};
-  WGPUTextureFormat format{WGPUTextureFormat_Undefined};
-  std::uint32_t width{0};
-  std::uint32_t height{0};
+    WGPUTextureView m_view{nullptr};
+    WGPUTextureFormat m_format{WGPUTextureFormat_Undefined};
+    std::uint32_t m_width{0};
+    std::uint32_t m_height{0};
 };
 
 // Validates a target against the renderer format and latest accepted size.
-[[nodiscard]] bool validate_render_target(
-  RenderTarget target,
-  WGPUTextureFormat expected_format,
-  std::uint32_t expected_width,
-  std::uint32_t expected_height,
-  std::string& error
-);
+[[nodiscard]] bool validate_render_target(RenderTarget target,
+    WGPUTextureFormat expected_format,
+    std::uint32_t expected_width,
+    std::uint32_t expected_height,
+    std::string& error);
 
 } // namespace ofg

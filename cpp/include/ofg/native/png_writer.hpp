@@ -13,10 +13,6 @@ namespace ofg::native {
 
 // Writes tightly packed RGBA8 pixels to a PNG at `path`.
 void write_rgba_png(
-  const std::filesystem::path& path,
-  std::span<const std::uint8_t> rgba,
-  std::uint32_t width,
-  std::uint32_t height
-);
+    const std::filesystem::path& path, std::span<const std::uint8_t> rgba, std::uint32_t width, std::uint32_t height);
 
 } // namespace ofg::native

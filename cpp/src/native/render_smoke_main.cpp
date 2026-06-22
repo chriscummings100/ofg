@@ -10,13 +10,12 @@
 
 // Parses the smoke contract, runs the render smoke, and reports one-line failures.
 int main(int argc, char** argv) {
-  try {
-    const ofg::native::RenderSmokeOptions options =
-      ofg::native::parse_render_smoke_args(argc, argv);
-    ofg::native::run_render_smoke(options);
-    return 0;
-  } catch (const std::exception& error) {
-    std::cerr << "Native C++ render smoke failed: " << error.what() << "\n";
-    return 1;
-  }
+    try {
+        const ofg::native::RenderSmokeOptions options = ofg::native::parse_render_smoke_args(argc, argv);
+        ofg::native::run_render_smoke(options);
+        return 0;
+    } catch (const std::exception& error) {
+        std::cerr << "Native C++ render smoke failed: " << error.what() << "\n";
+        return 1;
+    }
 }

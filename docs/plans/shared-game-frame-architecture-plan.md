@@ -98,7 +98,7 @@ For this plan, "platform code" means `C:\dev\ofg\cpp\src\web` for Emscripten/bro
   Date/Author: 2026-06-21 / Codex
 
 - Decision: Native wrapper scripts resolve an installed Dawn checkout from `OFG_DAWN_SOURCE_DIR` or the local Windows default `C:\tools\dawn`, and reject repository-local toolchain paths.
-  Rationale: The npm command shape remains usable for tests and coverage on the current machine, while direct CMake configuration still requires `OFG_DAWN_SOURCE_DIR`. Rejecting `C:\dev\ofg\artifacts\toolchains\...` preserves the installed-toolchain contract from the build cleanup.
+  Rationale: The npm command shape remains usable for tests and coverage on the current machine. Direct CMake configuration and presets also use `OFG_DAWN_SOURCE_DIR` or the local Windows default when the cache has no explicit Dawn path. Rejecting `C:\dev\ofg\artifacts\toolchains\...` preserves the installed-toolchain contract from the build cleanup.
   Date/Author: 2026-06-21 / Codex
 
 - Decision: Platform code creates the command encoder, finishes command buffers, and submits. `Game` records commands but never calls `wgpuQueueSubmit`.

@@ -11,17 +11,17 @@ namespace ofg {
 
 class FrameState {
 public:
-  // Records one accepted frame timestamp and increments the frame counter.
-  void tick(double time_ms);
+    // Records one accepted frame timestamp and increments the frame counter.
+    void tick(double time_ms);
 
-  // Returns how many frames have been accepted by this state object.
-  [[nodiscard]] std::uint64_t frame_count() const noexcept;
-  // Returns the most recent accepted frame timestamp in milliseconds.
-  [[nodiscard]] double last_time_ms() const noexcept;
+    // Returns how many frames have been accepted by this state object.
+    [[nodiscard]] std::uint64_t frame_count() const noexcept;
+    // Returns the most recent accepted frame timestamp in milliseconds.
+    [[nodiscard]] double last_time_ms() const noexcept;
 
 private:
-  std::uint64_t frame_count_{0};
-  double last_time_ms_{0.0};
+    std::uint64_t m_frame_count{0};
+    double m_last_time_ms{0.0};
 };
 
 } // namespace ofg

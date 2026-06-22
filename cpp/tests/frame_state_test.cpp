@@ -8,19 +8,19 @@
 
 // Verifies a default FrameState starts with no accepted frames.
 TEST_CASE("FrameState starts at frame zero") {
-  const ofg::FrameState state;
+    const ofg::FrameState state;
 
-  CHECK(state.frame_count() == 0);
-  CHECK(state.last_time_ms() == 0.0);
+    CHECK(state.frame_count() == 0);
+    CHECK(state.last_time_ms() == 0.0);
 }
 
 // Verifies that accepted ticks both increment count and update last timestamp.
 TEST_CASE("FrameState records ticks and last time") {
-  ofg::FrameState state;
+    ofg::FrameState state;
 
-  state.tick(16.5);
-  state.tick(33.0);
+    state.tick(16.5);
+    state.tick(33.0);
 
-  CHECK(state.frame_count() == 2);
-  CHECK(state.last_time_ms() == doctest::Approx(33.0));
+    CHECK(state.frame_count() == 2);
+    CHECK(state.last_time_ms() == doctest::Approx(33.0));
 }
