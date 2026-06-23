@@ -77,9 +77,23 @@ add_library(ofg_cpp
   src/game/game.cpp
   src/game/game_runtime.cpp
   src/game/render_target.cpp
+  src/math/mat.cpp
+  src/math/transform.cpp
   src/render/bootstrap_scene.cpp
-  src/render/bootstrap_renderer.cpp
+  src/render/camera.cpp
+  src/render/demo_scene.cpp
+  src/render/draw_list.cpp
+  src/render/opaque_pass.cpp
+  src/render/pipeline_cache.cpp
+  src/render/renderer.cpp
   src/render/webgpu_common.cpp
+  src/resources/material.cpp
+  src/resources/mesh.cpp
+  src/resources/property_bag.cpp
+  src/resources/resource_arena.cpp
+  src/resources/resource_error.cpp
+  src/resources/shader.cpp
+  src/resources/texture.cpp
   src/runtime/runtime_debug_status.cpp
 )
 
@@ -138,10 +152,24 @@ if(OFG_BUILD_TESTS AND NOT EMSCRIPTEN)
 
   add_executable(ofg_cpp_tests
     tests/bootstrap_scene_test.cpp
+    tests/demo_scene_test.cpp
+    tests/draw_list_test.cpp
     tests/frame_state_test.cpp
     tests/game_runtime_test.cpp
+    tests/material_resource_test.cpp
+    tests/math_test.cpp
+    tests/mesh_resource_test.cpp
+    tests/property_bag_test.cpp
+    tests/resource_arena_test.cpp
+    tests/resource_gpu_test.cpp
+    tests/resource_error_test.cpp
+    tests/pipeline_cache_test.cpp
+    tests/renderer_test.cpp
+    tests/shader_resource_test.cpp
     tests/runtime_debug_status_test.cpp
     tests/test_main.cpp
+    tests/texture_resource_test.cpp
+    tests/webgpu_test_utils.cpp
   )
   target_link_libraries(ofg_cpp_tests
     PRIVATE
@@ -202,7 +230,7 @@ if(OFG_BUILD_WASM)
 endif()
 
 if(OFG_BUILD_NATIVE_SMOKE)
-  # Native smoke builds Dawn locally and renders the bootstrap scene offscreen.
+  # Native smoke builds Dawn locally and renders the draw-list demo scene offscreen.
   if(EMSCRIPTEN)
     message(FATAL_ERROR "OFG_BUILD_NATIVE_SMOKE requires a native Clang toolchain.")
   endif()

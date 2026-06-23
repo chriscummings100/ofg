@@ -1,7 +1,7 @@
 // Doctest coverage for deterministic C++ bootstrap scene data.
 //
-// These tests make the browser C++ smoke and native Dawn smoke share the same
-// triangle geometry, vertex layout, and clear color expectations.
+// The triangle is now legacy layout data, while the clear color is still shared
+// by the active renderer and smoke contracts.
 #include "doctest.h"
 
 #include "ofg/render/bootstrap_scene.hpp"
@@ -9,7 +9,7 @@
 #include <array>
 #include <cstdint>
 
-// Verifies vertex positions and colors stay aligned with the baseline triangle.
+// Verifies vertex positions and colors stay aligned with the legacy baseline triangle.
 TEST_CASE("bootstrap scene matches the baseline triangle contract") {
     const auto& vertices = ofg::bootstrap_vertices();
 

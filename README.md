@@ -1,6 +1,6 @@
 # Online Factory Game
 
-OFG is a browser-native online factory game. The current bootstrap is C++/WASM plus a TypeScript browser host: TypeScript owns the canvas and module loading, while C++ owns frame state, WebGPU resources, draw submission, browser runtime behavior, and native Dawn render smoke.
+OFG is a browser-native online factory game. The current runtime is C++/WASM plus a TypeScript browser host: TypeScript owns the canvas and module loading, while C++ owns frame state, high-level renderer resources, draw-list submission, browser runtime behavior, and native Dawn render smoke.
 
 ## Commands
 
@@ -25,17 +25,17 @@ npm run deploy -- --project-name=ofg
 npm run dev
 ```
 
-`npm run dev` builds the TypeScript app and C++/WASM runtime, then serves it at `http://127.0.0.1:5173`, or the next available port if that port is busy. The page loads the C++/WASM runtime and renders a WebGPU bootstrap frame into a full-window canvas.
+`npm run dev` builds the TypeScript app and C++/WASM runtime, then serves it at `http://127.0.0.1:5173`, or the next available port if that port is busy. The page loads the C++/WASM runtime and renders the draw-list WebGPU demo scene into a full-window canvas.
 
 ## Current Architecture
 
-TypeScript owns only browser hosting: DOM boot, canvas sizing, fatal-error display, dev-server ergonomics, WASM loading, and smoke-test browser control. C++ owns bootstrap frame state, render scene construction, WebGPU resources, draw submission, browser WASM facade behavior, and native offscreen rendering.
+TypeScript owns only browser hosting: DOM boot, canvas sizing, fatal-error display, dev-server ergonomics, WASM loading, and smoke-test browser control. C++ owns frame state, demo-scene construction, high-level render resources, WebGPU resources, draw-list submission, browser WASM facade behavior, and native offscreen rendering.
 
-The completed bootstrap implementation plan is archived at `docs/archived/initial-bootstrap-plan.md`. The completed Rust-to-C++ migration is archived at `docs/archived/cpp-wasm-migration-plan.md`. The active renderer/resource follow-up plan is `docs/plans/cpp-renderer-resources-pipeline-plan.md`.
+The completed bootstrap implementation plan is archived at `docs/archived/initial-bootstrap-plan.md`. The completed Rust-to-C++ migration is archived at `docs/archived/cpp-wasm-migration-plan.md`. The completed renderer/resource follow-up plan is archived at `docs/archived/cpp-renderer-resources-pipeline-plan.md`.
 
 ## Cloudflare Pages
 
-Use Cloudflare Pages for this bootstrap deploy:
+Use Cloudflare Pages for this browser deploy:
 
 - Root directory: `/`
 - Build command: `npm run build:cloudflare`

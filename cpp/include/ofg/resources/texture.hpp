@@ -1,0 +1,114 @@
+// Mutable texture resource for generated or caller-provided RGBA8 pixels.
+//
+// Textures own CPU pixels plus deterministic mip chains, and they eagerly
+// prepare WebGPU texture/view/sampler state when created with a ready GpuContext.
+#pragma once
+
+#include "ofg/game/gpu_context.hpp"
+
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
+#include <string>
+#include <vector>
+
+#include <webgpu/webgpu.h>
+
+namespace ofg {
+
+enum class TextureColorSpace {
+    Srgb,
+    Linear,
+};
+
+enum class TexturePixelFormat {
+    Rgba8,
+    Rgba8Srgb,
+};
+
+enum class MipMapPolicy {
+    None,
+    GenerateCpuFullChain,
+};
+
+class Texture {
+public:
+    Texture(const Texture&) = delete;
+    Texture& operator=(const Texture&) = delete;
+    Texture(Texture&& other) noexcept;
+    Texture& operator=(Texture&& other) noexcept;
+    ~Texture();
+
+    // Creates a texture from tightly packed RGBA8 level-zero pixels.
+    [[nodiscard]] static std::optional<Texture> from_rgba8_pixels(GpuContext gpu,
+        std::string label,
+        std::uint32_t width,
+        std::uint32_t height,
+        TextureColorSpace color_space,
+        std::vector<std::byte> pixels,
+        MipMapPolicy mip_map_policy,
+        std::string& error);
+
+    // Replaces level-zero pixels and regenerates CPU mips.
+    bool update_pixels(std::vector<std::byte> pixels, std::string& error);
+    // Returns the texture label.
+    [[nodiscard]] const std::string& label() const noexcept;
+    // Returns the texture width in pixels.
+    [[nodiscard]] std::uint32_t width() const noexcept;
+    // Returns the texture height in pixels.
+    [[nodiscard]] std::uint32_t height() const noexcept;
+    // Returns the selected pixel format.
+    [[nodiscard]] TexturePixelFormat pixel_format() const noexcept;
+    // Returns the requested mip-map policy.
+    [[nodiscard]] MipMapPolicy mip_map_policy() const noexcept;
+    // Returns the stored mip level count.
+    [[nodiscard]] std::uint32_t mip_level_count() const noexcept;
+    // Returns CPU pixels for one mip level.
+    [[nodiscard]] std::span<const std::byte> pixels(std::uint32_t mip_level) const;
+    // Returns the WebGPU texture, null for CPU-only resources.
+    [[nodiscard]] WGPUTexture texture() const noexcept;
+    // Returns the WebGPU texture view, null for CPU-only resources.
+    [[nodiscard]] WGPUTextureView view() const noexcept;
+    // Returns the WebGPU sampler, null for CPU-only resources.
+    [[nodiscard]] WGPUSampler sampler() const noexcept;
+    // Returns the current texture revision.
+    [[nodiscard]] std::uint64_t revision() const noexcept;
+
+private:
+    // Stores validated CPU texture data; use from_rgba8_pixels() for validation.
+    Texture(GpuContext gpu,
+        std::string label,
+        std::uint32_t width,
+        std::uint32_t height,
+        TexturePixelFormat pixel_format,
+        MipMapPolicy mip_map_policy,
+        std::vector<std::vector<std::byte>> mip_pixels);
+
+    // Creates GPU texture/view/sampler handles and uploads every mip level.
+    [[nodiscard]] bool prepare_gpu_state(std::string& error);
+    // Uploads all stored CPU mip levels into the current WebGPU texture.
+    [[nodiscard]] bool upload_mip_chain(std::string& error) const;
+    // Releases all owned WebGPU texture handles.
+    void release_gpu_state() noexcept;
+
+    GpuContext m_gpu;
+    std::string m_label;
+    std::uint32_t m_width{0};
+    std::uint32_t m_height{0};
+    TexturePixelFormat m_pixel_format{TexturePixelFormat::Rgba8};
+    MipMapPolicy m_mip_map_policy{MipMapPolicy::None};
+    std::vector<std::vector<std::byte>> m_mip_pixels;
+    WGPUTexture m_texture{nullptr};
+    WGPUTextureView m_view{nullptr};
+    WGPUSampler m_sampler{nullptr};
+    std::uint64_t m_revision{1};
+};
+
+// Converts a color-space request into the concrete RGBA8 texture format.
+[[nodiscard]] TexturePixelFormat texture_pixel_format_for_color_space(TextureColorSpace color_space) noexcept;
+
+// Computes the number of mip levels needed by a full mip chain.
+[[nodiscard]] std::uint32_t full_mip_level_count(std::uint32_t width, std::uint32_t height) noexcept;
+
+} // namespace ofg

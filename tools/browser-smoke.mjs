@@ -1,4 +1,4 @@
-// Playwright Core smoke test for the browser WebGPU bootstrap. It verifies
+// Playwright Core smoke test for the browser WebGPU demo scene. It verifies
 // headers, runtime status, backing size, and rendered pixel coverage.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -13,7 +13,7 @@ const smokeContract = JSON.parse(
   readFileSync(resolve(root, "tools/smoke-contract.json"), "utf8")
 );
 const artifactsDir = resolve(root, "artifacts/browser-smoke");
-const screenshotPath = resolve(artifactsDir, "bootstrap.png");
+const screenshotPath = resolve(artifactsDir, "opaque-demo.png");
 const reportPath = resolve(artifactsDir, "report.json");
 
 mkdirSync(artifactsDir, { recursive: true });
@@ -118,7 +118,7 @@ try {
     );
   }
   await canvas.screenshot({ path: screenshotPath });
-  const pixelReport = inspectScreenshot(screenshotPath);
+  const pixelReport = inspectSceneScreenshot(screenshotPath);
   const debugStatus = await page.evaluate(() => window.__ofgDebugStatus?.() ?? null);
   const report = {
     url,
@@ -193,11 +193,15 @@ function assertHeader(headers, name, expected) {
   }
 }
 
-// Samples the screenshot and verifies it matches the shared triangle contract.
-function inspectScreenshot(path) {
+// Samples the screenshot and verifies it matches the shared scene contract.
+function inspectSceneScreenshot(path) {
   const png = PNG.sync.read(readFileSync(path));
   let backgroundPixels = 0;
-  let trianglePixels = 0;
+  let scenePixels = 0;
+  let groundPixels = 0;
+  let coloredPixels = 0;
+  let lowerHalfSampledPixels = 0;
+  let lowerHalfScenePixels = 0;
   const buckets = new Set();
 
   for (let y = 0; y < png.height; y += smokeContract.sampleStep) {
@@ -209,13 +213,24 @@ function inspectScreenshot(path) {
         png.data[index + 2],
         png.data[index + 3]
       ];
+      if (y >= png.height / 2) {
+        lowerHalfSampledPixels += 1;
+      }
       if (
         colorDistance(pixel, smokeContract.clearColorRgba8) <=
         smokeContract.colorDistanceTolerance
       ) {
         backgroundPixels += 1;
       } else {
-        trianglePixels += 1;
+        scenePixels += 1;
+        if (y >= png.height / 2) {
+          lowerHalfScenePixels += 1;
+        }
+        if (isGroundLikePixel(pixel)) {
+          groundPixels += 1;
+        } else {
+          coloredPixels += 1;
+        }
         buckets.add(
           `${Math.floor(pixel[0] / smokeContract.bucketDivisor)}:${Math.floor(pixel[1] / smokeContract.bucketDivisor)}:${Math.floor(pixel[2] / smokeContract.bucketDivisor)}`
         );
@@ -223,29 +238,59 @@ function inspectScreenshot(path) {
     }
   }
 
-  const sampledPixels = backgroundPixels + trianglePixels;
-  const triangleRatio = trianglePixels / sampledPixels;
+  const sampledPixels = backgroundPixels + scenePixels;
+  const sceneRatio = scenePixels / sampledPixels;
   const backgroundRatio = backgroundPixels / sampledPixels;
-  if (triangleRatio < smokeContract.minTriangleRatio) {
-    throw new Error(`Triangle coverage too low: ${triangleRatio}`);
+  const groundRatio = groundPixels / sampledPixels;
+  const coloredRatio = coloredPixels / sampledPixels;
+  const lowerHalfSceneRatio =
+    lowerHalfSampledPixels === 0 ? 0 : lowerHalfScenePixels / lowerHalfSampledPixels;
+  if (sceneRatio < smokeContract.minSceneRatio) {
+    throw new Error(`Scene coverage too low: ${sceneRatio}`);
   }
   if (backgroundRatio < smokeContract.minBackgroundRatio) {
     throw new Error(`Background coverage too low: ${backgroundRatio}`);
   }
+  if (groundRatio < smokeContract.minGroundRatio) {
+    throw new Error(`Ground coverage too low: ${groundRatio}`);
+  }
+  if (coloredRatio < smokeContract.minColoredRatio) {
+    throw new Error(`Colored cube coverage too low: ${coloredRatio}`);
+  }
+  if (lowerHalfSceneRatio < smokeContract.minLowerHalfSceneRatio) {
+    throw new Error(`Lower-half scene coverage too low: ${lowerHalfSceneRatio}`);
+  }
   if (buckets.size < smokeContract.minNonBackgroundColorBuckets) {
-    throw new Error(`Expected at least 3 non-background color buckets; got ${buckets.size}.`);
+    throw new Error(
+      `Expected at least ${smokeContract.minNonBackgroundColorBuckets} non-background color buckets; got ${buckets.size}.`
+    );
   }
 
   return {
     width: png.width,
     height: png.height,
     sampledPixels,
-    trianglePixels,
+    scenePixels,
     backgroundPixels,
-    triangleRatio,
+    groundPixels,
+    coloredPixels,
+    lowerHalfSampledPixels,
+    lowerHalfScenePixels,
+    sceneRatio,
     backgroundRatio,
+    groundRatio,
+    coloredRatio,
+    lowerHalfSceneRatio,
     nonBackgroundColorBuckets: buckets.size
   };
+}
+
+// Reports whether a non-background pixel looks like neutral checker ground.
+function isGroundLikePixel(pixel) {
+  const maxChannel = Math.max(pixel[0], pixel[1], pixel[2]);
+  const minChannel = Math.min(pixel[0], pixel[1], pixel[2]);
+  const brightness = pixel[0] + pixel[1] + pixel[2];
+  return maxChannel - minChannel <= 30 && brightness >= 90 && brightness <= 690;
 }
 
 // Computes RGB distance while ignoring alpha, matching native smoke behavior.

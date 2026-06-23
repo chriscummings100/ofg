@@ -17,4 +17,14 @@ struct GpuContext {
     std::string m_backend{"SharedGame"};
 };
 
+// Returns true when a resource should remain CPU-only.
+[[nodiscard]] inline bool gpu_context_is_empty(const GpuContext& gpu) noexcept {
+    return gpu.m_device == nullptr && gpu.m_queue == nullptr;
+}
+
+// Returns true when a resource can create and update GPU state.
+[[nodiscard]] inline bool gpu_context_is_ready(const GpuContext& gpu) noexcept {
+    return gpu.m_device != nullptr && gpu.m_queue != nullptr;
+}
+
 } // namespace ofg

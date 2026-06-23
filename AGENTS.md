@@ -81,7 +81,7 @@ Run commands from the repository root, `C:\dev\ofg`.
 - `npm run format:cpp:check`: verifies C++ source/header/test files are clang-format clean.
 - `npm run dev`: builds the app and starts the local static dev server, normally at `http://127.0.0.1:5173`.
 - `npm run smoke:browser`: builds the app, controls a browser through Playwright core, and validates browser startup/render behavior.
-- `npm run smoke:browser:cpp`: runs the focused C++/WASM browser fixture and validates WebGPU initialization/status behavior plus bootstrap triangle pixels.
+- `npm run smoke:browser:cpp`: runs the focused C++/WASM browser fixture and validates WebGPU initialization/status behavior plus demo-scene pixels.
 - `npm run smoke:render`: builds/runs the Clang-native C++ Dawn render smoke without a browser and writes a PNG/report.
 - `npm run smoke`: runs browser smoke followed by native C++ render smoke.
 - `npm run coverage:cpp`: runs the C++ coverage gate through Clang/LLVM source-based coverage.

@@ -95,10 +95,16 @@ run(executable, [
   String(smokeContract.colorDistanceTolerance),
   "--bucket-divisor",
   String(smokeContract.bucketDivisor),
-  "--min-triangle-ratio",
-  String(smokeContract.minTriangleRatio),
+  "--min-scene-ratio",
+  String(smokeContract.minSceneRatio),
   "--min-background-ratio",
   String(smokeContract.minBackgroundRatio),
+  "--min-ground-ratio",
+  String(smokeContract.minGroundRatio),
+  "--min-colored-ratio",
+  String(smokeContract.minColoredRatio),
+  "--min-lower-half-scene-ratio",
+  String(smokeContract.minLowerHalfSceneRatio),
   "--min-non-background-color-buckets",
   String(smokeContract.minNonBackgroundColorBuckets)
 ], { cwd: rootDir, env });

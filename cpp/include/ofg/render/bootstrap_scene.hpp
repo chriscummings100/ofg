@@ -1,4 +1,7 @@
-// Deterministic bootstrap triangle scene data shared by C++ render paths.
+// Legacy bootstrap triangle data plus the shared renderer clear color.
+//
+// Active smoke tests now render the demo scene, but these values stay covered so
+// earlier layout contracts and the clear color remain explicit.
 #pragma once
 
 #include <array>
@@ -25,7 +28,7 @@ struct ClearColor {
     double m_a;
 };
 
-// Returns the deterministic RGB triangle used by browser and native smokes.
+// Returns the deterministic RGB triangle kept for layout regression tests.
 [[nodiscard]] const std::array<BootstrapVertex, 3>& bootstrap_vertices() noexcept;
 // Returns the byte stride of BootstrapVertex for WebGPU vertex buffers.
 [[nodiscard]] constexpr std::size_t bootstrap_vertex_stride_bytes() noexcept {

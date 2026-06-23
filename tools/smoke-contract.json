@@ -7,7 +7,10 @@
   "sampleStep": 3,
   "colorDistanceTolerance": 26,
   "bucketDivisor": 64,
-  "minTriangleRatio": 0.05,
-  "minBackgroundRatio": 0.4,
-  "minNonBackgroundColorBuckets": 3
+  "minSceneRatio": 0.12,
+  "minBackgroundRatio": 0.25,
+  "minGroundRatio": 0.04,
+  "minColoredRatio": 0.01,
+  "minLowerHalfSceneRatio": 0.08,
+  "minNonBackgroundColorBuckets": 4
 }

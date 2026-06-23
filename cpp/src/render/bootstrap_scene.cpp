@@ -1,4 +1,4 @@
-// Deterministic bootstrap triangle scene data shared by C++ render paths.
+// Legacy bootstrap triangle data plus the shared renderer clear color.
 #include "ofg/render/bootstrap_scene.hpp"
 
 #include <type_traits>
@@ -19,7 +19,7 @@ constexpr std::array<BootstrapVertex, 3> _bootstrap_vertices{
 
 } // namespace
 
-// Returns the deterministic RGB triangle used by browser and native smokes.
+// Returns the deterministic RGB triangle kept for layout regression tests.
 const std::array<BootstrapVertex, 3>& bootstrap_vertices() noexcept {
     return _bootstrap_vertices;
 }

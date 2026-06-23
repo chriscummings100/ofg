@@ -22,9 +22,9 @@ Communication contracts:
 - BrowserHost must preserve zero-size canvas axes. Zero size is a recoverable state that C++ reports through debug status instead of a host-side failure.
 - BrowserHost may inspect runtime debug JSON and display fatal startup failures, but must not reach into renderer internals or generated WASM glue.
 
-## BootstrapRuntime
+## CppRuntime
 
-The bootstrap runtime is the C++/WASM facade exposed to TypeScript. `BrowserGame` owns the browser-specific frame driver: WebGPU instance/adapter/device/surface setup, surface resize policy, surface texture acquisition, command encoder creation, command-buffer finish, queue submit, and Embind lifecycle ownership. Shared `Game` owns frame counting, debug-status serialization, renderer resources, target validation, and render command recording for one WebGPU device lifetime.
+The C++ runtime is the C++/WASM facade exposed to TypeScript. `BrowserGame` owns the browser-specific frame driver: WebGPU instance/adapter/device/surface setup, surface resize policy, surface texture acquisition, command encoder creation, command-buffer finish, queue submit, and Embind lifecycle ownership. Shared `Game` owns frame counting, debug-status serialization, the stable resource arena, demo-scene state, draw-list construction, target validation, and render command recording for one WebGPU device lifetime.
 
 Public interfaces:
 
@@ -39,26 +39,29 @@ Public interfaces:
 
 Communication contracts:
 
-- BootstrapRuntime consumes only the canvas and resize/frame calls supplied by BrowserHost.
+- CppRuntime consumes only the canvas and resize/frame calls supplied by BrowserHost.
 - `BrowserGame` delegates frame state and render command recording to `Game`, while keeping browser surface acquisition and one queue submit per frame in the browser frame driver.
 - The `debug_status_json()` fields are a public inspection contract for TypeScript tests, Playwright smoke, and later diagnostics.
 - `dispose()` destroys `Game` before releasing borrowed WebGPU device and queue handles, then releases browser WebGPU resources.
 
-## BootstrapRenderer
+## CppRenderer
 
-The bootstrap renderer is the current C++ triangle renderer used behind shared `Game` in browser and native frame drivers. It owns the initial WGSL shader, triangle vertex data, clear color, render pipeline, vertex buffer, resource counters, and render command encoding for the current visual contract.
+The C++ renderer owns the current high-level render resources and draw-list renderer used behind shared `Game` in browser and native frame drivers. `Game` owns a `ResourceArena`, `DemoScene`, `DrawList`, `RenderView`, and `Renderer`. The demo scene creates a mipmapped checker texture, a white texture, opaque materials, a ground mesh, a cube mesh, and per-frame draw commands. The renderer owns the opaque pass, frame and draw uniform buffers, depth texture, pipeline cache, resource counters, and WebGPU command recording for the current visual contract.
 
 Public interfaces:
 
-- `cpp/include/ofg/render/bootstrap_renderer.hpp` exposes `BootstrapRenderer::create(device, queue, format, error)`, `render_to_view(encoder, view, error)`, and `counters()`.
-- `cpp/include/ofg/render/bootstrap_scene.hpp` owns deterministic triangle data, vertex layout helpers, and the clear-color helper.
+- `cpp/include/ofg/resources/resource_arena.hpp`, `texture.hpp`, `shader.hpp`, `material.hpp`, `mesh.hpp`, and `property_bag.hpp` expose the first high-level resource model.
+- `cpp/include/ofg/render/demo_scene.hpp` builds the generated demo resources and updates the per-frame plane-and-cubes draw list.
+- `cpp/include/ofg/render/draw_list.hpp`, `camera.hpp`, `renderer.hpp`, `opaque_pass.hpp`, and `pipeline_cache.hpp` expose the draw-list renderer surface.
+- `cpp/include/ofg/render/bootstrap_scene.hpp` remains as legacy triangle layout regression data plus the shared clear-color helper.
 - `cpp/include/ofg/render/webgpu_common.hpp` provides small WebGPU string/enum helpers shared by browser and native paths.
 
 Communication contracts:
 
-- Shared `Game` must use equivalent renderer, shader, scene data, and clear color regardless of whether the frame target comes from the browser surface or native offscreen texture.
-- The renderer requests no optional GPU features and creates durable resources during initialization, not every frame.
-- Surface/texture format may differ between browser and native targets, but the visual contract remains a dark blue-gray background plus red/green/blue triangle.
+- Shared `Game` must use equivalent resource data, shader source, draw-list submission, renderer passes, and clear color regardless of whether the frame target comes from the browser surface or native offscreen texture.
+- Resource objects are high-level assets, not wrappers for every WebGPU type. They may store the borrowed `GpuContext` that prepared them, but they do not own or release the platform device or queue.
+- The renderer requests no optional GPU features and creates durable resources during initialization, explicit mutation, or resize, not every ordinary frame.
+- Surface/texture format may differ between browser and native targets, but the visual contract remains a dark blue-gray background, a large textured checker ground plane, and multiple colored cubes rendered through the opaque draw-list path.
 
 ## BrowserSmoke
 
@@ -88,7 +91,7 @@ Public interfaces:
 - `OFG_DAWN_SOURCE_DIR` points at the installed Dawn source checkout used by the native C++ smoke.
 - `tools/smoke-render-cpp.mjs` verifies the Dawn checkout, configures/builds/runs the C++ Dawn executable, and passes in `tools/smoke-contract.json`.
 - `cpp/src/native/render_smoke_main.cpp` provides the native C++ smoke executable entry point.
-- Output artifacts are `bootstrap.png` and `report.json` in the chosen output directory, normally `artifacts/render-smoke`.
+- Output artifacts are `opaque-demo.png` and `report.json` in the chosen output directory, normally `artifacts/render-smoke`.
 
 Communication contracts:
 

@@ -1,16 +1,17 @@
 // Native Dawn render-smoke contract and implementation.
 //
 // This file owns the browser-free renderer validation path for the C++/WASM
-// migration. It creates a native Dawn instance/device, renders OFG's bootstrap
-// triangle through the shared Game render path, reads the offscreen texture back
-// into CPU memory, writes a PNG, and records the same threshold diagnostics as
-// the browser smoke. The native backend is intentionally constrained to Vulkan
-// for this Windows migration path so it cannot quietly pass through Dawn's null
-// backend.
+// migration. It creates a native Dawn instance/device, renders OFG's shared
+// plane-and-cubes demo through the Game render path, reads the offscreen texture
+// back into CPU memory, writes a PNG, and records the same threshold diagnostics
+// as the browser smoke. The native backend is intentionally constrained to
+// Vulkan for this Windows migration path so it cannot quietly pass through
+// Dawn's null backend.
 #include "ofg/native/render_smoke.hpp"
 
 #include "ofg/game/game.hpp"
 #include "ofg/native/png_writer.hpp"
+#include "ofg/render/demo_scene.hpp"
 #include "ofg/render/webgpu_common.hpp"
 
 #include <algorithm>
@@ -18,6 +19,7 @@
 #include <cmath>
 #include <cstddef>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -40,10 +42,17 @@ constexpr WGPUTextureFormat _render_format = WGPUTextureFormat_RGBA8Unorm;
 
 struct PixelReport {
     std::uint64_t m_sampled_pixels{0};
-    std::uint64_t m_triangle_pixels{0};
+    std::uint64_t m_scene_pixels{0};
     std::uint64_t m_background_pixels{0};
-    double m_triangle_ratio{0.0};
+    std::uint64_t m_ground_pixels{0};
+    std::uint64_t m_colored_pixels{0};
+    std::uint64_t m_lower_half_sampled_pixels{0};
+    std::uint64_t m_lower_half_scene_pixels{0};
+    double m_scene_ratio{0.0};
     double m_background_ratio{0.0};
+    double m_ground_ratio{0.0};
+    double m_colored_ratio{0.0};
+    double m_lower_half_scene_ratio{0.0};
     std::uint32_t m_non_background_color_buckets{0};
     std::string m_failure_reason;
 };
@@ -187,6 +196,13 @@ struct MapRequest {
     std::string m_message;
 };
 
+// Carries the result of popping a WebGPU validation error scope.
+struct ErrorScopeRequest {
+    WGPUPopErrorScopeStatus m_status{WGPUPopErrorScopeStatus_Error};
+    WGPUErrorType m_type{WGPUErrorType_Unknown};
+    std::string m_message;
+};
+
 // Converts Dawn wait status values into reportable failure text.
 [[nodiscard]] std::string wait_status_name(WGPUWaitStatus status) {
     switch (status) {
@@ -246,6 +262,40 @@ struct MapRequest {
     case WGPUMapAsyncStatus_Aborted:
         return "aborted";
     case WGPUMapAsyncStatus_Force32:
+        break;
+    }
+    return "unknown";
+}
+
+// Converts error-scope status values into reportable failure text.
+[[nodiscard]] std::string error_scope_status_name(WGPUPopErrorScopeStatus status) {
+    switch (status) {
+    case WGPUPopErrorScopeStatus_Success:
+        return "success";
+    case WGPUPopErrorScopeStatus_CallbackCancelled:
+        return "callback cancelled";
+    case WGPUPopErrorScopeStatus_Error:
+        return "error";
+    case WGPUPopErrorScopeStatus_Force32:
+        break;
+    }
+    return "unknown";
+}
+
+// Converts WebGPU error types into reportable failure text.
+[[nodiscard]] std::string error_type_name(WGPUErrorType type) {
+    switch (type) {
+    case WGPUErrorType_NoError:
+        return "no error";
+    case WGPUErrorType_Validation:
+        return "validation";
+    case WGPUErrorType_OutOfMemory:
+        return "out of memory";
+    case WGPUErrorType_Internal:
+        return "internal";
+    case WGPUErrorType_Unknown:
+        return "unknown";
+    case WGPUErrorType_Force32:
         break;
     }
     return "unknown";
@@ -325,6 +375,16 @@ void handle_map_request(WGPUMapAsyncStatus status, WGPUStringView message, void*
     request->m_message = gpu::string_from_view(message);
 }
 
+// Stores validation diagnostics from Dawn after the smoke render scope closes.
+void handle_error_scope(
+    WGPUPopErrorScopeStatus status, WGPUErrorType type, WGPUStringView message, void* userdata1, void* userdata2) {
+    (void)userdata2;
+    auto* request = static_cast<ErrorScopeRequest*>(userdata1);
+    request->m_status = status;
+    request->m_type = type;
+    request->m_message = gpu::string_from_view(message);
+}
+
 // Aligns row pitch to WebGPU's texture-to-buffer copy requirements.
 [[nodiscard]] std::uint32_t align_to(std::uint32_t value, std::uint32_t alignment) {
     return ((value + alignment - 1U) / alignment) * alignment;
@@ -336,6 +396,14 @@ void handle_map_request(WGPUMapAsyncStatus status, WGPUStringView message, void*
     const double dg = static_cast<double>(left[1]) - right[1];
     const double db = static_cast<double>(left[2]) - right[2];
     return std::sqrt(dr * dr + dg * dg + db * db);
+}
+
+// Reports whether a non-background pixel looks like neutral checker ground.
+[[nodiscard]] bool is_ground_like_pixel(const std::array<std::uint8_t, 4>& pixel) {
+    const std::uint8_t max_channel = std::max({pixel[0], pixel[1], pixel[2]});
+    const std::uint8_t min_channel = std::min({pixel[0], pixel[1], pixel[2]});
+    const std::uint32_t brightness = static_cast<std::uint32_t>(pixel[0]) + pixel[1] + pixel[2];
+    return max_channel - min_channel <= 30U && brightness >= 90U && brightness <= 690U;
 }
 
 // Samples the rendered pixels and checks them against the shared smoke thresholds.
@@ -354,10 +422,21 @@ void handle_map_request(WGPUMapAsyncStatus status, WGPUStringView message, void*
             const std::size_t index = (static_cast<std::size_t>(contract.m_width) * y + x) * _bytes_per_pixel;
             const std::array<std::uint8_t, 4> pixel{
                 pixels[index], pixels[index + 1U], pixels[index + 2U], pixels[index + 3U]};
+            if (y >= contract.m_height / 2U) {
+                report.m_lower_half_sampled_pixels += 1U;
+            }
             if (color_distance(pixel, contract.m_clear_color_rgba8) <= contract.m_color_distance_tolerance) {
                 report.m_background_pixels += 1U;
             } else {
-                report.m_triangle_pixels += 1U;
+                report.m_scene_pixels += 1U;
+                if (y >= contract.m_height / 2U) {
+                    report.m_lower_half_scene_pixels += 1U;
+                }
+                if (is_ground_like_pixel(pixel)) {
+                    report.m_ground_pixels += 1U;
+                } else {
+                    report.m_colored_pixels += 1U;
+                }
                 buckets.insert(std::to_string(pixel[0] / contract.m_bucket_divisor) + ":" +
                                std::to_string(pixel[1] / contract.m_bucket_divisor) + ":" +
                                std::to_string(pixel[2] / contract.m_bucket_divisor));
@@ -366,15 +445,28 @@ void handle_map_request(WGPUMapAsyncStatus status, WGPUStringView message, void*
     }
 
     // Convert counts into ratios and make exactly one failure reason visible.
-    report.m_sampled_pixels = report.m_background_pixels + report.m_triangle_pixels;
-    report.m_triangle_ratio = static_cast<double>(report.m_triangle_pixels) / report.m_sampled_pixels;
+    report.m_sampled_pixels = report.m_background_pixels + report.m_scene_pixels;
+    report.m_scene_ratio = static_cast<double>(report.m_scene_pixels) / report.m_sampled_pixels;
     report.m_background_ratio = static_cast<double>(report.m_background_pixels) / report.m_sampled_pixels;
+    report.m_ground_ratio = static_cast<double>(report.m_ground_pixels) / report.m_sampled_pixels;
+    report.m_colored_ratio = static_cast<double>(report.m_colored_pixels) / report.m_sampled_pixels;
+    report.m_lower_half_scene_ratio =
+        report.m_lower_half_sampled_pixels == 0
+            ? 0.0
+            : static_cast<double>(report.m_lower_half_scene_pixels) / report.m_lower_half_sampled_pixels;
     report.m_non_background_color_buckets = static_cast<std::uint32_t>(buckets.size());
 
-    if (report.m_triangle_ratio < contract.m_min_triangle_ratio) {
-        report.m_failure_reason = "Triangle coverage too low: " + std::to_string(report.m_triangle_ratio);
+    if (report.m_scene_ratio < contract.m_min_scene_ratio) {
+        report.m_failure_reason = "Scene coverage too low: " + std::to_string(report.m_scene_ratio);
     } else if (report.m_background_ratio < contract.m_min_background_ratio) {
         report.m_failure_reason = "Background coverage too low: " + std::to_string(report.m_background_ratio);
+    } else if (report.m_ground_ratio < contract.m_min_ground_ratio) {
+        report.m_failure_reason = "Ground coverage too low: " + std::to_string(report.m_ground_ratio);
+    } else if (report.m_colored_ratio < contract.m_min_colored_ratio) {
+        report.m_failure_reason = "Colored cube coverage too low: " + std::to_string(report.m_colored_ratio);
+    } else if (report.m_lower_half_scene_ratio < contract.m_min_lower_half_scene_ratio) {
+        report.m_failure_reason =
+            "Lower-half scene coverage too low: " + std::to_string(report.m_lower_half_scene_ratio);
     } else if (report.m_non_background_color_buckets < contract.m_min_non_background_color_buckets) {
         report.m_failure_reason = "Expected at least " + std::to_string(contract.m_min_non_background_color_buckets) +
                                   " non-background color buckets; got " +
@@ -454,7 +546,7 @@ void validate_contract(const SmokeContract& contract) {
             "Native render smoke requires a real Vulkan Dawn backend; got " + context.m_backend + ".");
     }
 
-    // Create the WebGPU device used by the shared bootstrap renderer.
+    // Create the WebGPU device used by the shared renderer.
     WGPUDeviceDescriptor device_descriptor = WGPU_DEVICE_DESCRIPTOR_INIT;
     device_descriptor.label = gpu::cstring_view("OFG native render-smoke device");
     device_descriptor.defaultQueue.label = gpu::cstring_view("OFG native render-smoke queue");
@@ -480,8 +572,10 @@ void validate_contract(const SmokeContract& contract) {
     return context;
 }
 
-// Renders the bootstrap triangle offscreen and returns tightly packed RGBA pixels.
+// Renders the demo scene offscreen and returns tightly packed RGBA pixels.
 [[nodiscard]] std::vector<std::uint8_t> render_and_readback(GpuContext& context, const SmokeContract& contract) {
+    wgpuDevicePushErrorScope(context.m_device, WGPUErrorFilter_Validation);
+
     // Build the same device-bound Game used by the browser path.
     std::string game_error;
     std::unique_ptr<ofg::Game> game =
@@ -494,7 +588,7 @@ void validate_contract(const SmokeContract& contract) {
     if (!game->resize(contract.m_width, contract.m_height, 1.0, game_error)) {
         throw std::runtime_error(game_error);
     }
-    if (!game->tick(0.0, game_error)) {
+    if (!game->tick(demo_native_smoke_time_ms(), game_error)) {
         throw std::runtime_error(game_error);
     }
 
@@ -568,6 +662,22 @@ void validate_contract(const SmokeContract& contract) {
 
     wgpuQueueSubmit(context.m_queue, 1, &command.m_value);
 
+    ErrorScopeRequest error_scope;
+    WGPUPopErrorScopeCallbackInfo error_scope_callback = WGPU_POP_ERROR_SCOPE_CALLBACK_INFO_INIT;
+    error_scope_callback.mode = WGPUCallbackMode_WaitAnyOnly;
+    error_scope_callback.callback = handle_error_scope;
+    error_scope_callback.userdata1 = &error_scope;
+    wait_for_future(
+        context.m_instance, wgpuDevicePopErrorScope(context.m_device, error_scope_callback), "popErrorScope");
+    if (error_scope.m_status != WGPUPopErrorScopeStatus_Success) {
+        throw std::runtime_error("popErrorScope failed with status " + error_scope_status_name(error_scope.m_status) +
+                                 ": " + error_scope.m_message);
+    }
+    if (error_scope.m_type != WGPUErrorType_NoError) {
+        throw std::runtime_error(
+            "native render smoke WebGPU " + error_type_name(error_scope.m_type) + " error: " + error_scope.m_message);
+    }
+
     // Map the readback buffer after submission and fail with a finite timeout.
     MapRequest map_request;
     WGPUBufferMapCallbackInfo map_callback = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT;
@@ -607,7 +717,6 @@ void write_report(const std::filesystem::path& png_path,
     const SmokeContract& contract,
     const GpuContext& context,
     const PixelReport& pixels) {
-    // Keep field names compatible with the original native smoke report.
     const bool passed = pixels.m_failure_reason.empty();
     std::ofstream report(report_path);
     if (!report) {
@@ -632,15 +741,25 @@ void write_report(const std::filesystem::path& png_path,
            << "    \"sampleStep\": " << contract.m_sample_step << ",\n"
            << "    \"colorDistanceTolerance\": " << contract.m_color_distance_tolerance << ",\n"
            << "    \"bucketDivisor\": " << contract.m_bucket_divisor << ",\n"
-           << "    \"minTriangleRatio\": " << contract.m_min_triangle_ratio << ",\n"
+           << "    \"minSceneRatio\": " << contract.m_min_scene_ratio << ",\n"
            << "    \"minBackgroundRatio\": " << contract.m_min_background_ratio << ",\n"
+           << "    \"minGroundRatio\": " << contract.m_min_ground_ratio << ",\n"
+           << "    \"minColoredRatio\": " << contract.m_min_colored_ratio << ",\n"
+           << "    \"minLowerHalfSceneRatio\": " << contract.m_min_lower_half_scene_ratio << ",\n"
            << "    \"minNonBackgroundColorBuckets\": " << contract.m_min_non_background_color_buckets << "\n"
            << "  },\n"
            << "  \"sampledPixels\": " << pixels.m_sampled_pixels << ",\n"
-           << "  \"trianglePixels\": " << pixels.m_triangle_pixels << ",\n"
+           << "  \"scenePixels\": " << pixels.m_scene_pixels << ",\n"
            << "  \"backgroundPixels\": " << pixels.m_background_pixels << ",\n"
-           << "  \"triangleRatio\": " << pixels.m_triangle_ratio << ",\n"
+           << "  \"groundPixels\": " << pixels.m_ground_pixels << ",\n"
+           << "  \"coloredPixels\": " << pixels.m_colored_pixels << ",\n"
+           << "  \"lowerHalfSampledPixels\": " << pixels.m_lower_half_sampled_pixels << ",\n"
+           << "  \"lowerHalfScenePixels\": " << pixels.m_lower_half_scene_pixels << ",\n"
+           << "  \"sceneRatio\": " << pixels.m_scene_ratio << ",\n"
            << "  \"backgroundRatio\": " << pixels.m_background_ratio << ",\n"
+           << "  \"groundRatio\": " << pixels.m_ground_ratio << ",\n"
+           << "  \"coloredRatio\": " << pixels.m_colored_ratio << ",\n"
+           << "  \"lowerHalfSceneRatio\": " << pixels.m_lower_half_scene_ratio << ",\n"
            << "  \"nonBackgroundColorBuckets\": " << pixels.m_non_background_color_buckets << ",\n"
            << "  \"passed\": " << (passed ? "true" : "false") << ",\n"
            << "  \"failureReason\": " << string_or_null(pixels.m_failure_reason) << "\n"
@@ -707,10 +826,16 @@ RenderSmokeOptions parse_render_smoke_args(int argc, char** argv) {
         } else if (arg == "--bucket-divisor") {
             options.m_contract.m_bucket_divisor =
                 parse_u32(require_arg_value(argc, argv, index, arg), "bucket divisor");
-        } else if (arg == "--min-triangle-ratio") {
-            options.m_contract.m_min_triangle_ratio = parse_double(require_arg_value(argc, argv, index, arg));
+        } else if (arg == "--min-scene-ratio") {
+            options.m_contract.m_min_scene_ratio = parse_double(require_arg_value(argc, argv, index, arg));
         } else if (arg == "--min-background-ratio") {
             options.m_contract.m_min_background_ratio = parse_double(require_arg_value(argc, argv, index, arg));
+        } else if (arg == "--min-ground-ratio") {
+            options.m_contract.m_min_ground_ratio = parse_double(require_arg_value(argc, argv, index, arg));
+        } else if (arg == "--min-colored-ratio") {
+            options.m_contract.m_min_colored_ratio = parse_double(require_arg_value(argc, argv, index, arg));
+        } else if (arg == "--min-lower-half-scene-ratio") {
+            options.m_contract.m_min_lower_half_scene_ratio = parse_double(require_arg_value(argc, argv, index, arg));
         } else if (arg == "--min-non-background-color-buckets") {
             options.m_contract.m_min_non_background_color_buckets =
                 parse_u32(require_arg_value(argc, argv, index, arg), "min non-background color buckets");
@@ -725,7 +850,7 @@ RenderSmokeOptions parse_render_smoke_args(int argc, char** argv) {
 // Runs the full native smoke: render, write artifacts, inspect pixels, and fail if needed.
 void run_render_smoke(const RenderSmokeOptions& options) {
     std::filesystem::create_directories(options.m_out_dir);
-    const std::filesystem::path png_path = options.m_out_dir / "bootstrap.png";
+    const std::filesystem::path png_path = options.m_out_dir / "opaque-demo.png";
     const std::filesystem::path report_path = options.m_out_dir / "report.json";
 
     GpuContext context = create_gpu_context();

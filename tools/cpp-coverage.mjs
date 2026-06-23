@@ -1,9 +1,9 @@
 // Runs Clang source-based coverage for native-checkable C++ runtime code.
 //
 // Browser-only WebGPU code is validated by build and smoke gates; this script
-// focuses line coverage on portable C++ core/runtime/scene files that doctest
-// can execute natively. It uses installed LLVM tools and does not mutate the
-// compiler installation.
+// focuses line coverage on portable C++ core/runtime/resource/render files that
+// doctest can execute natively. It uses installed LLVM tools and does not mutate
+// the compiler installation.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -137,10 +137,20 @@ function collectCheckedFiles(report) {
     }))
     .filter((file) =>
       isUnder(file.path, path.join(rootDir, "cpp", "src", "core")) ||
+      isUnder(file.path, path.join(rootDir, "cpp", "src", "math")) ||
+      isUnder(file.path, path.join(rootDir, "cpp", "src", "resources")) ||
       file.path === path.join(rootDir, "cpp", "src", "game", "game_runtime.cpp") ||
       file.path === path.join(rootDir, "cpp", "src", "game", "render_target.cpp") ||
       file.path === path.join(rootDir, "cpp", "src", "runtime", "runtime_debug_status.cpp") ||
-      file.path === path.join(rootDir, "cpp", "src", "render", "bootstrap_scene.cpp")
+      [
+        "bootstrap_scene.cpp",
+        "camera.cpp",
+        "demo_scene.cpp",
+        "draw_list.cpp",
+        "opaque_pass.cpp",
+        "pipeline_cache.cpp",
+        "renderer.cpp"
+      ].includes(path.basename(file.path)) && isUnder(file.path, path.join(rootDir, "cpp", "src", "render"))
     );
 }
 

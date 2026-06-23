@@ -8,7 +8,7 @@ TypeScript may own DOM boot, canvas lookup/creation, canvas resize policy, fatal
 
 ## OFG-BOOT-002 C++ Runtime Ownership
 
-C++ owns frame state, debug status, bootstrap scene data, renderer setup, WebGPU resource creation, browser WebGPU runtime behavior, and native Dawn offscreen rendering. Shared `Game` owns renderer resources and render command recording for one WebGPU device lifetime. Browser/native C++ frame drivers own platform target acquisition, command-buffer finish, and queue submit. The TypeScript host may call the narrow runtime facade, but it must not own renderer internals or GPU handles.
+C++ owns frame state, debug status, demo-scene data, high-level renderer resources, draw-list construction, renderer/pass setup, WebGPU resource creation, browser WebGPU runtime behavior, and native Dawn offscreen rendering. Shared `Game` owns the stable resource arena, demo-scene resource pointers, draw list, render view, and renderer for one WebGPU device lifetime. Browser/native C++ frame drivers own platform target acquisition, command-buffer finish, and queue submit. The TypeScript host may call the narrow runtime facade, but it must not own renderer internals, resource objects, draw commands, or GPU handles.
 
 ## OFG-BOOT-003 WASM Facade
 
@@ -16,15 +16,15 @@ The browser facade is narrow. TypeScript can create the runtime, resize it, requ
 
 ## OFG-BOOT-004 Renderer Compatibility
 
-Browser and native smoke must validate equivalent bootstrap renderer behavior: the same dark blue-gray clear color, the same red/green/blue triangle categories, durable pipeline/buffer creation outside ordinary frames, and reported adapter/backend/format diagnostics. Browser smoke uses Emdawnwebgpu and the browser's WebGPU implementation; native smoke uses an installed Dawn checkout through the same `webgpu.h` style renderer API. Their visual contract and smoke thresholds stay aligned through `tools/smoke-contract.json`.
+Browser and native smoke must validate equivalent draw-list renderer behavior: the same dark blue-gray clear color, the same textured checker ground plane, the same saturated cube-color categories, the same C++ resource layer and opaque-pass shader path, durable renderer resource creation outside ordinary frames, and reported adapter/backend/format diagnostics. Browser smoke uses Emdawnwebgpu and the browser's WebGPU implementation; native smoke uses an installed Dawn checkout through the same `webgpu.h` style renderer API. Their visual contract and smoke thresholds stay aligned through `tools/smoke-contract.json`.
 
 ## OFG-BOOT-005 WebGPU Baseline
 
-The renderer must request no optional GPU features, must not manually request limits above the adapter defaults, must use one render pipeline for the bootstrap scene, and must record adapter/backend/format data in smoke reports. The first visual contract is a dark blue-gray clear color with a red/green/blue triangle. Surface or texture formats must be reported; native smoke uses `Rgba8Unorm` so PNG readback preserves byte-identical clear-color classification with browser smoke.
+The renderer must request no optional GPU features, must not manually request limits above the adapter defaults, and must record adapter/backend/format data in smoke reports. The current draw-list visual uses an opaque textured material path, a perspective camera, depth buffering, one generated checker texture, one generated white texture, a ground plane, and four animated cubes. Debug counters must show durable renderer resources were created and must not assume exactly one pipeline once multiple material bind-group layouts or later variants exist. Surface or texture formats must be reported; native smoke uses `Rgba8Unorm` so PNG readback preserves byte-identical clear-color classification with browser smoke.
 
 ## OFG-BOOT-006 Resource Lifetime
 
-Pipeline, shader module, vertex buffer, and bind-group-like resources must be created during initialization or explicit resize/mutation, not every frame. Resize reconfigures the surface only when physical width, physical height, or clamped device-pixel-ratio changes. Zero-size canvas axes must be preserved by the browser host so the C++ runtime can skip surface configuration and report a recoverable debug status instead of failing.
+Texture, shader, material, mesh, pass, and pipeline resources must be created during initialization, explicit resize, or explicit mutation, not every frame. Per-frame demo animation may rebuild draw commands and model matrices, but it must reuse the existing C++ resource objects. Device-bound resource objects may store the borrowed `GpuContext` that created them so later mutation methods can refresh WebGPU state without a global device. Resize reconfigures the surface only when physical width, physical height, or clamped device-pixel-ratio changes. Zero-size canvas axes must be preserved by the browser host so the C++ runtime can skip surface configuration and report a recoverable debug status instead of failing.
 
 ## OFG-BOOT-007 Generated Artifacts
 

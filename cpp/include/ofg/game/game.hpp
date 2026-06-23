@@ -9,7 +9,11 @@
 #include "ofg/game/game_runtime.hpp"
 #include "ofg/game/gpu_context.hpp"
 #include "ofg/game/render_target.hpp"
-#include "ofg/render/bootstrap_renderer.hpp"
+#include "ofg/render/camera.hpp"
+#include "ofg/render/demo_scene.hpp"
+#include "ofg/render/draw_list.hpp"
+#include "ofg/render/renderer.hpp"
+#include "ofg/resources/resource_arena.hpp"
 #include "ofg/runtime/runtime_debug_status.hpp"
 
 #include <cstdint>
@@ -50,13 +54,25 @@ public:
     void dispose();
 
 private:
-    // Stores a created renderer and borrowed platform WebGPU handles.
-    Game(GpuContext gpu, WGPUTextureFormat color_format, std::unique_ptr<BootstrapRenderer> renderer);
+    // Stores created resources, renderer, and borrowed platform WebGPU handles.
+    Game(GpuContext gpu,
+        WGPUTextureFormat color_format,
+        ResourceArena resources,
+        DemoScene demo_scene,
+        DrawList draw_list,
+        RenderView render_view,
+        std::unique_ptr<Renderer> renderer);
 
     GpuContext m_gpu;
     WGPUTextureFormat m_color_format{WGPUTextureFormat_Undefined};
     GameRuntime m_runtime;
-    std::unique_ptr<BootstrapRenderer> m_renderer;
+    ResourceArena m_resources;
+    DemoScene m_demo_scene;
+    DrawList m_draw_list;
+    RenderView m_render_view;
+    std::unique_ptr<Renderer> m_renderer;
+    double m_last_time_ms{0.0};
+    float m_aspect{16.0F / 9.0F};
 };
 
 } // namespace ofg
