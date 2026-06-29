@@ -155,9 +155,13 @@ ScopedCommandEncoder make_encoder(ofg::GpuContext gpu) {
 TEST_CASE("Game lifecycle states have diagnostic names") {
     CHECK(std::string(ofg::game_lifecycle_state_name(ofg::GameLifecycleState::Uninitialized)) == "uninitialized");
     CHECK(std::string(ofg::game_lifecycle_state_name(ofg::GameLifecycleState::Created)) == "created");
-    CHECK(std::string(ofg::game_lifecycle_state_name(ofg::GameLifecycleState::Preparing)) == "preparing");
+    CHECK(std::string(ofg::game_lifecycle_state_name(ofg::GameLifecycleState::Prep_Resources)) == "prep_resources");
+    CHECK(std::string(ofg::game_lifecycle_state_name(ofg::GameLifecycleState::Prep_Scene)) == "prep_scene");
+    CHECK(std::string(ofg::game_lifecycle_state_name(ofg::GameLifecycleState::Prep_Renderer)) == "prep_renderer");
     CHECK(std::string(ofg::game_lifecycle_state_name(ofg::GameLifecycleState::Ready)) == "ready");
-    CHECK(std::string(ofg::game_lifecycle_state_name(ofg::GameLifecycleState::Releasing)) == "releasing");
+    CHECK(std::string(ofg::game_lifecycle_state_name(ofg::GameLifecycleState::Rel_Renderer)) == "rel_renderer");
+    CHECK(std::string(ofg::game_lifecycle_state_name(ofg::GameLifecycleState::Rel_Scene)) == "rel_scene");
+    CHECK(std::string(ofg::game_lifecycle_state_name(ofg::GameLifecycleState::Rel_Resources)) == "rel_resources");
     CHECK(std::string(ofg::game_lifecycle_state_name(ofg::GameLifecycleState::Released)) == "released");
     CHECK(std::string(ofg::game_lifecycle_state_name(ofg::GameLifecycleState::Failed)) == "failed");
     CHECK(std::string(ofg::game_lifecycle_state_name(static_cast<ofg::GameLifecycleState>(100))) == "unknown");

@@ -24,9 +24,13 @@ namespace ofg {
 enum class GameLifecycleState {
     Uninitialized,
     Created,
-    Preparing,
+    Prep_Resources,
+    Prep_Scene,
+    Prep_Renderer,
     Ready,
-    Releasing,
+    Rel_Renderer,
+    Rel_Scene,
+    Rel_Resources,
     Released,
     Failed,
 };
@@ -73,21 +77,6 @@ private:
     // Stores borrowed platform WebGPU handles and lifecycle state.
     Game(GpuContext gpu, WGPUTextureFormat color_format);
 
-    enum class PrepareStage {
-        NotStarted,
-        Resources,
-        Scene,
-        Renderer,
-        Complete,
-    };
-
-    enum class ReleaseStage {
-        NotStarted,
-        Renderer,
-        Resources,
-        Complete,
-    };
-
     // Advances the renderer/resource preparation state machine.
     [[nodiscard]] bool prepare_impl();
     // Accepts the latest platform target size used for render validation.
@@ -131,8 +120,6 @@ private:
     GpuContext m_gpu;
     WGPUTextureFormat m_color_format{WGPUTextureFormat_Undefined};
     GameLifecycleState m_state{GameLifecycleState::Uninitialized};
-    PrepareStage m_prepare_stage{PrepareStage::NotStarted};
-    ReleaseStage m_release_stage{ReleaseStage::NotStarted};
     FrameState m_frame_state;
     RuntimeDebugStatus m_status;
     std::string m_last_error;

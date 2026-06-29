@@ -61,12 +61,20 @@ const char* game_lifecycle_state_name(GameLifecycleState state) noexcept {
         return "uninitialized";
     case GameLifecycleState::Created:
         return "created";
-    case GameLifecycleState::Preparing:
-        return "preparing";
+    case GameLifecycleState::Prep_Resources:
+        return "prep_resources";
+    case GameLifecycleState::Prep_Scene:
+        return "prep_scene";
+    case GameLifecycleState::Prep_Renderer:
+        return "prep_renderer";
     case GameLifecycleState::Ready:
         return "ready";
-    case GameLifecycleState::Releasing:
-        return "releasing";
+    case GameLifecycleState::Rel_Renderer:
+        return "rel_renderer";
+    case GameLifecycleState::Rel_Scene:
+        return "rel_scene";
+    case GameLifecycleState::Rel_Resources:
+        return "rel_resources";
     case GameLifecycleState::Released:
         return "released";
     case GameLifecycleState::Failed:
@@ -253,51 +261,42 @@ bool Game::prepare_impl() {
     case GameLifecycleState::Ready:
         return true;
     case GameLifecycleState::Created:
-        set_state(GameLifecycleState::Preparing);
-        m_prepare_stage = PrepareStage::Resources;
+        set_state(GameLifecycleState::Prep_Resources);
         [[fallthrough]];
-    case GameLifecycleState::Preparing:
-        switch (m_prepare_stage) {
-        case PrepareStage::NotStarted:
-            m_prepare_stage = PrepareStage::Resources;
-            [[fallthrough]];
-        case PrepareStage::Resources:
-            if (!Resources::prepare()) {
-                return false;
-            }
-            m_prepare_stage = PrepareStage::Scene;
-            [[fallthrough]];
-        case PrepareStage::Scene: {
-            DemoScene demo_scene;
-            Scene scene;
-            build_demo_scene(demo_scene);
-            update_demo_scene(demo_scene, m_last_time_ms, m_aspect, scene);
-            m_demo_scene = demo_scene;
-            m_scene = std::move(scene);
-            m_prepare_stage = PrepareStage::Renderer;
+    case GameLifecycleState::Prep_Resources:
+        if (!Resources::prepare()) {
+            return false;
         }
-            [[fallthrough]];
-        case PrepareStage::Renderer: {
-            if (!Renderer::prepare()) {
-                return false;
-            }
-            if (m_status.m_canvas_width > 0 && m_status.m_canvas_height > 0) {
-                Renderer::resize(m_status.m_canvas_width, m_status.m_canvas_height);
-            }
-            mark_gpu_ready(m_gpu.m_adapter_name, m_gpu.m_backend, gpu::texture_format_name(m_color_format));
-            const RendererCounters counters = Renderer::counters();
-            mark_renderer_counters(counters.m_pipeline_create_count, counters.m_buffer_create_count);
-            m_prepare_stage = PrepareStage::Complete;
-            set_state(GameLifecycleState::Ready);
-            return true;
+        set_state(GameLifecycleState::Prep_Scene);
+        [[fallthrough]];
+    case GameLifecycleState::Prep_Scene: {
+        DemoScene demo_scene;
+        Scene scene;
+        build_demo_scene(demo_scene);
+        update_demo_scene(demo_scene, m_last_time_ms, m_aspect, scene);
+        m_demo_scene = demo_scene;
+        m_scene = std::move(scene);
+        set_state(GameLifecycleState::Prep_Renderer);
+    }
+        [[fallthrough]];
+    case GameLifecycleState::Prep_Renderer: {
+        if (!Renderer::prepare()) {
+            return false;
         }
-        case PrepareStage::Complete:
-            set_state(GameLifecycleState::Ready);
-            return true;
+        if (m_status.m_canvas_width > 0 && m_status.m_canvas_height > 0) {
+            Renderer::resize(m_status.m_canvas_width, m_status.m_canvas_height);
         }
+        mark_gpu_ready(m_gpu.m_adapter_name, m_gpu.m_backend, gpu::texture_format_name(m_color_format));
+        const RendererCounters counters = Renderer::counters();
+        mark_renderer_counters(counters.m_pipeline_create_count, counters.m_buffer_create_count);
+        set_state(GameLifecycleState::Ready);
+        return true;
+    }
     case GameLifecycleState::Failed:
         throw EngineError("Game::prepare cannot continue while Game is failed: " + m_last_error);
-    case GameLifecycleState::Releasing:
+    case GameLifecycleState::Rel_Renderer:
+    case GameLifecycleState::Rel_Scene:
+    case GameLifecycleState::Rel_Resources:
     case GameLifecycleState::Released:
         throw EngineError("Game::prepare cannot run after Game release has started.");
     case GameLifecycleState::Uninitialized:
@@ -308,7 +307,8 @@ bool Game::prepare_impl() {
 
 // Accepts the latest platform target size used for render validation.
 void Game::resize_impl(std::uint32_t width, std::uint32_t height, double device_pixel_ratio) {
-    if (m_state == GameLifecycleState::Releasing || m_state == GameLifecycleState::Released) {
+    if (m_state == GameLifecycleState::Rel_Renderer || m_state == GameLifecycleState::Rel_Scene ||
+        m_state == GameLifecycleState::Rel_Resources || m_state == GameLifecycleState::Released) {
         throw EngineError("Game::resize cannot run after Game release has started.");
     }
     if (m_state == GameLifecycleState::Failed) {
@@ -376,39 +376,33 @@ bool Game::release_impl() {
     case GameLifecycleState::Uninitialized:
         return true;
     case GameLifecycleState::Created:
-    case GameLifecycleState::Preparing:
+    case GameLifecycleState::Prep_Resources:
+    case GameLifecycleState::Prep_Scene:
+    case GameLifecycleState::Prep_Renderer:
     case GameLifecycleState::Ready:
     case GameLifecycleState::Failed:
-        set_state(GameLifecycleState::Releasing);
-        m_release_stage = ReleaseStage::Renderer;
+        set_state(GameLifecycleState::Rel_Renderer);
         [[fallthrough]];
-    case GameLifecycleState::Releasing:
-        switch (m_release_stage) {
-        case ReleaseStage::NotStarted:
-            m_release_stage = ReleaseStage::Renderer;
-            [[fallthrough]];
-        case ReleaseStage::Renderer:
-            if (!Renderer::release()) {
-                return false;
-            }
-            m_scene.clear();
-            m_demo_scene = DemoScene{};
-            m_release_stage = ReleaseStage::Resources;
-            [[fallthrough]];
-        case ReleaseStage::Resources:
-            if (!Resources::release()) {
-                return false;
-            }
-            dispose_runtime();
-            m_gpu = GpuContext{};
-            m_color_format = WGPUTextureFormat_Undefined;
-            m_release_stage = ReleaseStage::Complete;
-            set_state(GameLifecycleState::Released);
-            return true;
-        case ReleaseStage::Complete:
-            set_state(GameLifecycleState::Released);
-            return true;
+    case GameLifecycleState::Rel_Renderer:
+        if (!Renderer::release()) {
+            return false;
         }
+        set_state(GameLifecycleState::Rel_Scene);
+        [[fallthrough]];
+    case GameLifecycleState::Rel_Scene:
+        m_scene.clear();
+        m_demo_scene = DemoScene{};
+        set_state(GameLifecycleState::Rel_Resources);
+        [[fallthrough]];
+    case GameLifecycleState::Rel_Resources:
+        if (!Resources::release()) {
+            return false;
+        }
+        dispose_runtime();
+        m_gpu = GpuContext{};
+        m_color_format = WGPUTextureFormat_Undefined;
+        set_state(GameLifecycleState::Released);
+        return true;
     }
     throw EngineError("Game::release cannot run in an unknown lifecycle state.");
 }
