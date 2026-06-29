@@ -7,7 +7,6 @@
 #include "ofg/game/gpu_context.hpp"
 
 #include <cstdint>
-#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -52,22 +51,20 @@ struct PipelineDefinition {
 
 class Shader {
 public:
+    // Allocates a labeled shader resource using the creating Resources context.
+    Shader(GpuContext gpu, std::string label);
     Shader(const Shader&) = delete;
     Shader& operator=(const Shader&) = delete;
     Shader(Shader&& other) noexcept;
     Shader& operator=(Shader&& other) noexcept;
     ~Shader();
 
-    // Creates a shader resource and validates its declared layout.
-    [[nodiscard]] static std::optional<Shader> create(GpuContext gpu,
-        std::string label,
-        std::string wgsl_source,
-        ShaderParameterLayout parameter_layout,
-        std::vector<PipelineDefinition> pipelines,
-        std::string& error);
+    // Initializes this shader from WGSL source and explicit parameter layout.
+    void init_from_wgsl(
+        std::string wgsl_source, ShaderParameterLayout parameter_layout, std::vector<PipelineDefinition> pipelines);
 
     // Replaces WGSL source and increments the shader revision.
-    bool replace_source(std::string wgsl_source, std::string& error);
+    void replace_source(std::string wgsl_source);
     // Finds a declared shader parameter by name.
     [[nodiscard]] const ShaderParameter* parameter(std::string_view name) const noexcept;
     // Returns all declared parameters.
@@ -84,15 +81,8 @@ public:
     [[nodiscard]] const std::string& source() const noexcept;
 
 private:
-    // Stores validated shader CPU data; use create() for validation.
-    Shader(GpuContext gpu,
-        std::string label,
-        std::string wgsl_source,
-        ShaderParameterLayout parameter_layout,
-        std::vector<PipelineDefinition> pipelines);
-
     // Creates or recreates the WebGPU shader module from WGSL source.
-    [[nodiscard]] bool prepare_gpu_state(std::string& error);
+    void prepare_gpu_state();
     // Releases the owned WebGPU shader module.
     void release_gpu_state() noexcept;
 
@@ -102,7 +92,7 @@ private:
     ShaderParameterLayout m_parameter_layout;
     std::vector<PipelineDefinition> m_pipelines;
     WGPUShaderModule m_module{nullptr};
-    std::uint64_t m_revision{1};
+    std::uint64_t m_revision{0};
 };
 
 // Converts a shader parameter type into a readable diagnostic label.

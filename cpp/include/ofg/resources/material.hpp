@@ -9,7 +9,6 @@
 #include "ofg/resources/shader.hpp"
 
 #include <cstdint>
-#include <optional>
 #include <string>
 
 #include <webgpu/webgpu.h>
@@ -18,18 +17,19 @@ namespace ofg {
 
 class Material {
 public:
+    // Allocates a labeled material resource using the creating Resources context.
+    Material(GpuContext gpu, std::string label);
     Material(const Material&) = delete;
     Material& operator=(const Material&) = delete;
     Material(Material&& other) noexcept;
     Material& operator=(Material&& other) noexcept;
     ~Material();
 
-    // Creates a material and validates its properties against material scope.
-    [[nodiscard]] static std::optional<Material> create(
-        GpuContext gpu, std::string label, Shader& shader, PropertyBag properties, std::string& error);
+    // Initializes this material and validates its properties against material scope.
+    void init(Shader& shader, PropertyBag properties);
 
     // Replaces one property and refreshes validation state.
-    bool set_property(std::string name, PropertyValue value, std::string& error);
+    void set_property(std::string name, PropertyValue value);
     // Returns the referenced shader.
     [[nodiscard]] const Shader& shader() const noexcept;
     // Returns the material label.
@@ -46,11 +46,8 @@ public:
     [[nodiscard]] std::uint64_t revision() const noexcept;
 
 private:
-    // Stores validated material data; use create() for validation.
-    Material(GpuContext gpu, std::string label, Shader& shader, PropertyBag properties);
-
     // Creates GPU material uniform and bind-group state.
-    [[nodiscard]] bool prepare_gpu_state(std::string& error);
+    void prepare_gpu_state();
     // Releases all owned WebGPU material handles.
     void release_gpu_state() noexcept;
 
@@ -61,7 +58,7 @@ private:
     WGPUBindGroupLayout m_bind_group_layout{nullptr};
     WGPUBuffer m_uniform_buffer{nullptr};
     WGPUBindGroup m_bind_group{nullptr};
-    std::uint64_t m_revision{1};
+    std::uint64_t m_revision{0};
 };
 
 } // namespace ofg

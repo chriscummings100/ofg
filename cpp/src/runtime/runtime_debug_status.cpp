@@ -56,6 +56,8 @@ std::string RuntimeDebugStatus::to_json() const {
     out << std::boolalpha << std::setprecision(17);
     out << '{';
     out << "\"initialized\":" << m_initialized;
+    out << ",\"lifecycleState\":";
+    write_json_string(out, m_lifecycle_state);
     out << ",\"frameCount\":" << m_frame_count;
     out << ",\"canvasWidth\":" << m_canvas_width;
     out << ",\"canvasHeight\":" << m_canvas_height;
@@ -83,6 +85,7 @@ std::string RuntimeDebugStatus::to_json() const {
 RuntimeDebugStatus RuntimeDebugStatus::uninitialized(std::string message) {
     RuntimeDebugStatus status;
     status.m_initialized = false;
+    status.m_lifecycle_state = "uninitialized";
     status.m_last_error = std::move(message);
     return status;
 }

@@ -6,6 +6,7 @@
 
 export interface RuntimeDebugStatus {
   readonly initialized: boolean;
+  readonly lifecycleState: string;
   readonly frameCount: number;
   readonly canvasWidth: number;
   readonly canvasHeight: number;
@@ -145,6 +146,7 @@ export function parseRuntimeDebugStatus(json: string): RuntimeDebugStatus {
   const record = value as Partial<RuntimeDebugStatusRecord>;
   return {
     initialized: requireBoolean(record, "initialized"),
+    lifecycleState: requireString(record, "lifecycleState"),
     frameCount: requireNonNegativeInteger(record, "frameCount"),
     canvasWidth: requireNonNegativeInteger(record, "canvasWidth"),
     canvasHeight: requireNonNegativeInteger(record, "canvasHeight"),

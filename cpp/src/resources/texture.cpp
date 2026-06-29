@@ -1,7 +1,8 @@
 // Mutable texture resource for generated or caller-provided RGBA8 pixels.
 #include "ofg/resources/texture.hpp"
 
-#include "ofg/render/webgpu_common.hpp"
+#include "ofg/core/engine_error.hpp"
+#include "ofg/gpu/common.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -107,16 +108,12 @@ std::vector<std::vector<std::byte>> generate_mip_chain(
 
 } // namespace
 
-// Stores validated CPU texture data; use from_rgba8_pixels() for validation.
-Texture::Texture(GpuContext gpu,
-    std::string label,
-    std::uint32_t width,
-    std::uint32_t height,
-    TexturePixelFormat pixel_format,
-    MipMapPolicy mip_map_policy,
-    std::vector<std::vector<std::byte>> mip_pixels)
-    : m_gpu(std::move(gpu)), m_label(std::move(label)), m_width(width), m_height(height), m_pixel_format(pixel_format),
-      m_mip_map_policy(mip_map_policy), m_mip_pixels(std::move(mip_pixels)) {}
+// Allocates a labeled texture resource using the creating Resources context.
+Texture::Texture(GpuContext gpu, std::string label) : m_gpu(std::move(gpu)), m_label(std::move(label)) {
+    if (m_label.empty()) {
+        throw EngineError("Texture label must not be empty.");
+    }
+}
 
 // Moves texture CPU and GPU handles without duplicating ownership.
 Texture::Texture(Texture&& other) noexcept
@@ -156,59 +153,41 @@ Texture::~Texture() {
     release_gpu_state();
 }
 
-// Creates a texture from tightly packed RGBA8 level-zero pixels.
-std::optional<Texture> Texture::from_rgba8_pixels(GpuContext gpu,
-    std::string label,
-    std::uint32_t width,
+// Initializes this texture from tightly packed RGBA8 level-zero pixels.
+void Texture::init_from_rgba8_pixels(std::uint32_t width,
     std::uint32_t height,
     TextureColorSpace color_space,
     std::vector<std::byte> pixels,
-    MipMapPolicy mip_map_policy,
-    std::string& error) {
-    if (label.empty()) {
-        error = "Texture label must not be empty.";
-        return std::nullopt;
-    }
+    MipMapPolicy mip_map_policy) {
     const std::optional<std::size_t> expected_bytes = rgba8_byte_count(width, height);
     if (!expected_bytes.has_value()) {
-        error = "Texture dimensions must be nonzero.";
-        return std::nullopt;
+        throw EngineError("Texture dimensions must be nonzero.");
     }
     if (pixels.size() != *expected_bytes) {
-        error = "Texture RGBA8 pixel byte count does not match width and height.";
-        return std::nullopt;
+        throw EngineError("Texture RGBA8 pixel byte count does not match width and height.");
     }
 
     std::vector<std::vector<std::byte>> mip_pixels =
         generate_mip_chain(width, height, std::move(pixels), mip_map_policy);
-    Texture texture(std::move(gpu),
-        std::move(label),
-        width,
-        height,
-        texture_pixel_format_for_color_space(color_space),
-        mip_map_policy,
-        std::move(mip_pixels));
-    if (!texture.prepare_gpu_state(error)) {
-        return std::nullopt;
-    }
-    error.clear();
-    return texture;
+    release_gpu_state();
+    m_width = width;
+    m_height = height;
+    m_pixel_format = texture_pixel_format_for_color_space(color_space);
+    m_mip_map_policy = mip_map_policy;
+    m_mip_pixels = std::move(mip_pixels);
+    prepare_gpu_state();
+    m_revision += 1;
 }
 
 // Replaces level-zero pixels and regenerates CPU mips.
-bool Texture::update_pixels(std::vector<std::byte> pixels, std::string& error) {
+void Texture::update_pixels(std::vector<std::byte> pixels) {
     const std::optional<std::size_t> expected_bytes = rgba8_byte_count(m_width, m_height);
     if (!expected_bytes.has_value() || pixels.size() != *expected_bytes) {
-        error = "Texture RGBA8 pixel byte count does not match existing dimensions.";
-        return false;
+        throw EngineError("Texture RGBA8 pixel byte count does not match existing dimensions.");
     }
     m_mip_pixels = generate_mip_chain(m_width, m_height, std::move(pixels), m_mip_map_policy);
-    if (!upload_mip_chain(error)) {
-        return false;
-    }
+    upload_mip_chain();
     m_revision += 1;
-    error.clear();
-    return true;
 }
 
 // Returns the texture label.
@@ -286,14 +265,12 @@ std::uint32_t full_mip_level_count(std::uint32_t width, std::uint32_t height) no
 }
 
 // Creates GPU texture/view/sampler handles and uploads every mip level.
-bool Texture::prepare_gpu_state(std::string& error) {
+void Texture::prepare_gpu_state() {
     if (gpu_context_is_empty(m_gpu)) {
-        error.clear();
-        return true;
+        return;
     }
     if (!gpu_context_is_ready(m_gpu)) {
-        error = "Texture GPU preparation requires a WebGPU device and queue.";
-        return false;
+        throw EngineError("Texture GPU preparation requires a WebGPU device and queue.");
     }
 
     release_gpu_state();
@@ -308,13 +285,14 @@ bool Texture::prepare_gpu_state(std::string& error) {
     texture_descriptor.sampleCount = 1;
     m_texture = wgpuDeviceCreateTexture(m_gpu.m_device, &texture_descriptor);
     if (m_texture == nullptr) {
-        error = "wgpuDeviceCreateTexture returned null for texture '" + m_label + "'.";
-        return false;
+        throw EngineError("wgpuDeviceCreateTexture returned null for texture '" + m_label + "'.");
     }
 
-    if (!upload_mip_chain(error)) {
+    try {
+        upload_mip_chain();
+    } catch (...) {
         release_gpu_state();
-        return false;
+        throw;
     }
 
     WGPUTextureViewDescriptor view_descriptor = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
@@ -326,9 +304,8 @@ bool Texture::prepare_gpu_state(std::string& error) {
     view_descriptor.aspect = WGPUTextureAspect_All;
     m_view = wgpuTextureCreateView(m_texture, &view_descriptor);
     if (m_view == nullptr) {
-        error = "wgpuTextureCreateView returned null for texture '" + m_label + "'.";
         release_gpu_state();
-        return false;
+        throw EngineError("wgpuTextureCreateView returned null for texture '" + m_label + "'.");
     }
 
     WGPUSamplerDescriptor sampler_descriptor = WGPU_SAMPLER_DESCRIPTOR_INIT;
@@ -343,28 +320,21 @@ bool Texture::prepare_gpu_state(std::string& error) {
                                           : WGPUMipmapFilterMode_Nearest;
     m_sampler = wgpuDeviceCreateSampler(m_gpu.m_device, &sampler_descriptor);
     if (m_sampler == nullptr) {
-        error = "wgpuDeviceCreateSampler returned null for texture '" + m_label + "'.";
         release_gpu_state();
-        return false;
+        throw EngineError("wgpuDeviceCreateSampler returned null for texture '" + m_label + "'.");
     }
-
-    error.clear();
-    return true;
 }
 
 // Uploads all stored CPU mip levels into the current WebGPU texture.
-bool Texture::upload_mip_chain(std::string& error) const {
+void Texture::upload_mip_chain() const {
     if (gpu_context_is_empty(m_gpu)) {
-        error.clear();
-        return true;
+        return;
     }
     if (!gpu_context_is_ready(m_gpu)) {
-        error = "Texture upload requires a WebGPU device and queue.";
-        return false;
+        throw EngineError("Texture upload requires a WebGPU device and queue.");
     }
     if (m_texture == nullptr) {
-        error = "Texture upload requires an initialized WebGPU texture.";
-        return false;
+        throw EngineError("Texture upload requires an initialized WebGPU texture.");
     }
 
     for (std::uint32_t level = 0; level < mip_level_count(); ++level) {
@@ -387,9 +357,6 @@ bool Texture::upload_mip_chain(std::string& error) const {
         wgpuQueueWriteTexture(
             m_gpu.m_queue, &destination, level_pixels.data(), level_pixels.size(), &layout, &write_size);
     }
-
-    error.clear();
-    return true;
 }
 
 // Releases all owned WebGPU texture handles.

@@ -37,6 +37,12 @@ else()
   set(OFG_CXX_WARNING_OPTIONS -Wall -Wextra -Wpedantic)
 endif()
 
+set(OFG_WASM_EXCEPTION_OPTIONS "")
+if(EMSCRIPTEN)
+  # Browser builds catch C++ exceptions inside the WASM module at Embind/platform boundaries.
+  set(OFG_WASM_EXCEPTION_OPTIONS -fwasm-exceptions)
+endif()
+
 set(OFG_NEEDS_NATIVE_WEBGPU OFF)
 if((OFG_BUILD_TESTS OR OFG_BUILD_NATIVE_SMOKE) AND NOT EMSCRIPTEN)
   set(OFG_NEEDS_NATIVE_WEBGPU ON)
@@ -75,8 +81,8 @@ endif()
 add_library(ofg_cpp
   src/core/frame_state.cpp
   src/game/game.cpp
-  src/game/game_runtime.cpp
   src/game/render_target.cpp
+  src/gpu/common.cpp
   src/math/mat.cpp
   src/math/transform.cpp
   src/render/bootstrap_scene.cpp
@@ -86,12 +92,11 @@ add_library(ofg_cpp
   src/render/opaque_pass.cpp
   src/render/pipeline_cache.cpp
   src/render/renderer.cpp
-  src/render/webgpu_common.cpp
   src/resources/material.cpp
   src/resources/mesh.cpp
   src/resources/property_bag.cpp
-  src/resources/resource_arena.cpp
   src/resources/resource_error.cpp
+  src/resources/resources.cpp
   src/resources/shader.cpp
   src/resources/texture.cpp
   src/runtime/runtime_debug_status.cpp
@@ -107,7 +112,7 @@ target_compile_features(ofg_cpp PUBLIC cxx_std_20)
 target_compile_options(ofg_cpp PRIVATE ${OFG_CXX_WARNING_OPTIONS})
 
 if(EMSCRIPTEN)
-  target_compile_options(ofg_cpp PRIVATE --use-port=emdawnwebgpu)
+  target_compile_options(ofg_cpp PRIVATE --use-port=emdawnwebgpu ${OFG_WASM_EXCEPTION_OPTIONS})
 elseif(OFG_NEEDS_NATIVE_WEBGPU)
   target_link_libraries(ofg_cpp PUBLIC webgpu_c)
 endif()
@@ -155,14 +160,15 @@ if(OFG_BUILD_TESTS AND NOT EMSCRIPTEN)
     tests/demo_scene_test.cpp
     tests/draw_list_test.cpp
     tests/frame_state_test.cpp
-    tests/game_runtime_test.cpp
+    tests/gpu_common_test.cpp
+    tests/game_test.cpp
     tests/material_resource_test.cpp
     tests/math_test.cpp
     tests/mesh_resource_test.cpp
     tests/property_bag_test.cpp
-    tests/resource_arena_test.cpp
     tests/resource_gpu_test.cpp
     tests/resource_error_test.cpp
+    tests/resources_lifecycle_test.cpp
     tests/pipeline_cache_test.cpp
     tests/renderer_test.cpp
     tests/shader_resource_test.cpp
@@ -205,10 +211,12 @@ if(OFG_BUILD_WASM)
   target_compile_options(ofg_cpp_wasm PRIVATE
     ${OFG_CXX_WARNING_OPTIONS}
     --use-port=emdawnwebgpu
+    ${OFG_WASM_EXCEPTION_OPTIONS}
   )
   target_link_options(ofg_cpp_wasm PRIVATE
     --bind
     --use-port=emdawnwebgpu
+    ${OFG_WASM_EXCEPTION_OPTIONS}
     -sALLOW_MEMORY_GROWTH=0
     -sENVIRONMENT=web
     -sEXPORT_ES6=1

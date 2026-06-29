@@ -1,7 +1,8 @@
 // Mutable WGSL shader resource for the OFG renderer.
 #include "ofg/resources/shader.hpp"
 
-#include "ofg/render/webgpu_common.hpp"
+#include "ofg/core/engine_error.hpp"
+#include "ofg/gpu/common.hpp"
 
 #include <optional>
 #include <string>
@@ -14,24 +15,20 @@ namespace ofg {
 namespace {
 
 // Validates that a shader layout has named, unique parameters.
-bool validate_parameter_layout(const ShaderParameterLayout& layout, std::string& error) {
+void validate_parameter_layout(const ShaderParameterLayout& layout) {
     std::unordered_set<std::string> names;
     for (const ShaderParameter& parameter : layout.m_parameters) {
         if (parameter.m_name.empty()) {
-            error = "Shader parameter names must not be empty.";
-            return false;
+            throw EngineError("Shader parameter names must not be empty.");
         }
         if (!names.insert(parameter.m_name).second) {
-            error = "Shader parameter '" + parameter.m_name + "' is declared more than once.";
-            return false;
+            throw EngineError("Shader parameter '" + parameter.m_name + "' is declared more than once.");
         }
     }
-    return true;
 }
 
 // Creates a WebGPU shader module from WGSL source for a ready GPU context.
-WGPUShaderModule create_shader_module(
-    const GpuContext& context, const std::string& label, const std::string& source, std::string& error) {
+WGPUShaderModule create_shader_module(const GpuContext& context, const std::string& label, const std::string& source) {
     WGPUShaderSourceWGSL shader_source = WGPU_SHADER_SOURCE_WGSL_INIT;
     shader_source.code = gpu::string_view(source);
 
@@ -41,21 +38,19 @@ WGPUShaderModule create_shader_module(
 
     WGPUShaderModule module = wgpuDeviceCreateShaderModule(context.m_device, &descriptor);
     if (module == nullptr) {
-        error = "wgpuDeviceCreateShaderModule returned null for shader '" + label + "'.";
+        throw EngineError("wgpuDeviceCreateShaderModule returned null for shader '" + label + "'.");
     }
     return module;
 }
 
 } // namespace
 
-// Stores validated shader CPU data; use create() for validation.
-Shader::Shader(GpuContext gpu,
-    std::string label,
-    std::string wgsl_source,
-    ShaderParameterLayout parameter_layout,
-    std::vector<PipelineDefinition> pipelines)
-    : m_gpu(std::move(gpu)), m_label(std::move(label)), m_wgsl_source(std::move(wgsl_source)),
-      m_parameter_layout(std::move(parameter_layout)), m_pipelines(std::move(pipelines)) {}
+// Allocates a labeled shader resource using the creating Resources context.
+Shader::Shader(GpuContext gpu, std::string label) : m_gpu(std::move(gpu)), m_label(std::move(label)) {
+    if (m_label.empty()) {
+        throw EngineError("Shader label must not be empty.");
+    }
+}
 
 // Moves shader CPU and GPU handles without duplicating ownership.
 Shader::Shader(Shader&& other) noexcept
@@ -86,56 +81,37 @@ Shader::~Shader() {
     release_gpu_state();
 }
 
-// Creates a shader resource and validates its declared layout.
-std::optional<Shader> Shader::create(GpuContext gpu,
-    std::string label,
-    std::string wgsl_source,
-    ShaderParameterLayout parameter_layout,
-    std::vector<PipelineDefinition> pipelines,
-    std::string& error) {
-    if (label.empty()) {
-        error = "Shader label must not be empty.";
-        return std::nullopt;
-    }
+// Initializes this shader from WGSL source and explicit parameter layout.
+void Shader::init_from_wgsl(
+    std::string wgsl_source, ShaderParameterLayout parameter_layout, std::vector<PipelineDefinition> pipelines) {
     if (wgsl_source.empty()) {
-        error = "Shader WGSL source must not be empty.";
-        return std::nullopt;
+        throw EngineError("Shader WGSL source must not be empty.");
     }
-    if (!validate_parameter_layout(parameter_layout, error)) {
-        return std::nullopt;
-    }
-    Shader shader(
-        std::move(gpu), std::move(label), std::move(wgsl_source), std::move(parameter_layout), std::move(pipelines));
-    if (!shader.prepare_gpu_state(error)) {
-        return std::nullopt;
-    }
-    error.clear();
-    return shader;
+    validate_parameter_layout(parameter_layout);
+    release_gpu_state();
+    m_wgsl_source = std::move(wgsl_source);
+    m_parameter_layout = std::move(parameter_layout);
+    m_pipelines = std::move(pipelines);
+    prepare_gpu_state();
+    m_revision += 1;
 }
 
 // Replaces WGSL source and increments the shader revision.
-bool Shader::replace_source(std::string wgsl_source, std::string& error) {
+void Shader::replace_source(std::string wgsl_source) {
     if (wgsl_source.empty()) {
-        error = "Shader WGSL source must not be empty.";
-        return false;
+        throw EngineError("Shader WGSL source must not be empty.");
     }
     WGPUShaderModule next_module = nullptr;
     if (!gpu_context_is_empty(m_gpu)) {
         if (!gpu_context_is_ready(m_gpu)) {
-            error = "Shader GPU preparation requires a WebGPU device and queue.";
-            return false;
+            throw EngineError("Shader GPU preparation requires a WebGPU device and queue.");
         }
-        next_module = create_shader_module(m_gpu, m_label, wgsl_source, error);
-        if (next_module == nullptr) {
-            return false;
-        }
+        next_module = create_shader_module(m_gpu, m_label, wgsl_source);
     }
     release_gpu_state();
     m_module = next_module;
     m_wgsl_source = std::move(wgsl_source);
     m_revision += 1;
-    error.clear();
-    return true;
 }
 
 // Finds a declared shader parameter by name.
@@ -185,24 +161,17 @@ const std::string& Shader::source() const noexcept {
 }
 
 // Creates or recreates the WebGPU shader module from WGSL source.
-bool Shader::prepare_gpu_state(std::string& error) {
+void Shader::prepare_gpu_state() {
     if (gpu_context_is_empty(m_gpu)) {
-        error.clear();
-        return true;
+        return;
     }
     if (!gpu_context_is_ready(m_gpu)) {
-        error = "Shader GPU preparation requires a WebGPU device and queue.";
-        return false;
+        throw EngineError("Shader GPU preparation requires a WebGPU device and queue.");
     }
 
-    WGPUShaderModule next_module = create_shader_module(m_gpu, m_label, m_wgsl_source, error);
-    if (next_module == nullptr) {
-        return false;
-    }
+    WGPUShaderModule next_module = create_shader_module(m_gpu, m_label, m_wgsl_source);
     release_gpu_state();
     m_module = next_module;
-    error.clear();
-    return true;
 }
 
 // Releases the owned WebGPU shader module.

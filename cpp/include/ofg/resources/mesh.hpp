@@ -9,7 +9,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -35,24 +34,21 @@ struct SubMesh {
 
 class Mesh {
 public:
+    // Allocates a labeled mesh resource using the creating Resources context.
+    Mesh(GpuContext gpu, std::string label);
     Mesh(const Mesh&) = delete;
     Mesh& operator=(const Mesh&) = delete;
     Mesh(Mesh&& other) noexcept;
     Mesh& operator=(Mesh&& other) noexcept;
     ~Mesh();
 
-    // Creates a mesh and validates vertices, indices, and submesh ranges.
-    [[nodiscard]] static std::optional<Mesh> create(GpuContext gpu,
-        std::string label,
-        std::vector<MeshVertex> vertices,
-        std::vector<std::uint32_t> indices,
-        std::vector<SubMesh> submeshes,
-        std::string& error);
+    // Initializes this mesh and validates vertices, indices, and submesh ranges.
+    void init(std::vector<MeshVertex> vertices, std::vector<std::uint32_t> indices, std::vector<SubMesh> submeshes);
 
     // Replaces vertices when the existing indices remain valid.
-    bool replace_vertices(std::vector<MeshVertex> vertices, std::string& error);
+    void replace_vertices(std::vector<MeshVertex> vertices);
     // Replaces indices and submeshes after validating ranges and materials.
-    bool replace_indices(std::vector<std::uint32_t> indices, std::vector<SubMesh> submeshes, std::string& error);
+    void replace_indices(std::vector<std::uint32_t> indices, std::vector<SubMesh> submeshes);
     // Returns the mesh label.
     [[nodiscard]] const std::string& label() const noexcept;
     // Returns immutable CPU vertices.
@@ -69,15 +65,8 @@ public:
     [[nodiscard]] std::uint64_t revision() const noexcept;
 
 private:
-    // Stores validated mesh CPU data; use create() for validation.
-    Mesh(GpuContext gpu,
-        std::string label,
-        std::vector<MeshVertex> vertices,
-        std::vector<std::uint32_t> indices,
-        std::vector<SubMesh> submeshes);
-
     // Creates GPU vertex and index buffers from CPU mesh data.
-    [[nodiscard]] bool prepare_gpu_state(std::string& error);
+    void prepare_gpu_state();
     // Releases all owned WebGPU mesh buffers.
     void release_gpu_state() noexcept;
 
@@ -88,7 +77,7 @@ private:
     std::vector<SubMesh> m_submeshes;
     WGPUBuffer m_vertex_buffer{nullptr};
     WGPUBuffer m_index_buffer{nullptr};
-    std::uint64_t m_revision{1};
+    std::uint64_t m_revision{0};
 };
 
 // Returns the byte stride of MeshVertex for WebGPU vertex buffers.

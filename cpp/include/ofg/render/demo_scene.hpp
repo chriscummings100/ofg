@@ -1,18 +1,14 @@
 // Small animated renderer demo scene for smoke tests and early renderer work.
 //
-// DemoScene owns no resources itself. It stores non-owning pointers into a
-// ResourceArena that outlives the scene, and update_demo_scene emits a fresh
-// draw list plus camera view for the current frame.
+// DemoScene owns no resources itself. It stores non-owning pointers into
+// Resources-owned assets that outlive the scene, and update_demo_scene writes
+// render objects plus camera state into the Game-owned Scene for the current frame.
 #pragma once
 
-#include "ofg/game/gpu_context.hpp"
-#include "ofg/render/camera.hpp"
-#include "ofg/render/draw_list.hpp"
-#include "ofg/resources/resource_arena.hpp"
 #include "ofg/resources/shader.hpp"
+#include "ofg/scene/scene.hpp"
 
 #include <array>
-#include <string>
 
 namespace ofg {
 
@@ -35,15 +31,10 @@ struct DemoScene {
 [[nodiscard]] ShaderParameterLayout opaque_demo_shader_layout();
 
 // Creates generated textures, materials, meshes, and shader resources.
-[[nodiscard]] bool build_demo_scene(GpuContext gpu, ResourceArena& resources, DemoScene& scene, std::string& error);
+void build_demo_scene(DemoScene& scene);
 
-// Rebuilds draw commands and camera state for one deterministic animation time.
-[[nodiscard]] bool update_demo_scene(const DemoScene& scene,
-    double time_ms,
-    float aspect,
-    DrawList& draw_list,
-    RenderView& render_view,
-    std::string& error);
+// Rebuilds render objects and camera state for one deterministic animation time.
+void update_demo_scene(const DemoScene& demo_scene, double time_ms, float aspect, Scene& scene);
 
 // Returns the stable timestamp used by browser-free native visual smoke.
 [[nodiscard]] double demo_native_smoke_time_ms() noexcept;

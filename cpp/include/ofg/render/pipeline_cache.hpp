@@ -6,7 +6,6 @@
 #pragma once
 
 #include <cstdint>
-#include <string>
 #include <vector>
 
 #include <webgpu/webgpu.h>
@@ -41,8 +40,7 @@ public:
         PipelineKey key,
         WGPUBindGroupLayout frame_layout,
         WGPUBindGroupLayout draw_layout,
-        WGPUShaderModule shader_module,
-        std::string& error);
+        WGPUShaderModule shader_module);
     // Releases all cached pipelines.
     void clear() noexcept;
     // Reports cache creation counters.

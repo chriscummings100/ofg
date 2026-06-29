@@ -1,8 +1,9 @@
 // Mutable indexed mesh resource for OFG renderer geometry.
 #include "ofg/resources/mesh.hpp"
 
+#include "ofg/core/engine_error.hpp"
 #include "ofg/resources/material.hpp"
-#include "ofg/render/webgpu_common.hpp"
+#include "ofg/gpu/common.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -17,64 +18,51 @@ namespace ofg {
 namespace {
 
 // Validates index values against a vertex count.
-bool validate_indices(const std::vector<std::uint32_t>& indices, std::size_t vertex_count, std::string& error) {
+void validate_indices(const std::vector<std::uint32_t>& indices, std::size_t vertex_count) {
     if (indices.empty()) {
-        error = "Mesh indices must not be empty.";
-        return false;
+        throw EngineError("Mesh indices must not be empty.");
     }
     for (std::uint32_t index : indices) {
         if (index >= vertex_count) {
-            error = "Mesh index references a missing vertex.";
-            return false;
+            throw EngineError("Mesh index references a missing vertex.");
         }
     }
-    return true;
 }
 
 // Validates submesh ranges and default materials.
-bool validate_submeshes(const std::vector<SubMesh>& submeshes, std::size_t index_count, std::string& error) {
+void validate_submeshes(const std::vector<SubMesh>& submeshes, std::size_t index_count) {
     if (submeshes.empty()) {
-        error = "Mesh requires at least one submesh.";
-        return false;
+        throw EngineError("Mesh requires at least one submesh.");
     }
     for (const SubMesh& submesh : submeshes) {
         if (submesh.m_label.empty()) {
-            error = "Submesh label must not be empty.";
-            return false;
+            throw EngineError("Submesh label must not be empty.");
         }
         if (submesh.m_default_material == nullptr) {
-            error = "Submesh default material must not be null.";
-            return false;
+            throw EngineError("Submesh default material must not be null.");
         }
         const std::uint64_t range_end =
             static_cast<std::uint64_t>(submesh.m_index_start) + static_cast<std::uint64_t>(submesh.m_index_count);
         if (submesh.m_index_count == 0 || range_end > index_count) {
-            error = "Submesh index range is outside the mesh index buffer.";
-            return false;
+            throw EngineError("Submesh index range is outside the mesh index buffer.");
         }
     }
-    return true;
 }
 
 // Validates a complete mesh CPU data set.
-bool validate_mesh_data(const std::vector<MeshVertex>& vertices,
+void validate_mesh_data(const std::vector<MeshVertex>& vertices,
     const std::vector<std::uint32_t>& indices,
-    const std::vector<SubMesh>& submeshes,
-    std::string& error) {
+    const std::vector<SubMesh>& submeshes) {
     if (vertices.empty()) {
-        error = "Mesh vertices must not be empty.";
-        return false;
+        throw EngineError("Mesh vertices must not be empty.");
     }
-    return validate_indices(indices, vertices.size(), error) && validate_submeshes(submeshes, indices.size(), error);
+    validate_indices(indices, vertices.size());
+    validate_submeshes(submeshes, indices.size());
 }
 
 // Creates a GPU buffer and uploads immutable CPU data into it.
-WGPUBuffer create_gpu_buffer(const GpuContext& gpu,
-    const std::string& label,
-    const void* data,
-    std::size_t byte_count,
-    WGPUBufferUsage usage,
-    std::string& error) {
+WGPUBuffer create_gpu_buffer(
+    const GpuContext& gpu, const std::string& label, const void* data, std::size_t byte_count, WGPUBufferUsage usage) {
     WGPUBufferDescriptor descriptor = WGPU_BUFFER_DESCRIPTOR_INIT;
     descriptor.label = gpu::string_view(label);
     descriptor.usage = usage | WGPUBufferUsage_CopyDst;
@@ -82,8 +70,7 @@ WGPUBuffer create_gpu_buffer(const GpuContext& gpu,
 
     WGPUBuffer buffer = wgpuDeviceCreateBuffer(gpu.m_device, &descriptor);
     if (buffer == nullptr) {
-        error = "wgpuDeviceCreateBuffer returned null for mesh buffer '" + label + "'.";
-        return nullptr;
+        throw EngineError("wgpuDeviceCreateBuffer returned null for mesh buffer '" + label + "'.");
     }
 
     wgpuQueueWriteBuffer(gpu.m_queue, buffer, 0, data, byte_count);
@@ -92,14 +79,12 @@ WGPUBuffer create_gpu_buffer(const GpuContext& gpu,
 
 } // namespace
 
-// Stores validated mesh CPU data; use create() for validation.
-Mesh::Mesh(GpuContext gpu,
-    std::string label,
-    std::vector<MeshVertex> vertices,
-    std::vector<std::uint32_t> indices,
-    std::vector<SubMesh> submeshes)
-    : m_gpu(std::move(gpu)), m_label(std::move(label)), m_vertices(std::move(vertices)), m_indices(std::move(indices)),
-      m_submeshes(std::move(submeshes)) {}
+// Allocates a labeled mesh resource using the creating Resources context.
+Mesh::Mesh(GpuContext gpu, std::string label) : m_gpu(std::move(gpu)), m_label(std::move(label)) {
+    if (m_label.empty()) {
+        throw EngineError("Mesh label must not be empty.");
+    }
+}
 
 // Moves mesh CPU and GPU handles without duplicating ownership.
 Mesh::Mesh(Mesh&& other) noexcept
@@ -133,49 +118,31 @@ Mesh::~Mesh() {
     release_gpu_state();
 }
 
-// Creates a mesh and validates vertices, indices, and submesh ranges.
-std::optional<Mesh> Mesh::create(GpuContext gpu,
-    std::string label,
-    std::vector<MeshVertex> vertices,
-    std::vector<std::uint32_t> indices,
-    std::vector<SubMesh> submeshes,
-    std::string& error) {
-    if (label.empty()) {
-        error = "Mesh label must not be empty.";
-        return std::nullopt;
-    }
-    if (!validate_mesh_data(vertices, indices, submeshes, error)) {
-        return std::nullopt;
-    }
-    Mesh mesh(std::move(gpu), std::move(label), std::move(vertices), std::move(indices), std::move(submeshes));
-    if (!mesh.prepare_gpu_state(error)) {
-        return std::nullopt;
-    }
-    error.clear();
-    return mesh;
+// Initializes this mesh and validates vertices, indices, and submesh ranges.
+void Mesh::init(std::vector<MeshVertex> vertices, std::vector<std::uint32_t> indices, std::vector<SubMesh> submeshes) {
+    validate_mesh_data(vertices, indices, submeshes);
+    release_gpu_state();
+    m_vertices = std::move(vertices);
+    m_indices = std::move(indices);
+    m_submeshes = std::move(submeshes);
+    prepare_gpu_state();
+    m_revision += 1;
 }
 
 // Replaces vertices when the existing indices remain valid.
-bool Mesh::replace_vertices(std::vector<MeshVertex> vertices, std::string& error) {
+void Mesh::replace_vertices(std::vector<MeshVertex> vertices) {
     if (vertices.empty()) {
-        error = "Mesh vertices must not be empty.";
-        return false;
+        throw EngineError("Mesh vertices must not be empty.");
     }
-    if (!validate_indices(m_indices, vertices.size(), error)) {
-        return false;
-    }
+    validate_indices(m_indices, vertices.size());
     WGPUBuffer next_vertex_buffer = nullptr;
     if (!gpu_context_is_empty(m_gpu)) {
         if (!gpu_context_is_ready(m_gpu)) {
-            error = "Mesh GPU preparation requires a WebGPU device and queue.";
-            return false;
+            throw EngineError("Mesh GPU preparation requires a WebGPU device and queue.");
         }
         const std::size_t vertex_bytes = sizeof(MeshVertex) * vertices.size();
-        next_vertex_buffer = create_gpu_buffer(
-            m_gpu, m_label + " vertex buffer", vertices.data(), vertex_bytes, WGPUBufferUsage_Vertex, error);
-        if (next_vertex_buffer == nullptr) {
-            return false;
-        }
+        next_vertex_buffer =
+            create_gpu_buffer(m_gpu, m_label + " vertex buffer", vertices.data(), vertex_bytes, WGPUBufferUsage_Vertex);
     }
     if (m_vertex_buffer != nullptr) {
         wgpuBufferRelease(m_vertex_buffer);
@@ -183,27 +150,19 @@ bool Mesh::replace_vertices(std::vector<MeshVertex> vertices, std::string& error
     m_vertex_buffer = next_vertex_buffer;
     m_vertices = std::move(vertices);
     m_revision += 1;
-    error.clear();
-    return true;
 }
 
 // Replaces indices and submeshes after validating ranges and materials.
-bool Mesh::replace_indices(std::vector<std::uint32_t> indices, std::vector<SubMesh> submeshes, std::string& error) {
-    if (!validate_mesh_data(m_vertices, indices, submeshes, error)) {
-        return false;
-    }
+void Mesh::replace_indices(std::vector<std::uint32_t> indices, std::vector<SubMesh> submeshes) {
+    validate_mesh_data(m_vertices, indices, submeshes);
     WGPUBuffer next_index_buffer = nullptr;
     if (!gpu_context_is_empty(m_gpu)) {
         if (!gpu_context_is_ready(m_gpu)) {
-            error = "Mesh GPU preparation requires a WebGPU device and queue.";
-            return false;
+            throw EngineError("Mesh GPU preparation requires a WebGPU device and queue.");
         }
         const std::size_t index_bytes = sizeof(std::uint32_t) * indices.size();
-        next_index_buffer = create_gpu_buffer(
-            m_gpu, m_label + " index buffer", indices.data(), index_bytes, WGPUBufferUsage_Index, error);
-        if (next_index_buffer == nullptr) {
-            return false;
-        }
+        next_index_buffer =
+            create_gpu_buffer(m_gpu, m_label + " index buffer", indices.data(), index_bytes, WGPUBufferUsage_Index);
     }
     if (m_index_buffer != nullptr) {
         wgpuBufferRelease(m_index_buffer);
@@ -212,8 +171,6 @@ bool Mesh::replace_indices(std::vector<std::uint32_t> indices, std::vector<SubMe
     m_indices = std::move(indices);
     m_submeshes = std::move(submeshes);
     m_revision += 1;
-    error.clear();
-    return true;
 }
 
 // Returns the mesh label.
@@ -252,36 +209,31 @@ std::uint64_t Mesh::revision() const noexcept {
 }
 
 // Creates GPU vertex and index buffers from CPU mesh data.
-bool Mesh::prepare_gpu_state(std::string& error) {
+void Mesh::prepare_gpu_state() {
     if (gpu_context_is_empty(m_gpu)) {
-        error.clear();
-        return true;
+        return;
     }
     if (!gpu_context_is_ready(m_gpu)) {
-        error = "Mesh GPU preparation requires a WebGPU device and queue.";
-        return false;
+        throw EngineError("Mesh GPU preparation requires a WebGPU device and queue.");
     }
 
     const std::size_t vertex_bytes = sizeof(MeshVertex) * m_vertices.size();
-    WGPUBuffer next_vertex_buffer = create_gpu_buffer(
-        m_gpu, m_label + " vertex buffer", m_vertices.data(), vertex_bytes, WGPUBufferUsage_Vertex, error);
-    if (next_vertex_buffer == nullptr) {
-        return false;
-    }
+    WGPUBuffer next_vertex_buffer =
+        create_gpu_buffer(m_gpu, m_label + " vertex buffer", m_vertices.data(), vertex_bytes, WGPUBufferUsage_Vertex);
 
     const std::size_t index_bytes = sizeof(std::uint32_t) * m_indices.size();
-    WGPUBuffer next_index_buffer = create_gpu_buffer(
-        m_gpu, m_label + " index buffer", m_indices.data(), index_bytes, WGPUBufferUsage_Index, error);
-    if (next_index_buffer == nullptr) {
+    WGPUBuffer next_index_buffer = nullptr;
+    try {
+        next_index_buffer =
+            create_gpu_buffer(m_gpu, m_label + " index buffer", m_indices.data(), index_bytes, WGPUBufferUsage_Index);
+    } catch (...) {
         wgpuBufferRelease(next_vertex_buffer);
-        return false;
+        throw;
     }
 
     release_gpu_state();
     m_vertex_buffer = next_vertex_buffer;
     m_index_buffer = next_index_buffer;
-    error.clear();
-    return true;
 }
 
 // Releases all owned WebGPU mesh buffers.

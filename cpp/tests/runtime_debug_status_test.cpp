@@ -10,6 +10,7 @@
 TEST_CASE("RuntimeDebugStatus emits the browser debug contract") {
     ofg::RuntimeDebugStatus status;
     status.m_initialized = true;
+    status.m_lifecycle_state = "ready";
     status.m_frame_count = 2;
     status.m_canvas_width = 800;
     status.m_canvas_height = 450;
@@ -21,7 +22,8 @@ TEST_CASE("RuntimeDebugStatus emits the browser debug contract") {
     status.m_buffer_create_count = 1;
     status.m_surface_configure_count = 1;
 
-    CHECK(status.to_json() == "{\"initialized\":true,\"frameCount\":2,\"canvasWidth\":800,\"canvasHeight\":450,"
+    CHECK(status.to_json() == "{\"initialized\":true,\"lifecycleState\":\"ready\",\"frameCount\":2,"
+                              "\"canvasWidth\":800,\"canvasHeight\":450,"
                               "\"devicePixelRatio\":1.25,\"surfaceFormat\":\"Bgra8UnormSrgb\","
                               "\"adapterName\":\"test adapter\",\"backend\":\"BrowserWebGpu\","
                               "\"pipelineCreateCount\":1,\"bufferCreateCount\":1,\"surfaceConfigureCount\":1,"
@@ -32,11 +34,13 @@ TEST_CASE("RuntimeDebugStatus emits the browser debug contract") {
 TEST_CASE("RuntimeDebugStatus escapes strings in JSON") {
     ofg::RuntimeDebugStatus status;
     status.m_surface_format = std::string("control ") + static_cast<char>(0x01);
+    status.m_lifecycle_state = "failed \" state";
     status.m_adapter_name = "quote \" slash \\ newline\n";
     status.m_backend = "return\r";
     status.m_last_error = "tab\t backspace\b formfeed\f";
 
     CHECK(status.to_json().find("\"surfaceFormat\":\"control \\u0001\"") != std::string::npos);
+    CHECK(status.to_json().find("\"lifecycleState\":\"failed \\\" state\"") != std::string::npos);
     CHECK(status.to_json().find("\"adapterName\":\"quote \\\" slash \\\\ newline\\n\"") != std::string::npos);
     CHECK(status.to_json().find("\"backend\":\"return\\r\"") != std::string::npos);
     CHECK(status.to_json().find("\"lastError\":\"tab\\t backspace\\b formfeed\\f\"") != std::string::npos);
@@ -47,6 +51,7 @@ TEST_CASE("RuntimeDebugStatus can describe an uninitialized runtime") {
     const ofg::RuntimeDebugStatus status = ofg::RuntimeDebugStatus::uninitialized("missing WebGPU");
 
     CHECK(status.m_initialized == false);
+    CHECK(status.m_lifecycle_state == "uninitialized");
     REQUIRE(status.m_last_error.has_value());
     CHECK(*status.m_last_error == "missing WebGPU");
 }

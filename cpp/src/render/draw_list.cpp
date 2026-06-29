@@ -1,13 +1,13 @@
 // Resolved render commands consumed by OFG renderer passes.
 #include "ofg/render/draw_list.hpp"
 
+#include "ofg/core/engine_error.hpp"
 #include "ofg/resources/material.hpp"
 #include "ofg/resources/mesh.hpp"
 #include "ofg/resources/shader.hpp"
 
 #include <cstdint>
 #include <span>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -34,56 +34,42 @@ std::size_t DrawList::size() const noexcept {
 }
 
 // Validates mesh, material, override, and draw-property references.
-bool DrawList::validate(std::string& error) const {
+void DrawList::validate() const {
     for (const DrawCommand& command : m_commands) {
         if (command.m_mesh == nullptr) {
-            error = "Draw command mesh must not be null.";
-            return false;
+            throw EngineError("Draw command mesh must not be null.");
         }
 
         const std::span<const SubMesh> submeshes = command.m_mesh->submeshes();
         for (const MaterialOverride& material_override : command.m_material_overrides) {
             if (material_override.m_material == nullptr) {
-                error = "Draw command material override must not be null.";
-                return false;
+                throw EngineError("Draw command material override must not be null.");
             }
             if (material_override.m_submesh_index >= submeshes.size()) {
-                error = "Draw command material override references a missing submesh.";
-                return false;
+                throw EngineError("Draw command material override references a missing submesh.");
             }
         }
 
         for (std::uint32_t submesh_index = 0; submesh_index < submeshes.size(); ++submesh_index) {
-            Material* material = resolve_material(command, submesh_index, error);
-            if (material == nullptr) {
-                return false;
-            }
-            if (!command.m_properties.validate_for_scope(material->shader(), ShaderParameterScope::Draw, error)) {
-                return false;
-            }
+            Material& material = resolve_material(command, submesh_index);
+            command.m_properties.validate_for_scope(material.shader(), ShaderParameterScope::Draw);
         }
     }
-
-    error.clear();
-    return true;
 }
 
 // Resolves a submesh material after applying command-level overrides.
-Material* resolve_material(const DrawCommand& command, std::uint32_t submesh_index, std::string& error) {
+Material& resolve_material(const DrawCommand& command, std::uint32_t submesh_index) {
     if (command.m_mesh == nullptr) {
-        error = "Draw command mesh must not be null.";
-        return nullptr;
+        throw EngineError("Draw command mesh must not be null.");
     }
     const std::span<const SubMesh> submeshes = command.m_mesh->submeshes();
     if (submesh_index >= submeshes.size()) {
-        error = "Draw command references a missing submesh.";
-        return nullptr;
+        throw EngineError("Draw command references a missing submesh.");
     }
 
     Material* resolved = submeshes[submesh_index].m_default_material;
     if (resolved == nullptr) {
-        error = "Draw command submesh default material must not be null.";
-        return nullptr;
+        throw EngineError("Draw command submesh default material must not be null.");
     }
 
     for (const MaterialOverride& material_override : command.m_material_overrides) {
@@ -91,14 +77,12 @@ Material* resolve_material(const DrawCommand& command, std::uint32_t submesh_ind
             continue;
         }
         if (material_override.m_material == nullptr) {
-            error = "Draw command material override must not be null.";
-            return nullptr;
+            throw EngineError("Draw command material override must not be null.");
         }
         resolved = material_override.m_material;
     }
 
-    error.clear();
-    return resolved;
+    return *resolved;
 }
 
 } // namespace ofg

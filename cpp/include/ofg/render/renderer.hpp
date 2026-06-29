@@ -1,22 +1,36 @@
-// High-level OFG renderer that consumes resolved draw lists.
+// Static high-level OFG renderer facade.
 //
-// Renderer is the shared C++ render entry used by Game. Platform frame drivers
-// still own target acquisition, command-buffer finish, queue submit, and
-// presentation.
+// Renderer owns pass-level GPU state for one WebGPU device lifetime. Platform
+// frame drivers still own target acquisition, command-buffer finish, queue
+// submit, and presentation; Game owns scene state and passes an explicit Scene
+// to Renderer for each frame.
 #pragma once
 
 #include "ofg/game/gpu_context.hpp"
 #include "ofg/game/render_target.hpp"
-#include "ofg/render/camera.hpp"
 #include "ofg/render/draw_list.hpp"
 #include "ofg/render/opaque_pass.hpp"
+#include "ofg/scene/scene.hpp"
 
 #include <memory>
-#include <string>
+#include <vector>
 
 #include <webgpu/webgpu.h>
 
 namespace ofg {
+
+enum class RendererLifecycleState {
+    Uninitialized,
+    Created,
+    Preparing,
+    Ready,
+    Releasing,
+    Released,
+    Failed,
+};
+
+// Converts a Renderer lifecycle state into its debug/status string value.
+[[nodiscard]] const char* renderer_lifecycle_state_name(RendererLifecycleState state) noexcept;
 
 class Renderer {
 public:
@@ -26,27 +40,47 @@ public:
     Renderer& operator=(Renderer&&) = delete;
     ~Renderer();
 
-    // Creates the pass graph for one WebGPU device and color target format.
-    [[nodiscard]] static std::unique_ptr<Renderer> create(
-        GpuContext gpu, WGPUTextureFormat color_format, std::string& error);
-    // Prepares lazy pipelines for the currently owned draw list.
-    [[nodiscard]] bool prepare(const DrawList& draw_list, std::string& error);
+    // Creates the renderer singleton for one WebGPU device and color target format.
+    static void create(GpuContext gpu, WGPUTextureFormat color_format);
+    // Advances renderer startup work and reports whether Renderer is ready.
+    [[nodiscard]] static bool prepare();
     // Resizes pass-level render targets.
-    [[nodiscard]] bool resize(std::uint32_t width, std::uint32_t height, std::string& error);
+    static void resize(std::uint32_t width, std::uint32_t height);
     // Records all renderer passes into the caller-owned command encoder.
-    [[nodiscard]] bool render(WGPUCommandEncoder encoder,
-        RenderTarget target,
-        const RenderView& view,
-        const DrawList& draw_list,
-        std::string& error);
+    static void render(WGPUCommandEncoder encoder, RenderTarget target, const Scene& scene);
+    // Advances renderer teardown work and reports whether resources are released.
+    [[nodiscard]] static bool release();
+    // Destroys the renderer singleton after release has completed.
+    static void destroy() noexcept;
+    // Returns the current renderer lifecycle state.
+    [[nodiscard]] static RendererLifecycleState state() noexcept;
     // Reports durable resource creation counters.
-    [[nodiscard]] RendererCounters counters() const noexcept;
+    [[nodiscard]] static RendererCounters counters() noexcept;
 
 private:
-    // Stores the created opaque pass.
-    explicit Renderer(std::unique_ptr<OpaquePass> opaque_pass);
+    // Stores borrowed platform WebGPU handles for pass creation.
+    Renderer(GpuContext gpu, WGPUTextureFormat color_format);
 
-    std::unique_ptr<OpaquePass> m_opaque_pass;
+    // Advances the internal pass-list preparation state machine.
+    [[nodiscard]] bool prepare_impl();
+    // Resizes pass-level render targets.
+    void resize_impl(std::uint32_t width, std::uint32_t height);
+    // Records all prepared passes into the caller-owned command encoder.
+    void render_impl(WGPUCommandEncoder encoder, RenderTarget target, const Scene& scene);
+    // Advances the pass-resource release state machine.
+    [[nodiscard]] bool release_impl();
+    // Returns the live singleton or throws a clear lifecycle error.
+    [[nodiscard]] static Renderer& require_renderer(const char* operation);
+    // Updates this instance lifecycle state.
+    void set_state(RendererLifecycleState state) noexcept;
+
+    static std::unique_ptr<Renderer> s_renderer;
+
+    GpuContext m_gpu;
+    WGPUTextureFormat m_color_format{WGPUTextureFormat_Undefined};
+    RendererLifecycleState m_state{RendererLifecycleState::Uninitialized};
+    DrawList m_draw_list;
+    std::vector<std::unique_ptr<OpaquePass>> m_passes;
 };
 
 } // namespace ofg

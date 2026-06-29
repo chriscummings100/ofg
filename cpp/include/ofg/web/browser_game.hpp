@@ -1,8 +1,9 @@
 // Embind-facing browser game facade for the C++/WASM runtime.
 #pragma once
 
+#include "ofg/core/frame_state.hpp"
 #include "ofg/game/game.hpp"
-#include "ofg/game/game_runtime.hpp"
+#include "ofg/runtime/runtime_debug_status.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -65,6 +66,18 @@ private:
     void record_error(std::string message);
     // Records a GPU/device error in the active status owner.
     void record_gpu_error(std::string message);
+    // Accepts a setup-phase size before the Game singleton exists.
+    void resize_setup_status(std::uint32_t width, std::uint32_t height, double device_pixel_ratio);
+    // Advances setup-phase frame diagnostics before the Game singleton exists.
+    void tick_setup_status(double time_ms);
+    // Records a setup-phase recoverable error.
+    void record_setup_error(std::string message) noexcept;
+    // Records a setup-phase GPU/device error.
+    void record_setup_gpu_error(std::string message) noexcept;
+    // Makes setup status inert after browser disposal.
+    void dispose_setup_status() noexcept;
+    // Stores a setup-phase failure reason.
+    void fail_setup_status(std::string message) noexcept;
     // Releases all WebGPU handles in dependency order.
     void release_webgpu();
 
@@ -92,16 +105,18 @@ private:
     WGPUDevice m_device{nullptr};
     WGPUQueue m_queue{nullptr};
     WGPUTextureFormat m_surface_format{WGPUTextureFormat_Undefined};
-    std::unique_ptr<Game> m_game;
-    GameRuntime m_setup_runtime{"Browser game runtime has been disposed.", "Browser WebGPU device is not ready."};
+    FrameState m_setup_frame_state;
+    RuntimeDebugStatus m_setup_status;
     std::uint32_t m_pending_width{0};
     std::uint32_t m_pending_height{0};
     double m_pending_device_pixel_ratio{1.0};
     std::uint32_t m_configured_width{0};
     std::uint32_t m_configured_height{0};
     bool m_has_pending_size{false};
+    bool m_game_active{false};
     bool m_surface_configured{false};
     bool m_disposed{false};
+    bool m_setup_disposed{false};
 #endif
 };
 

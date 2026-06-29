@@ -5,6 +5,7 @@
 #include "doctest.h"
 #include "webgpu_test_utils.hpp"
 
+#include "ofg/core/engine_error.hpp"
 #include "ofg/math/vec.hpp"
 #include "ofg/resources/material.hpp"
 #include "ofg/resources/mesh.hpp"
@@ -55,27 +56,18 @@ ofg::tests::TestGpuContext make_test_gpu() {
 
 // Builds a GPU-ready texture used by material tests.
 ofg::Texture make_gpu_texture(ofg::GpuContext gpu) {
-    std::string error;
-    std::optional<ofg::Texture> texture = ofg::Texture::from_rgba8_pixels(gpu,
-        "gpu texture",
-        1,
-        1,
-        ofg::TextureColorSpace::Linear,
-        rgba_bytes({255, 255, 255, 255}),
-        ofg::MipMapPolicy::None,
-        error);
-    REQUIRE_MESSAGE(texture.has_value(), error);
-    return std::move(*texture);
+    ofg::Texture texture{gpu, "gpu texture"};
+    texture.init_from_rgba8_pixels(
+        1, 1, ofg::TextureColorSpace::Linear, rgba_bytes({255, 255, 255, 255}), ofg::MipMapPolicy::None);
+    return texture;
 }
 
 // Builds a CPU-only material pointer for mesh submesh validation.
 ofg::Material make_cpu_material(ofg::Shader& shader) {
     ofg::PropertyBag properties;
-    std::string error;
-    std::optional<ofg::Material> material =
-        ofg::Material::create(ofg::GpuContext{}, "mesh material", shader, properties, error);
-    REQUIRE_MESSAGE(material.has_value(), error);
-    return std::move(*material);
+    ofg::Material material{ofg::GpuContext{}, "mesh material"};
+    material.init(shader, properties);
+    return material;
 }
 
 // Builds a triangle vertex for mesh GPU tests.
@@ -88,43 +80,36 @@ ofg::MeshVertex vertex(float x, float y, float z) {
 // Verifies shader resources create and replace WebGPU shader modules.
 TEST_CASE("gpu shader resource creates and replaces modules") {
     ofg::tests::TestGpuContext gpu = make_test_gpu();
-    std::string error;
-    std::optional<ofg::Shader> shader =
-        ofg::Shader::create(gpu.borrowed_context(), "gpu shader", _valid_wgsl_a, {}, {}, error);
-    REQUIRE_MESSAGE(shader.has_value(), error);
-    REQUIRE(shader->module() != nullptr);
-    const WGPUShaderModule stable_module = shader->module();
-    CHECK(shader->module() == stable_module);
+    ofg::Shader shader{gpu.borrowed_context(), "gpu shader"};
+    shader.init_from_wgsl(_valid_wgsl_a, {}, {});
+    REQUIRE(shader.module() != nullptr);
+    const WGPUShaderModule stable_module = shader.module();
+    CHECK(shader.module() == stable_module);
 
-    REQUIRE_MESSAGE(shader->replace_source(_valid_wgsl_b, error), error);
-    CHECK(shader->module() != nullptr);
-    CHECK(shader->revision() == 2);
+    shader.replace_source(_valid_wgsl_b);
+    CHECK(shader.module() != nullptr);
+    CHECK(shader.revision() == 2);
 }
 
 // Verifies texture resources create GPU texture/view/sampler state and reupload mips on mutation.
 TEST_CASE("gpu texture resource uploads full mip chains") {
     ofg::tests::TestGpuContext gpu = make_test_gpu();
-    std::string error;
-    std::optional<ofg::Texture> texture = ofg::Texture::from_rgba8_pixels(gpu.borrowed_context(),
-        "gpu checker",
-        2,
+    ofg::Texture texture{gpu.borrowed_context(), "gpu checker"};
+    texture.init_from_rgba8_pixels(2,
         2,
         ofg::TextureColorSpace::Srgb,
         rgba_bytes({0, 0, 0, 255, 100, 0, 0, 255, 200, 0, 0, 255, 255, 0, 0, 255}),
-        ofg::MipMapPolicy::GenerateCpuFullChain,
-        error);
-    REQUIRE_MESSAGE(texture.has_value(), error);
-    CHECK(texture->texture() != nullptr);
-    CHECK(texture->view() != nullptr);
-    CHECK(texture->sampler() != nullptr);
-    CHECK(texture->mip_level_count() == 2);
-    const WGPUTextureView stable_view = texture->view();
+        ofg::MipMapPolicy::GenerateCpuFullChain);
+    CHECK(texture.texture() != nullptr);
+    CHECK(texture.view() != nullptr);
+    CHECK(texture.sampler() != nullptr);
+    CHECK(texture.mip_level_count() == 2);
+    const WGPUTextureView stable_view = texture.view();
 
-    REQUIRE_MESSAGE(
-        texture->update_pixels(rgba_bytes({10, 0, 0, 255, 20, 0, 0, 255, 30, 0, 0, 255, 40, 0, 0, 255}), error), error);
-    CHECK(texture->revision() == 2);
-    CHECK(texture->view() == stable_view);
-    CHECK(std::to_integer<std::uint8_t>(texture->pixels(1)[0]) == 25);
+    texture.update_pixels(rgba_bytes({10, 0, 0, 255, 20, 0, 0, 255, 30, 0, 0, 255, 40, 0, 0, 255}));
+    CHECK(texture.revision() == 2);
+    CHECK(texture.view() == stable_view);
+    CHECK(std::to_integer<std::uint8_t>(texture.pixels(1)[0]) == 25);
 }
 
 // Verifies materials create uniform buffers and bind groups from shader schemas.
@@ -138,40 +123,35 @@ TEST_CASE("gpu material resource creates uniform and texture bind groups") {
     layout.m_parameters.push_back(ofg::ShaderParameter{
         "base_color_texture", ofg::ShaderParameterType::Texture, ofg::ShaderParameterScope::Material});
 
-    std::string error;
-    std::optional<ofg::Shader> shader =
-        ofg::Shader::create(gpu.borrowed_context(), "material shader", _valid_wgsl_a, layout, {}, error);
-    REQUIRE_MESSAGE(shader.has_value(), error);
+    ofg::Shader shader{gpu.borrowed_context(), "material shader"};
+    shader.init_from_wgsl(_valid_wgsl_a, layout, {});
 
     ofg::PropertyBag properties;
     properties.set("base_color_factor", ofg::math::vec4(1.0F, 0.5F, 0.25F, 1.0F));
     properties.set("base_color_texture", &texture);
-    std::optional<ofg::Material> material =
-        ofg::Material::create(gpu.borrowed_context(), "gpu material", *shader, properties, error);
-    REQUIRE_MESSAGE(material.has_value(), error);
-    CHECK(material->bind_group_layout() != nullptr);
-    CHECK(material->uniform_buffer() != nullptr);
-    CHECK(material->bind_group() != nullptr);
-    const WGPUBindGroup stable_bind_group = material->bind_group();
-    CHECK(material->bind_group() == stable_bind_group);
+    ofg::Material material{gpu.borrowed_context(), "gpu material"};
+    material.init(shader, properties);
+    CHECK(material.bind_group_layout() != nullptr);
+    CHECK(material.uniform_buffer() != nullptr);
+    CHECK(material.bind_group() != nullptr);
+    const WGPUBindGroup stable_bind_group = material.bind_group();
+    CHECK(material.bind_group() == stable_bind_group);
 
-    REQUIRE_MESSAGE(material->set_property("base_color_factor", ofg::math::vec4(0.0F, 1.0F, 0.0F, 1.0F), error), error);
-    CHECK(material->revision() == 2);
-    CHECK(material->bind_group() != nullptr);
+    material.set_property("base_color_factor", ofg::math::vec4(0.0F, 1.0F, 0.0F, 1.0F));
+    CHECK(material.revision() == 2);
+    CHECK(material.bind_group() != nullptr);
 
-    std::optional<ofg::Texture> cpu_texture = ofg::Texture::from_rgba8_pixels(ofg::GpuContext{},
-        "cpu texture",
-        1,
-        1,
-        ofg::TextureColorSpace::Linear,
-        rgba_bytes({255, 255, 255, 255}),
-        ofg::MipMapPolicy::None,
-        error);
-    REQUIRE(cpu_texture.has_value());
-    properties.set("base_color_texture", &*cpu_texture);
-    CHECK(
-        ofg::Material::create(gpu.borrowed_context(), "bad material", *shader, properties, error).has_value() == false);
-    CHECK(error.find("GPU-ready texture") != std::string::npos);
+    ofg::Texture cpu_texture{ofg::GpuContext{}, "cpu texture"};
+    cpu_texture.init_from_rgba8_pixels(
+        1, 1, ofg::TextureColorSpace::Linear, rgba_bytes({255, 255, 255, 255}), ofg::MipMapPolicy::None);
+    properties.set("base_color_texture", &cpu_texture);
+    try {
+        ofg::Material bad_material{gpu.borrowed_context(), "bad material"};
+        bad_material.init(shader, properties);
+        FAIL("Expected CPU-only texture in GPU material to throw.");
+    } catch (const ofg::EngineError& error) {
+        CHECK(std::string(error.what()).find("GPU-ready texture") != std::string::npos);
+    }
 }
 
 // Verifies GPU material preparation handles no-uniform and optional-texture schemas.
@@ -182,18 +162,15 @@ TEST_CASE("gpu material resource supports empty bind groups and optional texture
     layout.m_parameters.push_back(ofg::ShaderParameter{
         "optional_texture", ofg::ShaderParameterType::Texture, ofg::ShaderParameterScope::Material, 0, false});
 
-    std::string error;
-    std::optional<ofg::Shader> shader =
-        ofg::Shader::create(gpu.borrowed_context(), "optional texture shader", _valid_wgsl_a, layout, {}, error);
-    REQUIRE_MESSAGE(shader.has_value(), error);
+    ofg::Shader shader{gpu.borrowed_context(), "optional texture shader"};
+    shader.init_from_wgsl(_valid_wgsl_a, layout, {});
 
     ofg::PropertyBag properties;
-    std::optional<ofg::Material> material =
-        ofg::Material::create(gpu.borrowed_context(), "empty gpu material", *shader, properties, error);
-    REQUIRE_MESSAGE(material.has_value(), error);
-    CHECK(material->bind_group_layout() != nullptr);
-    CHECK(material->uniform_buffer() == nullptr);
-    CHECK(material->bind_group() != nullptr);
+    ofg::Material material{gpu.borrowed_context(), "empty gpu material"};
+    material.init(shader, properties);
+    CHECK(material.bind_group_layout() != nullptr);
+    CHECK(material.uniform_buffer() == nullptr);
+    CHECK(material.bind_group() != nullptr);
 }
 
 // Verifies material GPU preparation reports schema and context failures before mutating state.
@@ -206,74 +183,87 @@ TEST_CASE("gpu material resource rejects invalid gpu preparation inputs") {
     overlapping_layout.m_parameters.push_back(
         ofg::ShaderParameter{"second_color", ofg::ShaderParameterType::Vec4, ofg::ShaderParameterScope::Material, 8});
 
-    std::string error;
-    std::optional<ofg::Shader> overlapping_shader =
-        ofg::Shader::create(ofg::GpuContext{}, "overlap shader", "source", overlapping_layout, {}, error);
-    REQUIRE(overlapping_shader.has_value());
+    ofg::Shader overlapping_shader{ofg::GpuContext{}, "overlap shader"};
+    overlapping_shader.init_from_wgsl("source", overlapping_layout, {});
 
     ofg::PropertyBag overlapping_properties;
     overlapping_properties.set("first_color", ofg::math::vec4(1.0F, 0.0F, 0.0F, 1.0F));
     overlapping_properties.set("second_color", ofg::math::vec4(0.0F, 1.0F, 0.0F, 1.0F));
-    CHECK(ofg::Material::create(
-              gpu.borrowed_context(), "overlapping gpu material", *overlapping_shader, overlapping_properties, error)
-              .has_value() == false);
-    CHECK(error.find("overlaps") != std::string::npos);
+    try {
+        ofg::Material overlapping_material{gpu.borrowed_context(), "overlapping gpu material"};
+        overlapping_material.init(overlapping_shader, overlapping_properties);
+        FAIL("Expected overlapping material uniforms to throw.");
+    } catch (const ofg::EngineError& error) {
+        CHECK(std::string(error.what()).find("overlaps") != std::string::npos);
+    }
 
-    std::optional<ofg::Shader> empty_shader =
-        ofg::Shader::create(ofg::GpuContext{}, "empty shader", "source", {}, {}, error);
-    REQUIRE(empty_shader.has_value());
+    ofg::Shader empty_shader{ofg::GpuContext{}, "empty shader"};
+    empty_shader.init_from_wgsl("source", {}, {});
     ofg::GpuContext incomplete_gpu = gpu.borrowed_context();
     incomplete_gpu.m_queue = nullptr;
-    CHECK(ofg::Material::create(incomplete_gpu, "partial gpu material", *empty_shader, {}, error).has_value() == false);
-    CHECK(error.find("device and queue") != std::string::npos);
+    try {
+        ofg::Material partial_material{incomplete_gpu, "partial gpu material"};
+        partial_material.init(empty_shader, {});
+        FAIL("Expected incomplete material GPU context to throw.");
+    } catch (const ofg::EngineError& error) {
+        CHECK(std::string(error.what()).find("device and queue") != std::string::npos);
+    }
 }
 
 // Verifies meshes create and replace GPU vertex/index buffers after validation.
 TEST_CASE("gpu mesh resource creates and replaces buffers") {
     ofg::tests::TestGpuContext gpu = make_test_gpu();
 
-    std::string error;
-    std::optional<ofg::Shader> shader = ofg::Shader::create(ofg::GpuContext{}, "mesh shader", "source", {}, {}, error);
-    REQUIRE(shader.has_value());
-    ofg::Material material = make_cpu_material(*shader);
+    ofg::Shader shader{ofg::GpuContext{}, "mesh shader"};
+    shader.init_from_wgsl("source", {}, {});
+    ofg::Material material = make_cpu_material(shader);
 
     std::vector<ofg::MeshVertex> vertices{vertex(0.0F, 0.0F, 0.0F), vertex(1.0F, 0.0F, 0.0F), vertex(0.0F, 1.0F, 0.0F)};
     std::vector<std::uint32_t> indices{0, 1, 2};
     std::vector<ofg::SubMesh> submeshes{ofg::SubMesh{"triangle", 0, 3, &material}};
 
-    std::optional<ofg::Mesh> mesh =
-        ofg::Mesh::create(gpu.borrowed_context(), "gpu mesh", vertices, indices, submeshes, error);
-    REQUIRE_MESSAGE(mesh.has_value(), error);
-    CHECK(mesh->vertex_buffer() != nullptr);
-    CHECK(mesh->index_buffer() != nullptr);
-    const WGPUBuffer stable_vertex_buffer = mesh->vertex_buffer();
-    CHECK(mesh->vertex_buffer() == stable_vertex_buffer);
+    ofg::Mesh mesh{gpu.borrowed_context(), "gpu mesh"};
+    mesh.init(vertices, indices, submeshes);
+    CHECK(mesh.vertex_buffer() != nullptr);
+    CHECK(mesh.index_buffer() != nullptr);
+    const WGPUBuffer stable_vertex_buffer = mesh.vertex_buffer();
+    CHECK(mesh.vertex_buffer() == stable_vertex_buffer);
 
     vertices[1] = vertex(2.0F, 0.0F, 0.0F);
-    REQUIRE_MESSAGE(mesh->replace_vertices(vertices, error), error);
-    CHECK(mesh->revision() == 2);
-    CHECK(mesh->vertex_buffer() != nullptr);
+    mesh.replace_vertices(vertices);
+    CHECK(mesh.revision() == 2);
+    CHECK(mesh.vertex_buffer() != nullptr);
 
-    REQUIRE_MESSAGE(mesh->replace_indices(std::vector<std::uint32_t>{2, 1, 0}, submeshes, error), error);
-    CHECK(mesh->revision() == 3);
-    CHECK(mesh->index_buffer() != nullptr);
+    mesh.replace_indices(std::vector<std::uint32_t>{2, 1, 0}, submeshes);
+    CHECK(mesh.revision() == 3);
+    CHECK(mesh.index_buffer() != nullptr);
 
-    CHECK(mesh->replace_vertices({}, error) == false);
-    CHECK(error.find("vertices") != std::string::npos);
-    CHECK(mesh->replace_indices({}, submeshes, error) == false);
-    CHECK(error.find("indices") != std::string::npos);
-    CHECK(mesh->replace_vertices(std::vector<ofg::MeshVertex>{vertex(0.0F, 0.0F, 0.0F)}, error) == false);
-    CHECK(mesh->revision() == 3);
+    try {
+        mesh.replace_vertices({});
+        FAIL("Expected empty GPU mesh vertices to throw.");
+    } catch (const ofg::EngineError& error) {
+        CHECK(std::string(error.what()).find("vertices") != std::string::npos);
+    }
+    try {
+        mesh.replace_indices({}, submeshes);
+        FAIL("Expected empty GPU mesh indices to throw.");
+    } catch (const ofg::EngineError& error) {
+        CHECK(std::string(error.what()).find("indices") != std::string::npos);
+    }
+    try {
+        mesh.replace_vertices(std::vector<ofg::MeshVertex>{vertex(0.0F, 0.0F, 0.0F)});
+        FAIL("Expected invalid GPU mesh vertices to throw.");
+    } catch (const ofg::EngineError&) {}
+    CHECK(mesh.revision() == 3);
 }
 
 // Verifies mesh GPU preparation rejects incomplete contexts before creating buffers.
 TEST_CASE("gpu mesh resource rejects incomplete gpu contexts") {
     ofg::tests::TestGpuContext gpu = make_test_gpu();
 
-    std::string error;
-    std::optional<ofg::Shader> shader = ofg::Shader::create(ofg::GpuContext{}, "mesh shader", "source", {}, {}, error);
-    REQUIRE(shader.has_value());
-    ofg::Material material = make_cpu_material(*shader);
+    ofg::Shader shader{ofg::GpuContext{}, "mesh shader"};
+    shader.init_from_wgsl("source", {}, {});
+    ofg::Material material = make_cpu_material(shader);
 
     std::vector<ofg::MeshVertex> vertices{vertex(0.0F, 0.0F, 0.0F), vertex(1.0F, 0.0F, 0.0F), vertex(0.0F, 1.0F, 0.0F)};
     std::vector<std::uint32_t> indices{0, 1, 2};
@@ -281,7 +271,11 @@ TEST_CASE("gpu mesh resource rejects incomplete gpu contexts") {
     ofg::GpuContext incomplete_gpu = gpu.borrowed_context();
     incomplete_gpu.m_queue = nullptr;
 
-    CHECK(ofg::Mesh::create(incomplete_gpu, "partial gpu mesh", vertices, indices, submeshes, error).has_value() ==
-          false);
-    CHECK(error.find("device and queue") != std::string::npos);
+    try {
+        ofg::Mesh mesh{incomplete_gpu, "partial gpu mesh"};
+        mesh.init(vertices, indices, submeshes);
+        FAIL("Expected incomplete mesh GPU context to throw.");
+    } catch (const ofg::EngineError& error) {
+        CHECK(std::string(error.what()).find("device and queue") != std::string::npos);
+    }
 }

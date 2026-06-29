@@ -6,7 +6,6 @@
 #pragma once
 
 #include <cstdint>
-#include <string>
 
 #include <webgpu/webgpu.h>
 
@@ -20,10 +19,9 @@ struct RenderTarget {
 };
 
 // Validates a target against the renderer format and latest accepted size.
-[[nodiscard]] bool validate_render_target(RenderTarget target,
+void validate_render_target(RenderTarget target,
     WGPUTextureFormat expected_format,
     std::uint32_t expected_width,
-    std::uint32_t expected_height,
-    std::string& error);
+    std::uint32_t expected_height);
 
 } // namespace ofg

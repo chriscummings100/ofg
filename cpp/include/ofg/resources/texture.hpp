@@ -8,7 +8,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -34,24 +33,23 @@ enum class MipMapPolicy {
 
 class Texture {
 public:
+    // Allocates a labeled texture resource using the creating Resources context.
+    Texture(GpuContext gpu, std::string label);
     Texture(const Texture&) = delete;
     Texture& operator=(const Texture&) = delete;
     Texture(Texture&& other) noexcept;
     Texture& operator=(Texture&& other) noexcept;
     ~Texture();
 
-    // Creates a texture from tightly packed RGBA8 level-zero pixels.
-    [[nodiscard]] static std::optional<Texture> from_rgba8_pixels(GpuContext gpu,
-        std::string label,
-        std::uint32_t width,
+    // Initializes this texture from tightly packed RGBA8 level-zero pixels.
+    void init_from_rgba8_pixels(std::uint32_t width,
         std::uint32_t height,
         TextureColorSpace color_space,
         std::vector<std::byte> pixels,
-        MipMapPolicy mip_map_policy,
-        std::string& error);
+        MipMapPolicy mip_map_policy);
 
     // Replaces level-zero pixels and regenerates CPU mips.
-    bool update_pixels(std::vector<std::byte> pixels, std::string& error);
+    void update_pixels(std::vector<std::byte> pixels);
     // Returns the texture label.
     [[nodiscard]] const std::string& label() const noexcept;
     // Returns the texture width in pixels.
@@ -76,19 +74,10 @@ public:
     [[nodiscard]] std::uint64_t revision() const noexcept;
 
 private:
-    // Stores validated CPU texture data; use from_rgba8_pixels() for validation.
-    Texture(GpuContext gpu,
-        std::string label,
-        std::uint32_t width,
-        std::uint32_t height,
-        TexturePixelFormat pixel_format,
-        MipMapPolicy mip_map_policy,
-        std::vector<std::vector<std::byte>> mip_pixels);
-
     // Creates GPU texture/view/sampler handles and uploads every mip level.
-    [[nodiscard]] bool prepare_gpu_state(std::string& error);
+    void prepare_gpu_state();
     // Uploads all stored CPU mip levels into the current WebGPU texture.
-    [[nodiscard]] bool upload_mip_chain(std::string& error) const;
+    void upload_mip_chain() const;
     // Releases all owned WebGPU texture handles.
     void release_gpu_state() noexcept;
 
@@ -102,7 +91,7 @@ private:
     WGPUTexture m_texture{nullptr};
     WGPUTextureView m_view{nullptr};
     WGPUSampler m_sampler{nullptr};
-    std::uint64_t m_revision{1};
+    std::uint64_t m_revision{0};
 };
 
 // Converts a color-space request into the concrete RGBA8 texture format.

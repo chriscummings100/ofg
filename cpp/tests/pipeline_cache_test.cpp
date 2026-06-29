@@ -1,10 +1,10 @@
 // Doctest coverage for opaque pipeline cache key behavior.
 #include "doctest.h"
 
+#include "ofg/core/engine_error.hpp"
 #include "ofg/render/pipeline_cache.hpp"
 
 #include <cstdint>
-#include <string>
 
 namespace {
 
@@ -50,25 +50,25 @@ TEST_CASE("pipeline cache key compares target formats material layout and shader
 // Verifies invalid pipeline creation inputs are rejected before WebGPU calls.
 TEST_CASE("pipeline cache rejects incomplete creation inputs") {
     ofg::PipelineCache cache;
-    std::string error;
     const ofg::PipelineKey key{
         WGPUTextureFormat_RGBA8Unorm, WGPUTextureFormat_Depth24Plus, fake_bind_group_layout(1), 1};
 
-    CHECK(cache.get_or_create(
-              nullptr, key, fake_bind_group_layout(2), fake_bind_group_layout(3), fake_shader_module(4), error) ==
-          nullptr);
-    CHECK(error.find("requires device") != std::string::npos);
+    CHECK_THROWS_WITH_AS(([&]() {
+        (void)cache.get_or_create(
+            nullptr, key, fake_bind_group_layout(2), fake_bind_group_layout(3), fake_shader_module(4));
+    }()),
+        doctest::Contains("requires device"),
+        ofg::EngineError);
     CHECK(cache.counters().m_pipeline_create_count == 0);
 
     const ofg::PipelineKey bad_format{
         WGPUTextureFormat_Undefined, WGPUTextureFormat_Depth24Plus, fake_bind_group_layout(1), 1};
-    CHECK(cache.get_or_create(fake_device(5),
-              bad_format,
-              fake_bind_group_layout(2),
-              fake_bind_group_layout(3),
-              fake_shader_module(4),
-              error) == nullptr);
-    CHECK(error.find("defined color") != std::string::npos);
+    CHECK_THROWS_WITH_AS(([&]() {
+        (void)cache.get_or_create(
+            fake_device(5), bad_format, fake_bind_group_layout(2), fake_bind_group_layout(3), fake_shader_module(4));
+    }()),
+        doctest::Contains("defined color"),
+        ofg::EngineError);
 }
 
 // Verifies moving empty caches transfers counters without duplicating ownership.

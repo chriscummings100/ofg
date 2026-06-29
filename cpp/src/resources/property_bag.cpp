@@ -1,6 +1,7 @@
 // Named shader property values shared by OFG materials and draw commands.
 #include "ofg/resources/property_bag.hpp"
 
+#include "ofg/core/engine_error.hpp"
 #include "ofg/math/mat.hpp"
 #include "ofg/math/vec.hpp"
 #include "ofg/resources/shader.hpp"
@@ -94,43 +95,35 @@ std::size_t PropertyBag::size() const noexcept {
 }
 
 // Validates the bag against one shader binding scope.
-bool PropertyBag::validate_for_scope(const Shader& shader, ShaderParameterScope scope, std::string& error) const {
+void PropertyBag::validate_for_scope(const Shader& shader, ShaderParameterScope scope) const {
     const std::vector<ShaderParameter> parameters = shader.parameters_for_scope(scope);
     for (const ShaderParameter& parameter : parameters) {
         const PropertyValue* value = get(parameter.m_name);
         if (value == nullptr) {
             if (parameter.m_required) {
-                error = "Missing required " + std::string(shader_parameter_scope_name(scope)) + " property '" +
-                        parameter.m_name + "'.";
-                return false;
+                throw EngineError("Missing required " + std::string(shader_parameter_scope_name(scope)) +
+                                  " property '" + parameter.m_name + "'.");
             }
             continue;
         }
         if (!property_value_matches_type(*value, parameter.m_type)) {
-            error = "Property '" + parameter.m_name + "' does not match expected type " +
-                    shader_parameter_type_name(parameter.m_type) + ".";
-            return false;
+            throw EngineError("Property '" + parameter.m_name + "' does not match expected type " +
+                              shader_parameter_type_name(parameter.m_type) + ".");
         }
     }
 
     for (const Entry& entry : m_entries) {
         const ShaderParameter* parameter = shader.parameter(entry.m_name);
         if (parameter == nullptr || parameter->m_scope != scope) {
-            error = "Property '" + entry.m_name + "' is not declared for " +
-                    std::string(shader_parameter_scope_name(scope)) + " scope.";
-            return false;
+            throw EngineError("Property '" + entry.m_name + "' is not declared for " +
+                              std::string(shader_parameter_scope_name(scope)) + " scope.");
         }
     }
-    error.clear();
-    return true;
 }
 
 // Packs uniform-compatible values for one shader binding scope.
-std::optional<std::vector<std::byte>> PropertyBag::pack_uniforms_for_scope(
-    const Shader& shader, ShaderParameterScope scope, std::string& error) const {
-    if (!validate_for_scope(shader, scope, error)) {
-        return std::nullopt;
-    }
+std::vector<std::byte> PropertyBag::pack_uniforms_for_scope(const Shader& shader, ShaderParameterScope scope) const {
+    validate_for_scope(shader, scope);
 
     std::vector<std::byte> bytes;
     std::size_t cursor = 0;
@@ -147,8 +140,7 @@ std::optional<std::vector<std::byte>> PropertyBag::pack_uniforms_for_scope(
 
         const std::size_t write_offset = parameter.m_uniform_offset == 0 ? cursor : parameter.m_uniform_offset;
         if (write_offset < cursor) {
-            error = "Property '" + parameter.m_name + "' uniform offset overlaps an earlier property.";
-            return std::nullopt;
+            throw EngineError("Property '" + parameter.m_name + "' uniform offset overlaps an earlier property.");
         }
 
         std::vector<std::byte> property_bytes;
@@ -161,7 +153,6 @@ std::optional<std::vector<std::byte>> PropertyBag::pack_uniforms_for_scope(
         std::memcpy(bytes.data() + write_offset, property_bytes.data(), property_bytes.size());
         cursor = write_end;
     }
-    error.clear();
     return bytes;
 }
 

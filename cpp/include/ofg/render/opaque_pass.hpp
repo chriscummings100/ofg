@@ -12,7 +12,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <string>
 
 #include <webgpu/webgpu.h>
 
@@ -32,18 +31,13 @@ public:
     ~OpaquePass();
 
     // Creates pass-level bind group layouts and uniform buffers.
-    [[nodiscard]] static std::unique_ptr<OpaquePass> create(
-        GpuContext gpu, WGPUTextureFormat color_format, std::string& error);
+    [[nodiscard]] static std::unique_ptr<OpaquePass> create(GpuContext gpu, WGPUTextureFormat color_format);
     // Ensures pipelines exist for every valid draw-list material.
-    [[nodiscard]] bool prepare(const DrawList& draw_list, std::string& error);
+    void prepare(const DrawList& draw_list);
     // Resizes or releases the pass depth target.
-    [[nodiscard]] bool resize(std::uint32_t width, std::uint32_t height, std::string& error);
+    void resize(std::uint32_t width, std::uint32_t height);
     // Encodes opaque draws into the caller-owned command encoder.
-    [[nodiscard]] bool render(WGPUCommandEncoder encoder,
-        RenderTarget target,
-        const RenderView& view,
-        const DrawList& draw_list,
-        std::string& error);
+    void render(WGPUCommandEncoder encoder, RenderTarget target, const RenderView& view, const DrawList& draw_list);
     // Reports durable renderer resource counters.
     [[nodiscard]] RendererCounters counters() const noexcept;
 
@@ -60,7 +54,7 @@ private:
         std::uint32_t draw_capacity);
 
     // Recreates the dynamic draw uniform buffer for a larger command count.
-    [[nodiscard]] bool ensure_draw_capacity(std::uint32_t draw_count, std::string& error);
+    void ensure_draw_capacity(std::uint32_t draw_count);
     // Releases the current depth texture and view.
     void release_depth_state() noexcept;
     // Releases pass-level layouts, buffers, bind groups, and depth state.

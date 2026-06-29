@@ -9,7 +9,6 @@
 #include "ofg/resources/shader.hpp"
 
 #include <cstddef>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -30,10 +29,10 @@ public:
     // Reports the number of properties in the bag.
     [[nodiscard]] std::size_t size() const noexcept;
     // Validates the bag against one shader binding scope.
-    [[nodiscard]] bool validate_for_scope(const Shader& shader, ShaderParameterScope scope, std::string& error) const;
+    void validate_for_scope(const Shader& shader, ShaderParameterScope scope) const;
     // Packs uniform-compatible values for one shader binding scope.
-    [[nodiscard]] std::optional<std::vector<std::byte>> pack_uniforms_for_scope(
-        const Shader& shader, ShaderParameterScope scope, std::string& error) const;
+    [[nodiscard]] std::vector<std::byte> pack_uniforms_for_scope(
+        const Shader& shader, ShaderParameterScope scope) const;
 
 private:
     struct Entry {

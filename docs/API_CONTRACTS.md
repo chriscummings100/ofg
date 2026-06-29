@@ -8,11 +8,11 @@ TypeScript may own DOM boot, canvas lookup/creation, canvas resize policy, fatal
 
 ## OFG-BOOT-002 C++ Runtime Ownership
 
-C++ owns frame state, debug status, demo-scene data, high-level renderer resources, draw-list construction, renderer/pass setup, WebGPU resource creation, browser WebGPU runtime behavior, and native Dawn offscreen rendering. Shared `Game` owns the stable resource arena, demo-scene resource pointers, draw list, render view, and renderer for one WebGPU device lifetime. Browser/native C++ frame drivers own platform target acquisition, command-buffer finish, and queue submit. The TypeScript host may call the narrow runtime facade, but it must not own renderer internals, resource objects, draw commands, or GPU handles.
+C++ owns frame state, debug status, demo-scene data, high-level renderer resources, draw-list construction, renderer/pass setup, WebGPU resource creation, browser WebGPU runtime behavior, and native Dawn offscreen rendering. `Game`, `Resources`, and `Renderer` are static lifecycle facades backed by one private singleton instance each for the active WebGPU device lifetime. Their public lifecycle is single-shot `create`, repeated `prepare` until ready, steady-state calls, repeated `release` until done, and single-shot `destroy`. `Resources` owns active resource storage and the borrowed `GpuContext`; `Renderer` owns its pass list internally; `Game` owns demo-scene state and passes an explicit `Scene` into `Renderer::render`. The current `Scene` stores the main render view plus renderable objects; `Renderer` converts those objects into a private transient `DrawList` for its pass queue. Browser/native C++ frame drivers own platform target acquisition, command-buffer finish, and queue submit. The TypeScript host may call the narrow runtime facade, but it must not own renderer internals, resource objects, draw commands, or GPU handles.
 
 ## OFG-BOOT-003 WASM Facade
 
-The browser facade is narrow. TypeScript can create the runtime, resize it, request a frame, read debug status, and dispose it. The facade should not expose raw renderer internals, GPU handles, or mutable scene ownership to TypeScript.
+The browser facade is narrow. TypeScript can create the runtime, resize it, request a frame, read debug status, and dispose it. Browser disposal drains `Game::release()` synchronously, calls `Game::destroy()`, then releases browser WebGPU handles and the Embind wrapper. The facade should not expose raw renderer internals, GPU handles, or mutable scene ownership to TypeScript.
 
 ## OFG-BOOT-004 Renderer Compatibility
 
@@ -24,7 +24,7 @@ The renderer must request no optional GPU features, must not manually request li
 
 ## OFG-BOOT-006 Resource Lifetime
 
-Texture, shader, material, mesh, pass, and pipeline resources must be created during initialization, explicit resize, or explicit mutation, not every frame. Per-frame demo animation may rebuild draw commands and model matrices, but it must reuse the existing C++ resource objects. Device-bound resource objects may store the borrowed `GpuContext` that created them so later mutation methods can refresh WebGPU state without a global device. Resize reconfigures the surface only when physical width, physical height, or clamped device-pixel-ratio changes. Zero-size canvas axes must be preserved by the browser host so the C++ runtime can skip surface configuration and report a recoverable debug status instead of failing.
+Texture, shader, material, mesh, pass, and pipeline resources must be created during initialization, preparation, first use for a changed scene/material combination, explicit resize, or explicit mutation, not every ordinary steady-state frame. Per-frame demo animation may rebuild draw commands and model matrices, but it must reuse the existing C++ resource objects. `Resources::create_*` allocates and stores labeled high-level resources only; explicit resource `init_*` calls validate resource data and initialize GPU state. Device-bound resource objects may store the borrowed `GpuContext` that created them so later mutation methods can refresh WebGPU state without a global device. Resize reconfigures the surface only when physical width, physical height, or clamped device-pixel-ratio changes. Zero-size canvas axes must be preserved by the browser host so the C++ runtime can skip surface configuration and report a recoverable debug status instead of failing.
 
 ## OFG-BOOT-007 Generated Artifacts
 

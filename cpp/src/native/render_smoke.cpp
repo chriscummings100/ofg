@@ -12,7 +12,7 @@
 #include "ofg/game/game.hpp"
 #include "ofg/native/png_writer.hpp"
 #include "ofg/render/demo_scene.hpp"
-#include "ofg/render/webgpu_common.hpp"
+#include "ofg/gpu/common.hpp"
 
 #include <algorithm>
 #include <array>
@@ -113,6 +113,26 @@ struct GpuContext {
             wgpuInstanceRelease(m_instance);
             m_instance = nullptr;
         }
+    }
+};
+
+// Releases the static Game singleton before borrowed Dawn handles are destroyed.
+struct StaticGameGuard {
+    bool m_active{false};
+
+    StaticGameGuard() = default;
+    StaticGameGuard(const StaticGameGuard&) = delete;
+    StaticGameGuard& operator=(const StaticGameGuard&) = delete;
+
+    // Drains Game release during stack unwinding without throwing.
+    ~StaticGameGuard() {
+        if (!m_active) {
+            return;
+        }
+        try {
+            while (!ofg::Game::release()) {}
+        } catch (...) {}
+        ofg::Game::destroy();
     }
 };
 
@@ -576,21 +596,14 @@ void validate_contract(const SmokeContract& contract) {
 [[nodiscard]] std::vector<std::uint8_t> render_and_readback(GpuContext& context, const SmokeContract& contract) {
     wgpuDevicePushErrorScope(context.m_device, WGPUErrorFilter_Validation);
 
-    // Build the same device-bound Game used by the browser path.
-    std::string game_error;
-    std::unique_ptr<ofg::Game> game =
-        ofg::Game::create(ofg::GpuContext{context.m_device, context.m_queue, context.m_adapter_name, context.m_backend},
-            _render_format,
-            game_error);
-    if (!game) {
-        throw std::runtime_error(game_error);
-    }
-    if (!game->resize(contract.m_width, contract.m_height, 1.0, game_error)) {
-        throw std::runtime_error(game_error);
-    }
-    if (!game->tick(demo_native_smoke_time_ms(), game_error)) {
-        throw std::runtime_error(game_error);
-    }
+    // Build the same device-bound Game singleton used by the browser path.
+    StaticGameGuard game_guard;
+    ofg::Game::create(
+        ofg::GpuContext{context.m_device, context.m_queue, context.m_adapter_name, context.m_backend}, _render_format);
+    game_guard.m_active = true;
+    ofg::Game::resize(contract.m_width, contract.m_height, 1.0);
+    while (!ofg::Game::prepare()) {}
+    ofg::Game::update(demo_native_smoke_time_ms());
 
     // Render into a copyable offscreen texture.
     WGPUTextureDescriptor texture_descriptor = WGPU_TEXTURE_DESCRIPTOR_INIT;
@@ -632,11 +645,8 @@ void validate_contract(const SmokeContract& contract) {
         throw std::runtime_error("wgpuDeviceCreateCommandEncoder returned null.");
     }
 
-    if (!game->render(encoder.m_value,
-            ofg::RenderTarget{view.m_value, _render_format, contract.m_width, contract.m_height},
-            game_error)) {
-        throw std::runtime_error(game_error);
-    }
+    ofg::Game::render(
+        encoder.m_value, ofg::RenderTarget{view.m_value, _render_format, contract.m_width, contract.m_height});
 
     WGPUTexelCopyTextureInfo source = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
     source.texture = texture.m_value;

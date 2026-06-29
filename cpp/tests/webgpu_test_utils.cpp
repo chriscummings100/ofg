@@ -1,7 +1,7 @@
 // Test-only Dawn WebGPU device helper for OFG resource tests.
 #include "webgpu_test_utils.hpp"
 
-#include "ofg/render/webgpu_common.hpp"
+#include "ofg/gpu/common.hpp"
 
 #include <cstdint>
 #include <string>

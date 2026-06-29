@@ -4,13 +4,12 @@
 #include "ofg/math/mat.hpp"
 #include "ofg/math/transform.hpp"
 #include "ofg/math/vec.hpp"
+#include "ofg/core/engine_error.hpp"
 #include "ofg/resources/property_bag.hpp"
 #include "ofg/resources/shader.hpp"
 
 #include <cstddef>
 #include <cstring>
-#include <optional>
-#include <string>
 #include <vector>
 
 namespace {
@@ -22,11 +21,9 @@ ofg::Shader make_property_shader() {
         ofg::ShaderParameter{"base_color_factor", ofg::ShaderParameterType::Vec4, ofg::ShaderParameterScope::Material});
     layout.m_parameters.push_back(
         ofg::ShaderParameter{"model", ofg::ShaderParameterType::Mat4, ofg::ShaderParameterScope::Draw});
-    std::string error;
-    std::optional<ofg::Shader> shader =
-        ofg::Shader::create(ofg::GpuContext{}, "property shader", "source", layout, {}, error);
-    REQUIRE(shader.has_value());
-    return std::move(*shader);
+    ofg::Shader shader{ofg::GpuContext{}, "property shader"};
+    shader.init_from_wgsl("source", layout, {});
+    return shader;
 }
 
 // Builds a shader with every uniform-compatible property type.
@@ -46,11 +43,9 @@ ofg::Shader make_uniform_shader() {
         ofg::ShaderParameter{"model", ofg::ShaderParameterType::Mat4, ofg::ShaderParameterScope::Draw});
     layout.m_parameters.push_back(ofg::ShaderParameter{
         "optional_texture", ofg::ShaderParameterType::Texture, ofg::ShaderParameterScope::Draw, 0, false});
-    std::string error;
-    std::optional<ofg::Shader> shader =
-        ofg::Shader::create(ofg::GpuContext{}, "uniform shader", "source", layout, {}, error);
-    REQUIRE(shader.has_value());
-    return std::move(*shader);
+    ofg::Shader shader{ofg::GpuContext{}, "uniform shader"};
+    shader.init_from_wgsl("source", layout, {});
+    return shader;
 }
 
 // Reads one float from packed property bytes.
@@ -68,18 +63,18 @@ TEST_CASE("property bag validates shader parameter scopes") {
     ofg::PropertyBag material_properties;
     material_properties.set("base_color_factor", ofg::math::vec4(1.0F, 0.5F, 0.25F, 1.0F));
 
-    std::string error;
-    CHECK(material_properties.validate_for_scope(shader, ofg::ShaderParameterScope::Material, error));
-    CHECK(error.empty());
+    CHECK_NOTHROW(material_properties.validate_for_scope(shader, ofg::ShaderParameterScope::Material));
 
     material_properties.set("unknown", 1.0F);
-    CHECK(material_properties.validate_for_scope(shader, ofg::ShaderParameterScope::Material, error) == false);
-    CHECK(error.find("not declared") != std::string::npos);
+    CHECK_THROWS_WITH_AS(material_properties.validate_for_scope(shader, ofg::ShaderParameterScope::Material),
+        "Property 'unknown' is not declared for material scope.",
+        ofg::EngineError);
 
     ofg::PropertyBag wrong_type;
     wrong_type.set("base_color_factor", 1.0F);
-    CHECK(wrong_type.validate_for_scope(shader, ofg::ShaderParameterScope::Material, error) == false);
-    CHECK(error.find("expected type") != std::string::npos);
+    CHECK_THROWS_WITH_AS(wrong_type.validate_for_scope(shader, ofg::ShaderParameterScope::Material),
+        "Property 'base_color_factor' does not match expected type vec4.",
+        ofg::EngineError);
 }
 
 // Verifies uniform packing follows declared layout order.
@@ -88,12 +83,10 @@ TEST_CASE("property bag packs uniform values") {
     ofg::PropertyBag draw_properties;
     draw_properties.set("model", ofg::math::mat4_translation(ofg::math::vec3(2.0F, 3.0F, 4.0F)));
 
-    std::string error;
-    const std::optional<std::vector<std::byte>> packed =
-        draw_properties.pack_uniforms_for_scope(shader, ofg::ShaderParameterScope::Draw, error);
-    REQUIRE(packed.has_value());
-    CHECK(packed->size() == sizeof(float) * 16);
-    const auto* floats = reinterpret_cast<const float*>(packed->data());
+    const std::vector<std::byte> packed =
+        draw_properties.pack_uniforms_for_scope(shader, ofg::ShaderParameterScope::Draw);
+    CHECK(packed.size() == sizeof(float) * 16);
+    const auto* floats = reinterpret_cast<const float*>(packed.data());
     CHECK(floats[12] == doctest::Approx(2.0F));
     CHECK(floats[13] == doctest::Approx(3.0F));
     CHECK(floats[14] == doctest::Approx(4.0F));
@@ -109,16 +102,14 @@ TEST_CASE("property bag packs all scalar vector and matrix uniform types") {
     draw_properties.set("tint", ofg::math::vec4(1.0F, 0.25F, 0.5F, 1.0F));
     draw_properties.set("model", ofg::math::mat4_identity());
 
-    std::string error;
-    const std::optional<std::vector<std::byte>> packed =
-        draw_properties.pack_uniforms_for_scope(shader, ofg::ShaderParameterScope::Draw, error);
-    REQUIRE(packed.has_value());
-    CHECK(packed->size() == sizeof(float) * 26);
-    CHECK(read_packed_float(*packed, 0) == doctest::Approx(0.5F));
-    CHECK(read_packed_float(*packed, 1) == doctest::Approx(2.0F));
-    CHECK(read_packed_float(*packed, 3) == doctest::Approx(0.0F));
-    CHECK(read_packed_float(*packed, 6) == doctest::Approx(1.0F));
-    CHECK(read_packed_float(*packed, 10) == doctest::Approx(1.0F));
+    const std::vector<std::byte> packed =
+        draw_properties.pack_uniforms_for_scope(shader, ofg::ShaderParameterScope::Draw);
+    CHECK(packed.size() == sizeof(float) * 26);
+    CHECK(read_packed_float(packed, 0) == doctest::Approx(0.5F));
+    CHECK(read_packed_float(packed, 1) == doctest::Approx(2.0F));
+    CHECK(read_packed_float(packed, 3) == doctest::Approx(0.0F));
+    CHECK(read_packed_float(packed, 6) == doctest::Approx(1.0F));
+    CHECK(read_packed_float(packed, 10) == doctest::Approx(1.0F));
 }
 
 // Verifies declared uniform offsets create deterministic padding.
@@ -128,23 +119,20 @@ TEST_CASE("property bag honors explicit uniform offsets") {
         ofg::ShaderParameter{"roughness", ofg::ShaderParameterType::Float, ofg::ShaderParameterScope::Draw});
     layout.m_parameters.push_back(
         ofg::ShaderParameter{"uv_scale", ofg::ShaderParameterType::Vec2, ofg::ShaderParameterScope::Draw, 16});
-    std::string error;
-    std::optional<ofg::Shader> shader =
-        ofg::Shader::create(ofg::GpuContext{}, "offset shader", "source", layout, {}, error);
-    REQUIRE(shader.has_value());
+    ofg::Shader shader{ofg::GpuContext{}, "offset shader"};
+    shader.init_from_wgsl("source", layout, {});
 
     ofg::PropertyBag draw_properties;
     draw_properties.set("roughness", 0.5F);
     draw_properties.set("uv_scale", ofg::math::vec2(2.0F, 3.0F));
 
-    const std::optional<std::vector<std::byte>> packed =
-        draw_properties.pack_uniforms_for_scope(*shader, ofg::ShaderParameterScope::Draw, error);
-    REQUIRE(packed.has_value());
-    CHECK(packed->size() == 24);
-    CHECK(read_packed_float(*packed, 0) == doctest::Approx(0.5F));
-    CHECK(read_packed_float(*packed, 1) == doctest::Approx(0.0F));
-    CHECK(read_packed_float(*packed, 4) == doctest::Approx(2.0F));
-    CHECK(read_packed_float(*packed, 5) == doctest::Approx(3.0F));
+    const std::vector<std::byte> packed =
+        draw_properties.pack_uniforms_for_scope(shader, ofg::ShaderParameterScope::Draw);
+    CHECK(packed.size() == 24);
+    CHECK(read_packed_float(packed, 0) == doctest::Approx(0.5F));
+    CHECK(read_packed_float(packed, 1) == doctest::Approx(0.0F));
+    CHECK(read_packed_float(packed, 4) == doctest::Approx(2.0F));
+    CHECK(read_packed_float(packed, 5) == doctest::Approx(3.0F));
 }
 
 // Verifies overlapping declared offsets are rejected instead of corrupting bytes.
@@ -154,18 +142,17 @@ TEST_CASE("property bag rejects overlapping uniform offsets") {
         ofg::ShaderParameter{"roughness", ofg::ShaderParameterType::Float, ofg::ShaderParameterScope::Draw});
     layout.m_parameters.push_back(
         ofg::ShaderParameter{"metalness", ofg::ShaderParameterType::Float, ofg::ShaderParameterScope::Draw, 2});
-    std::string error;
-    std::optional<ofg::Shader> shader =
-        ofg::Shader::create(ofg::GpuContext{}, "overlap shader", "source", layout, {}, error);
-    REQUIRE(shader.has_value());
+    ofg::Shader shader{ofg::GpuContext{}, "overlap shader"};
+    shader.init_from_wgsl("source", layout, {});
 
     ofg::PropertyBag draw_properties;
     draw_properties.set("roughness", 0.5F);
     draw_properties.set("metalness", 0.25F);
 
-    CHECK(
-        draw_properties.pack_uniforms_for_scope(*shader, ofg::ShaderParameterScope::Draw, error).has_value() == false);
-    CHECK(error.find("overlaps") != std::string::npos);
+    CHECK_THROWS_WITH_AS(
+        [&]() { (void)draw_properties.pack_uniforms_for_scope(shader, ofg::ShaderParameterScope::Draw); }(),
+        "Property 'metalness' uniform offset overlaps an earlier property.",
+        ofg::EngineError);
 }
 
 // Verifies direct property helpers cover type and size edge cases.
@@ -198,7 +185,8 @@ TEST_CASE("property bag refuses to pack invalid scoped values") {
     draw_properties.set("model", ofg::math::mat4_identity());
     draw_properties.set("unknown", 1.0F);
 
-    std::string error;
-    CHECK(draw_properties.pack_uniforms_for_scope(shader, ofg::ShaderParameterScope::Draw, error).has_value() == false);
-    CHECK(error.find("not declared") != std::string::npos);
+    CHECK_THROWS_WITH_AS(
+        [&]() { (void)draw_properties.pack_uniforms_for_scope(shader, ofg::ShaderParameterScope::Draw); }(),
+        "Property 'unknown' is not declared for draw scope.",
+        ofg::EngineError);
 }

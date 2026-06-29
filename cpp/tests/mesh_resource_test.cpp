@@ -1,6 +1,7 @@
 // Doctest coverage for CPU-side OFG mesh resources.
 #include "doctest.h"
 
+#include "ofg/core/engine_error.hpp"
 #include "ofg/math/vec.hpp"
 #include "ofg/resources/material.hpp"
 #include "ofg/resources/mesh.hpp"
@@ -8,7 +9,6 @@
 #include "ofg/resources/shader.hpp"
 
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -19,11 +19,9 @@ namespace {
 ofg::Material make_mesh_material(ofg::Shader& shader) {
     ofg::PropertyBag properties;
     properties.set("base_color_factor", ofg::math::vec4(1.0F, 1.0F, 1.0F, 1.0F));
-    std::string error;
-    std::optional<ofg::Material> material =
-        ofg::Material::create(ofg::GpuContext{}, "material", shader, properties, error);
-    REQUIRE(material.has_value());
-    return std::move(*material);
+    ofg::Material material{ofg::GpuContext{}, "material"};
+    material.init(shader, properties);
+    return material;
 }
 
 // Builds a valid shader for mesh submesh tests.
@@ -31,10 +29,9 @@ ofg::Shader make_mesh_shader() {
     ofg::ShaderParameterLayout layout;
     layout.m_parameters.push_back(
         ofg::ShaderParameter{"base_color_factor", ofg::ShaderParameterType::Vec4, ofg::ShaderParameterScope::Material});
-    std::string error;
-    std::optional<ofg::Shader> shader = ofg::Shader::create(ofg::GpuContext{}, "shader", "source", layout, {}, error);
-    REQUIRE(shader.has_value());
-    return std::move(*shader);
+    ofg::Shader shader{ofg::GpuContext{}, "shader"};
+    shader.init_from_wgsl("source", layout, {});
+    return shader;
 }
 
 // Builds a triangle vertex for tests.
@@ -52,19 +49,22 @@ TEST_CASE("mesh resource validates indexed submeshes") {
     std::vector<std::uint32_t> indices{0, 1, 2};
     std::vector<ofg::SubMesh> submeshes{ofg::SubMesh{"triangle", 0, 3, &material}};
 
-    std::string error;
-    std::optional<ofg::Mesh> mesh = ofg::Mesh::create(ofg::GpuContext{}, "mesh", vertices, indices, submeshes, error);
-    REQUIRE(mesh.has_value());
-    CHECK(mesh->label() == "mesh");
-    CHECK(mesh->vertices().size() == 3);
-    CHECK(mesh->indices().size() == 3);
-    CHECK(mesh->submeshes()[0].m_default_material == &material);
-    CHECK(mesh->vertex_buffer() == nullptr);
-    CHECK(mesh->index_buffer() == nullptr);
+    ofg::Mesh mesh{ofg::GpuContext{}, "mesh"};
+    mesh.init(vertices, indices, submeshes);
+    CHECK(mesh.label() == "mesh");
+    CHECK(mesh.vertices().size() == 3);
+    CHECK(mesh.indices().size() == 3);
+    CHECK(mesh.submeshes()[0].m_default_material == &material);
+    CHECK(mesh.vertex_buffer() == nullptr);
+    CHECK(mesh.index_buffer() == nullptr);
 
-    CHECK(ofg::Mesh::create(ofg::GpuContext{}, "bad", vertices, std::vector<std::uint32_t>{0, 4, 2}, submeshes, error)
-              .has_value() == false);
-    CHECK(error.find("missing vertex") != std::string::npos);
+    try {
+        ofg::Mesh bad_mesh{ofg::GpuContext{}, "bad"};
+        bad_mesh.init(vertices, std::vector<std::uint32_t>{0, 4, 2}, submeshes);
+        FAIL("Expected mesh index validation to throw.");
+    } catch (const ofg::EngineError& error) {
+        CHECK(std::string(error.what()).find("missing vertex") != std::string::npos);
+    }
 }
 
 // Verifies mesh mutation keeps existing data valid.
@@ -73,22 +73,28 @@ TEST_CASE("mesh resource validates replacement data") {
     ofg::Material material = make_mesh_material(shader);
     std::vector<ofg::MeshVertex> vertices{vertex(0.0F, 0.0F, 0.0F), vertex(1.0F, 0.0F, 0.0F), vertex(0.0F, 1.0F, 0.0F)};
     std::vector<ofg::SubMesh> submeshes{ofg::SubMesh{"triangle", 0, 3, &material}};
-    std::string error;
-    std::optional<ofg::Mesh> mesh =
-        ofg::Mesh::create(ofg::GpuContext{}, "mesh", vertices, std::vector<std::uint32_t>{0, 1, 2}, submeshes, error);
-    REQUIRE(mesh.has_value());
+    ofg::Mesh mesh{ofg::GpuContext{}, "mesh"};
+    mesh.init(vertices, std::vector<std::uint32_t>{0, 1, 2}, submeshes);
 
-    CHECK(mesh->replace_vertices(std::vector<ofg::MeshVertex>{vertex(0.0F, 0.0F, 0.0F)}, error) == false);
-    CHECK(error.find("missing vertex") != std::string::npos);
+    try {
+        mesh.replace_vertices(std::vector<ofg::MeshVertex>{vertex(0.0F, 0.0F, 0.0F)});
+        FAIL("Expected invalid replacement vertices to throw.");
+    } catch (const ofg::EngineError& error) {
+        CHECK(std::string(error.what()).find("missing vertex") != std::string::npos);
+    }
 
-    REQUIRE(mesh->replace_vertices(vertices, error));
-    CHECK(mesh->revision() == 2);
-    REQUIRE(mesh->replace_indices(std::vector<std::uint32_t>{0, 1, 2}, submeshes, error));
-    CHECK(mesh->revision() == 3);
+    mesh.replace_vertices(vertices);
+    CHECK(mesh.revision() == 2);
+    mesh.replace_indices(std::vector<std::uint32_t>{0, 1, 2}, submeshes);
+    CHECK(mesh.revision() == 3);
 
     std::vector<ofg::SubMesh> bad_submeshes{ofg::SubMesh{"triangle", 0, 0, &material}};
-    CHECK(mesh->replace_indices(std::vector<std::uint32_t>{0, 1, 2}, bad_submeshes, error) == false);
-    CHECK(error.find("Submesh index range") != std::string::npos);
+    try {
+        mesh.replace_indices(std::vector<std::uint32_t>{0, 1, 2}, bad_submeshes);
+        FAIL("Expected invalid replacement submesh to throw.");
+    } catch (const ofg::EngineError& error) {
+        CHECK(std::string(error.what()).find("Submesh index range") != std::string::npos);
+    }
 }
 
 // Verifies mesh creation catches each required data category.
@@ -99,25 +105,52 @@ TEST_CASE("mesh resource rejects incomplete mesh data") {
     std::vector<std::uint32_t> indices{0, 1, 2};
     std::vector<ofg::SubMesh> submeshes{ofg::SubMesh{"triangle", 0, 3, &material}};
 
-    std::string error;
-    CHECK(ofg::Mesh::create(ofg::GpuContext{}, "", vertices, indices, submeshes, error).has_value() == false);
-    CHECK(error.find("label") != std::string::npos);
-    CHECK(ofg::Mesh::create(ofg::GpuContext{}, "bad", {}, indices, submeshes, error).has_value() == false);
-    CHECK(error.find("vertices") != std::string::npos);
-    CHECK(ofg::Mesh::create(ofg::GpuContext{}, "bad", vertices, {}, submeshes, error).has_value() == false);
-    CHECK(error.find("indices") != std::string::npos);
-    CHECK(ofg::Mesh::create(ofg::GpuContext{}, "bad", vertices, indices, {}, error).has_value() == false);
-    CHECK(error.find("submesh") != std::string::npos);
+    try {
+        ofg::Mesh mesh{ofg::GpuContext{}, ""};
+        mesh.init(vertices, indices, submeshes);
+        FAIL("Expected empty mesh label to throw.");
+    } catch (const ofg::EngineError& error) {
+        CHECK(std::string(error.what()).find("label") != std::string::npos);
+    }
+    try {
+        ofg::Mesh mesh{ofg::GpuContext{}, "bad"};
+        mesh.init({}, indices, submeshes);
+        FAIL("Expected empty mesh vertices to throw.");
+    } catch (const ofg::EngineError& error) {
+        CHECK(std::string(error.what()).find("vertices") != std::string::npos);
+    }
+    try {
+        ofg::Mesh mesh{ofg::GpuContext{}, "bad"};
+        mesh.init(vertices, {}, submeshes);
+        FAIL("Expected empty mesh indices to throw.");
+    } catch (const ofg::EngineError& error) {
+        CHECK(std::string(error.what()).find("indices") != std::string::npos);
+    }
+    try {
+        ofg::Mesh mesh{ofg::GpuContext{}, "bad"};
+        mesh.init(vertices, indices, {});
+        FAIL("Expected empty mesh submeshes to throw.");
+    } catch (const ofg::EngineError& error) {
+        CHECK(std::string(error.what()).find("submesh") != std::string::npos);
+    }
 
     std::vector<ofg::SubMesh> unnamed_submeshes{ofg::SubMesh{"", 0, 3, &material}};
-    CHECK(
-        ofg::Mesh::create(ofg::GpuContext{}, "bad", vertices, indices, unnamed_submeshes, error).has_value() == false);
-    CHECK(error.find("label") != std::string::npos);
+    try {
+        ofg::Mesh mesh{ofg::GpuContext{}, "bad"};
+        mesh.init(vertices, indices, unnamed_submeshes);
+        FAIL("Expected unnamed submesh to throw.");
+    } catch (const ofg::EngineError& error) {
+        CHECK(std::string(error.what()).find("label") != std::string::npos);
+    }
 
     std::vector<ofg::SubMesh> materialless_submeshes{ofg::SubMesh{"triangle", 0, 3, nullptr}};
-    CHECK(ofg::Mesh::create(ofg::GpuContext{}, "bad", vertices, indices, materialless_submeshes, error).has_value() ==
-          false);
-    CHECK(error.find("material") != std::string::npos);
+    try {
+        ofg::Mesh mesh{ofg::GpuContext{}, "bad"};
+        mesh.init(vertices, indices, materialless_submeshes);
+        FAIL("Expected materialless submesh to throw.");
+    } catch (const ofg::EngineError& error) {
+        CHECK(std::string(error.what()).find("material") != std::string::npos);
+    }
 }
 
 // Verifies mesh move assignment transfers CPU data and empty GPU handles.
@@ -126,17 +159,14 @@ TEST_CASE("mesh resource supports move assignment") {
     ofg::Material material = make_mesh_material(shader);
     std::vector<ofg::MeshVertex> vertices{vertex(0.0F, 0.0F, 0.0F), vertex(1.0F, 0.0F, 0.0F), vertex(0.0F, 1.0F, 0.0F)};
     std::vector<ofg::SubMesh> submeshes{ofg::SubMesh{"triangle", 0, 3, &material}};
-    std::string error;
-    std::optional<ofg::Mesh> destination = ofg::Mesh::create(
-        ofg::GpuContext{}, "destination", vertices, std::vector<std::uint32_t>{0, 1, 2}, submeshes, error);
-    std::optional<ofg::Mesh> source =
-        ofg::Mesh::create(ofg::GpuContext{}, "source", vertices, std::vector<std::uint32_t>{2, 1, 0}, submeshes, error);
-    REQUIRE(destination.has_value());
-    REQUIRE(source.has_value());
+    ofg::Mesh destination{ofg::GpuContext{}, "destination"};
+    destination.init(vertices, std::vector<std::uint32_t>{0, 1, 2}, submeshes);
+    ofg::Mesh source{ofg::GpuContext{}, "source"};
+    source.init(vertices, std::vector<std::uint32_t>{2, 1, 0}, submeshes);
 
-    *destination = std::move(*source);
-    CHECK(destination->label() == "source");
-    CHECK(destination->indices()[0] == 2);
-    CHECK(destination->vertex_buffer() == nullptr);
-    CHECK(destination->index_buffer() == nullptr);
+    destination = std::move(source);
+    CHECK(destination.label() == "source");
+    CHECK(destination.indices()[0] == 2);
+    CHECK(destination.vertex_buffer() == nullptr);
+    CHECK(destination.index_buffer() == nullptr);
 }

@@ -13,6 +13,7 @@ namespace ofg {
 
 struct RuntimeDebugStatus {
     bool m_initialized{false};
+    std::string m_lifecycle_state{"uninitialized"};
     std::uint64_t m_frame_count{0};
     std::uint32_t m_canvas_width{0};
     std::uint32_t m_canvas_height{0};

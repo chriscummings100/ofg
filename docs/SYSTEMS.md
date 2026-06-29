@@ -12,7 +12,7 @@ Public interfaces:
 
 - `src/app/canvasHost.ts` exposes the canvas host factory and host operations used by the TypeScript entrypoint.
 - `src/app/main.ts` boots the browser page, loads the WASM runtime, wires resize/frame callbacks, and reports fatal errors.
-- `src/app/wasmRuntime.ts` adapts the generated Emscripten/Embind module to the stable `BrowserGameRuntime` TypeScript interface.
+- `src/app/wasmRuntime.ts` adapts the generated Emscripten/Embind module to the stable TypeScript runtime interface.
 - `tools/dev-server.mjs` serves the built static app for human review and browser smoke.
 - `index.html` and `src/app/styles.css` provide the minimal browser shell.
 
@@ -24,13 +24,15 @@ Communication contracts:
 
 ## CppRuntime
 
-The C++ runtime is the C++/WASM facade exposed to TypeScript. `BrowserGame` owns the browser-specific frame driver: WebGPU instance/adapter/device/surface setup, surface resize policy, surface texture acquisition, command encoder creation, command-buffer finish, queue submit, and Embind lifecycle ownership. Shared `Game` owns frame counting, debug-status serialization, the stable resource arena, demo-scene state, draw-list construction, target validation, and render command recording for one WebGPU device lifetime.
+The C++ runtime is the C++/WASM facade exposed to TypeScript. `BrowserGame` owns the browser-specific frame driver: WebGPU instance/adapter/device/surface setup, surface resize policy, surface texture acquisition, command encoder creation, command-buffer finish, queue submit, and Embind lifecycle ownership. `Game` exposes a static public lifecycle backed by one private singleton instance: single-shot `create`, repeated `prepare`, `resize`, `update`, `render`, repeated `release`, and single-shot `destroy`. `Resources` and `Renderer` expose their own static lifecycles. `Resources` owns active high-level resource storage for the borrowed WebGPU device; `Renderer` owns pass creation, pass lifetime, resize propagation, command recording, transient draw-list construction, and renderer counters. `Game` owns frame counting, debug-status serialization, demo-scene state, target validation, and the explicit `Scene` passed to `Renderer::render`.
 
 Public interfaces:
 
 - `cpp/CMakeLists.txt` defines the C++ core library, doctest executable, CTest registration, browser Emscripten module, and native Dawn smoke target.
-- `cpp/include/ofg/game/game.hpp` exposes the shared device-bound `Game` object used by browser and native frame drivers.
-- `cpp/include/ofg/game/game_runtime.hpp` owns portable runtime state, lifecycle behavior, debug status, and renderer counters.
+- `cpp/include/ofg/game/game.hpp` exposes the static `Game` lifecycle facade used by browser and native frame drivers.
+- `cpp/include/ofg/resources/resources.hpp` exposes the static `Resources` lifecycle facade and `Resources::create_*` allocation APIs for high-level resource objects.
+- `cpp/include/ofg/render/renderer.hpp` exposes the static `Renderer` lifecycle facade and scene render entry point.
+- `cpp/include/ofg/scene/scene.hpp` exposes the minimal render-object scene used while richer scene queries are designed.
 - `cpp/include/ofg/web/browser_game.hpp` exposes the Embind-facing `BrowserGame` facade.
 - `tools/build-cpp-wasm.mjs` builds `assets/wasm/ofg_cpp/ofg_cpp.js` and `assets/wasm/ofg_cpp/ofg_cpp.wasm` through CMake and Emscripten.
 - `tools/test-cpp.mjs` runs the C++ doctest executable through CMake/CTest.
@@ -40,27 +42,29 @@ Public interfaces:
 Communication contracts:
 
 - CppRuntime consumes only the canvas and resize/frame calls supplied by BrowserHost.
-- `BrowserGame` delegates frame state and render command recording to `Game`, while keeping browser surface acquisition and one queue submit per frame in the browser frame driver.
+- `BrowserGame` creates the static `Game` singleton after browser WebGPU device setup, drives `Game::prepare()` from frame processing until ready, delegates frame state and render command recording to `Game`, and keeps browser surface acquisition and one queue submit per frame in the browser frame driver.
+- `Game::prepare()` prepares `Resources`, builds the current demo scene, then prepares `Renderer`. `Game::release()` drains `Renderer`, clears scene state, then drains `Resources`; `Game::destroy()` then destroys `Renderer` before `Resources`.
 - The `debug_status_json()` fields are a public inspection contract for TypeScript tests, Playwright smoke, and later diagnostics.
-- `dispose()` destroys `Game` before releasing borrowed WebGPU device and queue handles, then releases browser WebGPU resources.
+- `dispose()` drains `Game::release()`, calls `Game::destroy()`, then releases borrowed WebGPU device and queue handles and browser WebGPU resources.
 
 ## CppRenderer
 
-The C++ renderer owns the current high-level render resources and draw-list renderer used behind shared `Game` in browser and native frame drivers. `Game` owns a `ResourceArena`, `DemoScene`, `DrawList`, `RenderView`, and `Renderer`. The demo scene creates a mipmapped checker texture, a white texture, opaque materials, a ground mesh, a cube mesh, and per-frame draw commands. The renderer owns the opaque pass, frame and draw uniform buffers, depth texture, pipeline cache, resource counters, and WebGPU command recording for the current visual contract.
+The C++ renderer owns the current pass-based draw-list renderer used behind static `Game` in browser and native frame drivers. `Renderer` is a static lifecycle facade that creates and owns its internal pass list; the current list contains one opaque pass. `Resources` owns active high-level resource storage and the borrowed `GpuContext`; `Game` uses that facade to build the current `DemoScene`, then updates a minimal `Scene` containing a main render view and render objects. `Renderer::render` converts that scene into a private transient `DrawList` before executing its passes. `Resources::create_*` only allocates labeled resources; the explicit texture, shader, material, and mesh `init_*` methods validate data and create GPU state. The demo scene creates a mipmapped checker texture, a white texture, opaque materials, a ground mesh, a cube mesh, and per-frame render objects. The renderer owns the opaque pass, transient draw list, frame and draw uniform buffers, depth texture, pipeline cache, resource counters, and WebGPU command recording for the current visual contract.
 
 Public interfaces:
 
-- `cpp/include/ofg/resources/resource_arena.hpp`, `texture.hpp`, `shader.hpp`, `material.hpp`, `mesh.hpp`, and `property_bag.hpp` expose the first high-level resource model.
-- `cpp/include/ofg/render/demo_scene.hpp` builds the generated demo resources and updates the per-frame plane-and-cubes draw list.
-- `cpp/include/ofg/render/draw_list.hpp`, `camera.hpp`, `renderer.hpp`, `opaque_pass.hpp`, and `pipeline_cache.hpp` expose the draw-list renderer surface.
+- `cpp/include/ofg/resources/resources.hpp`, `texture.hpp`, `shader.hpp`, `material.hpp`, `mesh.hpp`, and `property_bag.hpp` expose the first high-level resource model.
+- `cpp/include/ofg/render/demo_scene.hpp` builds the generated demo resources and updates the per-frame plane-and-cubes scene objects.
+- `cpp/include/ofg/scene/scene.hpp` exposes the explicit scene view passed from `Game` to `Renderer`.
+- `cpp/include/ofg/render/draw_list.hpp`, `camera.hpp`, `renderer.hpp`, `opaque_pass.hpp`, and `pipeline_cache.hpp` expose the current renderer and pass internals.
 - `cpp/include/ofg/render/bootstrap_scene.hpp` remains as legacy triangle layout regression data plus the shared clear-color helper.
-- `cpp/include/ofg/render/webgpu_common.hpp` provides small WebGPU string/enum helpers shared by browser and native paths.
+- `cpp/include/ofg/gpu/common.hpp` provides small WebGPU string/enum helpers and reusable depth target helpers shared by browser, native, resource, and renderer paths.
 
 Communication contracts:
 
-- Shared `Game` must use equivalent resource data, shader source, draw-list submission, renderer passes, and clear color regardless of whether the frame target comes from the browser surface or native offscreen texture.
+- Static `Game` must use equivalent resource data, shader source, scene-object submission, renderer passes, and clear color regardless of whether the frame target comes from the browser surface or native offscreen texture.
 - Resource objects are high-level assets, not wrappers for every WebGPU type. They may store the borrowed `GpuContext` that prepared them, but they do not own or release the platform device or queue.
-- The renderer requests no optional GPU features and creates durable resources during initialization, explicit mutation, or resize, not every ordinary frame.
+- The renderer requests no optional GPU features and creates durable resources during lifecycle creation, first render for a new material/shader pipeline key, explicit mutation, or resize, not every ordinary steady-state frame.
 - Surface/texture format may differ between browser and native targets, but the visual contract remains a dark blue-gray background, a large textured checker ground plane, and multiple colored cubes rendered through the opaque draw-list path.
 
 ## BrowserSmoke
@@ -83,7 +87,7 @@ Communication contracts:
 
 ## NativeRenderSmoke
 
-The native render smoke is a browser-free C++ render harness. It builds an installed Dawn native backend with Clang, creates a Vulkan WebGPU device, renders the shared `Game` into an offscreen texture, copies pixels through a padded readback buffer, writes a PNG, and records color-coverage diagnostics.
+The native render smoke is a browser-free C++ render harness. It builds an installed Dawn native backend with Clang, creates a Vulkan WebGPU device, renders through static `Game` into an offscreen texture, copies pixels through a padded readback buffer, writes a PNG, and records color-coverage diagnostics.
 
 Public interfaces:
 
@@ -96,7 +100,7 @@ Public interfaces:
 Communication contracts:
 
 - NativeRenderSmoke reads `tools/smoke-contract.json` through the Node wrapper and passes those values to the native executable.
-- NativeRenderSmoke shares the C++ `Game` render path with browser smoke but uses an offscreen texture instead of a browser surface.
+- NativeRenderSmoke shares the C++ `Game` render path with browser smoke but uses an offscreen texture instead of a browser surface. It releases and destroys the static `Game` singleton before borrowed Dawn device and queue handles are released.
 - The report JSON is the machine-readable contract for CI, human review, and coverage runs.
 
 ## CoverageGuardrails

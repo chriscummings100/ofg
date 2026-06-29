@@ -2,19 +2,20 @@
 #include "doctest.h"
 #include "webgpu_test_utils.hpp"
 
+#include "ofg/core/engine_error.hpp"
 #include "ofg/game/render_target.hpp"
 #include "ofg/math/mat.hpp"
 #include "ofg/math/vec.hpp"
 #include "ofg/render/camera.hpp"
 #include "ofg/render/draw_list.hpp"
 #include "ofg/render/renderer.hpp"
-#include "ofg/render/webgpu_common.hpp"
+#include "ofg/gpu/common.hpp"
 #include "ofg/resources/material.hpp"
 #include "ofg/resources/mesh.hpp"
 #include "ofg/resources/property_bag.hpp"
-#include "ofg/resources/resource_arena.hpp"
 #include "ofg/resources/shader.hpp"
 #include "ofg/resources/texture.hpp"
+#include "ofg/scene/scene.hpp"
 
 #include "../src/render/shaders/opaque_uber.wgsl.hpp"
 
@@ -31,12 +32,57 @@ namespace {
 
 constexpr WGPUTextureFormat _test_format = WGPUTextureFormat_RGBA8Unorm;
 
+struct RenderResources {
+    std::vector<std::unique_ptr<ofg::Texture>> m_textures;
+    std::vector<std::unique_ptr<ofg::Shader>> m_shaders;
+    std::vector<std::unique_ptr<ofg::Material>> m_materials;
+    std::vector<std::unique_ptr<ofg::Mesh>> m_meshes;
+
+    // Adds a texture and returns its stable test-fixture reference.
+    ofg::Texture& add_texture(ofg::Texture texture) {
+        m_textures.push_back(std::make_unique<ofg::Texture>(std::move(texture)));
+        return *m_textures.back();
+    }
+
+    // Adds a shader and returns its stable test-fixture reference.
+    ofg::Shader& add_shader(ofg::Shader shader) {
+        m_shaders.push_back(std::make_unique<ofg::Shader>(std::move(shader)));
+        return *m_shaders.back();
+    }
+
+    // Adds a material and returns its stable test-fixture reference.
+    ofg::Material& add_material(ofg::Material material) {
+        m_materials.push_back(std::make_unique<ofg::Material>(std::move(material)));
+        return *m_materials.back();
+    }
+
+    // Adds a mesh and returns its stable test-fixture reference.
+    ofg::Mesh& add_mesh(ofg::Mesh mesh) {
+        m_meshes.push_back(std::make_unique<ofg::Mesh>(std::move(mesh)));
+        return *m_meshes.back();
+    }
+};
+
 struct RenderScene {
-    ofg::ResourceArena m_resources;
-    ofg::DrawList m_draw_list;
-    ofg::RenderView m_render_view;
+    RenderResources m_resources;
+    ofg::Scene m_scene;
     ofg::Texture* m_texture{nullptr};
     ofg::Mesh* m_mesh{nullptr};
+};
+
+// Resets the static renderer singleton around each renderer doctest.
+struct RendererGuard {
+    RendererGuard() {
+        ofg::Renderer::destroy();
+    }
+
+    RendererGuard(const RendererGuard&) = delete;
+    RendererGuard& operator=(const RendererGuard&) = delete;
+
+    // Releases any live renderer singleton at the end of a test.
+    ~RendererGuard() {
+        ofg::Renderer::destroy();
+    }
 };
 
 // Releases a temporary render target texture.
@@ -166,63 +212,52 @@ std::vector<ofg::MeshVertex> triangle_vertices() {
 }
 
 // Adds the white texture required by the always-textured opaque material layout.
-ofg::Texture* add_white_texture(ofg::ResourceArena& resources, ofg::GpuContext gpu) {
-    std::string error;
-    std::optional<ofg::Texture> texture = ofg::Texture::from_rgba8_pixels(gpu,
-        "renderer test white texture",
-        1,
+ofg::Texture* add_white_texture(RenderResources& resources, ofg::GpuContext gpu) {
+    ofg::Texture texture{gpu, "renderer test white texture"};
+    texture.init_from_rgba8_pixels(1,
         1,
         ofg::TextureColorSpace::Linear,
         rgba_bytes({255, 255, 255, 255}),
-        ofg::MipMapPolicy::GenerateCpuFullChain,
-        error);
-    REQUIRE_MESSAGE(texture.has_value(), error);
-    return &resources.add_texture(std::move(*texture));
+        ofg::MipMapPolicy::GenerateCpuFullChain);
+    return &resources.add_texture(std::move(texture));
 }
 
-// Appends one draw command for a scene-owned mesh.
-void add_scene_command(RenderScene& scene) {
-    ofg::DrawCommand command;
-    command.m_mesh = scene.m_mesh;
-    command.m_model = ofg::math::mat4_identity();
-    scene.m_draw_list.add(std::move(command));
+// Appends one render object for a scene-owned mesh.
+void add_scene_object(RenderScene& scene) {
+    ofg::RenderObject object;
+    object.m_mesh = scene.m_mesh;
+    object.m_model = ofg::math::mat4_identity();
+    scene.m_scene.add_render_object(std::move(object));
 }
 
 // Builds resources with independently selectable GPU-ready mesh/material state.
 RenderScene make_render_scene_with_modes(
     ofg::GpuContext shader_gpu, ofg::GpuContext material_gpu, ofg::GpuContext mesh_gpu) {
     RenderScene scene;
-    std::string error;
 
-    std::optional<ofg::Shader> shader = ofg::Shader::create(shader_gpu,
-        "renderer test shader",
-        ofg::render::shaders::opaque_uber_wgsl,
+    ofg::Shader shader{shader_gpu, "renderer test shader"};
+    shader.init_from_wgsl(ofg::render::shaders::opaque_uber_wgsl,
         renderer_shader_layout(),
-        {ofg::PipelineDefinition{"renderer test pipeline"}},
-        error);
-    REQUIRE_MESSAGE(shader.has_value(), error);
-    ofg::Shader& stored_shader = scene.m_resources.add_shader(std::move(*shader));
+        {ofg::PipelineDefinition{"renderer test pipeline"}});
+    ofg::Shader& stored_shader = scene.m_resources.add_shader(std::move(shader));
     scene.m_texture = add_white_texture(scene.m_resources, material_gpu);
 
     ofg::PropertyBag properties;
     properties.set("base_color_factor", ofg::math::vec4(1.0F, 1.0F, 1.0F, 1.0F));
     properties.set("base_color_texture", scene.m_texture);
-    std::optional<ofg::Material> material =
-        ofg::Material::create(material_gpu, "renderer test material", stored_shader, std::move(properties), error);
-    REQUIRE_MESSAGE(material.has_value(), error);
-    ofg::Material& stored_material = scene.m_resources.add_material(std::move(*material));
+    ofg::Material material{material_gpu, "renderer test material"};
+    material.init(stored_shader, std::move(properties));
+    ofg::Material& stored_material = scene.m_resources.add_material(std::move(material));
 
     std::vector<std::uint32_t> indices{0, 1, 2};
     std::vector<ofg::SubMesh> submeshes{ofg::SubMesh{"triangle", 0, 3, &stored_material}};
-    std::optional<ofg::Mesh> mesh =
-        ofg::Mesh::create(mesh_gpu, "renderer test mesh", triangle_vertices(), std::move(indices), submeshes, error);
-    REQUIRE_MESSAGE(mesh.has_value(), error);
-    scene.m_mesh = &scene.m_resources.add_mesh(std::move(*mesh));
+    ofg::Mesh mesh{mesh_gpu, "renderer test mesh"};
+    mesh.init(triangle_vertices(), std::move(indices), submeshes);
+    scene.m_mesh = &scene.m_resources.add_mesh(std::move(mesh));
 
-    scene.m_render_view = ofg::render_view_from_matrix(ofg::math::mat4_identity());
-    add_scene_command(scene);
-    add_scene_command(scene);
-    REQUIRE_MESSAGE(scene.m_draw_list.validate(error), error);
+    scene.m_scene.set_main_view(ofg::render_view_from_matrix(ofg::math::mat4_identity()));
+    add_scene_object(scene);
+    add_scene_object(scene);
     return scene;
 }
 
@@ -231,14 +266,15 @@ RenderScene make_render_scene(ofg::GpuContext gpu) {
     return make_render_scene_with_modes(gpu, gpu, gpu);
 }
 
-// Builds a one-command draw list against scene-owned resources.
-ofg::DrawList make_one_command_draw_list(RenderScene& scene) {
-    ofg::DrawList draw_list;
-    ofg::DrawCommand command;
-    command.m_mesh = scene.m_mesh;
-    command.m_model = ofg::math::mat4_identity();
-    draw_list.add(std::move(command));
-    return draw_list;
+// Builds a one-object scene against scene-owned resources.
+ofg::Scene make_one_object_scene(RenderScene& scene) {
+    ofg::Scene one_object_scene;
+    one_object_scene.set_main_view(scene.m_scene.main_view());
+    ofg::RenderObject object;
+    object.m_mesh = scene.m_mesh;
+    object.m_model = ofg::math::mat4_identity();
+    one_object_scene.add_render_object(std::move(object));
+    return one_object_scene;
 }
 
 // Creates a texture view suitable for null-backend renderer submission.
@@ -267,105 +303,168 @@ ScopedCommandEncoder make_encoder(ofg::GpuContext gpu) {
     return encoder;
 }
 
+// Creates and prepares the static renderer for tests.
+void init_prepared_renderer(ofg::GpuContext gpu) {
+    ofg::Renderer::create(gpu, _test_format);
+    CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Created);
+    REQUIRE(ofg::Renderer::prepare());
+    CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Ready);
+}
+
 } // namespace
 
-// Verifies the renderer prepares opaque pipelines once for stable draw resources.
-TEST_CASE("renderer prepares draw-list pipelines once") {
+// Verifies renderer lifecycle names and static preparation behavior.
+TEST_CASE("renderer static lifecycle prepares pass resources") {
+    RendererGuard guard;
     ofg::tests::TestGpuContext gpu = make_test_gpu();
-    RenderScene scene = make_render_scene(gpu.borrowed_context());
 
-    std::string error;
-    std::unique_ptr<ofg::Renderer> renderer = ofg::Renderer::create(gpu.borrowed_context(), _test_format, error);
-    REQUIRE_MESSAGE(renderer != nullptr, error);
-    CHECK(renderer->counters().m_pipeline_create_count == 0);
-    CHECK(renderer->counters().m_buffer_create_count == 1);
+    CHECK(
+        std::string(ofg::renderer_lifecycle_state_name(ofg::RendererLifecycleState::Uninitialized)) == "uninitialized");
+    CHECK(std::string(ofg::renderer_lifecycle_state_name(ofg::RendererLifecycleState::Created)) == "created");
+    CHECK(std::string(ofg::renderer_lifecycle_state_name(ofg::RendererLifecycleState::Preparing)) == "preparing");
+    CHECK(std::string(ofg::renderer_lifecycle_state_name(ofg::RendererLifecycleState::Ready)) == "ready");
+    CHECK(std::string(ofg::renderer_lifecycle_state_name(ofg::RendererLifecycleState::Releasing)) == "releasing");
+    CHECK(std::string(ofg::renderer_lifecycle_state_name(ofg::RendererLifecycleState::Released)) == "released");
+    CHECK(std::string(ofg::renderer_lifecycle_state_name(ofg::RendererLifecycleState::Failed)) == "failed");
 
-    REQUIRE_MESSAGE(renderer->prepare(scene.m_draw_list, error), error);
-    CHECK(renderer->counters().m_pipeline_create_count == 1);
-    CHECK(renderer->counters().m_buffer_create_count == 1);
+    ofg::Renderer::create(gpu.borrowed_context(), _test_format);
+    CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Created);
+    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 0);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 0);
 
-    REQUIRE_MESSAGE(renderer->prepare(scene.m_draw_list, error), error);
-    CHECK(renderer->counters().m_pipeline_create_count == 1);
+    REQUIRE(ofg::Renderer::prepare());
+    CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Ready);
+    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 0);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 1);
+
+    REQUIRE(ofg::Renderer::prepare());
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 1);
+    CHECK(ofg::Renderer::release());
+    CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Released);
+    CHECK(ofg::Renderer::release());
 }
 
 // Verifies renderer validation rejects missing device state and invalid render inputs.
-TEST_CASE("renderer rejects invalid creation and render inputs") {
+TEST_CASE("renderer rejects invalid lifecycle and render inputs") {
+    RendererGuard guard;
     ofg::tests::TestGpuContext gpu = make_test_gpu();
     RenderScene scene = make_render_scene(gpu.borrowed_context());
 
-    std::string error;
-    CHECK(ofg::Renderer::create(ofg::GpuContext{}, _test_format, error) == nullptr);
-    CHECK(error.find("WebGPU device") != std::string::npos);
+    CHECK(ofg::Renderer::release());
+    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 0);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 0);
+    CHECK_THROWS_WITH_AS(([&]() { (void)ofg::Renderer::prepare(); }()),
+        doctest::Contains("requires Renderer::create"),
+        ofg::EngineError);
+    ofg::Renderer::destroy();
 
-    std::unique_ptr<ofg::Renderer> renderer = ofg::Renderer::create(gpu.borrowed_context(), _test_format, error);
-    REQUIRE_MESSAGE(renderer != nullptr, error);
-    CHECK(renderer->render(nullptr, ofg::RenderTarget{}, scene.m_render_view, scene.m_draw_list, error) == false);
-    CHECK(error.find("encoder") != std::string::npos);
+    CHECK_THROWS_WITH_AS(
+        ofg::Renderer::create(ofg::GpuContext{}, _test_format), doctest::Contains("WebGPU device"), ofg::EngineError);
+    ofg::Renderer::destroy();
+    CHECK_THROWS_WITH_AS(ofg::Renderer::create(gpu.borrowed_context(), WGPUTextureFormat_Undefined),
+        doctest::Contains("defined color format"),
+        ofg::EngineError);
+    ofg::Renderer::destroy();
+
+    ofg::Renderer::create(gpu.borrowed_context(), _test_format);
+    CHECK_THROWS_WITH_AS(ofg::Renderer::create(gpu.borrowed_context(), _test_format),
+        doctest::Contains("Renderer::create cannot be called"),
+        ofg::EngineError);
+    const ofg::Scene& render_scene = scene.m_scene;
+    CHECK_THROWS_WITH_AS(ofg::Renderer::resize(32, 32), doctest::Contains("prepare to complete"), ofg::EngineError);
+    CHECK_THROWS_WITH_AS(ofg::Renderer::render(nullptr, ofg::RenderTarget{}, render_scene),
+        doctest::Contains("prepare to complete"),
+        ofg::EngineError);
+
+    REQUIRE(ofg::Renderer::prepare());
+
+    CHECK_THROWS_WITH_AS(ofg::Renderer::render(nullptr, ofg::RenderTarget{}, render_scene),
+        doctest::Contains("encoder"),
+        ofg::EngineError);
 
     ScopedTexture texture;
     ScopedTextureView view = make_render_target_view(gpu.borrowed_context(), texture);
     ScopedCommandEncoder encoder = make_encoder(gpu.borrowed_context());
-    ofg::DrawList invalid_draw_list;
-    invalid_draw_list.add(ofg::DrawCommand{});
-    CHECK(renderer->render(encoder.m_value,
-              ofg::RenderTarget{view.m_value, _test_format, 32, 32},
-              scene.m_render_view,
-              invalid_draw_list,
-              error) == false);
-    CHECK(error.find("mesh") != std::string::npos);
+    ofg::Scene invalid_scene;
+    invalid_scene.set_main_view(scene.m_scene.main_view());
+    invalid_scene.add_render_object(ofg::RenderObject{});
+    CHECK_THROWS_WITH_AS(([&]() {
+        ofg::Renderer::render(encoder.m_value, ofg::RenderTarget{view.m_value, _test_format, 32, 32}, invalid_scene);
+    }()),
+        doctest::Contains("mesh"),
+        ofg::EngineError);
+
+    CHECK(ofg::Renderer::release());
+    CHECK_THROWS_WITH_AS(
+        ([&]() { (void)ofg::Renderer::prepare(); }()), doctest::Contains("after Renderer release"), ofg::EngineError);
+    CHECK_THROWS_WITH_AS(
+        ([&]() { (void)ofg::Renderer::prepare(); }()), doctest::Contains("after Renderer release"), ofg::EngineError);
 }
 
-// Verifies renderer preparation reports invalid draw lists and non-GPU-ready resources.
-TEST_CASE("renderer prepare rejects invalid and non gpu ready draw resources") {
+// Verifies renderer command recording reports non-GPU-ready resources.
+TEST_CASE("renderer render rejects non gpu ready draw resources") {
+    RendererGuard guard;
     ofg::tests::TestGpuContext gpu = make_test_gpu();
 
-    std::string error;
-    std::unique_ptr<ofg::Renderer> renderer = ofg::Renderer::create(gpu.borrowed_context(), _test_format, error);
-    REQUIRE_MESSAGE(renderer != nullptr, error);
-
-    ofg::DrawList invalid_draw_list;
-    invalid_draw_list.add(ofg::DrawCommand{});
-    CHECK(renderer->prepare(invalid_draw_list, error) == false);
-    CHECK(error.find("mesh") != std::string::npos);
+    init_prepared_renderer(gpu.borrowed_context());
 
     RenderScene cpu_mesh_scene = make_render_scene_with_modes(ofg::GpuContext{}, ofg::GpuContext{}, ofg::GpuContext{});
-    CHECK(renderer->prepare(cpu_mesh_scene.m_draw_list, error) == false);
-    CHECK(error.find("mesh buffers") != std::string::npos);
+    ScopedTexture mesh_texture;
+    ScopedTextureView mesh_view = make_render_target_view(gpu.borrowed_context(), mesh_texture);
+    ScopedCommandEncoder mesh_encoder = make_encoder(gpu.borrowed_context());
+    const ofg::Scene& cpu_mesh_render_scene = cpu_mesh_scene.m_scene;
+    CHECK_THROWS_WITH_AS(([&]() {
+        ofg::Renderer::render(
+            mesh_encoder.m_value, ofg::RenderTarget{mesh_view.m_value, _test_format, 32, 32}, cpu_mesh_render_scene);
+    }()),
+        doctest::Contains("mesh buffers"),
+        ofg::EngineError);
 
     RenderScene cpu_shader_material_scene =
         make_render_scene_with_modes(ofg::GpuContext{}, ofg::GpuContext{}, gpu.borrowed_context());
-    CHECK(renderer->prepare(cpu_shader_material_scene.m_draw_list, error) == false);
-    CHECK(error.find("shader") != std::string::npos);
+    ScopedTexture shader_texture;
+    ScopedTextureView shader_view = make_render_target_view(gpu.borrowed_context(), shader_texture);
+    ScopedCommandEncoder shader_encoder = make_encoder(gpu.borrowed_context());
+    const ofg::Scene& cpu_shader_render_scene = cpu_shader_material_scene.m_scene;
+    CHECK_THROWS_WITH_AS(([&]() {
+        ofg::Renderer::render(shader_encoder.m_value,
+            ofg::RenderTarget{shader_view.m_value, _test_format, 32, 32},
+            cpu_shader_render_scene);
+    }()),
+        doctest::Contains("shader"),
+        ofg::EngineError);
 
     RenderScene cpu_bind_group_scene =
         make_render_scene_with_modes(gpu.borrowed_context(), ofg::GpuContext{}, gpu.borrowed_context());
-    CHECK(renderer->prepare(cpu_bind_group_scene.m_draw_list, error) == false);
-    CHECK(error.find("bind group") != std::string::npos);
-
-    CHECK(ofg::Renderer::create(gpu.borrowed_context(), WGPUTextureFormat_Undefined, error) == nullptr);
-    CHECK(error.find("defined color format") != std::string::npos);
+    ScopedTexture bind_group_texture;
+    ScopedTextureView bind_group_view = make_render_target_view(gpu.borrowed_context(), bind_group_texture);
+    ScopedCommandEncoder bind_group_encoder = make_encoder(gpu.borrowed_context());
+    const ofg::Scene& cpu_bind_group_render_scene = cpu_bind_group_scene.m_scene;
+    CHECK_THROWS_WITH_AS(([&]() {
+        ofg::Renderer::render(bind_group_encoder.m_value,
+            ofg::RenderTarget{bind_group_view.m_value, _test_format, 32, 32},
+            cpu_bind_group_render_scene);
+    }()),
+        doctest::Contains("bind group"),
+        ofg::EngineError);
 }
 
-// Verifies a draw list records into a null-backend render target and finishes cleanly.
-TEST_CASE("renderer records opaque draw list into a render target") {
+// Verifies scene objects record into a null-backend render target and finish cleanly.
+TEST_CASE("renderer records scene objects into render targets without steady-state growth") {
+    RendererGuard guard;
     ofg::tests::TestGpuContext gpu = make_test_gpu();
     RenderScene scene = make_render_scene(gpu.borrowed_context());
 
-    std::string error;
-    std::unique_ptr<ofg::Renderer> renderer = ofg::Renderer::create(gpu.borrowed_context(), _test_format, error);
-    REQUIRE_MESSAGE(renderer != nullptr, error);
-    REQUIRE_MESSAGE(renderer->resize(32, 32, error), error);
+    init_prepared_renderer(gpu.borrowed_context());
+    ofg::Renderer::resize(32, 32);
 
     ScopedTexture texture;
     ScopedTextureView view = make_render_target_view(gpu.borrowed_context(), texture);
     ScopedCommandEncoder encoder = make_encoder(gpu.borrowed_context());
+    const ofg::Scene& render_scene = scene.m_scene;
 
-    REQUIRE_MESSAGE(renderer->render(encoder.m_value,
-                        ofg::RenderTarget{view.m_value, _test_format, 32, 32},
-                        scene.m_render_view,
-                        scene.m_draw_list,
-                        error),
-        error);
+    CHECK_NOTHROW(
+        ofg::Renderer::render(encoder.m_value, ofg::RenderTarget{view.m_value, _test_format, 32, 32}, render_scene));
 
     WGPUCommandBufferDescriptor command_descriptor = WGPU_COMMAND_BUFFER_DESCRIPTOR_INIT;
     command_descriptor.label = ofg::gpu::cstring_view("OFG renderer test commands");
@@ -373,18 +472,17 @@ TEST_CASE("renderer records opaque draw list into a render target") {
     REQUIRE(command.m_value != nullptr);
     wgpuQueueSubmit(gpu.borrowed_context().m_queue, 1, &command.m_value);
 
-    CHECK(renderer->counters().m_pipeline_create_count == 1);
+    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 1);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 1);
 
     ScopedTexture second_texture;
     ScopedTextureView second_view = make_render_target_view(gpu.borrowed_context(), second_texture);
     ScopedCommandEncoder second_encoder = make_encoder(gpu.borrowed_context());
-    ofg::DrawList one_command = make_one_command_draw_list(scene);
-    REQUIRE_MESSAGE(renderer->render(second_encoder.m_value,
-                        ofg::RenderTarget{second_view.m_value, _test_format, 32, 32},
-                        scene.m_render_view,
-                        one_command,
-                        error),
-        error);
+    ofg::Scene one_command_scene = make_one_object_scene(scene);
+    CHECK_NOTHROW(ofg::Renderer::render(
+        second_encoder.m_value, ofg::RenderTarget{second_view.m_value, _test_format, 32, 32}, one_command_scene));
 
-    REQUIRE_MESSAGE(renderer->resize(0, 0, error), error);
+    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 1);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 1);
+    CHECK_NOTHROW(ofg::Renderer::resize(0, 0));
 }

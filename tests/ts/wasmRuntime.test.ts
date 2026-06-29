@@ -17,6 +17,7 @@ describe("wasm runtime wrapper", () => {
     const status = parseRuntimeDebugStatus(JSON.stringify(validStatusPayload()));
 
     assert.equal(status.initialized, true);
+    assert.equal(status.lifecycleState, "ready");
     assert.equal(status.frameCount, 2);
     assert.equal(status.canvasWidth, 800);
     assert.equal(status.pipelineCreateCount, 1);
@@ -26,7 +27,7 @@ describe("wasm runtime wrapper", () => {
   it("rejects missing runtime debug status fields", () => {
     assert.throws(
       () => parseRuntimeDebugStatus(JSON.stringify({ initialized: true })),
-      /field frameCount must be a finite number/
+      /field lifecycleState must be a string/
     );
   });
 
@@ -147,6 +148,7 @@ function fakeRawBrowserGame(calls: string[]): RawBrowserGame {
 function validStatusPayload(): Record<string, unknown> {
   return {
     initialized: true,
+    lifecycleState: "ready",
     frameCount: 2,
     canvasWidth: 800,
     canvasHeight: 450,

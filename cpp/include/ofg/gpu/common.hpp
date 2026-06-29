@@ -1,11 +1,12 @@
-// Small WebGPU helpers shared by browser Emdawnwebgpu and native Dawn paths.
+// Small GPU helpers shared by browser Emdawnwebgpu and native Dawn paths.
 //
-// These helpers normalize the few pieces of WebGPU C API ceremony used outside
-// browser-only code: string-view construction, string-view conversion, and enum
-// labels for reports/status. They intentionally do not own devices, surfaces, or
-// renderer state.
+// OFG is WebGPU-only, so this module keeps common WebGPU C API ceremony in one
+// place without pretending to wrap every graphics object. It provides string
+// views, enum labels, and reusable target helpers for systems that already own
+// their devices, surfaces, or render state.
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 #include <webgpu/webgpu.h>
@@ -26,5 +27,12 @@ namespace ofg::gpu {
 
 // Converts a native Dawn backend type into the smoke report label.
 [[nodiscard]] std::string backend_type_name(WGPUBackendType backend);
+
+// Creates a 2D depth texture for render attachment use.
+[[nodiscard]] WGPUTexture create_depth_texture(
+    WGPUDevice device, WGPUTextureFormat depth_format, std::uint32_t width, std::uint32_t height, const char* label);
+
+// Creates the default 2D view for a depth texture.
+[[nodiscard]] WGPUTextureView create_depth_view(WGPUTexture texture, WGPUTextureFormat depth_format, const char* label);
 
 } // namespace ofg::gpu

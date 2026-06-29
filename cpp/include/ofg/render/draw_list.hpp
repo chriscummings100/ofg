@@ -1,7 +1,7 @@
 // Resolved render commands consumed by OFG renderer passes.
 //
 // DrawList intentionally stores non-owning resource pointers. The owning
-// ResourceArena or scene bundle must outlive every render call that uses it.
+// Resource storage or a scene bundle must outlive every render call that uses it.
 #pragma once
 
 #include "ofg/math/mat.hpp"
@@ -10,7 +10,6 @@
 
 #include <cstdint>
 #include <span>
-#include <string>
 #include <vector>
 
 namespace ofg {
@@ -42,13 +41,13 @@ public:
     // Reports the number of draw commands.
     [[nodiscard]] std::size_t size() const noexcept;
     // Validates mesh, material, override, and draw-property references.
-    [[nodiscard]] bool validate(std::string& error) const;
+    void validate() const;
 
 private:
     std::vector<DrawCommand> m_commands;
 };
 
 // Resolves a submesh material after applying command-level overrides.
-[[nodiscard]] Material* resolve_material(const DrawCommand& command, std::uint32_t submesh_index, std::string& error);
+[[nodiscard]] Material& resolve_material(const DrawCommand& command, std::uint32_t submesh_index);
 
 } // namespace ofg

@@ -1,12 +1,14 @@
 // Small animated renderer demo scene for smoke tests and early renderer work.
 #include "ofg/render/demo_scene.hpp"
 
+#include "ofg/core/engine_error.hpp"
 #include "ofg/math/mat.hpp"
 #include "ofg/math/transform.hpp"
 #include "ofg/math/vec.hpp"
 #include "ofg/resources/material.hpp"
 #include "ofg/resources/mesh.hpp"
 #include "ofg/resources/property_bag.hpp"
+#include "ofg/resources/resources.hpp"
 #include "ofg/resources/shader.hpp"
 #include "ofg/resources/texture.hpp"
 
@@ -62,46 +64,26 @@ std::vector<std::byte> checker_pixels() {
     return pixels;
 }
 
-// Creates a generated texture and stores it in the arena.
-Texture* add_texture(ResourceArena& resources,
-    GpuContext gpu,
-    std::string label,
+// Creates and initializes a generated texture through Resources.
+Texture* add_texture(std::string label,
     std::uint32_t width,
     std::uint32_t height,
     TextureColorSpace color_space,
-    std::vector<std::byte> pixels,
-    std::string& error) {
-    std::optional<Texture> texture = Texture::from_rgba8_pixels(gpu,
-        std::move(label),
-        width,
-        height,
-        color_space,
-        std::move(pixels),
-        MipMapPolicy::GenerateCpuFullChain,
-        error);
-    if (!texture.has_value()) {
-        return nullptr;
-    }
-    return &resources.add_texture(std::move(*texture));
+    std::vector<std::byte> pixels) {
+    Texture& texture = Resources::create_texture(std::move(label));
+    texture.init_from_rgba8_pixels(width, height, color_space, std::move(pixels), MipMapPolicy::GenerateCpuFullChain);
+    return &texture;
 }
 
-// Creates a material that binds a color factor and generated texture.
-Material* add_material(ResourceArena& resources,
-    GpuContext gpu,
-    std::string label,
-    Shader& shader,
-    math::Vec4 color_factor,
-    Texture& texture,
-    std::string& error) {
+// Creates and initializes a material that binds a color factor and generated texture.
+Material* add_material(std::string label, Shader& shader, math::Vec4 color_factor, Texture& texture) {
     PropertyBag properties;
     properties.set("base_color_factor", color_factor);
     properties.set("base_color_texture", &texture);
 
-    std::optional<Material> material = Material::create(gpu, std::move(label), shader, std::move(properties), error);
-    if (!material.has_value()) {
-        return nullptr;
-    }
-    return &resources.add_material(std::move(*material));
+    Material& material = Resources::create_material(std::move(label));
+    material.init(shader, std::move(properties));
+    return &material;
 }
 
 // Builds the large XZ ground plane vertex data.
@@ -159,13 +141,13 @@ math::Mat4 cube_model(const CubePlacement& placement, float seconds) noexcept {
     return math::mul(math::mul(translation, rotation), scale);
 }
 
-// Adds one draw command to the target draw list.
-void add_draw(DrawList& draw_list, Mesh& mesh, math::Mat4 model, math::Vec3 sort_origin) {
-    DrawCommand command;
-    command.m_mesh = &mesh;
-    command.m_model = model;
-    command.m_sort_origin = sort_origin;
-    draw_list.add(std::move(command));
+// Adds one render object to the target scene.
+void add_render_object(Scene& scene, Mesh& mesh, math::Mat4 model, math::Vec3 sort_origin) {
+    RenderObject object;
+    object.m_mesh = &mesh;
+    object.m_model = model;
+    object.m_sort_origin = sort_origin;
+    scene.add_render_object(std::move(object));
 }
 
 } // namespace
@@ -181,53 +163,20 @@ ShaderParameterLayout opaque_demo_shader_layout() {
 }
 
 // Creates generated textures, materials, meshes, and shader resources.
-bool build_demo_scene(GpuContext gpu, ResourceArena& resources, DemoScene& scene, std::string& error) {
+void build_demo_scene(DemoScene& scene) {
     // Shader and textures are created first because every material references them.
-    std::optional<Shader> shader = Shader::create(gpu,
-        "OFG opaque demo shader",
-        render::shaders::opaque_uber_wgsl,
-        opaque_demo_shader_layout(),
-        {PipelineDefinition{"opaque demo"}},
-        error);
-    if (!shader.has_value()) {
-        return false;
-    }
-    scene.m_shader = &resources.add_shader(std::move(*shader));
+    scene.m_shader = &Resources::create_shader("OFG opaque demo shader");
+    scene.m_shader->init_from_wgsl(
+        render::shaders::opaque_uber_wgsl, opaque_demo_shader_layout(), {PipelineDefinition{"opaque demo"}});
 
-    scene.m_checker_texture = add_texture(resources,
-        gpu,
-        "OFG generated checker texture",
-        _checker_size,
-        _checker_size,
-        TextureColorSpace::Linear,
-        checker_pixels(),
-        error);
-    if (scene.m_checker_texture == nullptr) {
-        return false;
-    }
-    scene.m_white_texture = add_texture(resources,
-        gpu,
-        "OFG generated white texture",
-        1,
-        1,
-        TextureColorSpace::Linear,
-        rgba_bytes({255, 255, 255, 255}),
-        error);
-    if (scene.m_white_texture == nullptr) {
-        return false;
-    }
+    scene.m_checker_texture = add_texture(
+        "OFG generated checker texture", _checker_size, _checker_size, TextureColorSpace::Linear, checker_pixels());
+    scene.m_white_texture =
+        add_texture("OFG generated white texture", 1, 1, TextureColorSpace::Linear, rgba_bytes({255, 255, 255, 255}));
 
     // Materials all share one shader layout: a uniform color factor plus texture.
-    scene.m_ground_material = add_material(resources,
-        gpu,
-        "OFG demo ground material",
-        *scene.m_shader,
-        math::vec4(1.0F, 1.0F, 1.0F, 1.0F),
-        *scene.m_checker_texture,
-        error);
-    if (scene.m_ground_material == nullptr) {
-        return false;
-    }
+    scene.m_ground_material = add_material(
+        "OFG demo ground material", *scene.m_shader, math::vec4(1.0F, 1.0F, 1.0F, 1.0F), *scene.m_checker_texture);
 
     const std::array<math::Vec4, 4> cube_colors{
         math::vec4(0.95F, 0.18F, 0.13F, 1.0F),
@@ -236,81 +185,58 @@ bool build_demo_scene(GpuContext gpu, ResourceArena& resources, DemoScene& scene
         math::vec4(0.96F, 0.78F, 0.16F, 1.0F),
     };
     for (std::size_t index = 0; index < scene.m_cube_materials.size(); ++index) {
-        scene.m_cube_materials[index] = add_material(resources,
-            gpu,
-            "OFG demo cube material " + std::to_string(index),
+        scene.m_cube_materials[index] = add_material("OFG demo cube material " + std::to_string(index),
             *scene.m_shader,
             cube_colors[index],
-            *scene.m_white_texture,
-            error);
-        if (scene.m_cube_materials[index] == nullptr) {
-            return false;
-        }
+            *scene.m_white_texture);
     }
 
     // Meshes are added last so their submeshes can point at arena-owned materials.
     std::vector<SubMesh> ground_submeshes{SubMesh{"ground", 0, 6, scene.m_ground_material}};
-    std::optional<Mesh> ground_mesh = Mesh::create(
-        gpu, "OFG demo ground mesh", ground_vertices(), {0, 1, 2, 0, 2, 3}, std::move(ground_submeshes), error);
-    if (!ground_mesh.has_value()) {
-        return false;
-    }
-    scene.m_ground_mesh = &resources.add_mesh(std::move(*ground_mesh));
+    scene.m_ground_mesh = &Resources::create_mesh("OFG demo ground mesh");
+    scene.m_ground_mesh->init(ground_vertices(), {0, 1, 2, 0, 2, 3}, std::move(ground_submeshes));
 
     std::vector<MeshVertex> cube_vertices;
     std::vector<std::uint32_t> cube_indices;
     cube_geometry(cube_vertices, cube_indices);
     std::vector<SubMesh> cube_submeshes{
         SubMesh{"cube", 0, static_cast<std::uint32_t>(cube_indices.size()), scene.m_cube_materials[0]}};
-    std::optional<Mesh> cube_mesh = Mesh::create(
-        gpu, "OFG demo cube mesh", std::move(cube_vertices), std::move(cube_indices), std::move(cube_submeshes), error);
-    if (!cube_mesh.has_value()) {
-        return false;
-    }
-    scene.m_cube_mesh = &resources.add_mesh(std::move(*cube_mesh));
-
-    error.clear();
-    return true;
+    scene.m_cube_mesh = &Resources::create_mesh("OFG demo cube mesh");
+    scene.m_cube_mesh->init(std::move(cube_vertices), std::move(cube_indices), std::move(cube_submeshes));
 }
 
-// Rebuilds draw commands and camera state for one deterministic animation time.
-bool update_demo_scene(const DemoScene& scene,
-    double time_ms,
-    float aspect,
-    DrawList& draw_list,
-    RenderView& render_view,
-    std::string& error) {
-    if (scene.m_ground_mesh == nullptr || scene.m_cube_mesh == nullptr || scene.m_ground_material == nullptr) {
-        error = "Demo scene resources are not initialized.";
-        return false;
+// Rebuilds render objects and camera state for one deterministic animation time.
+void update_demo_scene(const DemoScene& demo_scene, double time_ms, float aspect, Scene& scene) {
+    if (demo_scene.m_ground_mesh == nullptr || demo_scene.m_cube_mesh == nullptr ||
+        demo_scene.m_ground_material == nullptr) {
+        throw EngineError("Demo scene resources are not initialized.");
     }
-    for (Material* material : scene.m_cube_materials) {
+    for (Material* material : demo_scene.m_cube_materials) {
         if (material == nullptr) {
-            error = "Demo scene cube materials are not initialized.";
-            return false;
+            throw EngineError("Demo scene cube materials are not initialized.");
         }
     }
     if (!std::isfinite(time_ms) || !std::isfinite(aspect) || aspect <= 0.0F) {
-        error = "Demo scene update requires finite time and positive aspect.";
-        return false;
+        throw EngineError("Demo scene update requires finite time and positive aspect.");
     }
 
     // Camera state is recomputed from aspect so browser and native paths match after resize.
+    std::string error;
     std::optional<math::Mat4> view = math::look_at_rh(
         math::vec3(6.2F, 4.4F, 7.6F), math::vec3(0.0F, 0.55F, 0.0F), math::vec3(0.0F, 1.0F, 0.0F), error);
     if (!view.has_value()) {
-        return false;
+        throw EngineError(error.empty() ? "Demo scene camera view creation failed." : error);
     }
     std::optional<math::Mat4> projection = math::perspective_rh(55.0F * _pi / 180.0F, aspect, 0.1F, 80.0F, error);
     if (!projection.has_value()) {
-        return false;
+        throw EngineError(error.empty() ? "Demo scene camera projection creation failed." : error);
     }
 
-    draw_list.clear();
-    render_view = render_view_from_matrix(math::mul(*projection, *view));
-    add_draw(draw_list, *scene.m_ground_mesh, math::mat4_identity(), math::vec3(0.0F, 0.0F, 0.0F));
+    Scene next_scene;
+    next_scene.set_main_view(render_view_from_matrix(math::mul(*projection, *view)));
+    add_render_object(next_scene, *demo_scene.m_ground_mesh, math::mat4_identity(), math::vec3(0.0F, 0.0F, 0.0F));
 
-    // The animation updates only draw commands; resource objects remain stable.
+    // The animation updates only render objects; resource objects remain stable.
     const float seconds = static_cast<float>(time_ms * 0.001);
     const std::array<CubePlacement, 4> placements{{
         CubePlacement{math::vec3(-2.35F, 0.0F, -0.8F), 1.15F, 0.0F, 0.75F},
@@ -319,20 +245,16 @@ bool update_demo_scene(const DemoScene& scene,
         CubePlacement{math::vec3(-0.75F, 0.0F, 2.15F), 0.72F, 4.2F, -1.15F},
     }};
     for (std::size_t index = 0; index < placements.size(); ++index) {
-        DrawCommand command;
-        command.m_mesh = scene.m_cube_mesh;
-        command.m_model = cube_model(placements[index], seconds);
-        command.m_sort_origin = placements[index].m_position;
-        command.m_material_overrides.push_back(
-            MaterialOverride{0, scene.m_cube_materials[index % scene.m_cube_materials.size()]});
-        draw_list.add(std::move(command));
+        RenderObject object;
+        object.m_mesh = demo_scene.m_cube_mesh;
+        object.m_model = cube_model(placements[index], seconds);
+        object.m_sort_origin = placements[index].m_position;
+        object.m_material_overrides.push_back(
+            MaterialOverride{0, demo_scene.m_cube_materials[index % demo_scene.m_cube_materials.size()]});
+        next_scene.add_render_object(std::move(object));
     }
 
-    if (!draw_list.validate(error)) {
-        return false;
-    }
-    error.clear();
-    return true;
+    scene = std::move(next_scene);
 }
 
 // Returns the stable timestamp used by browser-free native visual smoke.

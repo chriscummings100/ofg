@@ -1,12 +1,12 @@
 // Render pipeline cache for OFG opaque draw submission.
 #include "ofg/render/pipeline_cache.hpp"
 
+#include "ofg/core/engine_error.hpp"
 #include "ofg/resources/mesh.hpp"
-#include "ofg/render/webgpu_common.hpp"
+#include "ofg/gpu/common.hpp"
 
 #include <array>
 #include <cstddef>
-#include <string>
 #include <utility>
 
 namespace ofg {
@@ -16,8 +16,7 @@ namespace {
 WGPUPipelineLayout create_pipeline_layout(WGPUDevice device,
     WGPUBindGroupLayout frame_layout,
     WGPUBindGroupLayout draw_layout,
-    WGPUBindGroupLayout material_layout,
-    std::string& error) {
+    WGPUBindGroupLayout material_layout) {
     std::array<WGPUBindGroupLayout, 3> layouts{frame_layout, draw_layout, material_layout};
 
     WGPUPipelineLayoutDescriptor descriptor = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
@@ -27,7 +26,7 @@ WGPUPipelineLayout create_pipeline_layout(WGPUDevice device,
 
     WGPUPipelineLayout layout = wgpuDeviceCreatePipelineLayout(device, &descriptor);
     if (layout == nullptr) {
-        error = "wgpuDeviceCreatePipelineLayout returned null for opaque pipeline.";
+        throw EngineError("wgpuDeviceCreatePipelineLayout returned null for opaque pipeline.");
     }
     return layout;
 }
@@ -37,12 +36,8 @@ WGPURenderPipeline create_render_pipeline(WGPUDevice device,
     const PipelineKey& key,
     WGPUBindGroupLayout frame_layout,
     WGPUBindGroupLayout draw_layout,
-    WGPUShaderModule shader_module,
-    std::string& error) {
-    WGPUPipelineLayout layout = create_pipeline_layout(device, frame_layout, draw_layout, key.m_material_layout, error);
-    if (layout == nullptr) {
-        return nullptr;
-    }
+    WGPUShaderModule shader_module) {
+    WGPUPipelineLayout layout = create_pipeline_layout(device, frame_layout, draw_layout, key.m_material_layout);
 
     std::array<WGPUVertexAttribute, 3> attributes{
         WGPU_VERTEX_ATTRIBUTE_INIT, WGPU_VERTEX_ATTRIBUTE_INIT, WGPU_VERTEX_ATTRIBUTE_INIT};
@@ -100,7 +95,7 @@ WGPURenderPipeline create_render_pipeline(WGPUDevice device,
     WGPURenderPipeline pipeline = wgpuDeviceCreateRenderPipeline(device, &descriptor);
     wgpuPipelineLayoutRelease(layout);
     if (pipeline == nullptr) {
-        error = "wgpuDeviceCreateRenderPipeline returned null for opaque pipeline.";
+        throw EngineError("wgpuDeviceCreateRenderPipeline returned null for opaque pipeline.");
     }
     return pipeline;
 }
@@ -142,32 +137,24 @@ WGPURenderPipeline PipelineCache::get_or_create(WGPUDevice device,
     PipelineKey key,
     WGPUBindGroupLayout frame_layout,
     WGPUBindGroupLayout draw_layout,
-    WGPUShaderModule shader_module,
-    std::string& error) {
+    WGPUShaderModule shader_module) {
     if (device == nullptr || frame_layout == nullptr || draw_layout == nullptr || key.m_material_layout == nullptr ||
         shader_module == nullptr) {
-        error = "Opaque pipeline creation requires device, bind group layouts, and shader module.";
-        return nullptr;
+        throw EngineError("Opaque pipeline creation requires device, bind group layouts, and shader module.");
     }
     if (key.m_color_format == WGPUTextureFormat_Undefined || key.m_depth_format == WGPUTextureFormat_Undefined) {
-        error = "Opaque pipeline creation requires defined color and depth formats.";
-        return nullptr;
+        throw EngineError("Opaque pipeline creation requires defined color and depth formats.");
     }
 
     for (const Entry& entry : m_entries) {
         if (entry.m_key == key) {
-            error.clear();
             return entry.m_pipeline;
         }
     }
 
-    WGPURenderPipeline pipeline = create_render_pipeline(device, key, frame_layout, draw_layout, shader_module, error);
-    if (pipeline == nullptr) {
-        return nullptr;
-    }
+    WGPURenderPipeline pipeline = create_render_pipeline(device, key, frame_layout, draw_layout, shader_module);
     m_entries.push_back(Entry{key, pipeline});
     m_counters.m_pipeline_create_count += 1;
-    error.clear();
     return pipeline;
 }
 

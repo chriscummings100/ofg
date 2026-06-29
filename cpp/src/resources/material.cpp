@@ -1,13 +1,13 @@
 // Mutable material resource for OFG renderer shader parameters.
 #include "ofg/resources/material.hpp"
 
+#include "ofg/core/engine_error.hpp"
 #include "ofg/resources/property_bag.hpp"
 #include "ofg/resources/shader.hpp"
 #include "ofg/resources/texture.hpp"
-#include "ofg/render/webgpu_common.hpp"
+#include "ofg/gpu/common.hpp"
 
 #include <cstddef>
-#include <optional>
 #include <string>
 #include <utility>
 #include <variant>
@@ -90,10 +90,8 @@ private:
 };
 
 // Creates and uploads the material uniform buffer when the shader declares material uniforms.
-WGPUBuffer create_uniform_buffer(const GpuContext& context,
-    const std::string& label,
-    const std::vector<std::byte>& uniform_bytes,
-    std::string& error) {
+WGPUBuffer create_uniform_buffer(
+    const GpuContext& context, const std::string& label, const std::vector<std::byte>& uniform_bytes) {
     if (uniform_bytes.empty()) {
         return nullptr;
     }
@@ -104,8 +102,7 @@ WGPUBuffer create_uniform_buffer(const GpuContext& context,
     descriptor.size = uniform_bytes.size();
     WGPUBuffer buffer = wgpuDeviceCreateBuffer(context.m_device, &descriptor);
     if (buffer == nullptr) {
-        error = "wgpuDeviceCreateBuffer returned null for material uniform buffer '" + label + "'.";
-        return nullptr;
+        throw EngineError("wgpuDeviceCreateBuffer returned null for material uniform buffer '" + label + "'.");
     }
 
     wgpuQueueWriteBuffer(context.m_queue, buffer, 0, uniform_bytes.data(), uniform_bytes.size());
@@ -113,41 +110,31 @@ WGPUBuffer create_uniform_buffer(const GpuContext& context,
 }
 
 // Creates GPU state for one validated material property bag.
-std::optional<PreparedMaterialGpuState> create_material_gpu_state(const GpuContext& context,
-    const std::string& label,
-    const Shader& shader,
-    const PropertyBag& properties,
-    std::string& error) {
+PreparedMaterialGpuState create_material_gpu_state(
+    const GpuContext& context, const std::string& label, const Shader& shader, const PropertyBag& properties) {
     PreparedMaterialGpuState state;
 
-    std::optional<std::vector<std::byte>> uniform_bytes =
-        properties.pack_uniforms_for_scope(shader, ShaderParameterScope::Material, error);
-    if (!uniform_bytes.has_value()) {
-        return std::nullopt;
-    }
+    std::vector<std::byte> uniform_bytes = properties.pack_uniforms_for_scope(shader, ShaderParameterScope::Material);
 
     const std::string uniform_label = label + " material uniforms";
-    state.m_uniform_buffer = create_uniform_buffer(context, uniform_label, *uniform_bytes, error);
-    if (!uniform_bytes->empty() && state.m_uniform_buffer == nullptr) {
-        return std::nullopt;
-    }
+    state.m_uniform_buffer = create_uniform_buffer(context, uniform_label, uniform_bytes);
 
     std::vector<WGPUBindGroupLayoutEntry> layout_entries;
     std::vector<WGPUBindGroupEntry> bind_entries;
     std::uint32_t next_binding = 0;
-    if (!uniform_bytes->empty()) {
+    if (!uniform_bytes.empty()) {
         WGPUBindGroupLayoutEntry layout_entry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
         layout_entry.binding = next_binding;
         layout_entry.visibility = WGPUShaderStage_Fragment;
         layout_entry.buffer = WGPU_BUFFER_BINDING_LAYOUT_INIT;
         layout_entry.buffer.type = WGPUBufferBindingType_Uniform;
-        layout_entry.buffer.minBindingSize = uniform_bytes->size();
+        layout_entry.buffer.minBindingSize = uniform_bytes.size();
         layout_entries.push_back(layout_entry);
 
         WGPUBindGroupEntry bind_entry = WGPU_BIND_GROUP_ENTRY_INIT;
         bind_entry.binding = next_binding;
         bind_entry.buffer = state.m_uniform_buffer;
-        bind_entry.size = uniform_bytes->size();
+        bind_entry.size = uniform_bytes.size();
         bind_entries.push_back(bind_entry);
         next_binding += 1;
     }
@@ -164,8 +151,7 @@ std::optional<PreparedMaterialGpuState> create_material_gpu_state(const GpuConte
         }
         Texture* texture = std::get<Texture*>(*value);
         if (texture->view() == nullptr || texture->sampler() == nullptr) {
-            error = "Material texture property '" + parameter.m_name + "' requires a GPU-ready texture.";
-            return std::nullopt;
+            throw EngineError("Material texture property '" + parameter.m_name + "' requires a GPU-ready texture.");
         }
 
         WGPUBindGroupLayoutEntry texture_layout = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
@@ -202,8 +188,7 @@ std::optional<PreparedMaterialGpuState> create_material_gpu_state(const GpuConte
     layout_descriptor.entries = layout_entries.empty() ? nullptr : layout_entries.data();
     state.m_bind_group_layout = wgpuDeviceCreateBindGroupLayout(context.m_device, &layout_descriptor);
     if (state.m_bind_group_layout == nullptr) {
-        error = "wgpuDeviceCreateBindGroupLayout returned null for material '" + label + "'.";
-        return std::nullopt;
+        throw EngineError("wgpuDeviceCreateBindGroupLayout returned null for material '" + label + "'.");
     }
 
     WGPUBindGroupDescriptor bind_group_descriptor = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
@@ -213,19 +198,20 @@ std::optional<PreparedMaterialGpuState> create_material_gpu_state(const GpuConte
     bind_group_descriptor.entries = bind_entries.empty() ? nullptr : bind_entries.data();
     state.m_bind_group = wgpuDeviceCreateBindGroup(context.m_device, &bind_group_descriptor);
     if (state.m_bind_group == nullptr) {
-        error = "wgpuDeviceCreateBindGroup returned null for material '" + label + "'.";
-        return std::nullopt;
+        throw EngineError("wgpuDeviceCreateBindGroup returned null for material '" + label + "'.");
     }
 
-    error.clear();
-    return std::make_optional<PreparedMaterialGpuState>(std::move(state));
+    return state;
 }
 
 } // namespace
 
-// Stores validated material data; use create() for validation.
-Material::Material(GpuContext gpu, std::string label, Shader& shader, PropertyBag properties)
-    : m_gpu(std::move(gpu)), m_label(std::move(label)), m_shader(&shader), m_properties(std::move(properties)) {}
+// Allocates a labeled material resource using the creating Resources context.
+Material::Material(GpuContext gpu, std::string label) : m_gpu(std::move(gpu)), m_label(std::move(label)) {
+    if (m_label.empty()) {
+        throw EngineError("Material label must not be empty.");
+    }
+}
 
 // Moves material CPU and GPU handles without duplicating ownership.
 Material::Material(Material&& other) noexcept
@@ -263,62 +249,43 @@ Material::~Material() {
     release_gpu_state();
 }
 
-// Creates a material and validates its properties against material scope.
-std::optional<Material> Material::create(
-    GpuContext gpu, std::string label, Shader& shader, PropertyBag properties, std::string& error) {
-    if (label.empty()) {
-        error = "Material label must not be empty.";
-        return std::nullopt;
-    }
-    if (!properties.validate_for_scope(shader, ShaderParameterScope::Material, error)) {
-        return std::nullopt;
-    }
-    Material material(std::move(gpu), std::move(label), shader, std::move(properties));
-    if (!material.prepare_gpu_state(error)) {
-        return std::nullopt;
-    }
-    error.clear();
-    return material;
+// Initializes this material and validates its properties against material scope.
+void Material::init(Shader& shader, PropertyBag properties) {
+    properties.validate_for_scope(shader, ShaderParameterScope::Material);
+    release_gpu_state();
+    m_shader = &shader;
+    m_properties = std::move(properties);
+    prepare_gpu_state();
+    m_revision += 1;
 }
 
 // Replaces one property and refreshes validation state.
-bool Material::set_property(std::string name, PropertyValue value, std::string& error) {
+void Material::set_property(std::string name, PropertyValue value) {
     if (m_shader == nullptr) {
-        error = "Material shader reference is not initialized.";
-        return false;
+        throw EngineError("Material shader reference is not initialized.");
     }
 
     PropertyBag updated = m_properties;
     updated.set(std::move(name), value);
-    if (!updated.validate_for_scope(*m_shader, ShaderParameterScope::Material, error)) {
-        return false;
-    }
+    updated.validate_for_scope(*m_shader, ShaderParameterScope::Material);
     if (gpu_context_is_empty(m_gpu)) {
         release_gpu_state();
         m_properties = std::move(updated);
         m_revision += 1;
-        error.clear();
-        return true;
+        return;
     }
     if (!gpu_context_is_ready(m_gpu)) {
-        error = "Material GPU preparation requires a WebGPU device and queue.";
-        return false;
+        throw EngineError("Material GPU preparation requires a WebGPU device and queue.");
     }
 
-    std::optional<PreparedMaterialGpuState> next_state =
-        create_material_gpu_state(m_gpu, m_label, *m_shader, updated, error);
-    if (!next_state.has_value()) {
-        return false;
-    }
+    PreparedMaterialGpuState next_state = create_material_gpu_state(m_gpu, m_label, *m_shader, updated);
 
     release_gpu_state();
-    m_bind_group_layout = next_state->take_bind_group_layout();
-    m_uniform_buffer = next_state->take_uniform_buffer();
-    m_bind_group = next_state->take_bind_group();
+    m_bind_group_layout = next_state.take_bind_group_layout();
+    m_uniform_buffer = next_state.take_uniform_buffer();
+    m_bind_group = next_state.take_bind_group();
     m_properties = std::move(updated);
     m_revision += 1;
-    error.clear();
-    return true;
 }
 
 // Returns the referenced shader.
@@ -357,32 +324,23 @@ std::uint64_t Material::revision() const noexcept {
 }
 
 // Creates GPU material uniform and bind-group state.
-bool Material::prepare_gpu_state(std::string& error) {
+void Material::prepare_gpu_state() {
     if (gpu_context_is_empty(m_gpu)) {
-        error.clear();
-        return true;
+        return;
     }
     if (!gpu_context_is_ready(m_gpu)) {
-        error = "Material GPU preparation requires a WebGPU device and queue.";
-        return false;
+        throw EngineError("Material GPU preparation requires a WebGPU device and queue.");
     }
     if (m_shader == nullptr) {
-        error = "Material shader reference is not initialized.";
-        return false;
+        throw EngineError("Material shader reference is not initialized.");
     }
 
-    std::optional<PreparedMaterialGpuState> next_state =
-        create_material_gpu_state(m_gpu, m_label, *m_shader, m_properties, error);
-    if (!next_state.has_value()) {
-        return false;
-    }
+    PreparedMaterialGpuState next_state = create_material_gpu_state(m_gpu, m_label, *m_shader, m_properties);
 
     release_gpu_state();
-    m_bind_group_layout = next_state->take_bind_group_layout();
-    m_uniform_buffer = next_state->take_uniform_buffer();
-    m_bind_group = next_state->take_bind_group();
-    error.clear();
-    return true;
+    m_bind_group_layout = next_state.take_bind_group_layout();
+    m_uniform_buffer = next_state.take_uniform_buffer();
+    m_bind_group = next_state.take_bind_group();
 }
 
 // Releases all owned WebGPU material handles.
