@@ -124,9 +124,9 @@ private:
     RuntimeDebugStatus m_status;
     std::string m_last_error;
     DemoScene m_demo_scene;
-    Scene m_scene;
+    std::unique_ptr<Scene> m_current_scene;
     double m_last_time_ms{0.0};
-    float m_aspect{16.0F / 9.0F};
+    float m_aspect{16.0f / 9.0f};
     bool m_disposed{false};
     bool m_gpu_ready{false};
     bool m_surface_configured{false};

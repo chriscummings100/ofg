@@ -11,6 +11,7 @@
 #include "ofg/resources/resources.hpp"
 #include "ofg/resources/shader.hpp"
 #include "ofg/resources/texture.hpp"
+#include "ofg/scene/scene.hpp"
 
 #include "shaders/opaque_uber.wgsl.hpp"
 
@@ -28,13 +29,13 @@ namespace ofg {
 namespace {
 
 constexpr std::uint32_t _checker_size = 64;
-constexpr float _pi = 3.14159265358979323846F;
+constexpr float _pi = 3.14159265358979323846f;
 
 struct CubePlacement {
     math::Vec3 m_position;
-    float m_scale{1.0F};
-    float m_phase{0.0F};
-    float m_turn_rate{1.0F};
+    float m_scale{1.0f};
+    float m_phase{0.0f};
+    float m_turn_rate{1.0f};
 };
 
 // Builds a byte vector from RGBA8 channels.
@@ -89,10 +90,10 @@ Material* add_material(std::string label, Shader& shader, math::Vec4 color_facto
 // Builds the large XZ ground plane vertex data.
 std::vector<MeshVertex> ground_vertices() {
     return {
-        MeshVertex{{-8.0F, 0.0F, -8.0F}, {1.0F, 1.0F, 1.0F}, {0.0F, 0.0F}},
-        MeshVertex{{8.0F, 0.0F, -8.0F}, {1.0F, 1.0F, 1.0F}, {8.0F, 0.0F}},
-        MeshVertex{{8.0F, 0.0F, 8.0F}, {1.0F, 1.0F, 1.0F}, {8.0F, 8.0F}},
-        MeshVertex{{-8.0F, 0.0F, 8.0F}, {1.0F, 1.0F, 1.0F}, {0.0F, 8.0F}},
+        MeshVertex{{-8.0f, 0.0f, -8.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+        MeshVertex{{8.0f, 0.0f, -8.0f}, {1.0f, 1.0f, 1.0f}, {8.0f, 0.0f}},
+        MeshVertex{{8.0f, 0.0f, 8.0f}, {1.0f, 1.0f, 1.0f}, {8.0f, 8.0f}},
+        MeshVertex{{-8.0f, 0.0f, 8.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 8.0f}},
     };
 }
 
@@ -100,10 +101,10 @@ std::vector<MeshVertex> ground_vertices() {
 void append_cube_face(
     std::vector<MeshVertex>& vertices, std::vector<std::uint32_t>& indices, std::array<math::Vec3, 4> positions) {
     const std::uint32_t start = static_cast<std::uint32_t>(vertices.size());
-    vertices.push_back(MeshVertex{{positions[0].x, positions[0].y, positions[0].z}, {1.0F, 1.0F, 1.0F}, {0.0F, 0.0F}});
-    vertices.push_back(MeshVertex{{positions[1].x, positions[1].y, positions[1].z}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.0F}});
-    vertices.push_back(MeshVertex{{positions[2].x, positions[2].y, positions[2].z}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F}});
-    vertices.push_back(MeshVertex{{positions[3].x, positions[3].y, positions[3].z}, {1.0F, 1.0F, 1.0F}, {0.0F, 1.0F}});
+    vertices.push_back(MeshVertex{{positions[0].x, positions[0].y, positions[0].z}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}});
+    vertices.push_back(MeshVertex{{positions[1].x, positions[1].y, positions[1].z}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}});
+    vertices.push_back(MeshVertex{{positions[2].x, positions[2].y, positions[2].z}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}});
+    vertices.push_back(MeshVertex{{positions[3].x, positions[3].y, positions[3].z}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}});
     indices.insert(indices.end(), {start, start + 1U, start + 2U, start, start + 2U, start + 3U});
 }
 
@@ -114,14 +115,14 @@ void cube_geometry(std::vector<MeshVertex>& vertices, std::vector<std::uint32_t>
     vertices.reserve(24);
     indices.reserve(36);
 
-    const math::Vec3 nnn = math::vec3(-0.5F, -0.5F, -0.5F);
-    const math::Vec3 nnp = math::vec3(-0.5F, -0.5F, 0.5F);
-    const math::Vec3 npn = math::vec3(-0.5F, 0.5F, -0.5F);
-    const math::Vec3 npp = math::vec3(-0.5F, 0.5F, 0.5F);
-    const math::Vec3 pnn = math::vec3(0.5F, -0.5F, -0.5F);
-    const math::Vec3 pnp = math::vec3(0.5F, -0.5F, 0.5F);
-    const math::Vec3 ppn = math::vec3(0.5F, 0.5F, -0.5F);
-    const math::Vec3 ppp = math::vec3(0.5F, 0.5F, 0.5F);
+    const math::Vec3 nnn = math::vec3(-0.5f, -0.5f, -0.5f);
+    const math::Vec3 nnp = math::vec3(-0.5f, -0.5f, 0.5f);
+    const math::Vec3 npn = math::vec3(-0.5f, 0.5f, -0.5f);
+    const math::Vec3 npp = math::vec3(-0.5f, 0.5f, 0.5f);
+    const math::Vec3 pnn = math::vec3(0.5f, -0.5f, -0.5f);
+    const math::Vec3 pnp = math::vec3(0.5f, -0.5f, 0.5f);
+    const math::Vec3 ppn = math::vec3(0.5f, 0.5f, -0.5f);
+    const math::Vec3 ppp = math::vec3(0.5f, 0.5f, 0.5f);
 
     append_cube_face(vertices, indices, {nnp, pnp, ppp, npp});
     append_cube_face(vertices, indices, {pnn, nnn, npn, ppn});
@@ -131,23 +132,61 @@ void cube_geometry(std::vector<MeshVertex>& vertices, std::vector<std::uint32_t>
     append_cube_face(vertices, indices, {nnn, pnn, pnp, nnp});
 }
 
-// Builds a model matrix with column-vector transform order.
-math::Mat4 cube_model(const CubePlacement& placement, float seconds) noexcept {
-    const float bob = 0.16F * std::sin(seconds * 1.7F + placement.m_phase);
-    const math::Mat4 translation =
-        math::mat4_translation(math::vec3(placement.m_position.x, 0.5F + bob, placement.m_position.z));
-    const math::Mat4 rotation = math::mat4_rotation_y(seconds * placement.m_turn_rate + placement.m_phase);
-    const math::Mat4 scale = math::mat4_scale(math::vec3(placement.m_scale, placement.m_scale, placement.m_scale));
-    return math::mul(math::mul(translation, rotation), scale);
+// Returns the deterministic cube placements used by the demo.
+std::array<CubePlacement, 4> cube_placements() noexcept {
+    return {{
+        CubePlacement{math::vec3(-2.35f, 0.0f, -0.8f), 1.15f, 0.0f, 0.75f},
+        CubePlacement{math::vec3(0.25f, 0.0f, -2.45f), 0.9f, 1.7f, -0.95f},
+        CubePlacement{math::vec3(2.25f, 0.0f, 0.35f), 1.0f, 3.0f, 0.6f},
+        CubePlacement{math::vec3(-0.75f, 0.0f, 2.15f), 0.72f, 4.2f, -1.15f},
+    }};
 }
 
-// Adds one render object to the target scene.
-void add_render_object(Scene& scene, Mesh& mesh, math::Mat4 model, math::Vec3 sort_origin) {
-    RenderObject object;
-    object.m_mesh = &mesh;
-    object.m_model = model;
-    object.m_sort_origin = sort_origin;
-    scene.add_render_object(std::move(object));
+// Returns the requested Y-axis rotation or throws a clear scene-update error.
+math::Quat cube_rotation(float radians) {
+    std::string error;
+    std::optional<math::Quat> rotation = math::quat_from_axis_angle(math::vec3(0.0f, 1.0f, 0.0f), radians, error);
+    if (!rotation.has_value()) {
+        throw EngineError(error.empty() ? "Demo scene cube rotation creation failed." : error);
+    }
+    return *rotation;
+}
+
+// Creates a mesh renderer on an entity or reports an impossible component mismatch.
+MeshRenderer& create_mesh_renderer(Entity& entity) {
+    Component* component = entity.create_component(ComponentType::MeshRenderer);
+    if (component == nullptr || component->type() != ComponentType::MeshRenderer || entity.mesh_renderer() == nullptr) {
+        throw EngineError("Demo scene failed to create a MeshRenderer component.");
+    }
+    return *entity.mesh_renderer();
+}
+
+// Validates resources that must exist before scene entity setup or update.
+void validate_demo_resources(const DemoScene& demo_scene) {
+    if (demo_scene.m_ground_mesh == nullptr || demo_scene.m_cube_mesh == nullptr ||
+        demo_scene.m_ground_material == nullptr) {
+        throw EngineError("Demo scene resources are not initialized.");
+    }
+    for (Material* material : demo_scene.m_cube_materials) {
+        if (material == nullptr) {
+            throw EngineError("Demo scene cube materials are not initialized.");
+        }
+    }
+}
+
+// Validates cached scene pointers that must exist before per-frame update.
+void validate_demo_bindings(const DemoScene& demo_scene, const Scene& scene) {
+    if (demo_scene.m_scene != &scene || demo_scene.m_scene_generation != scene.generation()) {
+        throw EngineError("Demo scene entity bindings are not initialized for this scene.");
+    }
+    if (demo_scene.m_ground_entity == nullptr || demo_scene.m_ground_renderer == nullptr) {
+        throw EngineError("Demo scene ground entity binding is not initialized.");
+    }
+    for (std::size_t index = 0; index < demo_scene.m_cube_entities.size(); ++index) {
+        if (demo_scene.m_cube_entities[index] == nullptr || demo_scene.m_cube_renderers[index] == nullptr) {
+            throw EngineError("Demo scene cube entity bindings are not initialized.");
+        }
+    }
 }
 
 } // namespace
@@ -176,13 +215,13 @@ void build_demo_scene(DemoScene& scene) {
 
     // Materials all share one shader layout: a uniform color factor plus texture.
     scene.m_ground_material = add_material(
-        "OFG demo ground material", *scene.m_shader, math::vec4(1.0F, 1.0F, 1.0F, 1.0F), *scene.m_checker_texture);
+        "OFG demo ground material", *scene.m_shader, math::vec4(1.0f, 1.0f, 1.0f, 1.0f), *scene.m_checker_texture);
 
     const std::array<math::Vec4, 4> cube_colors{
-        math::vec4(0.95F, 0.18F, 0.13F, 1.0F),
-        math::vec4(0.12F, 0.78F, 0.32F, 1.0F),
-        math::vec4(0.18F, 0.42F, 1.0F, 1.0F),
-        math::vec4(0.96F, 0.78F, 0.16F, 1.0F),
+        math::vec4(0.95f, 0.18f, 0.13f, 1.0f),
+        math::vec4(0.12f, 0.78f, 0.32f, 1.0f),
+        math::vec4(0.18f, 0.42f, 1.0f, 1.0f),
+        math::vec4(0.96f, 0.78f, 0.16f, 1.0f),
     };
     for (std::size_t index = 0; index < scene.m_cube_materials.size(); ++index) {
         scene.m_cube_materials[index] = add_material("OFG demo cube material " + std::to_string(index),
@@ -205,56 +244,63 @@ void build_demo_scene(DemoScene& scene) {
     scene.m_cube_mesh->init(std::move(cube_vertices), std::move(cube_indices), std::move(cube_submeshes));
 }
 
-// Rebuilds render objects and camera state for one deterministic animation time.
+// Creates stable floor/cube entities and mesh-renderer components.
+void setup_demo_scene(DemoScene& demo_scene, Scene& scene) {
+    validate_demo_resources(demo_scene);
+
+    scene.clear();
+    demo_scene.m_scene = &scene;
+    demo_scene.m_scene_generation = scene.generation();
+
+    Entity* root = scene.get_root();
+    demo_scene.m_ground_entity = scene.create_entity(root);
+    demo_scene.m_ground_renderer = &create_mesh_renderer(*demo_scene.m_ground_entity);
+    demo_scene.m_ground_renderer->m_mesh = demo_scene.m_ground_mesh;
+
+    const std::array<CubePlacement, 4> placements = cube_placements();
+    for (std::size_t index = 0; index < placements.size(); ++index) {
+        Entity* entity = scene.create_entity(root);
+        MeshRenderer& renderer = create_mesh_renderer(*entity);
+        renderer.m_mesh = demo_scene.m_cube_mesh;
+        renderer.m_material_overrides = {MaterialOverride{0, demo_scene.m_cube_materials[index]}};
+        demo_scene.m_cube_entities[index] = entity;
+        demo_scene.m_cube_renderers[index] = &renderer;
+    }
+}
+
+// Mutates entity transforms and camera state for one deterministic animation time.
 void update_demo_scene(const DemoScene& demo_scene, double time_ms, float aspect, Scene& scene) {
-    if (demo_scene.m_ground_mesh == nullptr || demo_scene.m_cube_mesh == nullptr ||
-        demo_scene.m_ground_material == nullptr) {
-        throw EngineError("Demo scene resources are not initialized.");
-    }
-    for (Material* material : demo_scene.m_cube_materials) {
-        if (material == nullptr) {
-            throw EngineError("Demo scene cube materials are not initialized.");
-        }
-    }
-    if (!std::isfinite(time_ms) || !std::isfinite(aspect) || aspect <= 0.0F) {
+    validate_demo_resources(demo_scene);
+    validate_demo_bindings(demo_scene, scene);
+    if (!std::isfinite(time_ms) || !std::isfinite(aspect) || aspect <= 0.0f) {
         throw EngineError("Demo scene update requires finite time and positive aspect.");
     }
 
     // Camera state is recomputed from aspect so browser and native paths match after resize.
     std::string error;
     std::optional<math::Mat4> view = math::look_at_rh(
-        math::vec3(6.2F, 4.4F, 7.6F), math::vec3(0.0F, 0.55F, 0.0F), math::vec3(0.0F, 1.0F, 0.0F), error);
+        math::vec3(6.2f, 4.4f, 7.6f), math::vec3(0.0f, 0.55f, 0.0f), math::vec3(0.0f, 1.0f, 0.0f), error);
     if (!view.has_value()) {
         throw EngineError(error.empty() ? "Demo scene camera view creation failed." : error);
     }
-    std::optional<math::Mat4> projection = math::perspective_rh(55.0F * _pi / 180.0F, aspect, 0.1F, 80.0F, error);
+    std::optional<math::Mat4> projection = math::perspective_rh(55.0f * _pi / 180.0f, aspect, 0.1f, 80.0f, error);
     if (!projection.has_value()) {
         throw EngineError(error.empty() ? "Demo scene camera projection creation failed." : error);
     }
 
-    Scene next_scene;
-    next_scene.set_main_view(render_view_from_matrix(math::mul(*projection, *view)));
-    add_render_object(next_scene, *demo_scene.m_ground_mesh, math::mat4_identity(), math::vec3(0.0F, 0.0F, 0.0F));
+    scene.set_main_view(render_view_from_matrix(math::mul(*projection, *view)));
+    demo_scene.m_ground_entity->local_transform() = LocalTransform{};
 
-    // The animation updates only render objects; resource objects remain stable.
+    // The animation updates only entity transforms; resource objects remain stable.
     const float seconds = static_cast<float>(time_ms * 0.001);
-    const std::array<CubePlacement, 4> placements{{
-        CubePlacement{math::vec3(-2.35F, 0.0F, -0.8F), 1.15F, 0.0F, 0.75F},
-        CubePlacement{math::vec3(0.25F, 0.0F, -2.45F), 0.9F, 1.7F, -0.95F},
-        CubePlacement{math::vec3(2.25F, 0.0F, 0.35F), 1.0F, 3.0F, 0.6F},
-        CubePlacement{math::vec3(-0.75F, 0.0F, 2.15F), 0.72F, 4.2F, -1.15F},
-    }};
+    const std::array<CubePlacement, 4> placements = cube_placements();
     for (std::size_t index = 0; index < placements.size(); ++index) {
-        RenderObject object;
-        object.m_mesh = demo_scene.m_cube_mesh;
-        object.m_model = cube_model(placements[index], seconds);
-        object.m_sort_origin = placements[index].m_position;
-        object.m_material_overrides.push_back(
-            MaterialOverride{0, demo_scene.m_cube_materials[index % demo_scene.m_cube_materials.size()]});
-        next_scene.add_render_object(std::move(object));
+        const float bob = 0.16f * std::sin(seconds * 1.7f + placements[index].m_phase);
+        LocalTransform& transform = demo_scene.m_cube_entities[index]->local_transform();
+        transform.m_position = math::vec3(placements[index].m_position.x, 0.5f + bob, placements[index].m_position.z);
+        transform.m_rotation = cube_rotation(seconds * placements[index].m_turn_rate + placements[index].m_phase);
+        transform.m_scale = math::vec3(placements[index].m_scale, placements[index].m_scale, placements[index].m_scale);
     }
-
-    scene = std::move(next_scene);
 }
 
 // Returns the stable timestamp used by browser-free native visual smoke.

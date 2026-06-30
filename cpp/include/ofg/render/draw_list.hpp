@@ -24,9 +24,9 @@ struct MaterialOverride {
 
 struct DrawCommand {
     Mesh* m_mesh{nullptr};
-    math::Mat4 m_model;
-    PropertyBag m_properties;
-    std::vector<MaterialOverride> m_material_overrides;
+    math::Mat4 m_model{math::mat4_identity()};
+    const PropertyBag* m_properties{nullptr};
+    std::span<const MaterialOverride> m_material_overrides;
     math::Vec3 m_sort_origin;
 };
 
@@ -49,5 +49,8 @@ private:
 
 // Resolves a submesh material after applying command-level overrides.
 [[nodiscard]] Material& resolve_material(const DrawCommand& command, std::uint32_t submesh_index);
+
+// Returns draw-scoped properties for a command, or an empty bag when unset.
+[[nodiscard]] const PropertyBag& draw_properties(const DrawCommand& command) noexcept;
 
 } // namespace ofg

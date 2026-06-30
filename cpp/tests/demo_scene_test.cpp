@@ -64,8 +64,8 @@ TEST_CASE("demo scene builds generated resources with mipmapped textures") {
     CHECK(scene.m_cube_mesh->submeshes()[0].m_default_material == scene.m_cube_materials[0]);
 }
 
-// Verifies the demo updater emits a ground object plus four animated cube objects.
-TEST_CASE("demo scene update emits deterministic plane and cube render objects") {
+// Verifies the demo setup creates a ground entity plus four animated cube entities.
+TEST_CASE("demo scene setup and update create deterministic plane and cube entities") {
     ofg::tests::TestGpuContext gpu = make_test_gpu();
     ResourcesGuard guard;
     init_test_resources(gpu.borrowed_context());
@@ -73,22 +73,29 @@ TEST_CASE("demo scene update emits deterministic plane and cube render objects")
     ofg::build_demo_scene(scene);
 
     ofg::Scene first_scene;
-    REQUIRE_NOTHROW(ofg::update_demo_scene(scene, 0.0, 16.0F / 9.0F, first_scene));
-    REQUIRE(first_scene.size() == 5);
-    CHECK(first_scene.render_objects()[0].m_mesh == scene.m_ground_mesh);
-    CHECK(first_scene.render_objects()[1].m_mesh == scene.m_cube_mesh);
-    REQUIRE(first_scene.render_objects()[1].m_material_overrides.size() == 1);
-    CHECK(first_scene.render_objects()[1].m_material_overrides[0].m_material == scene.m_cube_materials[0]);
-    REQUIRE(first_scene.render_objects()[4].m_material_overrides.size() == 1);
-    CHECK(first_scene.render_objects()[4].m_material_overrides[0].m_material == scene.m_cube_materials[3]);
+    REQUIRE_NOTHROW(ofg::setup_demo_scene(scene, first_scene));
+    REQUIRE_NOTHROW(ofg::update_demo_scene(scene, 0.0, 16.0f / 9.0f, first_scene));
+    REQUIRE(first_scene.entity_count() == 6);
+    REQUIRE(first_scene.mesh_renderer_count() == 5);
+    REQUIRE(scene.m_ground_renderer != nullptr);
+    CHECK(first_scene.get_mesh_renderer(0) == scene.m_ground_renderer);
+    CHECK(scene.m_ground_renderer->m_mesh == scene.m_ground_mesh);
+    CHECK(first_scene.get_mesh_renderer(1)->m_mesh == scene.m_cube_mesh);
+    CHECK(first_scene.get_mesh_renderer(1)->m_sort_origin_offset.x == doctest::Approx(0.0f));
+    CHECK(first_scene.get_mesh_renderer(1)->m_sort_origin_offset.y == doctest::Approx(0.0f));
+    CHECK(first_scene.get_mesh_renderer(1)->m_sort_origin_offset.z == doctest::Approx(0.0f));
+    REQUIRE(first_scene.get_mesh_renderer(1)->m_material_overrides.size() == 1);
+    CHECK(first_scene.get_mesh_renderer(1)->m_material_overrides[0].m_material == scene.m_cube_materials[0]);
+    REQUIRE(first_scene.get_mesh_renderer(4)->m_material_overrides.size() == 1);
+    CHECK(first_scene.get_mesh_renderer(4)->m_material_overrides[0].m_material == scene.m_cube_materials[3]);
 
-    const float first_y = first_scene.render_objects()[1].m_model[3].y;
-    ofg::Scene second_scene;
-    REQUIRE_NOTHROW(ofg::update_demo_scene(scene, ofg::demo_native_smoke_time_ms(), 16.0F / 9.0F, second_scene));
-    CHECK(second_scene.render_objects()[1].m_model[3].y != first_y);
+    REQUIRE(scene.m_cube_entities[0] != nullptr);
+    const float first_y = scene.m_cube_entities[0]->local_transform().m_position.y;
+    REQUIRE_NOTHROW(ofg::update_demo_scene(scene, ofg::demo_native_smoke_time_ms(), 16.0f / 9.0f, first_scene));
+    CHECK(scene.m_cube_entities[0]->local_transform().m_position.y != first_y);
 
     CHECK_THROWS_WITH_AS(
-        ofg::update_demo_scene(scene, 0.0, 0.0F, second_scene), doctest::Contains("positive aspect"), ofg::EngineError);
+        ofg::update_demo_scene(scene, 0.0, 0.0f, first_scene), doctest::Contains("positive aspect"), ofg::EngineError);
 }
 
 // Verifies public update validation catches incomplete scene resource pointers.
@@ -96,7 +103,7 @@ TEST_CASE("demo scene update reports incomplete scene resources") {
     ofg::Scene render_scene;
 
     ofg::DemoScene empty_scene;
-    CHECK_THROWS_WITH_AS(ofg::update_demo_scene(empty_scene, 0.0, 16.0F / 9.0F, render_scene),
+    CHECK_THROWS_WITH_AS(ofg::update_demo_scene(empty_scene, 0.0, 16.0f / 9.0f, render_scene),
         doctest::Contains("resources"),
         ofg::EngineError);
 
@@ -106,7 +113,23 @@ TEST_CASE("demo scene update reports incomplete scene resources") {
     ofg::DemoScene scene;
     ofg::build_demo_scene(scene);
     scene.m_cube_materials[2] = nullptr;
-    CHECK_THROWS_WITH_AS(ofg::update_demo_scene(scene, 0.0, 16.0F / 9.0F, render_scene),
-        doctest::Contains("cube materials"),
+    CHECK_THROWS_WITH_AS(
+        ofg::setup_demo_scene(scene, render_scene), doctest::Contains("cube materials"), ofg::EngineError);
+}
+
+// Verifies update rejects scenes whose cached entity pointers were invalidated.
+TEST_CASE("demo scene update reports stale entity bindings") {
+    ofg::tests::TestGpuContext gpu = make_test_gpu();
+    ResourcesGuard guard;
+    init_test_resources(gpu.borrowed_context());
+    ofg::DemoScene scene;
+    ofg::build_demo_scene(scene);
+
+    ofg::Scene render_scene;
+    ofg::setup_demo_scene(scene, render_scene);
+    render_scene.clear();
+
+    CHECK_THROWS_WITH_AS(ofg::update_demo_scene(scene, 0.0, 16.0f / 9.0f, render_scene),
+        doctest::Contains("bindings"),
         ofg::EngineError);
 }

@@ -24,7 +24,7 @@ Communication contracts:
 
 ## CppRuntime
 
-The C++ runtime is the C++/WASM facade exposed to TypeScript. `BrowserGame` owns the browser-specific frame driver: WebGPU instance/adapter/device/surface setup, surface resize policy, surface texture acquisition, command encoder creation, command-buffer finish, queue submit, and Embind lifecycle ownership. `Game` exposes a static public lifecycle backed by one private singleton instance: single-shot `create`, repeated `prepare`, `resize`, `update`, `render`, repeated `release`, and single-shot `destroy`. `Resources` and `Renderer` expose their own static lifecycles. `Resources` owns active high-level resource storage for the borrowed WebGPU device; `Renderer` owns pass creation, pass lifetime, resize propagation, command recording, transient draw-list construction, and renderer counters. `Game` owns frame counting, debug-status serialization, demo-scene state, target validation, and the explicit `Scene` passed to `Renderer::render`.
+The C++ runtime is the C++/WASM facade exposed to TypeScript. `BrowserGame` owns the browser-specific frame driver: WebGPU instance/adapter/device/surface setup, surface resize policy, surface texture acquisition, command encoder creation, command-buffer finish, queue submit, and Embind lifecycle ownership. `Game` exposes a static public lifecycle backed by one private singleton instance: single-shot `create`, repeated `prepare`, `resize`, `update`, `render`, repeated `release`, and single-shot `destroy`. `Resources` and `Renderer` expose their own static lifecycles. `Resources` owns active high-level resource storage for the borrowed WebGPU device; `Renderer` owns pass creation, pass lifetime, resize propagation, command recording, transient draw-list construction, and renderer counters. `Game` owns frame counting, debug-status serialization, the current `Scene` pointer, demo-scene binding state, target validation, and the active scene passed to `Renderer::render`.
 
 Public interfaces:
 
@@ -32,7 +32,7 @@ Public interfaces:
 - `cpp/include/ofg/game/game.hpp` exposes the static `Game` lifecycle facade used by browser and native frame drivers.
 - `cpp/include/ofg/resources/resources.hpp` exposes the static `Resources` lifecycle facade and `Resources::create_*` allocation APIs for high-level resource objects.
 - `cpp/include/ofg/render/renderer.hpp` exposes the static `Renderer` lifecycle facade and scene render entry point.
-- `cpp/include/ofg/scene/scene.hpp` exposes the minimal render-object scene used while richer scene queries are designed.
+- `cpp/include/ofg/scene/scene.hpp` exposes the first ECS scene graph: a root entity tree, local transforms, scene-owned component containers, and indexed `MeshRenderer` iteration.
 - `cpp/include/ofg/web/browser_game.hpp` exposes the Embind-facing `BrowserGame` facade.
 - `tools/build-cpp-wasm.mjs` builds `assets/wasm/ofg_cpp/ofg_cpp.js` and `assets/wasm/ofg_cpp/ofg_cpp.wasm` through CMake and Emscripten.
 - `tools/test-cpp.mjs` runs the C++ doctest executable through CMake/CTest.
@@ -49,7 +49,7 @@ Communication contracts:
 
 ## CppRenderer
 
-The C++ renderer owns the current pass-based draw-list renderer used behind static `Game` in browser and native frame drivers. `Renderer` is a static lifecycle facade that creates and owns its internal pass list; the current list contains one opaque pass. `Resources` owns active high-level resource storage and the borrowed `GpuContext`; `Game` uses that facade to build the current `DemoScene`, then updates a minimal `Scene` containing a main render view and render objects. `Renderer::render` converts that scene into a private transient `DrawList` before executing its passes. `Resources::create_*` only allocates labeled resources; the explicit texture, shader, material, and mesh `init_*` methods validate data and create GPU state. The demo scene creates a mipmapped checker texture, a white texture, opaque materials, a ground mesh, a cube mesh, and per-frame render objects. The renderer owns the opaque pass, transient draw list, frame and draw uniform buffers, depth texture, pipeline cache, resource counters, and WebGPU command recording for the current visual contract.
+The C++ renderer owns the current pass-based draw-list renderer used behind static `Game` in browser and native frame drivers. `Renderer` is a static lifecycle facade that creates and owns its internal pass list; the current list contains one opaque pass. `Resources` owns active high-level resource storage and the borrowed `GpuContext`; `Game` uses that facade to build demo resources, then maintains a current ECS `Scene` containing the main render view, floor entity, cube entities, local transforms, and `MeshRenderer` components. `Renderer::render` iterates scene mesh renderers and converts them into a private transient `DrawList` before executing its passes. `Resources::create_*` only allocates labeled resources; the explicit texture, shader, material, and mesh `init_*` methods validate data and create GPU state. The demo scene creates a mipmapped checker texture, a white texture, opaque materials, a ground mesh, a cube mesh, and stable floor/cube entities whose transforms are animated per frame. The renderer owns the opaque pass, transient draw list, frame and draw uniform buffers, depth texture, pipeline cache, resource counters, and WebGPU command recording for the current visual contract.
 
 Public interfaces:
 
@@ -62,7 +62,7 @@ Public interfaces:
 
 Communication contracts:
 
-- Static `Game` must use equivalent resource data, shader source, scene-object submission, renderer passes, and clear color regardless of whether the frame target comes from the browser surface or native offscreen texture.
+- Static `Game` must use equivalent resource data, shader source, ECS mesh-renderer submission, renderer passes, and clear color regardless of whether the frame target comes from the browser surface or native offscreen texture.
 - Resource objects are high-level assets, not wrappers for every WebGPU type. They may store the borrowed `GpuContext` that prepared them, but they do not own or release the platform device or queue.
 - The renderer requests no optional GPU features and creates durable resources during lifecycle creation, first render for a new material/shader pipeline key, explicit mutation, or resize, not every ordinary steady-state frame.
 - Surface/texture format may differ between browser and native targets, but the visual contract remains a dark blue-gray background, a large textured checker ground plane, and multiple colored cubes rendered through the opaque draw-list path.

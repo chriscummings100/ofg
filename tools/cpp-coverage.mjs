@@ -140,6 +140,7 @@ function collectCheckedFiles(report) {
       isUnder(file.path, path.join(rootDir, "cpp", "src", "gpu")) ||
       isUnder(file.path, path.join(rootDir, "cpp", "src", "math")) ||
       isUnder(file.path, path.join(rootDir, "cpp", "src", "resources")) ||
+      isUnder(file.path, path.join(rootDir, "cpp", "src", "scene")) ||
       file.path === path.join(rootDir, "cpp", "src", "game", "game_runtime.cpp") ||
       file.path === path.join(rootDir, "cpp", "src", "game", "render_target.cpp") ||
       file.path === path.join(rootDir, "cpp", "src", "runtime", "runtime_debug_status.cpp") ||

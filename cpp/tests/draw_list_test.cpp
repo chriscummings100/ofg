@@ -11,6 +11,7 @@
 #include "ofg/resources/shader.hpp"
 
 #include <cstdint>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -44,10 +45,10 @@ ofg::Material make_draw_material(ofg::Shader& shader, std::string label, ofg::ma
 // Builds a quad mesh split into two submeshes.
 ofg::Mesh make_two_submesh_mesh(ofg::Material& material) {
     std::vector<ofg::MeshVertex> vertices{
-        ofg::MeshVertex{{-1.0F, -1.0F, 0.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 0.0F}},
-        ofg::MeshVertex{{1.0F, -1.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {1.0F, 0.0F}},
-        ofg::MeshVertex{{1.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {1.0F, 1.0F}},
-        ofg::MeshVertex{{-1.0F, 1.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.0F, 1.0F}},
+        ofg::MeshVertex{{-1.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+        ofg::MeshVertex{{1.0f, -1.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+        ofg::MeshVertex{{1.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+        ofg::MeshVertex{{-1.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
     };
     std::vector<std::uint32_t> indices{0, 1, 2, 0, 2, 3};
     std::vector<ofg::SubMesh> submeshes{
@@ -60,14 +61,19 @@ ofg::Mesh make_two_submesh_mesh(ofg::Material& material) {
     return mesh;
 }
 
-// Builds a draw command with explicit model transform and optional draw tint.
-ofg::DrawCommand make_draw_command(ofg::Mesh& mesh, bool include_tint) {
+// Builds draw properties with the required object tint.
+ofg::PropertyBag make_draw_properties() {
+    ofg::PropertyBag properties;
+    properties.set("object_tint", ofg::math::vec4(1.0f, 1.0f, 1.0f, 1.0f));
+    return properties;
+}
+
+// Builds a draw command with explicit model transform and optional draw properties.
+ofg::DrawCommand make_draw_command(ofg::Mesh& mesh, const ofg::PropertyBag* properties) {
     ofg::DrawCommand command;
     command.m_mesh = &mesh;
     command.m_model = ofg::math::mat4_identity();
-    if (include_tint) {
-        command.m_properties.set("object_tint", ofg::math::vec4(1.0F, 1.0F, 1.0F, 1.0F));
-    }
+    command.m_properties = properties;
     return command;
 }
 
@@ -76,13 +82,13 @@ ofg::DrawCommand make_draw_command(ofg::Mesh& mesh, bool include_tint) {
 // Verifies commands stay in stable insertion order and can be cleared.
 TEST_CASE("draw list preserves stable command order") {
     ofg::Shader shader = make_draw_shader(false);
-    ofg::Material material = make_draw_material(shader, "white", ofg::math::vec4(1.0F, 1.0F, 1.0F, 1.0F));
+    ofg::Material material = make_draw_material(shader, "white", ofg::math::vec4(1.0f, 1.0f, 1.0f, 1.0f));
     ofg::Mesh mesh = make_two_submesh_mesh(material);
 
-    ofg::DrawCommand first = make_draw_command(mesh, false);
-    ofg::DrawCommand second = make_draw_command(mesh, false);
-    first.m_sort_origin = ofg::math::vec3(1.0F, 0.0F, 0.0F);
-    second.m_sort_origin = ofg::math::vec3(2.0F, 0.0F, 0.0F);
+    ofg::DrawCommand first = make_draw_command(mesh, nullptr);
+    ofg::DrawCommand second = make_draw_command(mesh, nullptr);
+    first.m_sort_origin = ofg::math::vec3(1.0f, 0.0f, 0.0f);
+    second.m_sort_origin = ofg::math::vec3(2.0f, 0.0f, 0.0f);
 
     ofg::DrawList draw_list;
     draw_list.add(std::move(first));
@@ -90,8 +96,8 @@ TEST_CASE("draw list preserves stable command order") {
 
     REQUIRE_NOTHROW(draw_list.validate());
     CHECK(draw_list.size() == 2);
-    CHECK(draw_list.commands()[0].m_sort_origin.x == 1.0F);
-    CHECK(draw_list.commands()[1].m_sort_origin.x == 2.0F);
+    CHECK(draw_list.commands()[0].m_sort_origin.x == 1.0f);
+    CHECK(draw_list.commands()[1].m_sort_origin.x == 2.0f);
 
     draw_list.clear();
     CHECK(draw_list.size() == 0);
@@ -100,12 +106,13 @@ TEST_CASE("draw list preserves stable command order") {
 // Verifies material override resolution falls back to submesh defaults and applies overrides.
 TEST_CASE("draw list resolves submesh material overrides") {
     ofg::Shader shader = make_draw_shader(false);
-    ofg::Material default_material = make_draw_material(shader, "default", ofg::math::vec4(1.0F, 1.0F, 1.0F, 1.0F));
-    ofg::Material override_material = make_draw_material(shader, "override", ofg::math::vec4(0.0F, 1.0F, 0.0F, 1.0F));
+    ofg::Material default_material = make_draw_material(shader, "default", ofg::math::vec4(1.0f, 1.0f, 1.0f, 1.0f));
+    ofg::Material override_material = make_draw_material(shader, "override", ofg::math::vec4(0.0f, 1.0f, 0.0f, 1.0f));
     ofg::Mesh mesh = make_two_submesh_mesh(default_material);
 
-    ofg::DrawCommand command = make_draw_command(mesh, false);
-    command.m_material_overrides.push_back(ofg::MaterialOverride{1, &override_material});
+    std::vector<ofg::MaterialOverride> overrides{ofg::MaterialOverride{1, &override_material}};
+    ofg::DrawCommand command = make_draw_command(mesh, nullptr);
+    command.m_material_overrides = std::span<const ofg::MaterialOverride>(overrides.data(), overrides.size());
 
     CHECK(&resolve_material(command, 0) == &default_material);
     CHECK(&resolve_material(command, 1) == &override_material);
@@ -114,40 +121,48 @@ TEST_CASE("draw list resolves submesh material overrides") {
 // Verifies validation catches invalid meshes, overrides, and draw properties.
 TEST_CASE("draw list validates command resources and draw property bags") {
     ofg::Shader shader = make_draw_shader(true);
-    ofg::Material material = make_draw_material(shader, "white", ofg::math::vec4(1.0F, 1.0F, 1.0F, 1.0F));
+    ofg::Material material = make_draw_material(shader, "white", ofg::math::vec4(1.0f, 1.0f, 1.0f, 1.0f));
     ofg::Mesh mesh = make_two_submesh_mesh(material);
 
     ofg::DrawList missing_mesh;
     missing_mesh.add(ofg::DrawCommand{});
     CHECK_THROWS_WITH_AS(missing_mesh.validate(), doctest::Contains("mesh"), ofg::EngineError);
 
-    ofg::DrawCommand command = make_draw_command(mesh, true);
-    command.m_material_overrides.push_back(ofg::MaterialOverride{2, &material});
+    ofg::PropertyBag draw_properties = make_draw_properties();
+    ofg::DrawCommand command = make_draw_command(mesh, &draw_properties);
+    std::vector<ofg::MaterialOverride> bad_override_values{ofg::MaterialOverride{2, &material}};
+    command.m_material_overrides =
+        std::span<const ofg::MaterialOverride>(bad_override_values.data(), bad_override_values.size());
     ofg::DrawList bad_override;
     bad_override.add(std::move(command));
     CHECK_THROWS_WITH_AS(bad_override.validate(), doctest::Contains("missing submesh"), ofg::EngineError);
 
-    ofg::DrawCommand null_override = make_draw_command(mesh, true);
-    null_override.m_material_overrides.push_back(ofg::MaterialOverride{0, nullptr});
+    ofg::DrawCommand null_override = make_draw_command(mesh, &draw_properties);
+    std::vector<ofg::MaterialOverride> null_override_values{ofg::MaterialOverride{0, nullptr}};
+    null_override.m_material_overrides =
+        std::span<const ofg::MaterialOverride>(null_override_values.data(), null_override_values.size());
     ofg::DrawList bad_null_override;
     bad_null_override.add(std::move(null_override));
     CHECK_THROWS_WITH_AS(bad_null_override.validate(), doctest::Contains("override"), ofg::EngineError);
 
     ofg::DrawList missing_draw_property;
-    missing_draw_property.add(make_draw_command(mesh, false));
+    missing_draw_property.add(make_draw_command(mesh, nullptr));
     CHECK_THROWS_WITH_AS(missing_draw_property.validate(), doctest::Contains("Missing required"), ofg::EngineError);
 
-    ofg::DrawCommand undeclared_property = make_draw_command(mesh, true);
-    undeclared_property.m_properties.set("undeclared", 1.0F);
+    ofg::PropertyBag undeclared_properties = make_draw_properties();
+    undeclared_properties.set("undeclared", 1.0f);
+    ofg::DrawCommand undeclared_property = make_draw_command(mesh, &undeclared_properties);
     ofg::DrawList bad_property;
     bad_property.add(std::move(undeclared_property));
     CHECK_THROWS_WITH_AS(bad_property.validate(), doctest::Contains("not declared"), ofg::EngineError);
 
-    ofg::DrawCommand direct_resolve = make_draw_command(mesh, true);
+    ofg::DrawCommand direct_resolve = make_draw_command(mesh, &draw_properties);
     CHECK_THROWS_WITH_AS([&direct_resolve]() { (void)resolve_material(direct_resolve, 4); }(),
         doctest::Contains("missing submesh"),
         ofg::EngineError);
-    direct_resolve.m_material_overrides.push_back(ofg::MaterialOverride{0, nullptr});
+    std::vector<ofg::MaterialOverride> direct_override_values{ofg::MaterialOverride{0, nullptr}};
+    direct_resolve.m_material_overrides =
+        std::span<const ofg::MaterialOverride>(direct_override_values.data(), direct_override_values.size());
     CHECK_THROWS_WITH_AS([&direct_resolve]() { (void)resolve_material(direct_resolve, 0); }(),
         doctest::Contains("override"),
         ofg::EngineError);

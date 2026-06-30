@@ -270,12 +270,11 @@ bool Game::prepare_impl() {
         set_state(GameLifecycleState::Prep_Scene);
         [[fallthrough]];
     case GameLifecycleState::Prep_Scene: {
-        DemoScene demo_scene;
-        Scene scene;
-        build_demo_scene(demo_scene);
-        update_demo_scene(demo_scene, m_last_time_ms, m_aspect, scene);
-        m_demo_scene = demo_scene;
-        m_scene = std::move(scene);
+        m_demo_scene = DemoScene{};
+        m_current_scene = std::make_unique<Scene>();
+        build_demo_scene(m_demo_scene);
+        setup_demo_scene(m_demo_scene, *m_current_scene);
+        update_demo_scene(m_demo_scene, m_last_time_ms, m_aspect, *m_current_scene);
         set_state(GameLifecycleState::Prep_Renderer);
     }
         [[fallthrough]];
@@ -322,8 +321,8 @@ void Game::resize_impl(std::uint32_t width, std::uint32_t height, double device_
     }
     if (width > 0 && height > 0) {
         m_aspect = static_cast<float>(width) / static_cast<float>(height);
-        if (renderer_ready) {
-            update_demo_scene(m_demo_scene, m_last_time_ms, m_aspect, m_scene);
+        if (renderer_ready && m_current_scene != nullptr) {
+            update_demo_scene(m_demo_scene, m_last_time_ms, m_aspect, *m_current_scene);
         }
     }
 }
@@ -336,7 +335,10 @@ void Game::update_impl(double time_ms) {
 
     tick_runtime(time_ms);
     m_last_time_ms = time_ms;
-    update_demo_scene(m_demo_scene, m_last_time_ms, m_aspect, m_scene);
+    if (m_current_scene == nullptr) {
+        throw EngineError("Game update requires a current scene.");
+    }
+    update_demo_scene(m_demo_scene, m_last_time_ms, m_aspect, *m_current_scene);
 }
 
 // Records render commands into the caller-owned command encoder.
@@ -361,9 +363,14 @@ void Game::render_impl(WGPUCommandEncoder encoder, RenderTarget target) {
         fail_runtime(message);
         throw EngineError(message);
     }
+    if (m_current_scene == nullptr) {
+        const std::string message = "Game render requires a current scene.";
+        fail_runtime(message);
+        throw EngineError(message);
+    }
 
     mark_surface_configured();
-    Renderer::render(encoder, target, m_scene);
+    Renderer::render(encoder, target, *m_current_scene);
     const RendererCounters counters = Renderer::counters();
     mark_renderer_counters(counters.m_pipeline_create_count, counters.m_buffer_create_count);
 }
@@ -390,8 +397,8 @@ bool Game::release_impl() {
         set_state(GameLifecycleState::Rel_Scene);
         [[fallthrough]];
     case GameLifecycleState::Rel_Scene:
-        m_scene.clear();
         m_demo_scene = DemoScene{};
+        m_current_scene.reset();
         set_state(GameLifecycleState::Rel_Resources);
         [[fallthrough]];
     case GameLifecycleState::Rel_Resources:

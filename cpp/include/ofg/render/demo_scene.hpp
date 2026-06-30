@@ -1,14 +1,15 @@
 // Small animated renderer demo scene for smoke tests and early renderer work.
 //
 // DemoScene owns no resources itself. It stores non-owning pointers into
-// Resources-owned assets that outlive the scene, and update_demo_scene writes
-// render objects plus camera state into the Game-owned Scene for the current frame.
+// Resources-owned assets plus cached entity/component bindings for the active
+// Game-owned Scene. update_demo_scene mutates camera state and local transforms.
 #pragma once
 
 #include "ofg/resources/shader.hpp"
 #include "ofg/scene/scene.hpp"
 
 #include <array>
+#include <cstdint>
 
 namespace ofg {
 
@@ -25,6 +26,12 @@ struct DemoScene {
     std::array<Material*, 4> m_cube_materials{};
     Mesh* m_ground_mesh{nullptr};
     Mesh* m_cube_mesh{nullptr};
+    Scene* m_scene{nullptr};
+    std::uint32_t m_scene_generation{0};
+    Entity* m_ground_entity{nullptr};
+    MeshRenderer* m_ground_renderer{nullptr};
+    std::array<Entity*, 4> m_cube_entities{};
+    std::array<MeshRenderer*, 4> m_cube_renderers{};
 };
 
 // Returns the always-textured opaque shader parameter layout used by the demo.
@@ -33,7 +40,10 @@ struct DemoScene {
 // Creates generated textures, materials, meshes, and shader resources.
 void build_demo_scene(DemoScene& scene);
 
-// Rebuilds render objects and camera state for one deterministic animation time.
+// Creates stable floor/cube entities and mesh-renderer components.
+void setup_demo_scene(DemoScene& demo_scene, Scene& scene);
+
+// Mutates camera state and entity transforms for one deterministic animation time.
 void update_demo_scene(const DemoScene& demo_scene, double time_ms, float aspect, Scene& scene);
 
 // Returns the stable timestamp used by browser-free native visual smoke.

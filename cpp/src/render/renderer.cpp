@@ -3,25 +3,41 @@
 
 #include "ofg/core/engine_error.hpp"
 #include "ofg/gpu/common.hpp"
+#include "ofg/math/vec.hpp"
+#include "ofg/scene/scene.hpp"
 
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <utility>
 
 namespace ofg {
 namespace {
 
+// Transforms a point by a world-from-local matrix.
+math::Vec3 transform_point(math::Mat4 matrix, math::Vec3 point) noexcept {
+    const math::Vec4 transformed = math::mul(matrix, math::vec4(point.x, point.y, point.z, 1.0f));
+    return math::vec3(transformed.x, transformed.y, transformed.z);
+}
+
 // Builds the transient draw queue consumed by the current opaque pass.
 void build_draw_list_from_scene(const Scene& scene, DrawList& draw_list) {
     draw_list.clear();
-    for (const RenderObject& object : scene.render_objects()) {
+    for (std::size_t index = 0; index < scene.mesh_renderer_count(); ++index) {
+        const MeshRenderer* mesh_renderer = scene.get_mesh_renderer(index);
+        if (mesh_renderer == nullptr || mesh_renderer->entity() == nullptr) {
+            throw EngineError("Scene mesh renderer must have an owning entity.");
+        }
+
+        const math::Mat4 world_from_renderer = world_from_local(*mesh_renderer->entity());
         DrawCommand command;
-        command.m_mesh = object.m_mesh;
-        command.m_model = object.m_model;
-        command.m_properties = object.m_properties;
-        command.m_material_overrides = object.m_material_overrides;
-        command.m_sort_origin = object.m_sort_origin;
+        command.m_mesh = mesh_renderer->m_mesh;
+        command.m_model = world_from_renderer;
+        command.m_properties = &mesh_renderer->m_properties;
+        command.m_material_overrides = std::span<const MaterialOverride>(
+            mesh_renderer->m_material_overrides.data(), mesh_renderer->m_material_overrides.size());
+        command.m_sort_origin = transform_point(world_from_renderer, mesh_renderer->m_sort_origin_offset);
         draw_list.add(std::move(command));
     }
 

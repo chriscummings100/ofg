@@ -12,6 +12,15 @@
 #include <vector>
 
 namespace ofg {
+namespace {
+
+// Returns the shared empty bag used by commands without draw-scoped properties.
+const PropertyBag& empty_draw_properties() noexcept {
+    static const PropertyBag _empty;
+    return _empty;
+}
+
+} // namespace
 
 // Adds a command in stable insertion order.
 void DrawList::add(DrawCommand command) {
@@ -52,7 +61,7 @@ void DrawList::validate() const {
 
         for (std::uint32_t submesh_index = 0; submesh_index < submeshes.size(); ++submesh_index) {
             Material& material = resolve_material(command, submesh_index);
-            command.m_properties.validate_for_scope(material.shader(), ShaderParameterScope::Draw);
+            draw_properties(command).validate_for_scope(material.shader(), ShaderParameterScope::Draw);
         }
     }
 }
@@ -83,6 +92,11 @@ Material& resolve_material(const DrawCommand& command, std::uint32_t submesh_ind
     }
 
     return *resolved;
+}
+
+// Returns draw-scoped properties for a command, or an empty bag when unset.
+const PropertyBag& draw_properties(const DrawCommand& command) noexcept {
+    return command.m_properties == nullptr ? empty_draw_properties() : *command.m_properties;
 }
 
 } // namespace ofg

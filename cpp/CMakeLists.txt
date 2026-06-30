@@ -84,6 +84,7 @@ add_library(ofg_cpp
   src/game/render_target.cpp
   src/gpu/common.cpp
   src/math/mat.cpp
+  src/math/quat.cpp
   src/math/transform.cpp
   src/render/bootstrap_scene.cpp
   src/render/camera.cpp
@@ -100,6 +101,7 @@ add_library(ofg_cpp
   src/resources/shader.cpp
   src/resources/texture.cpp
   src/runtime/runtime_debug_status.cpp
+  src/scene/scene.cpp
 )
 
 target_include_directories(ofg_cpp
@@ -173,6 +175,7 @@ if(OFG_BUILD_TESTS AND NOT EMSCRIPTEN)
     tests/renderer_test.cpp
     tests/shader_resource_test.cpp
     tests/runtime_debug_status_test.cpp
+    tests/scene_test.cpp
     tests/test_main.cpp
     tests/texture_resource_test.cpp
     tests/webgpu_test_utils.cpp

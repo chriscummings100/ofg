@@ -205,9 +205,9 @@ std::vector<std::byte> rgba_bytes(std::initializer_list<std::uint8_t> values) {
 // Returns the vertices shared by renderer resource fixtures.
 std::vector<ofg::MeshVertex> triangle_vertices() {
     return {
-        ofg::MeshVertex{{-0.5F, -0.5F, 0.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 0.0F}},
-        ofg::MeshVertex{{0.5F, -0.5F, 0.0F}, {0.0F, 1.0F, 0.0F}, {1.0F, 0.0F}},
-        ofg::MeshVertex{{0.0F, 0.5F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.5F, 1.0F}},
+        ofg::MeshVertex{{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+        ofg::MeshVertex{{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+        ofg::MeshVertex{{0.0f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.5f, 1.0f}},
     };
 }
 
@@ -222,12 +222,14 @@ ofg::Texture* add_white_texture(RenderResources& resources, ofg::GpuContext gpu)
     return &resources.add_texture(std::move(texture));
 }
 
-// Appends one render object for a scene-owned mesh.
+// Appends one mesh-renderer entity for a scene-owned mesh.
 void add_scene_object(RenderScene& scene) {
-    ofg::RenderObject object;
-    object.m_mesh = scene.m_mesh;
-    object.m_model = ofg::math::mat4_identity();
-    scene.m_scene.add_render_object(std::move(object));
+    ofg::Entity* entity = scene.m_scene.create_entity(scene.m_scene.get_root());
+    REQUIRE(entity != nullptr);
+    ofg::Component* component = entity->create_component(ofg::ComponentType::MeshRenderer);
+    REQUIRE(component != nullptr);
+    REQUIRE(entity->mesh_renderer() != nullptr);
+    entity->mesh_renderer()->m_mesh = scene.m_mesh;
 }
 
 // Builds resources with independently selectable GPU-ready mesh/material state.
@@ -243,7 +245,7 @@ RenderScene make_render_scene_with_modes(
     scene.m_texture = add_white_texture(scene.m_resources, material_gpu);
 
     ofg::PropertyBag properties;
-    properties.set("base_color_factor", ofg::math::vec4(1.0F, 1.0F, 1.0F, 1.0F));
+    properties.set("base_color_factor", ofg::math::vec4(1.0f, 1.0f, 1.0f, 1.0f));
     properties.set("base_color_texture", scene.m_texture);
     ofg::Material material{material_gpu, "renderer test material"};
     material.init(stored_shader, std::move(properties));
@@ -270,10 +272,12 @@ RenderScene make_render_scene(ofg::GpuContext gpu) {
 ofg::Scene make_one_object_scene(RenderScene& scene) {
     ofg::Scene one_object_scene;
     one_object_scene.set_main_view(scene.m_scene.main_view());
-    ofg::RenderObject object;
-    object.m_mesh = scene.m_mesh;
-    object.m_model = ofg::math::mat4_identity();
-    one_object_scene.add_render_object(std::move(object));
+    ofg::Entity* entity = one_object_scene.create_entity(one_object_scene.get_root());
+    REQUIRE(entity != nullptr);
+    ofg::Component* component = entity->create_component(ofg::ComponentType::MeshRenderer);
+    REQUIRE(component != nullptr);
+    REQUIRE(entity->mesh_renderer() != nullptr);
+    entity->mesh_renderer()->m_mesh = scene.m_mesh;
     return one_object_scene;
 }
 
@@ -326,6 +330,8 @@ TEST_CASE("renderer static lifecycle prepares pass resources") {
     CHECK(std::string(ofg::renderer_lifecycle_state_name(ofg::RendererLifecycleState::Releasing)) == "releasing");
     CHECK(std::string(ofg::renderer_lifecycle_state_name(ofg::RendererLifecycleState::Released)) == "released");
     CHECK(std::string(ofg::renderer_lifecycle_state_name(ofg::RendererLifecycleState::Failed)) == "failed");
+    CHECK(std::string(ofg::renderer_lifecycle_state_name(static_cast<ofg::RendererLifecycleState>(99))) == "unknown");
+    CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Uninitialized);
 
     ofg::Renderer::create(gpu.borrowed_context(), _test_format);
     CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Created);
@@ -387,7 +393,9 @@ TEST_CASE("renderer rejects invalid lifecycle and render inputs") {
     ScopedCommandEncoder encoder = make_encoder(gpu.borrowed_context());
     ofg::Scene invalid_scene;
     invalid_scene.set_main_view(scene.m_scene.main_view());
-    invalid_scene.add_render_object(ofg::RenderObject{});
+    ofg::Entity* invalid_entity = invalid_scene.create_entity(invalid_scene.get_root());
+    REQUIRE(invalid_entity != nullptr);
+    (void)invalid_entity->create_component(ofg::ComponentType::MeshRenderer);
     CHECK_THROWS_WITH_AS(([&]() {
         ofg::Renderer::render(encoder.m_value, ofg::RenderTarget{view.m_value, _test_format, 32, 32}, invalid_scene);
     }()),
@@ -449,8 +457,8 @@ TEST_CASE("renderer render rejects non gpu ready draw resources") {
         ofg::EngineError);
 }
 
-// Verifies scene objects record into a null-backend render target and finish cleanly.
-TEST_CASE("renderer records scene objects into render targets without steady-state growth") {
+// Verifies scene mesh renderers record into a null-backend render target and finish cleanly.
+TEST_CASE("renderer records scene mesh renderers into render targets without steady-state growth") {
     RendererGuard guard;
     ofg::tests::TestGpuContext gpu = make_test_gpu();
     RenderScene scene = make_render_scene(gpu.borrowed_context());
