@@ -79,15 +79,15 @@ TEST_CASE("demo scene setup and update create deterministic plane and cube entit
     REQUIRE(first_scene.mesh_renderer_count() == 5);
     REQUIRE(scene.m_ground_renderer != nullptr);
     CHECK(first_scene.get_mesh_renderer(0) == scene.m_ground_renderer);
-    CHECK(scene.m_ground_renderer->m_mesh == scene.m_ground_mesh);
-    CHECK(first_scene.get_mesh_renderer(1)->m_mesh == scene.m_cube_mesh);
-    CHECK(first_scene.get_mesh_renderer(1)->m_sort_origin_offset.x == doctest::Approx(0.0f));
-    CHECK(first_scene.get_mesh_renderer(1)->m_sort_origin_offset.y == doctest::Approx(0.0f));
-    CHECK(first_scene.get_mesh_renderer(1)->m_sort_origin_offset.z == doctest::Approx(0.0f));
-    REQUIRE(first_scene.get_mesh_renderer(1)->m_material_overrides.size() == 1);
-    CHECK(first_scene.get_mesh_renderer(1)->m_material_overrides[0].m_material == scene.m_cube_materials[0]);
-    REQUIRE(first_scene.get_mesh_renderer(4)->m_material_overrides.size() == 1);
-    CHECK(first_scene.get_mesh_renderer(4)->m_material_overrides[0].m_material == scene.m_cube_materials[3]);
+    CHECK(scene.m_ground_renderer->mesh() == scene.m_ground_mesh);
+    CHECK(first_scene.get_mesh_renderer(1)->mesh() == scene.m_cube_mesh);
+    CHECK(first_scene.get_mesh_renderer(1)->sort_origin_offset().x == doctest::Approx(0.0f));
+    CHECK(first_scene.get_mesh_renderer(1)->sort_origin_offset().y == doctest::Approx(0.0f));
+    CHECK(first_scene.get_mesh_renderer(1)->sort_origin_offset().z == doctest::Approx(0.0f));
+    REQUIRE(first_scene.get_mesh_renderer(1)->material_overrides().size() == 1);
+    CHECK(first_scene.get_mesh_renderer(1)->material_overrides()[0].m_material == scene.m_cube_materials[0]);
+    REQUIRE(first_scene.get_mesh_renderer(4)->material_overrides().size() == 1);
+    CHECK(first_scene.get_mesh_renderer(4)->material_overrides()[0].m_material == scene.m_cube_materials[3]);
 
     REQUIRE(scene.m_cube_entities[0] != nullptr);
     const float first_y = scene.m_cube_entities[0]->local_transform().m_position.y;

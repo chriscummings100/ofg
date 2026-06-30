@@ -229,7 +229,7 @@ void add_scene_object(RenderScene& scene) {
     ofg::Component* component = entity->create_component(ofg::ComponentType::MeshRenderer);
     REQUIRE(component != nullptr);
     REQUIRE(entity->mesh_renderer() != nullptr);
-    entity->mesh_renderer()->m_mesh = scene.m_mesh;
+    entity->mesh_renderer()->set_mesh(scene.m_mesh);
 }
 
 // Builds resources with independently selectable GPU-ready mesh/material state.
@@ -277,7 +277,7 @@ ofg::Scene make_one_object_scene(RenderScene& scene) {
     ofg::Component* component = entity->create_component(ofg::ComponentType::MeshRenderer);
     REQUIRE(component != nullptr);
     REQUIRE(entity->mesh_renderer() != nullptr);
-    entity->mesh_renderer()->m_mesh = scene.m_mesh;
+    entity->mesh_renderer()->set_mesh(scene.m_mesh);
     return one_object_scene;
 }
 

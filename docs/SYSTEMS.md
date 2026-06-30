@@ -38,6 +38,7 @@ Public interfaces:
 - `tools/test-cpp.mjs` runs the C++ doctest executable through CMake/CTest.
 - `src/app/wasmRuntime.ts` loads `/assets/wasm/ofg_cpp/ofg_cpp.js`, resolves `ofg_cpp.wasm`, and maps Embind `delete()` into the app runtime interface.
 - Generated files under `assets/wasm/ofg_cpp/` are runtime artifacts produced by `npm run build:wasm`.
+- CMake wrapper scripts reuse `artifacts/build/*` directories by default so installed Dawn and Emscripten object files stay incremental. Pass `-- --fresh` to the npm command only when a clean configure/build is intentionally required.
 
 Communication contracts:
 
@@ -96,6 +97,7 @@ Public interfaces:
 - `tools/smoke-render-cpp.mjs` verifies the Dawn checkout, configures/builds/runs the C++ Dawn executable, and passes in `tools/smoke-contract.json`.
 - `cpp/src/native/render_smoke_main.cpp` provides the native C++ smoke executable entry point.
 - Output artifacts are `opaque-demo.png` and `report.json` in the chosen output directory, normally `artifacts/render-smoke`.
+- The native smoke build reuses `artifacts/build/cpp-render-smoke`; `npm run smoke:render -- --fresh` is the explicit slow clean path.
 
 Communication contracts:
 
@@ -115,6 +117,7 @@ Public interfaces:
 - `COVERAGE.md` explains how to run and interpret coverage.
 - `docs/coverage/` stores the latest committed coverage summaries.
 - `artifacts/coverage/` stores generated local coverage output and is not source-controlled.
+- Coverage runs clear generated profile/report output, but reuse the coverage CMake build tree unless `-- --fresh` is requested.
 
 Communication contracts:
 

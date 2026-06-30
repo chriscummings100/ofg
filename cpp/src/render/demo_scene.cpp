@@ -255,14 +255,14 @@ void setup_demo_scene(DemoScene& demo_scene, Scene& scene) {
     Entity* root = scene.get_root();
     demo_scene.m_ground_entity = scene.create_entity(root);
     demo_scene.m_ground_renderer = &create_mesh_renderer(*demo_scene.m_ground_entity);
-    demo_scene.m_ground_renderer->m_mesh = demo_scene.m_ground_mesh;
+    demo_scene.m_ground_renderer->set_mesh(demo_scene.m_ground_mesh);
 
     const std::array<CubePlacement, 4> placements = cube_placements();
     for (std::size_t index = 0; index < placements.size(); ++index) {
         Entity* entity = scene.create_entity(root);
         MeshRenderer& renderer = create_mesh_renderer(*entity);
-        renderer.m_mesh = demo_scene.m_cube_mesh;
-        renderer.m_material_overrides = {MaterialOverride{0, demo_scene.m_cube_materials[index]}};
+        renderer.set_mesh(demo_scene.m_cube_mesh);
+        renderer.set_material_overrides({MaterialOverride{0, demo_scene.m_cube_materials[index]}});
         demo_scene.m_cube_entities[index] = entity;
         demo_scene.m_cube_renderers[index] = &renderer;
     }

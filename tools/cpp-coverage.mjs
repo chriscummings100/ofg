@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import {
   clangProfileRuntimePath,
   cmakePath,
+  configureCmakeIfNeeded,
   findCmake,
   findNativeClangTools,
   findNinja,
@@ -35,12 +36,11 @@ const rc = findWindowsSdkTool("rc.exe");
 const mt = findWindowsSdkTool("mt.exe");
 const profileRuntimePath =
   process.platform === "win32" ? clangProfileRuntimePath(clangTools.clangxx) : undefined;
+const freshBuild = process.argv.slice(2).some((arg) => arg === "--fresh" || arg === "--clean");
 
 validateDawnSource({ sourceDir: dawnSourceDir, expectedRevision: dawnRevision, rootDir });
 
-await rm(buildDir, { recursive: true, force: true });
 await rm(coverageDir, { recursive: true, force: true });
-await mkdir(buildDir, { recursive: true });
 await mkdir(coverageDir, { recursive: true });
 
 const env = {
@@ -59,26 +59,28 @@ const env = {
   )
 };
 
-run(cmake, [
-  "-S",
-  path.join(rootDir, "cpp"),
-  "-B",
-  buildDir,
-  "-G",
-  "Ninja",
-  `-DCMAKE_MAKE_PROGRAM=${cmakePath(ninja)}`,
-  `-DCMAKE_CXX_COMPILER=${cmakePath(clangTools.clangxx)}`,
-  ...(rc ? [`-DCMAKE_RC_COMPILER=${cmakePath(rc)}`] : []),
-  ...(mt ? [`-DCMAKE_MT=${cmakePath(mt)}`] : []),
-  "-DCMAKE_BUILD_TYPE=Debug",
-  "-DOFG_BUILD_TESTS=ON",
-  "-DOFG_BUILD_WASM=OFF",
-  "-DOFG_ENABLE_COVERAGE=ON",
-  `-DOFG_DAWN_SOURCE_DIR=${cmakePath(dawnSourceDir)}`,
-  ...(profileRuntimePath
-    ? [`-DOFG_CLANG_PROFILE_LIB_PATH=${cmakePath(profileRuntimePath)}`]
-    : [])
-], { cwd: rootDir, env });
+configureCmakeIfNeeded(cmake,
+  [
+    "-S",
+    path.join(rootDir, "cpp"),
+    "-B",
+    buildDir,
+    "-G",
+    "Ninja",
+    `-DCMAKE_MAKE_PROGRAM=${cmakePath(ninja)}`,
+    `-DCMAKE_CXX_COMPILER=${cmakePath(clangTools.clangxx)}`,
+    ...(rc ? [`-DCMAKE_RC_COMPILER=${cmakePath(rc)}`] : []),
+    ...(mt ? [`-DCMAKE_MT=${cmakePath(mt)}`] : []),
+    "-DCMAKE_BUILD_TYPE=Debug",
+    "-DOFG_BUILD_TESTS=ON",
+    "-DOFG_BUILD_WASM=OFF",
+    "-DOFG_ENABLE_COVERAGE=ON",
+    `-DOFG_DAWN_SOURCE_DIR=${cmakePath(dawnSourceDir)}`,
+    ...(profileRuntimePath
+      ? [`-DOFG_CLANG_PROFILE_LIB_PATH=${cmakePath(profileRuntimePath)}`]
+      : [])
+  ],
+  { buildDir, cwd: rootDir, env, fresh: freshBuild });
 run(cmake, ["--build", buildDir, "--target", "ofg_cpp_tests"], { cwd: rootDir, env });
 run(ctest, ["--test-dir", buildDir, "-R", "^ofg_cpp_tests$", "--output-on-failure"], {
   cwd: rootDir,

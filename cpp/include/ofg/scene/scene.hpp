@@ -6,11 +6,9 @@
 #pragma once
 
 #include "ofg/math/mat.hpp"
-#include "ofg/math/quat.hpp"
-#include "ofg/math/vec.hpp"
 #include "ofg/render/camera.hpp"
-#include "ofg/render/draw_list.hpp"
-#include "ofg/resources/property_bag.hpp"
+#include "ofg/scene/entity.hpp"
+#include "ofg/scene/mesh_renderer.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -18,110 +16,6 @@
 #include <vector>
 
 namespace ofg {
-
-class Mesh;
-class Scene;
-
-using EntityId = std::uint32_t;
-
-enum class ComponentType {
-    MeshRenderer,
-};
-
-struct LocalTransform {
-    math::Vec3 m_position{0.0f, 0.0f, 0.0f};
-    math::Quat m_rotation{math::quat_identity()};
-    math::Vec3 m_scale{1.0f, 1.0f, 1.0f};
-};
-
-class Entity;
-
-class Component {
-public:
-    Component(const Component&) = delete;
-    Component& operator=(const Component&) = delete;
-    Component(Component&&) = delete;
-    Component& operator=(Component&&) = delete;
-
-    // Reports this component's concrete component type.
-    [[nodiscard]] ComponentType type() const noexcept;
-    // Returns the entity that owns this component.
-    [[nodiscard]] Entity* entity() noexcept;
-    // Returns the entity that owns this component.
-    [[nodiscard]] const Entity* entity() const noexcept;
-
-protected:
-    // Binds a component to one scene-owned entity.
-    Component(ComponentType type, Entity* entity) noexcept;
-    ~Component() = default;
-
-private:
-    ComponentType m_type;
-    Entity* m_entity{nullptr};
-};
-
-class MeshRenderer final : public Component {
-public:
-    // Binds this mesh renderer to one scene-owned entity.
-    explicit MeshRenderer(Entity* entity) noexcept;
-
-    Mesh* m_mesh{nullptr};
-    PropertyBag m_properties;
-    std::vector<MaterialOverride> m_material_overrides;
-    math::Vec3 m_sort_origin_offset{0.0f, 0.0f, 0.0f};
-};
-
-class Entity {
-public:
-    Entity(const Entity&) = delete;
-    Entity& operator=(const Entity&) = delete;
-    Entity(Entity&&) = delete;
-    Entity& operator=(Entity&&) = delete;
-
-    // Returns this entity's stable id within its owning scene generation.
-    [[nodiscard]] EntityId id() const noexcept;
-    // Returns the mutable local transform from this entity into its parent.
-    [[nodiscard]] LocalTransform& local_transform() noexcept;
-    // Returns the local transform from this entity into its parent.
-    [[nodiscard]] const LocalTransform& local_transform() const noexcept;
-
-    // Returns this entity's parent, or nullptr for the root.
-    [[nodiscard]] Entity* parent() noexcept;
-    // Returns this entity's parent, or nullptr for the root.
-    [[nodiscard]] const Entity* parent() const noexcept;
-    // Returns this entity's first child in creation order.
-    [[nodiscard]] Entity* first_child() noexcept;
-    // Returns this entity's first child in creation order.
-    [[nodiscard]] const Entity* first_child() const noexcept;
-    // Returns this entity's next sibling in creation order.
-    [[nodiscard]] Entity* next_sibling() noexcept;
-    // Returns this entity's next sibling in creation order.
-    [[nodiscard]] const Entity* next_sibling() const noexcept;
-
-    // Creates a component of the requested type on this entity.
-    [[nodiscard]] Component* create_component(ComponentType type);
-    // Returns this entity's mesh renderer, if one exists.
-    [[nodiscard]] MeshRenderer* mesh_renderer() noexcept;
-    // Returns this entity's mesh renderer, if one exists.
-    [[nodiscard]] const MeshRenderer* mesh_renderer() const noexcept;
-
-private:
-    friend class Scene;
-
-    // Creates an entity owned by one scene generation.
-    Entity(Scene* scene, EntityId id, Entity* parent) noexcept;
-    // Appends a child entity in stable sibling order.
-    void append_child(Entity* child) noexcept;
-
-    Scene* m_scene{nullptr};
-    EntityId m_id{0};
-    LocalTransform m_local_transform;
-    Entity* m_parent{nullptr};
-    Entity* m_first_child{nullptr};
-    Entity* m_last_child{nullptr};
-    Entity* m_next_sibling{nullptr};
-    MeshRenderer* m_mesh_renderer{nullptr};
-};
 
 class Scene {
 public:

@@ -4,12 +4,13 @@
 // assets/wasm/ofg_cpp/ofg_cpp.js plus ofg_cpp.wasm. It uses installed system
 // tools only and refuses repository-local toolchain fallbacks.
 import { existsSync } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { fileURLToPath } from "node:url";
 import {
   cmakePath,
+  configureCmakeIfNeeded,
   emscriptenEnv,
   findCmake,
   findEmscriptenCommand,
@@ -25,14 +26,13 @@ const emcmake = findEmscriptenCommand("emcmake", rootDir);
 const cmake = findCmake(rootDir);
 const ninja = findNinja(rootDir);
 const env = emscriptenEnv({ emcmake, ninja });
+const freshBuild = process.argv.slice(2).some((arg) => arg === "--fresh" || arg === "--clean");
 
 requireEmscriptenPort({ emcmake, portName: "emdawnwebgpu" });
 
 await mkdir(outputDir, { recursive: true });
-await rm(buildDir, { recursive: true, force: true });
-await mkdir(buildDir, { recursive: true });
 
-run(
+configureCmakeIfNeeded(
   emcmake,
   [
     cmake,
@@ -47,7 +47,7 @@ run(
     "-DOFG_BUILD_TESTS=OFF",
     "-DOFG_BUILD_WASM=ON"
   ],
-  { cwd: rootDir, env }
+  { buildDir, cwd: rootDir, env, fresh: freshBuild }
 );
 
 run(cmake, ["--build", buildDir, "--target", "ofg_cpp_wasm"], { cwd: rootDir, env });

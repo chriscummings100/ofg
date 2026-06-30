@@ -4,11 +4,11 @@
 // an explicitly installed Dawn checkout, and leaves the native executable
 // responsible for rendering, PNG writing, report writing, and threshold failures.
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   cmakePath,
+  configureCmakeIfNeeded,
   findCmake,
   findNativeClangTools,
   findNinja,
@@ -28,9 +28,9 @@ const ninja = findNinja(rootDir);
 const clangTools = findNativeClangTools(rootDir, { frontend: "gnu" });
 const rc = findWindowsSdkTool("rc.exe");
 const mt = findWindowsSdkTool("mt.exe");
+const freshBuild = process.argv.slice(2).some((arg) => arg === "--fresh" || arg === "--clean");
 
 validateDawnSource({ sourceDir: dawnSourceDir, expectedRevision: dawnRevision, rootDir });
-await mkdir(buildDir, { recursive: true });
 
 const env = {
   ...process.env,
@@ -46,24 +46,26 @@ const env = {
   )
 };
 
-run(cmake, [
-  "-S",
-  path.join(rootDir, "cpp"),
-  "-B",
-  buildDir,
-  "-G",
-  "Ninja",
-  `-DCMAKE_MAKE_PROGRAM=${cmakePath(ninja)}`,
-  ...(rc ? [`-DCMAKE_RC_COMPILER=${cmakePath(rc)}`] : []),
-  ...(mt ? [`-DCMAKE_MT=${cmakePath(mt)}`] : []),
-  `-DCMAKE_C_COMPILER=${cmakePath(clangTools.clang)}`,
-  `-DCMAKE_CXX_COMPILER=${cmakePath(clangTools.clangxx)}`,
-  "-DCMAKE_BUILD_TYPE=Release",
-  "-DOFG_BUILD_TESTS=OFF",
-  "-DOFG_BUILD_WASM=OFF",
-  "-DOFG_BUILD_NATIVE_SMOKE=ON",
-  `-DOFG_DAWN_SOURCE_DIR=${cmakePath(dawnSourceDir)}`
-], { cwd: rootDir, env });
+configureCmakeIfNeeded(cmake,
+  [
+    "-S",
+    path.join(rootDir, "cpp"),
+    "-B",
+    buildDir,
+    "-G",
+    "Ninja",
+    `-DCMAKE_MAKE_PROGRAM=${cmakePath(ninja)}`,
+    ...(rc ? [`-DCMAKE_RC_COMPILER=${cmakePath(rc)}`] : []),
+    ...(mt ? [`-DCMAKE_MT=${cmakePath(mt)}`] : []),
+    `-DCMAKE_C_COMPILER=${cmakePath(clangTools.clang)}`,
+    `-DCMAKE_CXX_COMPILER=${cmakePath(clangTools.clangxx)}`,
+    "-DCMAKE_BUILD_TYPE=Release",
+    "-DOFG_BUILD_TESTS=OFF",
+    "-DOFG_BUILD_WASM=OFF",
+    "-DOFG_BUILD_NATIVE_SMOKE=ON",
+    `-DOFG_DAWN_SOURCE_DIR=${cmakePath(dawnSourceDir)}`
+  ],
+  { buildDir, cwd: rootDir, env, fresh: freshBuild });
 run(cmake, ["--build", buildDir, "--target", "ofg_render_smoke_cpp", "--parallel", "8"], {
   cwd: rootDir,
   env

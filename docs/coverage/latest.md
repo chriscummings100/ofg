@@ -1,8 +1,8 @@
 # Latest Coverage
 
-Date: 2026-06-29
+Date: 2026-06-30
 
-Commands: `npm run coverage`.
+Commands: `npm run coverage:cpp` and `npm run coverage:ts`.
 
 Result: passed. The C++ coverage wrapper reported that checked C++ core/gpu/runtime/math/render/resource/scene files met the 90% per-file line coverage gate, and the TypeScript coverage wrapper reported that checked TypeScript files met the 90% per-file line coverage gate.
 
@@ -32,7 +32,7 @@ Committed summary copies:
 | `cpp/src/render/draw_list.cpp` | 96.77% (60/62) |
 | `cpp/src/render/opaque_pass.cpp` | 91.97% (252/274) |
 | `cpp/src/render/pipeline_cache.cpp` | 96.58% (113/117) |
-| `cpp/src/render/renderer.cpp` | 90.70% (156/172) |
+| `cpp/src/render/renderer.cpp` | 90.75% (157/173) |
 | `cpp/src/resources/material.cpp` | 91.57% (228/249) |
 | `cpp/src/resources/mesh.cpp` | 95.00% (171/180) |
 | `cpp/src/resources/property_bag.cpp` | 94.56% (139/147) |
@@ -41,7 +41,10 @@ Committed summary copies:
 | `cpp/src/resources/shader.cpp` | 94.84% (147/155) |
 | `cpp/src/resources/texture.cpp` | 93.73% (254/271) |
 | `cpp/src/runtime/runtime_debug_status.cpp` | 100.00% (73/73) |
-| `cpp/src/scene/scene.cpp` | 98.97% (193/195) |
+| `cpp/src/scene/component.cpp` | 100.00% (10/10) |
+| `cpp/src/scene/entity.cpp` | 100.00% (46/46) |
+| `cpp/src/scene/mesh_renderer.cpp` | 100.00% (28/28) |
+| `cpp/src/scene/scene.cpp` | 98.55% (136/138) |
 
 C++ exceptions:
 

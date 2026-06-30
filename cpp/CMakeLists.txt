@@ -101,6 +101,9 @@ add_library(ofg_cpp
   src/resources/shader.cpp
   src/resources/texture.cpp
   src/runtime/runtime_debug_status.cpp
+  src/scene/component.cpp
+  src/scene/entity.cpp
+  src/scene/mesh_renderer.cpp
   src/scene/scene.cpp
 )
 

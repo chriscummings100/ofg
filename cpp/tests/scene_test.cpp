@@ -10,6 +10,7 @@
 #include "ofg/math/quat.hpp"
 #include "ofg/math/transform.hpp"
 #include "ofg/math/vec.hpp"
+#include "ofg/resources/mesh.hpp"
 #include "ofg/scene/scene.hpp"
 
 #include <cstdint>
@@ -107,6 +108,31 @@ TEST_CASE("scene creates mesh renderer components in stable order") {
     CHECK_THROWS_WITH_AS(([&]() { (void)first->create_component(ofg::ComponentType::MeshRenderer); }()),
         doctest::Contains("MeshRenderer"),
         ofg::EngineError);
+}
+
+// Verifies mesh renderer accessors expose the intended authoring surface.
+TEST_CASE("mesh renderer accessors update draw extraction state") {
+    ofg::Scene scene;
+    ofg::Entity* entity = scene.create_entity(scene.get_root());
+    (void)entity->create_component(ofg::ComponentType::MeshRenderer);
+    ofg::MeshRenderer* renderer = entity->mesh_renderer();
+    REQUIRE(renderer != nullptr);
+
+    ofg::Mesh mesh{ofg::GpuContext{}, "scene test mesh"};
+    renderer->set_mesh(&mesh);
+    renderer->properties().set("tint", ofg::math::vec4(0.25f, 0.5f, 0.75f, 1.0f));
+    renderer->material_overrides().push_back(ofg::MaterialOverride{0, nullptr});
+    renderer->set_material_overrides({ofg::MaterialOverride{2, nullptr}});
+    renderer->set_sort_origin_offset(ofg::math::vec3(1.0f, 2.0f, 3.0f));
+
+    const ofg::MeshRenderer* const_renderer = renderer;
+    CHECK(const_renderer->mesh() == &mesh);
+    CHECK(const_renderer->properties().size() == 1);
+    REQUIRE(const_renderer->material_overrides().size() == 1);
+    CHECK(const_renderer->material_overrides()[0].m_submesh_index == 2);
+    CHECK(const_renderer->sort_origin_offset().x == doctest::Approx(1.0f));
+    CHECK(const_renderer->sort_origin_offset().y == doctest::Approx(2.0f));
+    CHECK(const_renderer->sort_origin_offset().z == doctest::Approx(3.0f));
 }
 
 // Verifies const traversal and scene moves keep entity owner pointers usable.

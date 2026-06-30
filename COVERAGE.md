@@ -12,6 +12,8 @@ Run from `C:\dev\ofg`.
 
 Use `npm run coverage` before completing implementation plans. Use the language-specific commands when iterating on one side of the codebase.
 
+The C++ coverage wrapper clears generated profile/report output on every run, but it reuses `artifacts/build/cpp-coverage` so Dawn and OFG object files stay incremental. Use `npm run coverage:cpp -- --fresh` only when you intentionally need a clean CMake configure/build.
+
 ## Output Locations
 
 - `artifacts/coverage/cpp/cpp-summary.json`: generated C++ machine-readable summary.

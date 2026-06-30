@@ -11,6 +11,7 @@
 #include <span>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace ofg {
 namespace {
@@ -31,13 +32,14 @@ void build_draw_list_from_scene(const Scene& scene, DrawList& draw_list) {
         }
 
         const math::Mat4 world_from_renderer = world_from_local(*mesh_renderer->entity());
+        const std::vector<MaterialOverride>& material_overrides = mesh_renderer->material_overrides();
         DrawCommand command;
-        command.m_mesh = mesh_renderer->m_mesh;
+        command.m_mesh = mesh_renderer->mesh();
         command.m_model = world_from_renderer;
-        command.m_properties = &mesh_renderer->m_properties;
-        command.m_material_overrides = std::span<const MaterialOverride>(
-            mesh_renderer->m_material_overrides.data(), mesh_renderer->m_material_overrides.size());
-        command.m_sort_origin = transform_point(world_from_renderer, mesh_renderer->m_sort_origin_offset);
+        command.m_properties = &mesh_renderer->properties();
+        command.m_material_overrides =
+            std::span<const MaterialOverride>(material_overrides.data(), material_overrides.size());
+        command.m_sort_origin = transform_point(world_from_renderer, mesh_renderer->sort_origin_offset());
         draw_list.add(std::move(command));
     }
 

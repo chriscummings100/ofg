@@ -3,7 +3,7 @@
 // These helpers find already-installed tools from PATH, explicit environment
 // variables, and common Windows installation locations. They deliberately reject
 // repository-local toolchain folders.
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 
@@ -43,6 +43,29 @@ export function runCapture(command, args, options = {}) {
     throw new Error(`${printable} failed with exit code ${result.status}\n${result.stderr}`);
   }
   return result;
+}
+
+// Configures a CMake build tree only when it is missing or wrapper inputs changed.
+export function configureCmakeIfNeeded(command, args, { buildDir, cwd, env, fresh = false } = {}) {
+  if (fresh) {
+    console.log(`Removing CMake build directory ${path.relative(cwd, buildDir)} for a fresh configure.`);
+    rmSync(buildDir, { recursive: true, force: true });
+  }
+
+  mkdirSync(buildDir, { recursive: true });
+
+  const stampPath = path.join(buildDir, ".ofg-cmake-config.json");
+  const cachePath = path.join(buildDir, "CMakeCache.txt");
+  const stamp = JSON.stringify({ command, args }, null, 2);
+  const previousStamp = existsSync(stampPath) ? readFileSync(stampPath, "utf8") : "";
+
+  if (!existsSync(cachePath) || previousStamp !== stamp) {
+    run(command, args, { cwd, env });
+    writeFileSync(stampPath, stamp);
+    return;
+  }
+
+  console.log(`Reusing CMake configuration in ${path.relative(cwd, buildDir)}.`);
 }
 
 // Finds the CMake executable from PATH or common Visual Studio install roots.
