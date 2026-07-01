@@ -80,6 +80,7 @@ endif()
 
 add_library(ofg_cpp
   src/core/frame_state.cpp
+  src/game/debug_camera_controller.cpp
   src/game/game.cpp
   src/game/render_target.cpp
   src/gpu/common.cpp
@@ -87,7 +88,7 @@ add_library(ofg_cpp
   src/math/quat.cpp
   src/math/transform.cpp
   src/render/bootstrap_scene.cpp
-  src/render/camera.cpp
+  src/render/camera_properties.cpp
   src/render/demo_scene.cpp
   src/render/draw_list.cpp
   src/render/opaque_pass.cpp
@@ -101,6 +102,7 @@ add_library(ofg_cpp
   src/resources/shader.cpp
   src/resources/texture.cpp
   src/runtime/runtime_debug_status.cpp
+  src/scene/camera.cpp
   src/scene/component.cpp
   src/scene/entity.cpp
   src/scene/mesh_renderer.cpp
@@ -162,6 +164,8 @@ if(OFG_BUILD_TESTS AND NOT EMSCRIPTEN)
 
   add_executable(ofg_cpp_tests
     tests/bootstrap_scene_test.cpp
+    tests/camera_properties_test.cpp
+    tests/debug_camera_controller_test.cpp
     tests/demo_scene_test.cpp
     tests/draw_list_test.cpp
     tests/frame_state_test.cpp

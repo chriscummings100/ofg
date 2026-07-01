@@ -49,6 +49,16 @@ describe("wasm runtime wrapper", () => {
 
     const runtime = createBrowserGameRuntimeFromRaw(raw);
     runtime.resize(800, 450, 1);
+    runtime.setDebugCameraInput({
+      moveX: 1,
+      moveY: 0,
+      moveZ: -1,
+      lookDeltaX: 2,
+      lookDeltaY: 3,
+      lookActive: true,
+      fast: true,
+      slow: false
+    });
     runtime.frame(16.5);
     assert.equal(runtime.debugStatus().frameCount, 2);
     runtime.dispose();
@@ -56,6 +66,7 @@ describe("wasm runtime wrapper", () => {
 
     assert.deepEqual(calls, [
       "resize:800:450:1",
+      "debugInput:1:0:-1:2:3:true:true:false",
       "frame:16.5",
       "debug",
       "dispose",
@@ -65,6 +76,29 @@ describe("wasm runtime wrapper", () => {
       () => runtime.frame(33),
       /Browser game runtime has been disposed/
     );
+  });
+
+  // Verifies invalid debug camera input is rejected before Embind forwarding.
+  it("rejects non-finite debug camera input", () => {
+    const calls: string[] = [];
+    const runtime = createBrowserGameRuntimeFromRaw(fakeRawBrowserGame(calls));
+
+    assert.throws(
+      () =>
+        runtime.setDebugCameraInput({
+          moveX: Number.POSITIVE_INFINITY,
+          moveY: 0,
+          moveZ: 0,
+          lookDeltaX: 0,
+          lookDeltaY: 0,
+          lookActive: false,
+          fast: false,
+          slow: false
+        }),
+      /field moveX must be a finite number/
+    );
+    assert.deepEqual(calls, []);
+    runtime.dispose();
   });
 
   // Verifies Embind's create result can be sync or promise-like.
@@ -127,6 +161,21 @@ function fakeRawBrowserGame(calls: string[]): RawBrowserGame {
     // Records frame forwarding.
     frame(timeMs) {
       calls.push(`frame:${timeMs}`);
+    },
+    // Records debug camera input forwarding.
+    set_debug_camera_input(
+      moveX,
+      moveY,
+      moveZ,
+      lookDeltaX,
+      lookDeltaY,
+      lookActive,
+      fast,
+      slow
+    ) {
+      calls.push(
+        `debugInput:${moveX}:${moveY}:${moveZ}:${lookDeltaX}:${lookDeltaY}:${lookActive}:${fast}:${slow}`
+      );
     },
     // Records debug-status reads and returns a valid status payload.
     debug_status_json() {

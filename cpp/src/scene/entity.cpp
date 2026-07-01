@@ -1,6 +1,7 @@
 // Entity tree node implementation for the OFG scene graph.
 #include "ofg/scene/entity.hpp"
 
+#include "ofg/scene/camera.hpp"
 #include "ofg/scene/mesh_renderer.hpp"
 #include "ofg/scene/scene.hpp"
 
@@ -67,6 +68,16 @@ MeshRenderer* Entity::mesh_renderer() noexcept {
 // Returns this entity's mesh renderer, if one exists.
 const MeshRenderer* Entity::mesh_renderer() const noexcept {
     return m_mesh_renderer;
+}
+
+// Returns this entity's camera, if one exists.
+Camera* Entity::camera() noexcept {
+    return m_camera;
+}
+
+// Returns this entity's camera, if one exists.
+const Camera* Entity::camera() const noexcept {
+    return m_camera;
 }
 
 // Appends a child entity in stable sibling order.

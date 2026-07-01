@@ -7,17 +7,25 @@
 #include "webgpu_test_utils.hpp"
 
 #include "ofg/core/engine_error.hpp"
+#include "ofg/math/mat.hpp"
+#include "ofg/math/transform.hpp"
 #include "ofg/render/demo_scene.hpp"
+#include "ofg/render/camera_properties.hpp"
 #include "ofg/resources/material.hpp"
 #include "ofg/resources/mesh.hpp"
 #include "ofg/resources/resources.hpp"
 #include "ofg/resources/texture.hpp"
+#include "ofg/scene/camera.hpp"
 
+#include <cstddef>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
 
 namespace {
+
+constexpr float _pi = 3.14159265358979323846f;
 
 struct ResourcesGuard {
     // Releases the static Resources singleton before the borrowed test GPU is destroyed.
@@ -39,6 +47,15 @@ void init_test_resources(ofg::GpuContext gpu) {
     ofg::Resources::destroy();
     ofg::Resources::create(std::move(gpu));
     REQUIRE(ofg::Resources::prepare());
+}
+
+// Checks two Mat4 values component-wise with a tight floating-point tolerance.
+void check_mat4_close(ofg::math::Mat4 actual, ofg::math::Mat4 expected) {
+    for (std::size_t column = 0; column < 4; ++column) {
+        for (std::size_t row = 0; row < 4; ++row) {
+            CHECK(actual[column][row] == doctest::Approx(expected[column][row]).epsilon(0.0001));
+        }
+    }
 }
 
 } // namespace
@@ -64,7 +81,7 @@ TEST_CASE("demo scene builds generated resources with mipmapped textures") {
     CHECK(scene.m_cube_mesh->submeshes()[0].m_default_material == scene.m_cube_materials[0]);
 }
 
-// Verifies the demo setup creates a ground entity plus four animated cube entities.
+// Verifies the demo setup creates a camera, ground entity, and four animated cube entities.
 TEST_CASE("demo scene setup and update create deterministic plane and cube entities") {
     ofg::tests::TestGpuContext gpu = make_test_gpu();
     ResourcesGuard guard;
@@ -74,9 +91,12 @@ TEST_CASE("demo scene setup and update create deterministic plane and cube entit
 
     ofg::Scene first_scene;
     REQUIRE_NOTHROW(ofg::setup_demo_scene(scene, first_scene));
-    REQUIRE_NOTHROW(ofg::update_demo_scene(scene, 0.0, 16.0f / 9.0f, first_scene));
-    REQUIRE(first_scene.entity_count() == 6);
+    REQUIRE_NOTHROW(ofg::update_demo_scene(scene, 0.0, first_scene));
+    REQUIRE(first_scene.entity_count() == 7);
+    REQUIRE(first_scene.camera_count() == 1);
     REQUIRE(first_scene.mesh_renderer_count() == 5);
+    REQUIRE(first_scene.main_camera() != nullptr);
+    CHECK(first_scene.main_camera() == first_scene.get_camera(0));
     REQUIRE(scene.m_ground_renderer != nullptr);
     CHECK(first_scene.get_mesh_renderer(0) == scene.m_ground_renderer);
     CHECK(scene.m_ground_renderer->mesh() == scene.m_ground_mesh);
@@ -89,13 +109,29 @@ TEST_CASE("demo scene setup and update create deterministic plane and cube entit
     REQUIRE(first_scene.get_mesh_renderer(4)->material_overrides().size() == 1);
     CHECK(first_scene.get_mesh_renderer(4)->material_overrides()[0].m_material == scene.m_cube_materials[3]);
 
+    const ofg::Camera* camera = first_scene.main_camera();
+    REQUIRE(camera != nullptr);
+    const ofg::CameraProperties camera_properties = camera->camera_properties(16.0f / 9.0f);
+    CHECK(camera_properties.camera == camera);
+    std::string error;
+    const std::optional<ofg::math::Mat4> view = ofg::math::look_at_rh(ofg::math::vec3(6.2f, 4.4f, 7.6f),
+        ofg::math::vec3(0.0f, 0.55f, 0.0f),
+        ofg::math::vec3(0.0f, 1.0f, 0.0f),
+        error);
+    REQUIRE(view.has_value());
+    const std::optional<ofg::math::Mat4> projection =
+        ofg::math::perspective_rh(55.0f * _pi / 180.0f, 16.0f / 9.0f, 0.1f, 80.0f, error);
+    REQUIRE(projection.has_value());
+    check_mat4_close(camera_properties.clip_from_world, ofg::math::mul(*projection, *view));
+
     REQUIRE(scene.m_cube_entities[0] != nullptr);
     const float first_y = scene.m_cube_entities[0]->local_transform().m_position.y;
-    REQUIRE_NOTHROW(ofg::update_demo_scene(scene, ofg::demo_native_smoke_time_ms(), 16.0f / 9.0f, first_scene));
+    REQUIRE_NOTHROW(ofg::update_demo_scene(scene, ofg::demo_native_smoke_time_ms(), first_scene));
     CHECK(scene.m_cube_entities[0]->local_transform().m_position.y != first_y);
 
-    CHECK_THROWS_WITH_AS(
-        ofg::update_demo_scene(scene, 0.0, 0.0f, first_scene), doctest::Contains("positive aspect"), ofg::EngineError);
+    CHECK_THROWS_WITH_AS(ofg::update_demo_scene(scene, std::numeric_limits<double>::infinity(), first_scene),
+        doctest::Contains("finite time"),
+        ofg::EngineError);
 }
 
 // Verifies public update validation catches incomplete scene resource pointers.
@@ -103,9 +139,8 @@ TEST_CASE("demo scene update reports incomplete scene resources") {
     ofg::Scene render_scene;
 
     ofg::DemoScene empty_scene;
-    CHECK_THROWS_WITH_AS(ofg::update_demo_scene(empty_scene, 0.0, 16.0f / 9.0f, render_scene),
-        doctest::Contains("resources"),
-        ofg::EngineError);
+    CHECK_THROWS_WITH_AS(
+        ofg::update_demo_scene(empty_scene, 0.0, render_scene), doctest::Contains("resources"), ofg::EngineError);
 
     ofg::tests::TestGpuContext gpu = make_test_gpu();
     ResourcesGuard guard;
@@ -129,7 +164,6 @@ TEST_CASE("demo scene update reports stale entity bindings") {
     ofg::setup_demo_scene(scene, render_scene);
     render_scene.clear();
 
-    CHECK_THROWS_WITH_AS(ofg::update_demo_scene(scene, 0.0, 16.0f / 9.0f, render_scene),
-        doctest::Contains("bindings"),
-        ofg::EngineError);
+    CHECK_THROWS_WITH_AS(
+        ofg::update_demo_scene(scene, 0.0, render_scene), doctest::Contains("bindings"), ofg::EngineError);
 }

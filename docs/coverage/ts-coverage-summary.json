@@ -1,28 +1,28 @@
 {
   "total": {
     "lines": {
-      "total": 501,
-      "covered": 413,
+      "total": 727,
+      "covered": 621,
       "skipped": 0,
-      "pct": 82.43
+      "pct": 85.41
     },
     "statements": {
-      "total": 501,
-      "covered": 413,
+      "total": 727,
+      "covered": 621,
       "skipped": 0,
-      "pct": 82.43
+      "pct": 85.41
     },
     "functions": {
-      "total": 31,
-      "covered": 28,
+      "total": 47,
+      "covered": 44,
       "skipped": 0,
-      "pct": 90.32
+      "pct": 93.61
     },
     "branches": {
-      "total": 67,
-      "covered": 59,
+      "total": 100,
+      "covered": 86,
       "skipped": 0,
-      "pct": 88.05
+      "pct": 86
     },
     "branchesTrue": {
       "total": 0,
@@ -57,9 +57,35 @@
       "pct": 82.35
     }
   },
+  "C:\\dev\\ofg\\src\\app\\debugInput.ts": {
+    "lines": {
+      "total": 158,
+      "covered": 152,
+      "skipped": 0,
+      "pct": 96.2
+    },
+    "functions": {
+      "total": 13,
+      "covered": 13,
+      "skipped": 0,
+      "pct": 100
+    },
+    "statements": {
+      "total": 158,
+      "covered": 152,
+      "skipped": 0,
+      "pct": 96.2
+    },
+    "branches": {
+      "total": 29,
+      "covered": 23,
+      "skipped": 0,
+      "pct": 79.31
+    }
+  },
   "C:\\dev\\ofg\\src\\app\\main.ts": {
     "lines": {
-      "total": 71,
+      "total": 83,
       "covered": 0,
       "skipped": 0,
       "pct": 0
@@ -71,7 +97,7 @@
       "pct": 0
     },
     "statements": {
-      "total": 71,
+      "total": 83,
       "covered": 0,
       "skipped": 0,
       "pct": 0
@@ -85,28 +111,28 @@
   },
   "C:\\dev\\ofg\\src\\app\\wasmRuntime.ts": {
     "lines": {
-      "total": 229,
-      "covered": 217,
+      "total": 285,
+      "covered": 273,
       "skipped": 0,
-      "pct": 94.75
+      "pct": 95.78
     },
     "functions": {
-      "total": 17,
-      "covered": 16,
+      "total": 20,
+      "covered": 19,
       "skipped": 0,
-      "pct": 94.11
+      "pct": 95
     },
     "statements": {
-      "total": 229,
-      "covered": 217,
+      "total": 285,
+      "covered": 273,
       "skipped": 0,
-      "pct": 94.75
+      "pct": 95.78
     },
     "branches": {
-      "total": 32,
-      "covered": 31,
+      "total": 36,
+      "covered": 35,
       "skipped": 0,
-      "pct": 96.87
+      "pct": 97.22
     }
   }
 }

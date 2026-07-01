@@ -36,6 +36,15 @@ public:
     void resize(double width, double height, double device_pixel_ratio);
     // Advances runtime state and renders a frame when WebGPU is initialized.
     void frame(double time_ms);
+    // Accepts raw debug fly-camera input from the TypeScript host.
+    void set_debug_camera_input(double move_x,
+        double move_y,
+        double move_z,
+        double look_delta_x,
+        double look_delta_y,
+        bool look_active,
+        bool fast,
+        bool slow);
     // Returns the browser-facing debug-status JSON payload.
     [[nodiscard]] std::string debug_status_json() const;
     // Releases WebGPU resources and makes later lifecycle calls fail clearly.
@@ -70,6 +79,8 @@ private:
     void resize_setup_status(std::uint32_t width, std::uint32_t height, double device_pixel_ratio);
     // Advances setup-phase frame diagnostics before the Game singleton exists.
     void tick_setup_status(double time_ms);
+    // Stores or forwards the latest sanitized debug camera input.
+    void accept_debug_camera_input(DebugCameraInput input);
     // Records a setup-phase recoverable error.
     void record_setup_error(std::string message) noexcept;
     // Records a setup-phase GPU/device error.
@@ -110,9 +121,11 @@ private:
     std::uint32_t m_pending_width{0};
     std::uint32_t m_pending_height{0};
     double m_pending_device_pixel_ratio{1.0};
+    DebugCameraInput m_pending_debug_camera_input;
     std::uint32_t m_configured_width{0};
     std::uint32_t m_configured_height{0};
     bool m_has_pending_size{false};
+    bool m_has_pending_debug_camera_input{false};
     bool m_game_active{false};
     bool m_surface_configured{false};
     bool m_disposed{false};

@@ -13,6 +13,7 @@
 
 namespace ofg {
 
+class Camera;
 class MeshRenderer;
 class Scene;
 
@@ -57,6 +58,10 @@ public:
     [[nodiscard]] MeshRenderer* mesh_renderer() noexcept;
     // Returns this entity's mesh renderer, if one exists.
     [[nodiscard]] const MeshRenderer* mesh_renderer() const noexcept;
+    // Returns this entity's camera, if one exists.
+    [[nodiscard]] Camera* camera() noexcept;
+    // Returns this entity's camera, if one exists.
+    [[nodiscard]] const Camera* camera() const noexcept;
 
 private:
     friend class Scene;
@@ -74,6 +79,7 @@ private:
     Entity* m_last_child{nullptr};
     Entity* m_next_sibling{nullptr};
     MeshRenderer* m_mesh_renderer{nullptr};
+    Camera* m_camera{nullptr};
 };
 
 } // namespace ofg

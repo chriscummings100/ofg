@@ -11,9 +11,11 @@
 #include "ofg/math/transform.hpp"
 #include "ofg/math/vec.hpp"
 #include "ofg/resources/mesh.hpp"
+#include "ofg/scene/camera.hpp"
 #include "ofg/scene/scene.hpp"
 
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
@@ -135,6 +137,149 @@ TEST_CASE("mesh renderer accessors update draw extraction state") {
     CHECK(const_renderer->sort_origin_offset().z == doctest::Approx(3.0f));
 }
 
+// Verifies camera components are scene-owned and support first-camera fallback.
+TEST_CASE("scene creates camera components and resolves main camera selection") {
+    ofg::Scene scene;
+    ofg::Entity* first = scene.create_entity(scene.get_root());
+    ofg::Entity* second = scene.create_entity(scene.get_root());
+
+    ofg::Component* first_component = first->create_component(ofg::ComponentType::Camera);
+    ofg::Component* second_component = second->create_component(ofg::ComponentType::Camera);
+
+    REQUIRE(first_component != nullptr);
+    REQUIRE(second_component != nullptr);
+    CHECK(first_component->type() == ofg::ComponentType::Camera);
+    CHECK(first_component->entity() == first);
+    CHECK(first->camera() == first_component);
+    CHECK(second->camera() == second_component);
+    CHECK(scene.camera_count() == 2);
+    CHECK(scene.get_camera(0) == first->camera());
+    CHECK(scene.get_camera(1) == second->camera());
+    CHECK(scene.get_camera(2) == nullptr);
+    CHECK(scene.main_camera() == first->camera());
+
+    scene.set_main_camera(second->camera());
+    CHECK(scene.main_camera() == second->camera());
+    scene.set_main_camera(nullptr);
+    CHECK(scene.main_camera() == first->camera());
+
+    const ofg::Scene& const_scene = scene;
+    CHECK(const_scene.get_camera(1) == second->camera());
+    CHECK(const_scene.main_camera() == first->camera());
+    CHECK_THROWS_WITH_AS(([&]() { (void)first->create_component(ofg::ComponentType::Camera); }()),
+        doctest::Contains("Camera"),
+        ofg::EngineError);
+
+    ofg::Scene other_scene;
+    ofg::Entity* other_entity = other_scene.create_entity(other_scene.get_root());
+    (void)other_entity->create_component(ofg::ComponentType::Camera);
+    CHECK_THROWS_WITH_AS(([&]() { scene.set_main_camera(other_entity->camera()); }()),
+        doctest::Contains("same scene"),
+        ofg::EngineError);
+}
+
+// Verifies camera selection follows moved scene storage and clear invalidation.
+TEST_CASE("scene camera selection survives moves and rejects stale cameras") {
+    ofg::Scene source;
+    ofg::Entity* first = source.create_entity(source.get_root());
+    ofg::Entity* second = source.create_entity(source.get_root());
+    (void)first->create_component(ofg::ComponentType::Camera);
+    (void)second->create_component(ofg::ComponentType::Camera);
+    source.set_main_camera(second->camera());
+
+    ofg::Scene moved(std::move(source));
+    REQUIRE(moved.get_camera(1) != nullptr);
+    CHECK(moved.main_camera() == moved.get_camera(1));
+    CHECK(moved.get_camera(1)->entity() == moved.get_entity(2));
+    CHECK(moved.get_entity(2)->camera() == moved.get_camera(1));
+
+    ofg::Scene assigned;
+    assigned = std::move(moved);
+    REQUIRE(assigned.get_camera(1) != nullptr);
+    CHECK(assigned.main_camera() == assigned.get_camera(1));
+    ofg::Camera* stale_camera = assigned.get_camera(1);
+
+    assigned.clear();
+    CHECK(assigned.camera_count() == 0);
+    CHECK(assigned.main_camera() == nullptr);
+    CHECK_THROWS_WITH_AS(
+        ([&]() { assigned.set_main_camera(stale_camera); }()), doctest::Contains("same scene"), ofg::EngineError);
+}
+
+// Verifies camera defaults, accessors, and validation branches.
+TEST_CASE("camera exposes default perspective settings and rejects invalid inputs") {
+    ofg::Scene scene;
+    (void)scene.get_root()->create_component(ofg::ComponentType::Camera);
+    ofg::Camera* camera = scene.get_root()->camera();
+    REQUIRE(camera != nullptr);
+
+    CHECK(camera->vertical_fov_radians() == doctest::Approx(0.9599311f));
+    CHECK(camera->near_z() == doctest::Approx(0.1f));
+    CHECK(camera->far_z() == doctest::Approx(80.0f));
+
+    const ofg::CameraProperties properties = camera->camera_properties(1.0f);
+    CHECK(properties.camera == camera);
+    CHECK(properties.world_from_camera[3].x == doctest::Approx(0.0f));
+    CHECK(properties.world_from_camera[3].y == doctest::Approx(0.0f));
+    CHECK(properties.world_from_camera[3].z == doctest::Approx(0.0f));
+
+    const float nan_value = std::numeric_limits<float>::quiet_NaN();
+    CHECK_THROWS_WITH_AS(
+        ([&]() { camera->set_perspective(nan_value, 0.1f, 10.0f); }()), doctest::Contains("finite"), ofg::EngineError);
+    CHECK_THROWS_WITH_AS(
+        ([&]() { camera->set_perspective(1.0f, 0.0f, 10.0f); }()), doctest::Contains("near_z"), ofg::EngineError);
+    CHECK_THROWS_WITH_AS(
+        ([&]() { (void)camera->camera_properties(nan_value); }()), doctest::Contains("aspect"), ofg::EngineError);
+
+    ofg::Camera detached(nullptr);
+    CHECK_THROWS_WITH_AS(
+        ([&]() { (void)detached.camera_properties(1.0f); }()), doctest::Contains("owning entity"), ofg::EngineError);
+}
+
+// Verifies camera projection and scale-ignored transform resolution.
+TEST_CASE("camera properties resolve entity transforms without scale") {
+    ofg::Scene scene;
+    ofg::Entity* parent = scene.create_entity(scene.get_root());
+    ofg::Entity* camera_entity = scene.create_entity(parent);
+    (void)camera_entity->create_component(ofg::ComponentType::Camera);
+    ofg::Camera* camera = camera_entity->camera();
+    REQUIRE(camera != nullptr);
+
+    parent->local_transform().m_position = ofg::math::vec3(10.0f, 0.0f, 0.0f);
+    parent->local_transform().m_rotation = require_y_rotation(1.57079632679f);
+    parent->local_transform().m_scale = ofg::math::vec3(100.0f, 100.0f, 100.0f);
+    camera_entity->local_transform().m_position = ofg::math::vec3(0.0f, 0.0f, 2.0f);
+    camera_entity->local_transform().m_scale = ofg::math::vec3(0.01f, 0.01f, 0.01f);
+
+    camera->set_perspective(1.0f, 0.25f, 42.0f);
+    const ofg::CameraProperties properties = camera->camera_properties(2.0f);
+    CHECK(properties.camera == camera);
+    CHECK(properties.vertical_fov_radians == doctest::Approx(1.0f));
+    CHECK(properties.aspect == doctest::Approx(2.0f));
+    CHECK(properties.near_z == doctest::Approx(0.25f));
+    CHECK(properties.far_z == doctest::Approx(42.0f));
+
+    const ofg::math::Vec4 world_origin =
+        ofg::math::mul(properties.world_from_camera, ofg::math::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+    CHECK(world_origin.x == doctest::Approx(12.0f));
+    CHECK(world_origin.y == doctest::Approx(0.0f));
+    CHECK(world_origin.z == doctest::Approx(0.0f).epsilon(0.0001));
+
+    const ofg::math::Vec4 world_forward =
+        ofg::math::mul(properties.world_from_camera, ofg::math::vec4(0.0f, 0.0f, -1.0f, 0.0f));
+    CHECK(world_forward.x == doctest::Approx(-1.0f));
+    CHECK(world_forward.y == doctest::Approx(0.0f));
+    CHECK(world_forward.z == doctest::Approx(0.0f).epsilon(0.0001));
+
+    CHECK_THROWS_WITH_AS(([&]() { camera->set_perspective(0.0f, 0.1f, 10.0f); }()),
+        doctest::Contains("field of view"),
+        ofg::EngineError);
+    CHECK_THROWS_WITH_AS(
+        ([&]() { camera->set_perspective(1.0f, 10.0f, 1.0f); }()), doctest::Contains("near_z"), ofg::EngineError);
+    CHECK_THROWS_WITH_AS(
+        ([&]() { (void)camera->camera_properties(0.0f); }()), doctest::Contains("aspect"), ofg::EngineError);
+}
+
 // Verifies const traversal and scene moves keep entity owner pointers usable.
 TEST_CASE("scene supports const traversal after move") {
     ofg::Scene source;
@@ -170,7 +315,6 @@ TEST_CASE("scene clear resets root and invalidates component containers") {
     const std::uint32_t first_generation = scene.generation();
     ofg::Entity* entity = scene.create_entity(scene.get_root());
     (void)entity->create_component(ofg::ComponentType::MeshRenderer);
-    scene.set_main_view(ofg::render_view_from_matrix(ofg::math::mat4_translation(ofg::math::vec3(1.0f, 2.0f, 3.0f))));
 
     scene.clear();
 
@@ -179,7 +323,6 @@ TEST_CASE("scene clear resets root and invalidates component containers") {
     CHECK(scene.get_root()->id() == 0);
     CHECK(scene.entity_count() == 1);
     CHECK(scene.mesh_renderer_count() == 0);
-    CHECK(scene.main_view().m_view_projection[3].x == doctest::Approx(0.0f));
     ofg::Entity* next = scene.create_entity(scene.get_root());
     CHECK(next->id() == 1);
 }

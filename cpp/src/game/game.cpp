@@ -167,6 +167,23 @@ void Game::update(double time_ms) {
     }
 }
 
+// Accepts the latest raw debug fly-camera input snapshot.
+void Game::set_debug_camera_input(DebugCameraInput input) {
+    try {
+        require_game("Game::set_debug_camera_input").set_debug_camera_input_impl(input);
+    } catch (const std::exception& error) {
+        if (s_game != nullptr) {
+            s_game->record_error_impl(error.what());
+        }
+        throw;
+    } catch (...) {
+        if (s_game != nullptr) {
+            s_game->record_error_impl("Game::set_debug_camera_input failed with an unknown exception.");
+        }
+        throw;
+    }
+}
+
 // Records render commands into the caller-owned command encoder.
 void Game::render(WGPUCommandEncoder encoder, RenderTarget target) {
     try {
@@ -274,7 +291,7 @@ bool Game::prepare_impl() {
         m_current_scene = std::make_unique<Scene>();
         build_demo_scene(m_demo_scene);
         setup_demo_scene(m_demo_scene, *m_current_scene);
-        update_demo_scene(m_demo_scene, m_last_time_ms, m_aspect, *m_current_scene);
+        update_demo_scene(m_demo_scene, m_last_time_ms, *m_current_scene);
         set_state(GameLifecycleState::Prep_Renderer);
     }
         [[fallthrough]];
@@ -319,12 +336,6 @@ void Game::resize_impl(std::uint32_t width, std::uint32_t height, double device_
     if (renderer_ready) {
         Renderer::resize(width, height);
     }
-    if (width > 0 && height > 0) {
-        m_aspect = static_cast<float>(width) / static_cast<float>(height);
-        if (renderer_ready && m_current_scene != nullptr) {
-            update_demo_scene(m_demo_scene, m_last_time_ms, m_aspect, *m_current_scene);
-        }
-    }
 }
 
 // Advances shared per-frame state.
@@ -338,7 +349,21 @@ void Game::update_impl(double time_ms) {
     if (m_current_scene == nullptr) {
         throw EngineError("Game update requires a current scene.");
     }
-    update_demo_scene(m_demo_scene, m_last_time_ms, m_aspect, *m_current_scene);
+    update_demo_scene(m_demo_scene, m_last_time_ms, *m_current_scene);
+    m_debug_camera_controller.update(*m_current_scene, m_debug_camera_input, m_last_time_ms);
+}
+
+// Stores a validated raw debug fly-camera input snapshot.
+void Game::set_debug_camera_input_impl(DebugCameraInput input) {
+    if (m_state == GameLifecycleState::Failed) {
+        throw EngineError("Game::set_debug_camera_input cannot run while Game is failed: " + m_last_error);
+    }
+    if (m_state == GameLifecycleState::Rel_Renderer || m_state == GameLifecycleState::Rel_Scene ||
+        m_state == GameLifecycleState::Rel_Resources || m_state == GameLifecycleState::Released) {
+        throw EngineError("Game::set_debug_camera_input cannot run after Game release has started.");
+    }
+    validate_debug_camera_input(input);
+    m_debug_camera_input = input;
 }
 
 // Records render commands into the caller-owned command encoder.
@@ -398,6 +423,8 @@ bool Game::release_impl() {
         [[fallthrough]];
     case GameLifecycleState::Rel_Scene:
         m_demo_scene = DemoScene{};
+        m_debug_camera_input = DebugCameraInput{};
+        m_debug_camera_controller.reset();
         m_current_scene.reset();
         set_state(GameLifecycleState::Rel_Resources);
         [[fallthrough]];

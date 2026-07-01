@@ -20,11 +20,24 @@ export interface RuntimeDebugStatus {
   readonly lastError: string | null;
 }
 
+export interface DebugCameraInput {
+  readonly moveX: number;
+  readonly moveY: number;
+  readonly moveZ: number;
+  readonly lookDeltaX: number;
+  readonly lookDeltaY: number;
+  readonly lookActive: boolean;
+  readonly fast: boolean;
+  readonly slow: boolean;
+}
+
 export interface BrowserGameRuntime {
   // Receives physical canvas size and device-pixel ratio from the host.
   resize(width: number, height: number, devicePixelRatio: number): void;
   // Advances the runtime by one requestAnimationFrame timestamp.
   frame(timeMs: number): void;
+  // Forwards one raw debug fly-camera input snapshot.
+  setDebugCameraInput(input: DebugCameraInput): void;
   // Returns validated debug status for UI, smoke tests, and diagnostics.
   debugStatus(): RuntimeDebugStatus;
   // Releases runtime resources and makes later calls fail clearly.
@@ -36,6 +49,17 @@ export interface RawBrowserGame {
   resize(width: number, height: number, devicePixelRatio: number): void;
   // Advances the C++ runtime by one frame timestamp.
   frame(timeMs: number): void;
+  // Forwards raw debug fly-camera input to the C++ runtime.
+  set_debug_camera_input(
+    moveX: number,
+    moveY: number,
+    moveZ: number,
+    lookDeltaX: number,
+    lookDeltaY: number,
+    lookActive: boolean,
+    fast: boolean,
+    slow: boolean
+  ): void;
   // Returns the raw debug-status JSON string from C++.
   debug_status_json(): string;
   // Releases WebGPU resources owned by the C++ runtime.
@@ -112,6 +136,22 @@ class CppBrowserGameRuntime implements BrowserGameRuntime {
     this.#game.frame(timeMs);
   }
 
+  // Validates and forwards raw debug camera input only while the wrapper is live.
+  setDebugCameraInput(input: DebugCameraInput): void {
+    this.#assertLive();
+    validateDebugCameraInput(input);
+    this.#game.set_debug_camera_input(
+      input.moveX,
+      input.moveY,
+      input.moveZ,
+      input.lookDeltaX,
+      input.lookDeltaY,
+      input.lookActive,
+      input.fast,
+      input.slow
+    );
+  }
+
   // Parses the C++ debug-status JSON through the shared validator.
   debugStatus(): RuntimeDebugStatus {
     this.#assertLive();
@@ -133,6 +173,22 @@ class CppBrowserGameRuntime implements BrowserGameRuntime {
     if (this.#disposed) {
       throw new Error("Browser game runtime has been disposed.");
     }
+  }
+}
+
+// Validates finite scalar input before crossing the Embind boundary.
+function validateDebugCameraInput(input: DebugCameraInput): void {
+  requireFiniteDebugNumber(input.moveX, "moveX");
+  requireFiniteDebugNumber(input.moveY, "moveY");
+  requireFiniteDebugNumber(input.moveZ, "moveZ");
+  requireFiniteDebugNumber(input.lookDeltaX, "lookDeltaX");
+  requireFiniteDebugNumber(input.lookDeltaY, "lookDeltaY");
+}
+
+// Requires a debug input number to be finite.
+function requireFiniteDebugNumber(value: number, key: keyof DebugCameraInput): void {
+  if (!Number.isFinite(value)) {
+    throw new Error(`Debug camera input field ${key} must be a finite number.`);
   }
 }
 

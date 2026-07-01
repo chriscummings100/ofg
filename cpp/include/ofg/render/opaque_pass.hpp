@@ -6,7 +6,7 @@
 
 #include "ofg/game/gpu_context.hpp"
 #include "ofg/game/render_target.hpp"
-#include "ofg/render/camera.hpp"
+#include "ofg/render/camera_properties.hpp"
 #include "ofg/render/draw_list.hpp"
 #include "ofg/render/pipeline_cache.hpp"
 
@@ -37,7 +37,8 @@ public:
     // Resizes or releases the pass depth target.
     void resize(std::uint32_t width, std::uint32_t height);
     // Encodes opaque draws into the caller-owned command encoder.
-    void render(WGPUCommandEncoder encoder, RenderTarget target, const RenderView& view, const DrawList& draw_list);
+    void render(
+        WGPUCommandEncoder encoder, RenderTarget target, const CameraProperties& camera, const DrawList& draw_list);
     // Reports durable renderer resource counters.
     [[nodiscard]] RendererCounters counters() const noexcept;
 

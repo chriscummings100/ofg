@@ -7,6 +7,7 @@
 #include "webgpu_test_utils.hpp"
 
 #include "ofg/core/engine_error.hpp"
+#include "ofg/game/debug_camera_controller.hpp"
 #include "ofg/game/game.hpp"
 #include "ofg/game/gpu_context.hpp"
 #include "ofg/game/render_target.hpp"
@@ -261,6 +262,32 @@ TEST_CASE("Game records recoverable and GPU errors") {
     REQUIRE(ofg::Game::status().m_last_error.has_value());
     CHECK(*ofg::Game::status().m_last_error == "device lost");
     CHECK(ofg::Game::state() == ofg::GameLifecycleState::Failed);
+}
+
+// Verifies debug camera input follows the Game singleton lifecycle.
+TEST_CASE("Game debug camera input validates lifecycle and finite values") {
+    GameGuard guard;
+
+    CHECK_THROWS_WITH_AS(ofg::Game::set_debug_camera_input(ofg::DebugCameraInput{}),
+        doctest::Contains("requires Game::create"),
+        ofg::EngineError);
+
+    ofg::Game::create(ofg::GpuContext{fake_device(), fake_queue(), "fake adapter", "TestBackend"}, _test_format);
+    ofg::DebugCameraInput input;
+    input.move_z = 1.0f;
+    CHECK_NOTHROW(ofg::Game::set_debug_camera_input(input));
+
+    input.move_x = std::numeric_limits<float>::infinity();
+    CHECK_THROWS_WITH_AS(ofg::Game::set_debug_camera_input(input), doctest::Contains("finite"), ofg::EngineError);
+
+    ofg::Game::record_gpu_error("failed for debug input test");
+    CHECK_THROWS_WITH_AS(
+        ofg::Game::set_debug_camera_input(ofg::DebugCameraInput{}), doctest::Contains("failed"), ofg::EngineError);
+
+    CHECK(ofg::Game::release());
+    CHECK_THROWS_WITH_AS(ofg::Game::set_debug_camera_input(ofg::DebugCameraInput{}),
+        doctest::Contains("after Game release"),
+        ofg::EngineError);
 }
 
 // Verifies invalid runtime inputs throw and update debug status.

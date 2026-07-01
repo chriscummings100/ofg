@@ -44,6 +44,61 @@ std::optional<std::uint32_t> parse_dimension(const char* label, double value, st
     return static_cast<std::uint32_t>(value);
 }
 
+// Converts a JavaScript debug-input number into a finite float.
+std::optional<float> parse_debug_input_float(const char* label, double value, std::string& error) {
+    if (!std::isfinite(value) || value < -static_cast<double>(std::numeric_limits<float>::max()) ||
+        value > static_cast<double>(std::numeric_limits<float>::max())) {
+        std::ostringstream out;
+        out << label << " must be a finite float, got " << value << ".";
+        error = out.str();
+        return std::nullopt;
+    }
+    return static_cast<float>(value);
+}
+
+// Converts scalar Embind debug input into the C++ snapshot type.
+std::optional<DebugCameraInput> parse_debug_camera_input(double move_x,
+    double move_y,
+    double move_z,
+    double look_delta_x,
+    double look_delta_y,
+    bool look_active,
+    bool fast,
+    bool slow,
+    std::string& error) {
+    const std::optional<float> parsed_move_x = parse_debug_input_float("Debug camera move_x", move_x, error);
+    if (!parsed_move_x.has_value()) {
+        return std::nullopt;
+    }
+    const std::optional<float> parsed_move_y = parse_debug_input_float("Debug camera move_y", move_y, error);
+    if (!parsed_move_y.has_value()) {
+        return std::nullopt;
+    }
+    const std::optional<float> parsed_move_z = parse_debug_input_float("Debug camera move_z", move_z, error);
+    if (!parsed_move_z.has_value()) {
+        return std::nullopt;
+    }
+    const std::optional<float> parsed_look_delta_x =
+        parse_debug_input_float("Debug camera look_delta_x", look_delta_x, error);
+    if (!parsed_look_delta_x.has_value()) {
+        return std::nullopt;
+    }
+    const std::optional<float> parsed_look_delta_y =
+        parse_debug_input_float("Debug camera look_delta_y", look_delta_y, error);
+    if (!parsed_look_delta_y.has_value()) {
+        return std::nullopt;
+    }
+
+    return DebugCameraInput{*parsed_move_x,
+        *parsed_move_y,
+        *parsed_move_z,
+        *parsed_look_delta_x,
+        *parsed_look_delta_y,
+        look_active,
+        fast,
+        slow};
+}
+
 // Reclaims callback heap context exactly once when Emdawn invokes a callback.
 std::unique_ptr<BrowserGameWebGpuCallbackContext> consume_context(void* context) {
     return std::unique_ptr<BrowserGameWebGpuCallbackContext>(static_cast<BrowserGameWebGpuCallbackContext*>(context));
@@ -159,6 +214,36 @@ void BrowserGame::frame(double time_ms) {
         record_error(error.what());
     } catch (...) {
         record_error("BrowserGame::frame failed with an unknown exception.");
+    }
+}
+
+// Accepts raw debug fly-camera input from the TypeScript host.
+void BrowserGame::set_debug_camera_input(double move_x,
+    double move_y,
+    double move_z,
+    double look_delta_x,
+    double look_delta_y,
+    bool look_active,
+    bool fast,
+    bool slow) {
+    try {
+        if (m_disposed) {
+            record_error("Browser game runtime has been disposed.");
+            return;
+        }
+
+        std::string error;
+        const std::optional<DebugCameraInput> input = parse_debug_camera_input(
+            move_x, move_y, move_z, look_delta_x, look_delta_y, look_active, fast, slow, error);
+        if (!input.has_value()) {
+            record_error(error);
+            return;
+        }
+        accept_debug_camera_input(*input);
+    } catch (const std::exception& error) {
+        record_error(error.what());
+    } catch (...) {
+        record_error("BrowserGame::set_debug_camera_input failed with an unknown exception.");
     }
 }
 
@@ -308,6 +393,9 @@ void BrowserGame::on_device_request(WGPURequestDeviceStatus status, WGPUDevice d
     Game::create(
         GpuContext{m_device, m_queue, webgpu::adapter_name_from_info(m_adapter), "BrowserWebGpu"}, m_surface_format);
     m_game_active = true;
+    if (m_has_pending_debug_camera_input) {
+        Game::set_debug_camera_input(m_pending_debug_camera_input);
+    }
 
     if (apply_pending_resize_to_game()) {
         configure_surface_if_ready();
@@ -521,6 +609,15 @@ void BrowserGame::tick_setup_status(double time_ms) {
     m_setup_frame_state.tick(time_ms);
     m_setup_status.m_frame_count = m_setup_frame_state.frame_count();
     m_setup_status.m_last_error.reset();
+}
+
+// Stores or forwards the latest sanitized debug camera input.
+void BrowserGame::accept_debug_camera_input(DebugCameraInput input) {
+    m_pending_debug_camera_input = input;
+    m_has_pending_debug_camera_input = true;
+    if (m_game_active) {
+        Game::set_debug_camera_input(input);
+    }
 }
 
 // Records a setup-phase recoverable error.

@@ -6,6 +6,7 @@
 #include "ofg/math/quat.hpp"
 #include "ofg/math/transform.hpp"
 #include "ofg/math/vec.hpp"
+#include "ofg/scene/camera.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -21,10 +22,11 @@ Scene::Scene() {
 
 // Moves scene storage and rebinds moved entity owner pointers.
 Scene::Scene(Scene&& other) noexcept
-    : m_main_view(other.m_main_view), m_entities(std::move(other.m_entities)),
-      m_mesh_renderers(std::move(other.m_mesh_renderers)), m_root(other.m_root),
+    : m_entities(std::move(other.m_entities)), m_mesh_renderers(std::move(other.m_mesh_renderers)),
+      m_cameras(std::move(other.m_cameras)), m_main_camera(other.m_main_camera), m_root(other.m_root),
       m_next_entity_id(other.m_next_entity_id), m_generation(other.m_generation) {
     rebind_entities_after_move();
+    other.m_main_camera = nullptr;
     other.m_root = nullptr;
     other.m_next_entity_id = 0;
 }
@@ -34,13 +36,15 @@ Scene& Scene::operator=(Scene&& other) noexcept {
     if (this == &other) {
         return *this;
     }
-    m_main_view = other.m_main_view;
     m_entities = std::move(other.m_entities);
     m_mesh_renderers = std::move(other.m_mesh_renderers);
+    m_cameras = std::move(other.m_cameras);
+    m_main_camera = other.m_main_camera;
     m_root = other.m_root;
     m_next_entity_id = other.m_next_entity_id;
     m_generation = other.m_generation;
     rebind_entities_after_move();
+    other.m_main_camera = nullptr;
     other.m_root = nullptr;
     other.m_next_entity_id = 0;
     return *this;
@@ -112,28 +116,64 @@ const MeshRenderer* Scene::get_mesh_renderer(std::size_t index) const noexcept {
     return m_mesh_renderers[index].get();
 }
 
+// Reports the number of camera components in creation order.
+std::size_t Scene::camera_count() const noexcept {
+    return m_cameras.size();
+}
+
+// Returns one camera by creation-order index.
+Camera* Scene::get_camera(std::size_t index) noexcept {
+    if (index >= m_cameras.size()) {
+        return nullptr;
+    }
+    return m_cameras[index].get();
+}
+
+// Returns one camera by creation-order index.
+const Camera* Scene::get_camera(std::size_t index) const noexcept {
+    if (index >= m_cameras.size()) {
+        return nullptr;
+    }
+    return m_cameras[index].get();
+}
+
+// Returns the explicit main camera or the first camera when none is selected.
+Camera* Scene::main_camera() noexcept {
+    if (m_main_camera != nullptr) {
+        return m_main_camera;
+    }
+    return m_cameras.empty() ? nullptr : m_cameras.front().get();
+}
+
+// Returns the explicit main camera or the first camera when none is selected.
+const Camera* Scene::main_camera() const noexcept {
+    if (m_main_camera != nullptr) {
+        return m_main_camera;
+    }
+    return m_cameras.empty() ? nullptr : m_cameras.front().get();
+}
+
+// Replaces the explicit main camera selection, or clears it for first-camera fallback.
+void Scene::set_main_camera(Camera* camera) {
+    if (camera != nullptr && !contains_current_camera(camera)) {
+        throw EngineError("Scene::set_main_camera requires a camera from the same scene.");
+    }
+    m_main_camera = camera;
+}
+
 // Returns the generation token invalidated by clear().
 std::uint32_t Scene::generation() const noexcept {
     return m_generation;
 }
 
-// Returns the scene's main render view.
-const RenderView& Scene::main_view() const noexcept {
-    return m_main_view;
-}
-
-// Replaces the scene's main render view.
-void Scene::set_main_view(RenderView main_view) noexcept {
-    m_main_view = main_view;
-}
-
 // Clears all entities/components and creates a fresh root.
 void Scene::clear() {
+    m_main_camera = nullptr;
+    m_cameras.clear();
     m_mesh_renderers.clear();
     m_entities.clear();
     m_root = nullptr;
     m_next_entity_id = 0;
-    m_main_view = render_view_from_matrix(math::mat4_identity());
     m_generation += 1;
     create_root_entity();
 }
@@ -152,6 +192,13 @@ Component* Scene::create_component(Entity& entity, ComponentType type) {
         m_mesh_renderers.push_back(std::make_unique<MeshRenderer>(&entity));
         entity.m_mesh_renderer = m_mesh_renderers.back().get();
         return entity.m_mesh_renderer;
+    case ComponentType::Camera:
+        if (entity.m_camera != nullptr) {
+            throw EngineError("Entity already has a Camera component.");
+        }
+        m_cameras.push_back(std::make_unique<Camera>(&entity));
+        entity.m_camera = m_cameras.back().get();
+        return entity.m_camera;
     }
 
     throw EngineError("Scene cannot create an unknown component type.");
@@ -164,6 +211,19 @@ bool Scene::contains_current_entity(const Entity* entity) const noexcept {
     }
     const Entity* current = get_entity(entity->m_id);
     return current == entity;
+}
+
+// Returns whether a camera pointer belongs to current scene-owned storage.
+bool Scene::contains_current_camera(const Camera* camera) const noexcept {
+    if (camera == nullptr) {
+        return false;
+    }
+    for (const std::unique_ptr<Camera>& current : m_cameras) {
+        if (current.get() == camera) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // Creates the root entity for the current generation.

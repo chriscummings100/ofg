@@ -3,6 +3,7 @@
 
 #include "ofg/core/engine_error.hpp"
 #include "ofg/math/mat.hpp"
+#include "ofg/math/quat.hpp"
 #include "ofg/math/transform.hpp"
 #include "ofg/math/vec.hpp"
 #include "ofg/resources/material.hpp"
@@ -11,6 +12,7 @@
 #include "ofg/resources/resources.hpp"
 #include "ofg/resources/shader.hpp"
 #include "ofg/resources/texture.hpp"
+#include "ofg/scene/camera.hpp"
 #include "ofg/scene/scene.hpp"
 
 #include "shaders/opaque_uber.wgsl.hpp"
@@ -30,6 +32,9 @@ namespace {
 
 constexpr std::uint32_t _checker_size = 64;
 constexpr float _pi = 3.14159265358979323846f;
+constexpr float _demo_camera_vertical_fov_radians = 55.0f * _pi / 180.0f;
+constexpr float _demo_camera_near_z = 0.1f;
+constexpr float _demo_camera_far_z = 80.0f;
 
 struct CubePlacement {
     math::Vec3 m_position;
@@ -142,6 +147,21 @@ std::array<CubePlacement, 4> cube_placements() noexcept {
     }};
 }
 
+// Returns the default camera eye used by the browser and native smoke views.
+math::Vec3 demo_camera_eye() noexcept {
+    return math::vec3(6.2f, 4.4f, 7.6f);
+}
+
+// Returns the default camera target used by the browser and native smoke views.
+math::Vec3 demo_camera_target() noexcept {
+    return math::vec3(0.0f, 0.55f, 0.0f);
+}
+
+// Returns the default camera up direction used by the browser and native smoke views.
+math::Vec3 demo_camera_up() noexcept {
+    return math::vec3(0.0f, 1.0f, 0.0f);
+}
+
 // Returns the requested Y-axis rotation or throws a clear scene-update error.
 math::Quat cube_rotation(float radians) {
     std::string error;
@@ -152,6 +172,15 @@ math::Quat cube_rotation(float radians) {
     return *rotation;
 }
 
+// Creates a camera component on an entity or reports an impossible component mismatch.
+Camera& create_camera(Entity& entity) {
+    Component* component = entity.create_component(ComponentType::Camera);
+    if (component == nullptr || component->type() != ComponentType::Camera || entity.camera() == nullptr) {
+        throw EngineError("Demo scene failed to create a Camera component.");
+    }
+    return *entity.camera();
+}
+
 // Creates a mesh renderer on an entity or reports an impossible component mismatch.
 MeshRenderer& create_mesh_renderer(Entity& entity) {
     Component* component = entity.create_component(ComponentType::MeshRenderer);
@@ -159,6 +188,22 @@ MeshRenderer& create_mesh_renderer(Entity& entity) {
         throw EngineError("Demo scene failed to create a MeshRenderer component.");
     }
     return *entity.mesh_renderer();
+}
+
+// Configures the default camera entity so no-input visuals match the legacy look-at view.
+void configure_demo_camera(Entity& entity) {
+    std::string error;
+    std::optional<math::Quat> rotation =
+        math::quat_look_at_rh(demo_camera_eye(), demo_camera_target(), demo_camera_up(), error);
+    if (!rotation.has_value()) {
+        throw EngineError(error.empty() ? "Demo scene camera rotation creation failed." : error);
+    }
+
+    entity.local_transform() = LocalTransform{};
+    entity.local_transform().m_position = demo_camera_eye();
+    entity.local_transform().m_rotation = *rotation;
+    Camera& camera = create_camera(entity);
+    camera.set_perspective(_demo_camera_vertical_fov_radians, _demo_camera_near_z, _demo_camera_far_z);
 }
 
 // Validates resources that must exist before scene entity setup or update.
@@ -244,7 +289,7 @@ void build_demo_scene(DemoScene& scene) {
     scene.m_cube_mesh->init(std::move(cube_vertices), std::move(cube_indices), std::move(cube_submeshes));
 }
 
-// Creates stable floor/cube entities and mesh-renderer components.
+// Creates a stable camera, floor/cube entities, and mesh-renderer components.
 void setup_demo_scene(DemoScene& demo_scene, Scene& scene) {
     validate_demo_resources(demo_scene);
 
@@ -253,6 +298,9 @@ void setup_demo_scene(DemoScene& demo_scene, Scene& scene) {
     demo_scene.m_scene_generation = scene.generation();
 
     Entity* root = scene.get_root();
+    Entity* camera_entity = scene.create_entity(root);
+    configure_demo_camera(*camera_entity);
+
     demo_scene.m_ground_entity = scene.create_entity(root);
     demo_scene.m_ground_renderer = &create_mesh_renderer(*demo_scene.m_ground_entity);
     demo_scene.m_ground_renderer->set_mesh(demo_scene.m_ground_mesh);
@@ -268,27 +316,14 @@ void setup_demo_scene(DemoScene& demo_scene, Scene& scene) {
     }
 }
 
-// Mutates entity transforms and camera state for one deterministic animation time.
-void update_demo_scene(const DemoScene& demo_scene, double time_ms, float aspect, Scene& scene) {
+// Mutates entity transforms for one deterministic animation time.
+void update_demo_scene(const DemoScene& demo_scene, double time_ms, Scene& scene) {
     validate_demo_resources(demo_scene);
     validate_demo_bindings(demo_scene, scene);
-    if (!std::isfinite(time_ms) || !std::isfinite(aspect) || aspect <= 0.0f) {
-        throw EngineError("Demo scene update requires finite time and positive aspect.");
+    if (!std::isfinite(time_ms)) {
+        throw EngineError("Demo scene update requires finite time.");
     }
 
-    // Camera state is recomputed from aspect so browser and native paths match after resize.
-    std::string error;
-    std::optional<math::Mat4> view = math::look_at_rh(
-        math::vec3(6.2f, 4.4f, 7.6f), math::vec3(0.0f, 0.55f, 0.0f), math::vec3(0.0f, 1.0f, 0.0f), error);
-    if (!view.has_value()) {
-        throw EngineError(error.empty() ? "Demo scene camera view creation failed." : error);
-    }
-    std::optional<math::Mat4> projection = math::perspective_rh(55.0f * _pi / 180.0f, aspect, 0.1f, 80.0f, error);
-    if (!projection.has_value()) {
-        throw EngineError(error.empty() ? "Demo scene camera projection creation failed." : error);
-    }
-
-    scene.set_main_view(render_view_from_matrix(math::mul(*projection, *view)));
     demo_scene.m_ground_entity->local_transform() = LocalTransform{};
 
     // The animation updates only entity transforms; resource objects remain stable.

@@ -2,7 +2,7 @@
 //
 // DemoScene owns no resources itself. It stores non-owning pointers into
 // Resources-owned assets plus cached entity/component bindings for the active
-// Game-owned Scene. update_demo_scene mutates camera state and local transforms.
+// Game-owned Scene. update_demo_scene mutates animated local transforms.
 #pragma once
 
 #include "ofg/resources/shader.hpp"
@@ -40,11 +40,11 @@ struct DemoScene {
 // Creates generated textures, materials, meshes, and shader resources.
 void build_demo_scene(DemoScene& scene);
 
-// Creates stable floor/cube entities and mesh-renderer components.
+// Creates a stable camera, floor/cube entities, and mesh-renderer components.
 void setup_demo_scene(DemoScene& demo_scene, Scene& scene);
 
-// Mutates camera state and entity transforms for one deterministic animation time.
-void update_demo_scene(const DemoScene& demo_scene, double time_ms, float aspect, Scene& scene);
+// Mutates entity transforms for one deterministic animation time.
+void update_demo_scene(const DemoScene& demo_scene, double time_ms, Scene& scene);
 
 // Returns the stable timestamp used by browser-free native visual smoke.
 [[nodiscard]] double demo_native_smoke_time_ms() noexcept;

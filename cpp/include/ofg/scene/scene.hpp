@@ -6,7 +6,7 @@
 #pragma once
 
 #include "ofg/math/mat.hpp"
-#include "ofg/render/camera.hpp"
+#include "ofg/scene/camera.hpp"
 #include "ofg/scene/entity.hpp"
 #include "ofg/scene/mesh_renderer.hpp"
 
@@ -45,13 +45,21 @@ public:
     [[nodiscard]] MeshRenderer* get_mesh_renderer(std::size_t index) noexcept;
     // Returns one mesh renderer by creation-order index.
     [[nodiscard]] const MeshRenderer* get_mesh_renderer(std::size_t index) const noexcept;
+    // Reports the number of camera components in creation order.
+    [[nodiscard]] std::size_t camera_count() const noexcept;
+    // Returns one camera by creation-order index.
+    [[nodiscard]] Camera* get_camera(std::size_t index) noexcept;
+    // Returns one camera by creation-order index.
+    [[nodiscard]] const Camera* get_camera(std::size_t index) const noexcept;
+    // Returns the explicit main camera or the first camera when none is selected.
+    [[nodiscard]] Camera* main_camera() noexcept;
+    // Returns the explicit main camera or the first camera when none is selected.
+    [[nodiscard]] const Camera* main_camera() const noexcept;
+    // Replaces the explicit main camera selection, or clears it for first-camera fallback.
+    void set_main_camera(Camera* camera);
     // Returns the generation token invalidated by clear().
     [[nodiscard]] std::uint32_t generation() const noexcept;
 
-    // Returns the scene's main render view.
-    [[nodiscard]] const RenderView& main_view() const noexcept;
-    // Replaces the scene's main render view.
-    void set_main_view(RenderView main_view) noexcept;
     // Clears all entities/components and creates a fresh root.
     void clear();
 
@@ -62,14 +70,17 @@ private:
     [[nodiscard]] Component* create_component(Entity& entity, ComponentType type);
     // Returns whether an entity pointer belongs to the current scene generation.
     [[nodiscard]] bool contains_current_entity(const Entity* entity) const noexcept;
+    // Returns whether a camera pointer belongs to current scene-owned storage.
+    [[nodiscard]] bool contains_current_camera(const Camera* camera) const noexcept;
     // Creates the root entity for the current generation.
     void create_root_entity();
     // Rebinds moved entity owner pointers to this scene.
     void rebind_entities_after_move() noexcept;
 
-    RenderView m_main_view{render_view_from_matrix(math::mat4_identity())};
     std::vector<std::unique_ptr<Entity>> m_entities;
     std::vector<std::unique_ptr<MeshRenderer>> m_mesh_renderers;
+    std::vector<std::unique_ptr<Camera>> m_cameras;
+    Camera* m_main_camera{nullptr};
     Entity* m_root{nullptr};
     EntityId m_next_entity_id{0};
     std::uint32_t m_generation{0};

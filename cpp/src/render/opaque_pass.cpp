@@ -2,9 +2,9 @@
 #include "ofg/render/opaque_pass.hpp"
 
 #include "ofg/core/engine_error.hpp"
+#include "ofg/gpu/common.hpp"
 #include "ofg/math/mat.hpp"
 #include "ofg/render/bootstrap_scene.hpp"
-#include "ofg/gpu/common.hpp"
 #include "ofg/resources/material.hpp"
 #include "ofg/resources/mesh.hpp"
 #include "ofg/resources/shader.hpp"
@@ -213,7 +213,7 @@ void OpaquePass::resize(std::uint32_t width, std::uint32_t height) {
 
 // Encodes opaque draws into the caller-owned command encoder.
 void OpaquePass::render(
-    WGPUCommandEncoder encoder, RenderTarget target, const RenderView& view, const DrawList& draw_list) {
+    WGPUCommandEncoder encoder, RenderTarget target, const CameraProperties& camera, const DrawList& draw_list) {
     if (encoder == nullptr || target.m_view == nullptr) {
         throw EngineError("OpaquePass render requires an encoder and texture view.");
     }
@@ -221,7 +221,7 @@ void OpaquePass::render(
     prepare(draw_list);
     ensure_draw_capacity(static_cast<std::uint32_t>(draw_list.size()));
 
-    write_mat4(m_gpu.m_queue, m_frame_buffer, 0, view.m_view_projection);
+    write_mat4(m_gpu.m_queue, m_frame_buffer, 0, camera.clip_from_world);
     std::uint32_t draw_index = 0;
     for (const DrawCommand& command : draw_list.commands()) {
         write_mat4(m_gpu.m_queue,

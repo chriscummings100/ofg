@@ -4,6 +4,7 @@
 // frame state, WebGPU resources, and draw submission.
 
 import { createCanvasHost } from "./canvasHost.js";
+import { createDebugInputCollector, type DebugInputCollector } from "./debugInput.js";
 import {
   createBrowserGameRuntime,
   type BrowserGameRuntime,
@@ -23,6 +24,7 @@ async function main(): Promise<void> {
   try {
     const host = createCanvasHost();
     const runtime = await createBrowserGameRuntime(host.canvas);
+    const debugInput = createDebugInputCollector(host.canvas);
     runtime.resize(
       host.size.physicalWidth,
       host.size.physicalHeight,
@@ -30,7 +32,13 @@ async function main(): Promise<void> {
     );
 
     window.__ofgDebugStatus = () => runtime.debugStatus();
-    requestAnimationFrame((timeMs) => renderFrame(host, runtime, status, timeMs));
+    window.addEventListener("beforeunload", () => {
+      debugInput.dispose();
+      runtime.dispose();
+    });
+    requestAnimationFrame((timeMs) =>
+      renderFrame(host, runtime, debugInput, status, timeMs)
+    );
   } catch (error) {
     statusMessage(status, error instanceof Error ? error.message : String(error));
   }
@@ -40,6 +48,7 @@ async function main(): Promise<void> {
 function renderFrame(
   host: ReturnType<typeof createCanvasHost>,
   runtime: BrowserGameRuntime,
+  debugInput: DebugInputCollector,
   status: HTMLElement | null,
   timeMs: number
 ): void {
@@ -48,6 +57,7 @@ function renderFrame(
     if (size.changed) {
       runtime.resize(size.physicalWidth, size.physicalHeight, size.devicePixelRatio);
     }
+    runtime.setDebugCameraInput(debugInput.consumeSnapshot());
     runtime.frame(timeMs);
     const debugStatus = runtime.debugStatus();
     statusMessage(
@@ -58,7 +68,9 @@ function renderFrame(
     statusMessage(status, error instanceof Error ? error.message : String(error));
   }
 
-  requestAnimationFrame((nextTimeMs) => renderFrame(host, runtime, status, nextTimeMs));
+  requestAnimationFrame((nextTimeMs) =>
+    renderFrame(host, runtime, debugInput, status, nextTimeMs)
+  );
 }
 
 // Writes transient runtime status text when the status element exists.

@@ -6,7 +6,6 @@
 #include "ofg/game/render_target.hpp"
 #include "ofg/math/mat.hpp"
 #include "ofg/math/vec.hpp"
-#include "ofg/render/camera.hpp"
 #include "ofg/render/draw_list.hpp"
 #include "ofg/render/renderer.hpp"
 #include "ofg/gpu/common.hpp"
@@ -232,6 +231,15 @@ void add_scene_object(RenderScene& scene) {
     entity->mesh_renderer()->set_mesh(scene.m_mesh);
 }
 
+// Adds the default scene camera required by renderer pass submission.
+void add_scene_camera(ofg::Scene& scene) {
+    ofg::Entity* camera_entity = scene.create_entity(scene.get_root());
+    REQUIRE(camera_entity != nullptr);
+    ofg::Component* component = camera_entity->create_component(ofg::ComponentType::Camera);
+    REQUIRE(component != nullptr);
+    REQUIRE(camera_entity->camera() != nullptr);
+}
+
 // Builds resources with independently selectable GPU-ready mesh/material state.
 RenderScene make_render_scene_with_modes(
     ofg::GpuContext shader_gpu, ofg::GpuContext material_gpu, ofg::GpuContext mesh_gpu) {
@@ -257,7 +265,7 @@ RenderScene make_render_scene_with_modes(
     mesh.init(triangle_vertices(), std::move(indices), submeshes);
     scene.m_mesh = &scene.m_resources.add_mesh(std::move(mesh));
 
-    scene.m_scene.set_main_view(ofg::render_view_from_matrix(ofg::math::mat4_identity()));
+    add_scene_camera(scene.m_scene);
     add_scene_object(scene);
     add_scene_object(scene);
     return scene;
@@ -271,7 +279,7 @@ RenderScene make_render_scene(ofg::GpuContext gpu) {
 // Builds a one-object scene against scene-owned resources.
 ofg::Scene make_one_object_scene(RenderScene& scene) {
     ofg::Scene one_object_scene;
-    one_object_scene.set_main_view(scene.m_scene.main_view());
+    add_scene_camera(one_object_scene);
     ofg::Entity* entity = one_object_scene.create_entity(one_object_scene.get_root());
     REQUIRE(entity != nullptr);
     ofg::Component* component = entity->create_component(ofg::ComponentType::MeshRenderer);
@@ -392,7 +400,7 @@ TEST_CASE("renderer rejects invalid lifecycle and render inputs") {
     ScopedTextureView view = make_render_target_view(gpu.borrowed_context(), texture);
     ScopedCommandEncoder encoder = make_encoder(gpu.borrowed_context());
     ofg::Scene invalid_scene;
-    invalid_scene.set_main_view(scene.m_scene.main_view());
+    add_scene_camera(invalid_scene);
     ofg::Entity* invalid_entity = invalid_scene.create_entity(invalid_scene.get_root());
     REQUIRE(invalid_entity != nullptr);
     (void)invalid_entity->create_component(ofg::ComponentType::MeshRenderer);
@@ -400,6 +408,13 @@ TEST_CASE("renderer rejects invalid lifecycle and render inputs") {
         ofg::Renderer::render(encoder.m_value, ofg::RenderTarget{view.m_value, _test_format, 32, 32}, invalid_scene);
     }()),
         doctest::Contains("mesh"),
+        ofg::EngineError);
+
+    ofg::Scene no_camera_scene;
+    CHECK_THROWS_WITH_AS(([&]() {
+        ofg::Renderer::render(encoder.m_value, ofg::RenderTarget{view.m_value, _test_format, 32, 32}, no_camera_scene);
+    }()),
+        doctest::Contains("scene camera"),
         ofg::EngineError);
 
     CHECK(ofg::Renderer::release());

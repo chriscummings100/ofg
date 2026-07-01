@@ -4,6 +4,8 @@
 #include "ofg/core/engine_error.hpp"
 #include "ofg/gpu/common.hpp"
 #include "ofg/math/vec.hpp"
+#include "ofg/render/camera_properties.hpp"
+#include "ofg/scene/camera.hpp"
 #include "ofg/scene/scene.hpp"
 
 #include <cstdint>
@@ -191,9 +193,22 @@ void Renderer::render_impl(WGPUCommandEncoder encoder, RenderTarget target, cons
     if (m_passes.empty()) {
         throw EngineError("Renderer has no prepared passes.");
     }
+    if (encoder == nullptr || target.m_view == nullptr) {
+        throw EngineError("Renderer render requires an encoder and texture view.");
+    }
+    if (target.m_width == 0 || target.m_height == 0) {
+        throw EngineError("Renderer render target dimensions must be nonzero.");
+    }
+    const Camera* camera = scene.main_camera();
+    if (camera == nullptr) {
+        throw EngineError("Renderer render requires a scene camera.");
+    }
+    const float aspect = static_cast<float>(target.m_width) / static_cast<float>(target.m_height);
+    const CameraProperties camera_properties = camera->camera_properties(aspect);
+
     build_draw_list_from_scene(scene, m_draw_list);
     for (std::unique_ptr<OpaquePass>& pass : m_passes) {
-        pass->render(encoder, target, scene.main_view(), m_draw_list);
+        pass->render(encoder, target, camera_properties, m_draw_list);
     }
 }
 
