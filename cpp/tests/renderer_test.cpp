@@ -349,10 +349,10 @@ TEST_CASE("renderer static lifecycle prepares pass resources") {
     REQUIRE(ofg::Renderer::prepare());
     CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Ready);
     CHECK(ofg::Renderer::counters().m_pipeline_create_count == 0);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 1);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 2);
 
     REQUIRE(ofg::Renderer::prepare());
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 1);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 2);
     CHECK(ofg::Renderer::release());
     CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Released);
     CHECK(ofg::Renderer::release());
@@ -496,7 +496,7 @@ TEST_CASE("renderer records scene mesh renderers into render targets without ste
     wgpuQueueSubmit(gpu.borrowed_context().m_queue, 1, &command.m_value);
 
     CHECK(ofg::Renderer::counters().m_pipeline_create_count == 1);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 1);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 3);
 
     ScopedTexture second_texture;
     ScopedTextureView second_view = make_render_target_view(gpu.borrowed_context(), second_texture);
@@ -506,6 +506,6 @@ TEST_CASE("renderer records scene mesh renderers into render targets without ste
         second_encoder.m_value, ofg::RenderTarget{second_view.m_value, _test_format, 32, 32}, one_command_scene));
 
     CHECK(ofg::Renderer::counters().m_pipeline_create_count == 1);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 1);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 3);
     CHECK_NOTHROW(ofg::Renderer::resize(0, 0));
 }

@@ -156,6 +156,7 @@ std::unique_ptr<OpaquePass> OpaquePass::create(GpuContext gpu, WGPUTextureFormat
     pass->m_frame_buffer = create_uniform_buffer(gpu.m_device, "OFG opaque frame uniforms", _matrix_uniform_bytes);
     pass->m_draw_layout = create_uniform_layout(gpu.m_device, "OFG opaque draw layout", true);
     pass->m_draw_buffer = create_uniform_buffer(gpu.m_device, "OFG opaque draw uniforms", _draw_uniform_stride);
+    pass->m_buffer_create_count = 2;
 
     pass->m_frame_bind_group = create_uniform_bind_group(
         gpu.m_device, "OFG opaque frame bind group", pass->m_frame_layout, pass->m_frame_buffer);
@@ -290,7 +291,7 @@ void OpaquePass::render(
 // Reports durable renderer resource counters.
 RendererCounters OpaquePass::counters() const noexcept {
     const PipelineCacheCounters pipeline_counters = m_pipeline_cache.counters();
-    return RendererCounters{pipeline_counters.m_pipeline_create_count, 1};
+    return RendererCounters{pipeline_counters.m_pipeline_create_count, m_buffer_create_count};
 }
 
 // Recreates the dynamic draw uniform buffer for a larger command count.
@@ -306,6 +307,7 @@ void OpaquePass::ensure_draw_capacity(std::uint32_t draw_count) {
 
     WGPUBuffer next_buffer = create_uniform_buffer(
         m_gpu.m_device, "OFG opaque draw uniforms", static_cast<std::uint64_t>(next_capacity) * _draw_uniform_stride);
+    m_buffer_create_count += 1;
     WGPUBindGroup next_bind_group = nullptr;
     try {
         next_bind_group =

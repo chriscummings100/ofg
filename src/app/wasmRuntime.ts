@@ -14,13 +14,14 @@ export interface RuntimeDebugStatus {
   readonly surfaceFormat: string;
   readonly adapterName: string;
   readonly backend: string;
+  readonly cameraMode: string;
   readonly pipelineCreateCount: number;
   readonly bufferCreateCount: number;
   readonly surfaceConfigureCount: number;
   readonly lastError: string | null;
 }
 
-export interface DebugCameraInput {
+export interface ControlInput {
   readonly moveX: number;
   readonly moveY: number;
   readonly moveZ: number;
@@ -29,6 +30,7 @@ export interface DebugCameraInput {
   readonly lookActive: boolean;
   readonly fast: boolean;
   readonly slow: boolean;
+  readonly cycleCameraMode: boolean;
 }
 
 export interface BrowserGameRuntime {
@@ -36,8 +38,8 @@ export interface BrowserGameRuntime {
   resize(width: number, height: number, devicePixelRatio: number): void;
   // Advances the runtime by one requestAnimationFrame timestamp.
   frame(timeMs: number): void;
-  // Forwards one raw debug fly-camera input snapshot.
-  setDebugCameraInput(input: DebugCameraInput): void;
+  // Forwards one raw control input snapshot.
+  setControlInput(input: ControlInput): void;
   // Returns validated debug status for UI, smoke tests, and diagnostics.
   debugStatus(): RuntimeDebugStatus;
   // Releases runtime resources and makes later calls fail clearly.
@@ -49,8 +51,8 @@ export interface RawBrowserGame {
   resize(width: number, height: number, devicePixelRatio: number): void;
   // Advances the C++ runtime by one frame timestamp.
   frame(timeMs: number): void;
-  // Forwards raw debug fly-camera input to the C++ runtime.
-  set_debug_camera_input(
+  // Forwards raw control input to the C++ runtime.
+  set_control_input(
     moveX: number,
     moveY: number,
     moveZ: number,
@@ -58,7 +60,8 @@ export interface RawBrowserGame {
     lookDeltaY: number,
     lookActive: boolean,
     fast: boolean,
-    slow: boolean
+    slow: boolean,
+    cycleCameraMode: boolean
   ): void;
   // Returns the raw debug-status JSON string from C++.
   debug_status_json(): string;
@@ -136,11 +139,11 @@ class CppBrowserGameRuntime implements BrowserGameRuntime {
     this.#game.frame(timeMs);
   }
 
-  // Validates and forwards raw debug camera input only while the wrapper is live.
-  setDebugCameraInput(input: DebugCameraInput): void {
+  // Validates and forwards raw control input only while the wrapper is live.
+  setControlInput(input: ControlInput): void {
     this.#assertLive();
-    validateDebugCameraInput(input);
-    this.#game.set_debug_camera_input(
+    validateControlInput(input);
+    this.#game.set_control_input(
       input.moveX,
       input.moveY,
       input.moveZ,
@@ -148,7 +151,8 @@ class CppBrowserGameRuntime implements BrowserGameRuntime {
       input.lookDeltaY,
       input.lookActive,
       input.fast,
-      input.slow
+      input.slow,
+      input.cycleCameraMode
     );
   }
 
@@ -177,18 +181,18 @@ class CppBrowserGameRuntime implements BrowserGameRuntime {
 }
 
 // Validates finite scalar input before crossing the Embind boundary.
-function validateDebugCameraInput(input: DebugCameraInput): void {
-  requireFiniteDebugNumber(input.moveX, "moveX");
-  requireFiniteDebugNumber(input.moveY, "moveY");
-  requireFiniteDebugNumber(input.moveZ, "moveZ");
-  requireFiniteDebugNumber(input.lookDeltaX, "lookDeltaX");
-  requireFiniteDebugNumber(input.lookDeltaY, "lookDeltaY");
+function validateControlInput(input: ControlInput): void {
+  requireFiniteControlNumber(input.moveX, "moveX");
+  requireFiniteControlNumber(input.moveY, "moveY");
+  requireFiniteControlNumber(input.moveZ, "moveZ");
+  requireFiniteControlNumber(input.lookDeltaX, "lookDeltaX");
+  requireFiniteControlNumber(input.lookDeltaY, "lookDeltaY");
 }
 
-// Requires a debug input number to be finite.
-function requireFiniteDebugNumber(value: number, key: keyof DebugCameraInput): void {
+// Requires a control input number to be finite.
+function requireFiniteControlNumber(value: number, key: keyof ControlInput): void {
   if (!Number.isFinite(value)) {
-    throw new Error(`Debug camera input field ${key} must be a finite number.`);
+    throw new Error(`Control input field ${key} must be a finite number.`);
   }
 }
 
@@ -210,6 +214,7 @@ export function parseRuntimeDebugStatus(json: string): RuntimeDebugStatus {
     surfaceFormat: requireString(record, "surfaceFormat"),
     adapterName: requireString(record, "adapterName"),
     backend: requireString(record, "backend"),
+    cameraMode: requireString(record, "cameraMode"),
     pipelineCreateCount: requireNonNegativeInteger(record, "pipelineCreateCount"),
     bufferCreateCount: requireNonNegativeInteger(record, "bufferCreateCount"),
     surfaceConfigureCount: requireNonNegativeInteger(record, "surfaceConfigureCount"),

@@ -6,13 +6,16 @@
 #include "doctest.h"
 
 #include "ofg/core/engine_error.hpp"
+#include "ofg/core/control_input.hpp"
 #include "ofg/math/mat.hpp"
 #include "ofg/math/quat.hpp"
 #include "ofg/math/transform.hpp"
 #include "ofg/math/vec.hpp"
 #include "ofg/resources/mesh.hpp"
 #include "ofg/scene/camera.hpp"
+#include "ofg/scene/player.hpp"
 #include "ofg/scene/scene.hpp"
+#include "ofg/scene/scene_update.hpp"
 
 #include <cstdint>
 #include <limits>
@@ -192,6 +195,9 @@ TEST_CASE("scene camera selection survives moves and rejects stale cameras") {
     CHECK(moved.main_camera() == moved.get_camera(1));
     CHECK(moved.get_camera(1)->entity() == moved.get_entity(2));
     CHECK(moved.get_entity(2)->camera() == moved.get_camera(1));
+    const ofg::Entity* const_camera_entity = moved.get_entity(2);
+    REQUIRE(const_camera_entity != nullptr);
+    CHECK(const_camera_entity->camera() == moved.get_camera(1));
 
     ofg::Scene assigned;
     assigned = std::move(moved);
@@ -204,6 +210,203 @@ TEST_CASE("scene camera selection survives moves and rejects stale cameras") {
     CHECK(assigned.main_camera() == nullptr);
     CHECK_THROWS_WITH_AS(
         ([&]() { assigned.set_main_camera(stale_camera); }()), doctest::Contains("same scene"), ofg::EngineError);
+}
+
+// Verifies player components are scene-owned and exposed by index.
+TEST_CASE("scene creates player components in stable order") {
+    ofg::Scene scene;
+    ofg::Entity* first = scene.create_entity(scene.get_root());
+    ofg::Entity* second = scene.create_entity(scene.get_root());
+
+    ofg::Component* first_component = first->create_component(ofg::ComponentType::Player);
+    ofg::Component* second_component = second->create_component(ofg::ComponentType::Player);
+
+    REQUIRE(first_component != nullptr);
+    REQUIRE(second_component != nullptr);
+    CHECK(first_component->type() == ofg::ComponentType::Player);
+    CHECK(first_component->entity() == first);
+    CHECK(first->player() == first_component);
+    CHECK(second->player() == second_component);
+    const ofg::Entity* const_first = first;
+    const ofg::Entity* const_second = second;
+    CHECK(const_first->player() == first_component);
+    CHECK(const_second->player() == second_component);
+    CHECK(scene.player_count() == 2);
+    CHECK(scene.get_player(0) == first->player());
+    CHECK(scene.get_player(1) == second->player());
+    CHECK(scene.get_player(2) == nullptr);
+    CHECK_THROWS_WITH_AS(([&]() { (void)first->create_component(ofg::ComponentType::Player); }()),
+        doctest::Contains("Player"),
+        ofg::EngineError);
+
+    scene.clear();
+    CHECK(scene.player_count() == 0);
+    CHECK(scene.get_player(0) == nullptr);
+}
+
+// Verifies player updates consume controls only in player camera modes and remain grounded.
+TEST_CASE("player update moves on the Y-up flat plane in player modes") {
+    ofg::Scene scene;
+    ofg::Entity* player_entity = scene.create_entity(scene.get_root());
+    ofg::Entity* camera_entity = scene.create_entity(scene.get_root());
+    (void)player_entity->create_component(ofg::ComponentType::Player);
+    (void)camera_entity->create_component(ofg::ComponentType::Camera);
+    ofg::Player* player = player_entity->player();
+    ofg::Camera* camera = camera_entity->camera();
+    REQUIRE(player != nullptr);
+    REQUIRE(camera != nullptr);
+    CHECK(player->walk_speed() == doctest::Approx(3.5f));
+    CHECK(player->height() == doctest::Approx(1.8f));
+
+    ofg::ControlInput controls;
+    controls.m_move_z = 1.0f;
+    ofg::SceneUpdateContext context{controls, 1000.0, 1.0f, player, camera};
+    player->update(context);
+    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(0.0f));
+    CHECK(player_entity->local_transform().m_position.y == doctest::Approx(0.9f));
+
+    camera->set_control_mode(ofg::CameraControlMode::FirstPerson);
+    player->update(context);
+    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(-3.5f));
+    CHECK(player_entity->local_transform().m_position.y == doctest::Approx(0.9f));
+
+    controls.m_move_x = 1.0f;
+    controls.m_move_y = 1.0f;
+    player->set_walk_speed(1.0f);
+    player->update(context);
+    CHECK(player_entity->local_transform().m_position.x == doctest::Approx(0.7071067f).epsilon(0.0001));
+    CHECK(player_entity->local_transform().m_position.y == doctest::Approx(0.9f));
+    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(-4.2071067f).epsilon(0.0001));
+
+    controls = ofg::ControlInput{};
+    player->update(context);
+    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(-4.2071067f).epsilon(0.0001));
+
+    player_entity->local_transform().m_position = ofg::math::vec3(0.0f, 0.0f, 0.0f);
+    controls.m_move_z = 1.0f;
+    controls.m_fast = true;
+    player->set_walk_speed(1.0f);
+    player->update(context);
+    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(-2.0f));
+
+    player_entity->local_transform().m_position = ofg::math::vec3(0.0f, 0.0f, 0.0f);
+    controls.m_fast = false;
+    controls.m_slow = true;
+    player->update(context);
+    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(-0.35f));
+
+    player->set_height(2.0f);
+    CHECK(player->height() == doctest::Approx(2.0f));
+    CHECK_THROWS_WITH_AS(player->set_walk_speed(-1.0f), doctest::Contains("walk speed"), ofg::EngineError);
+    CHECK_THROWS_WITH_AS(player->set_height(0.0f), doctest::Contains("height"), ofg::EngineError);
+}
+
+// Verifies player movement axes follow camera yaw after mouse look.
+TEST_CASE("player movement follows camera yaw after mouse look") {
+    ofg::Scene scene;
+    ofg::Entity* player_entity = scene.create_entity(scene.get_root());
+    ofg::Entity* camera_entity = scene.create_entity(scene.get_root());
+    (void)player_entity->create_component(ofg::ComponentType::Player);
+    (void)camera_entity->create_component(ofg::ComponentType::Camera);
+    ofg::Player* player = player_entity->player();
+    ofg::Camera* camera = camera_entity->camera();
+    REQUIRE(player != nullptr);
+    REQUIRE(camera != nullptr);
+    player->set_walk_speed(1.0f);
+    camera->set_control_mode(ofg::CameraControlMode::FirstPerson);
+
+    ofg::ControlInput controls;
+    controls.m_look_active = true;
+    controls.m_look_delta_x = 1.57079632679f / 0.0025f;
+    ofg::SceneUpdateContext context{controls, 1000.0, 1.0f, player, camera};
+    scene.update(context);
+
+    controls = ofg::ControlInput{};
+    controls.m_move_z = 1.0f;
+    scene.update(context);
+    CHECK(player_entity->local_transform().m_position.x == doctest::Approx(1.0f).epsilon(0.0001));
+    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(0.0f).epsilon(0.0001));
+
+    player_entity->local_transform().m_position = ofg::math::vec3(0.0f, 0.0f, 0.0f);
+    controls = ofg::ControlInput{};
+    controls.m_move_x = 1.0f;
+    scene.update(context);
+    CHECK(player_entity->local_transform().m_position.x == doctest::Approx(0.0f).epsilon(0.0001));
+    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(1.0f).epsilon(0.0001));
+}
+
+// Verifies player updates reject invalid direct calls and ignore non-primary players.
+TEST_CASE("player update validates ownership delta and primary-player binding") {
+    ofg::Scene scene;
+    ofg::Entity* player_entity = scene.create_entity(scene.get_root());
+    ofg::Entity* camera_entity = scene.create_entity(scene.get_root());
+    (void)player_entity->create_component(ofg::ComponentType::Player);
+    (void)camera_entity->create_component(ofg::ComponentType::Camera);
+    ofg::Player* player = player_entity->player();
+    ofg::Camera* camera = camera_entity->camera();
+    REQUIRE(player != nullptr);
+    REQUIRE(camera != nullptr);
+    camera->set_control_mode(ofg::CameraControlMode::FirstPerson);
+
+    ofg::ControlInput controls;
+    controls.m_move_z = 1.0f;
+    player_entity->local_transform().m_position.y = 7.0f;
+    ofg::SceneUpdateContext non_primary_context{controls, 1000.0, 1.0f, nullptr, camera};
+    player->update(non_primary_context);
+    CHECK(player_entity->local_transform().m_position.y == doctest::Approx(7.0f));
+
+    ofg::SceneUpdateContext bad_delta_context{controls, 1000.0, -1.0f, player, camera};
+    CHECK_THROWS_WITH_AS(player->update(bad_delta_context), doctest::Contains("delta"), ofg::EngineError);
+
+    ofg::Player detached_player(nullptr);
+    ofg::SceneUpdateContext detached_context{controls, 1000.0, 1.0f, &detached_player, camera};
+    CHECK_THROWS_WITH_AS(
+        detached_player.update(detached_context), doctest::Contains("owning entity"), ofg::EngineError);
+}
+
+// Verifies scene update runs players before cameras so first-person follow is same-frame.
+TEST_CASE("scene update applies player movement before camera follow") {
+    ofg::Scene scene;
+    ofg::Entity* player_entity = scene.create_entity(scene.get_root());
+    ofg::Entity* camera_entity = scene.create_entity(scene.get_root());
+    (void)player_entity->create_component(ofg::ComponentType::Player);
+    (void)camera_entity->create_component(ofg::ComponentType::Camera);
+    ofg::Player* player = player_entity->player();
+    ofg::Camera* camera = camera_entity->camera();
+    REQUIRE(player != nullptr);
+    REQUIRE(camera != nullptr);
+    camera->set_control_mode(ofg::CameraControlMode::FirstPerson);
+
+    ofg::ControlInput controls;
+    controls.m_move_z = 1.0f;
+    ofg::SceneUpdateContext context{controls, 1000.0, 1.0f, player, camera};
+    scene.update(context);
+
+    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(-3.5f));
+    CHECK(camera_entity->local_transform().m_position.z == doctest::Approx(-3.78f));
+    CHECK(camera_entity->local_transform().m_position.y == doctest::Approx(1.6f));
+}
+
+// Verifies scene update validates controls before any component can mutate transforms.
+TEST_CASE("scene update rejects invalid controls before player movement") {
+    ofg::Scene scene;
+    ofg::Entity* player_entity = scene.create_entity(scene.get_root());
+    ofg::Entity* camera_entity = scene.create_entity(scene.get_root());
+    (void)player_entity->create_component(ofg::ComponentType::Player);
+    (void)camera_entity->create_component(ofg::ComponentType::Camera);
+    ofg::Player* player = player_entity->player();
+    ofg::Camera* camera = camera_entity->camera();
+    REQUIRE(player != nullptr);
+    REQUIRE(camera != nullptr);
+    camera->set_control_mode(ofg::CameraControlMode::FirstPerson);
+
+    ofg::ControlInput controls;
+    controls.m_move_x = std::numeric_limits<float>::infinity();
+    ofg::SceneUpdateContext context{controls, 1000.0, 1.0f, player, camera};
+
+    CHECK_THROWS_WITH_AS(scene.update(context), doctest::Contains("finite"), ofg::EngineError);
+    CHECK(player_entity->local_transform().m_position.x == doctest::Approx(0.0f));
+    CHECK(player_entity->local_transform().m_position.y == doctest::Approx(0.0f));
 }
 
 // Verifies camera defaults, accessors, and validation branches.

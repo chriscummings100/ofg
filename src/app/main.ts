@@ -4,7 +4,7 @@
 // frame state, WebGPU resources, and draw submission.
 
 import { createCanvasHost } from "./canvasHost.js";
-import { createDebugInputCollector, type DebugInputCollector } from "./debugInput.js";
+import { createControlInputCollector, type ControlInputCollector } from "./controlInput.js";
 import {
   createBrowserGameRuntime,
   type BrowserGameRuntime,
@@ -24,7 +24,7 @@ async function main(): Promise<void> {
   try {
     const host = createCanvasHost();
     const runtime = await createBrowserGameRuntime(host.canvas);
-    const debugInput = createDebugInputCollector(host.canvas);
+    const controlInput = createControlInputCollector(host.canvas);
     runtime.resize(
       host.size.physicalWidth,
       host.size.physicalHeight,
@@ -33,11 +33,11 @@ async function main(): Promise<void> {
 
     window.__ofgDebugStatus = () => runtime.debugStatus();
     window.addEventListener("beforeunload", () => {
-      debugInput.dispose();
+      controlInput.dispose();
       runtime.dispose();
     });
     requestAnimationFrame((timeMs) =>
-      renderFrame(host, runtime, debugInput, status, timeMs)
+      renderFrame(host, runtime, controlInput, status, timeMs)
     );
   } catch (error) {
     statusMessage(status, error instanceof Error ? error.message : String(error));
@@ -48,7 +48,7 @@ async function main(): Promise<void> {
 function renderFrame(
   host: ReturnType<typeof createCanvasHost>,
   runtime: BrowserGameRuntime,
-  debugInput: DebugInputCollector,
+  controlInput: ControlInputCollector,
   status: HTMLElement | null,
   timeMs: number
 ): void {
@@ -57,7 +57,7 @@ function renderFrame(
     if (size.changed) {
       runtime.resize(size.physicalWidth, size.physicalHeight, size.devicePixelRatio);
     }
-    runtime.setDebugCameraInput(debugInput.consumeSnapshot());
+    runtime.setControlInput(controlInput.consumeSnapshot());
     runtime.frame(timeMs);
     const debugStatus = runtime.debugStatus();
     statusMessage(
@@ -69,7 +69,7 @@ function renderFrame(
   }
 
   requestAnimationFrame((nextTimeMs) =>
-    renderFrame(host, runtime, debugInput, status, nextTimeMs)
+    renderFrame(host, runtime, controlInput, status, nextTimeMs)
   );
 }
 

@@ -75,6 +75,7 @@ private:
     WGPUTextureView m_depth_view{nullptr};
     std::uint32_t m_depth_width{0};
     std::uint32_t m_depth_height{0};
+    std::uint32_t m_buffer_create_count{0};
     PipelineCache m_pipeline_cache;
 };
 

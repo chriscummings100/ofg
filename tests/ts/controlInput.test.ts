@@ -1,15 +1,15 @@
-// Tests for browser debug-input collection.
+// Tests for browser control-input collection.
 //
 // These tests keep DOM input ownership in TypeScript limited to raw keyboard,
-// mouse, and pointer-lock snapshots for the C++ camera controller.
+// mouse, pointer-lock, and one-frame action snapshots for the C++ runtime.
 import assert from "node:assert/strict";
 import { Window as HappyWindow } from "happy-dom";
-import { createDebugInputCollector } from "../../src/app/debugInput.js";
+import { createControlInputCollector } from "../../src/app/controlInput.js";
 
-describe("debug input collector", () => {
+describe("control input collector", () => {
   it("maps key state to movement axes and modifiers", () => {
     const { window, document, canvas } = createHarness();
-    const collector = createDebugInputCollector(canvas, { document, window });
+    const collector = createControlInputCollector(canvas, { document, window });
 
     window.dispatchEvent(keyboardEvent(window, "keydown", "KeyW"));
     window.dispatchEvent(keyboardEvent(window, "keydown", "KeyD"));
@@ -25,7 +25,8 @@ describe("debug input collector", () => {
       lookDeltaY: 0,
       lookActive: false,
       fast: true,
-      slow: true
+      slow: true,
+      cycleCameraMode: false
     });
 
     window.dispatchEvent(keyboardEvent(window, "keyup", "KeyD"));
@@ -41,6 +42,23 @@ describe("debug input collector", () => {
     assert.equal(snapshot.moveZ, 1);
     assert.equal(snapshot.fast, false);
     assert.equal(snapshot.slow, false);
+    assert.equal(snapshot.cycleCameraMode, false);
+  });
+
+  it("reports backquote as a one-frame camera-mode cycle edge", () => {
+    const { window, canvas } = createHarness();
+    const collector = createControlInputCollector(canvas, { document: canvas.ownerDocument, window });
+
+    window.dispatchEvent(keyboardEvent(window, "keydown", "Backquote"));
+    assert.equal(collector.consumeSnapshot().cycleCameraMode, true);
+    assert.equal(collector.consumeSnapshot().cycleCameraMode, false);
+
+    window.dispatchEvent(keyboardEvent(window, "keydown", "Backquote"));
+    assert.equal(collector.consumeSnapshot().cycleCameraMode, false);
+
+    window.dispatchEvent(keyboardEvent(window, "keyup", "Backquote"));
+    window.dispatchEvent(keyboardEvent(window, "keydown", "Backquote"));
+    assert.equal(collector.consumeSnapshot().cycleCameraMode, true);
   });
 
   it("requests pointer lock and accumulates mouse movement until consumed", () => {
@@ -54,7 +72,7 @@ describe("debug input collector", () => {
         document.dispatchEvent(new window.Event("pointerlockchange") as unknown as Event);
       }
     });
-    const collector = createDebugInputCollector(canvas, { document, window });
+    const collector = createControlInputCollector(canvas, { document, window });
 
     document.dispatchEvent(mouseEvent(window, "mousemove", 4, 6));
     assert.equal(collector.consumeSnapshot().lookDeltaX, 0);
@@ -78,7 +96,7 @@ describe("debug input collector", () => {
   it("clears key and mouse state on blur", () => {
     const { window, document, canvas, setPointerLockElement } = createHarness();
     setPointerLockElement(canvas);
-    const collector = createDebugInputCollector(canvas, { document, window });
+    const collector = createControlInputCollector(canvas, { document, window });
 
     window.dispatchEvent(keyboardEvent(window, "keydown", "KeyW"));
     document.dispatchEvent(mouseEvent(window, "mousemove", 5, 5));
@@ -88,6 +106,7 @@ describe("debug input collector", () => {
     assert.equal(snapshot.moveZ, 0);
     assert.equal(snapshot.lookDeltaX, 0);
     assert.equal(snapshot.lookDeltaY, 0);
+    assert.equal(snapshot.cycleCameraMode, false);
   });
 
   it("removes listeners on dispose", () => {
@@ -99,7 +118,7 @@ describe("debug input collector", () => {
         pointerLockRequests += 1;
       }
     });
-    const collector = createDebugInputCollector(canvas, { document, window });
+    const collector = createControlInputCollector(canvas, { document, window });
 
     collector.dispose();
     canvas.dispatchEvent(new window.MouseEvent("click") as unknown as Event);

@@ -12,6 +12,7 @@ class Entity;
 enum class ComponentType {
     MeshRenderer,
     Camera,
+    Player,
 };
 
 class Component {

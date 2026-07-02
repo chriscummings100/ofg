@@ -16,6 +16,7 @@
 #include "ofg/resources/resources.hpp"
 #include "ofg/resources/texture.hpp"
 #include "ofg/scene/camera.hpp"
+#include "ofg/scene/player.hpp"
 
 #include <cstddef>
 #include <limits>
@@ -71,18 +72,19 @@ TEST_CASE("demo scene builds generated resources with mipmapped textures") {
 
     CHECK(ofg::Resources::shaders().size() == 1);
     CHECK(ofg::Resources::textures().size() == 2);
-    CHECK(ofg::Resources::materials().size() == 5);
+    CHECK(ofg::Resources::materials().size() == 6);
     CHECK(ofg::Resources::meshes().size() == 2);
     REQUIRE(scene.m_checker_texture != nullptr);
     REQUIRE(scene.m_white_texture != nullptr);
+    REQUIRE(scene.m_player_material != nullptr);
     CHECK(scene.m_checker_texture->mip_level_count() == 7);
     CHECK(scene.m_white_texture->mip_level_count() == 1);
     CHECK(scene.m_ground_mesh->submeshes()[0].m_default_material == scene.m_ground_material);
     CHECK(scene.m_cube_mesh->submeshes()[0].m_default_material == scene.m_cube_materials[0]);
 }
 
-// Verifies the demo setup creates a camera, ground entity, and four animated cube entities.
-TEST_CASE("demo scene setup and update create deterministic plane and cube entities") {
+// Verifies the demo setup creates a camera, player, ground entity, and four animated cube entities.
+TEST_CASE("demo scene setup and update create deterministic plane player and cube entities") {
     ofg::tests::TestGpuContext gpu = make_test_gpu();
     ResourcesGuard guard;
     init_test_resources(gpu.borrowed_context());
@@ -92,22 +94,35 @@ TEST_CASE("demo scene setup and update create deterministic plane and cube entit
     ofg::Scene first_scene;
     REQUIRE_NOTHROW(ofg::setup_demo_scene(scene, first_scene));
     REQUIRE_NOTHROW(ofg::update_demo_scene(scene, 0.0, first_scene));
-    REQUIRE(first_scene.entity_count() == 7);
+    REQUIRE(first_scene.entity_count() == 8);
     REQUIRE(first_scene.camera_count() == 1);
-    REQUIRE(first_scene.mesh_renderer_count() == 5);
+    REQUIRE(first_scene.player_count() == 1);
+    REQUIRE(first_scene.mesh_renderer_count() == 6);
     REQUIRE(first_scene.main_camera() != nullptr);
     CHECK(first_scene.main_camera() == first_scene.get_camera(0));
     REQUIRE(scene.m_ground_renderer != nullptr);
     CHECK(first_scene.get_mesh_renderer(0) == scene.m_ground_renderer);
     CHECK(scene.m_ground_renderer->mesh() == scene.m_ground_mesh);
-    CHECK(first_scene.get_mesh_renderer(1)->mesh() == scene.m_cube_mesh);
-    CHECK(first_scene.get_mesh_renderer(1)->sort_origin_offset().x == doctest::Approx(0.0f));
-    CHECK(first_scene.get_mesh_renderer(1)->sort_origin_offset().y == doctest::Approx(0.0f));
-    CHECK(first_scene.get_mesh_renderer(1)->sort_origin_offset().z == doctest::Approx(0.0f));
-    REQUIRE(first_scene.get_mesh_renderer(1)->material_overrides().size() == 1);
-    CHECK(first_scene.get_mesh_renderer(1)->material_overrides()[0].m_material == scene.m_cube_materials[0]);
-    REQUIRE(first_scene.get_mesh_renderer(4)->material_overrides().size() == 1);
-    CHECK(first_scene.get_mesh_renderer(4)->material_overrides()[0].m_material == scene.m_cube_materials[3]);
+    REQUIRE(scene.m_player != nullptr);
+    REQUIRE(scene.m_player_entity != nullptr);
+    REQUIRE(scene.m_player_renderer != nullptr);
+    CHECK(first_scene.get_player(0) == scene.m_player);
+    CHECK(first_scene.get_mesh_renderer(1) == scene.m_player_renderer);
+    CHECK(scene.m_player_renderer->mesh() == scene.m_cube_mesh);
+    REQUIRE(scene.m_player_renderer->material_overrides().size() == 1);
+    CHECK(scene.m_player_renderer->material_overrides()[0].m_material == scene.m_player_material);
+    CHECK(scene.m_player_entity->local_transform().m_position.y == doctest::Approx(0.9f));
+    CHECK(scene.m_player_entity->local_transform().m_scale.x == doctest::Approx(0.6f));
+    CHECK(scene.m_player_entity->local_transform().m_scale.y == doctest::Approx(1.8f));
+    CHECK(scene.m_player_entity->local_transform().m_scale.z == doctest::Approx(0.35f));
+    CHECK(first_scene.get_mesh_renderer(2)->mesh() == scene.m_cube_mesh);
+    CHECK(first_scene.get_mesh_renderer(2)->sort_origin_offset().x == doctest::Approx(0.0f));
+    CHECK(first_scene.get_mesh_renderer(2)->sort_origin_offset().y == doctest::Approx(0.0f));
+    CHECK(first_scene.get_mesh_renderer(2)->sort_origin_offset().z == doctest::Approx(0.0f));
+    REQUIRE(first_scene.get_mesh_renderer(2)->material_overrides().size() == 1);
+    CHECK(first_scene.get_mesh_renderer(2)->material_overrides()[0].m_material == scene.m_cube_materials[0]);
+    REQUIRE(first_scene.get_mesh_renderer(5)->material_overrides().size() == 1);
+    CHECK(first_scene.get_mesh_renderer(5)->material_overrides()[0].m_material == scene.m_cube_materials[3]);
 
     const ofg::Camera* camera = first_scene.main_camera();
     REQUIRE(camera != nullptr);

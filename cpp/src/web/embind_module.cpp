@@ -11,7 +11,7 @@ EMSCRIPTEN_BINDINGS(ofg_cpp_module) {
         .class_function("create", &ofg::BrowserGame::create)
         .function("resize", &ofg::BrowserGame::resize)
         .function("frame", &ofg::BrowserGame::frame)
-        .function("set_debug_camera_input", &ofg::BrowserGame::set_debug_camera_input)
+        .function("set_control_input", &ofg::BrowserGame::set_control_input)
         .function("debug_status_json", &ofg::BrowserGame::debug_status_json)
         .function("dispose", &ofg::BrowserGame::dispose);
 }

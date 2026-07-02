@@ -3,6 +3,7 @@
 
 #include "ofg/scene/camera.hpp"
 #include "ofg/scene/mesh_renderer.hpp"
+#include "ofg/scene/player.hpp"
 #include "ofg/scene/scene.hpp"
 
 namespace ofg {
@@ -78,6 +79,16 @@ Camera* Entity::camera() noexcept {
 // Returns this entity's camera, if one exists.
 const Camera* Entity::camera() const noexcept {
     return m_camera;
+}
+
+// Returns this entity's player, if one exists.
+Player* Entity::player() noexcept {
+    return m_player;
+}
+
+// Returns this entity's player, if one exists.
+const Player* Entity::player() const noexcept {
+    return m_player;
 }
 
 // Appends a child entity in stable sibling order.

@@ -1,16 +1,16 @@
 {
   "total": {
     "lines": {
-      "total": 727,
-      "covered": 621,
+      "total": 741,
+      "covered": 635,
       "skipped": 0,
-      "pct": 85.41
+      "pct": 85.69
     },
     "statements": {
-      "total": 727,
-      "covered": 621,
+      "total": 741,
+      "covered": 635,
       "skipped": 0,
-      "pct": 85.41
+      "pct": 85.69
     },
     "functions": {
       "total": 47,
@@ -19,10 +19,10 @@
       "pct": 93.61
     },
     "branches": {
-      "total": 100,
-      "covered": 86,
+      "total": 102,
+      "covered": 88,
       "skipped": 0,
-      "pct": 86
+      "pct": 86.27
     },
     "branchesTrue": {
       "total": 0,
@@ -57,12 +57,12 @@
       "pct": 82.35
     }
   },
-  "C:\\dev\\ofg\\src\\app\\debugInput.ts": {
+  "C:\\dev\\ofg\\src\\app\\controlInput.ts": {
     "lines": {
-      "total": 158,
-      "covered": 152,
+      "total": 167,
+      "covered": 161,
       "skipped": 0,
-      "pct": 96.2
+      "pct": 96.4
     },
     "functions": {
       "total": 13,
@@ -71,16 +71,16 @@
       "pct": 100
     },
     "statements": {
-      "total": 158,
-      "covered": 152,
+      "total": 167,
+      "covered": 161,
       "skipped": 0,
-      "pct": 96.2
+      "pct": 96.4
     },
     "branches": {
-      "total": 29,
-      "covered": 23,
+      "total": 31,
+      "covered": 25,
       "skipped": 0,
-      "pct": 79.31
+      "pct": 80.64
     }
   },
   "C:\\dev\\ofg\\src\\app\\main.ts": {
@@ -111,10 +111,10 @@
   },
   "C:\\dev\\ofg\\src\\app\\wasmRuntime.ts": {
     "lines": {
-      "total": 285,
-      "covered": 273,
+      "total": 290,
+      "covered": 278,
       "skipped": 0,
-      "pct": 95.78
+      "pct": 95.86
     },
     "functions": {
       "total": 20,
@@ -123,10 +123,10 @@
       "pct": 95
     },
     "statements": {
-      "total": 285,
-      "covered": 273,
+      "total": 290,
+      "covered": 278,
       "skipped": 0,
-      "pct": 95.78
+      "pct": 95.86
     },
     "branches": {
       "total": 36,

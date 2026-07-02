@@ -6,8 +6,8 @@
 // platform handle ownership.
 #pragma once
 
+#include "ofg/core/control_input.hpp"
 #include "ofg/core/frame_state.hpp"
-#include "ofg/game/debug_camera_controller.hpp"
 #include "ofg/game/gpu_context.hpp"
 #include "ofg/game/render_target.hpp"
 #include "ofg/render/demo_scene.hpp"
@@ -55,8 +55,8 @@ public:
     static void resize(std::uint32_t width, std::uint32_t height, double device_pixel_ratio);
     // Advances shared per-frame state.
     static void update(double time_ms);
-    // Accepts the latest raw debug fly-camera input snapshot.
-    static void set_debug_camera_input(DebugCameraInput input);
+    // Accepts the latest raw control input snapshot.
+    static void set_control_input(ControlInput input);
     // Records render commands into the caller-owned command encoder.
     static void render(WGPUCommandEncoder encoder, RenderTarget target);
     // Advances teardown work and reports whether Game has released resources.
@@ -86,8 +86,8 @@ private:
     void resize_impl(std::uint32_t width, std::uint32_t height, double device_pixel_ratio);
     // Advances shared per-frame state.
     void update_impl(double time_ms);
-    // Stores a validated raw debug fly-camera input snapshot.
-    void set_debug_camera_input_impl(DebugCameraInput input);
+    // Stores a validated raw control input snapshot.
+    void set_control_input_impl(ControlInput input);
     // Records render commands into the caller-owned command encoder.
     void render_impl(WGPUCommandEncoder encoder, RenderTarget target);
     // Advances the renderer/resource release state machine.
@@ -98,6 +98,10 @@ private:
     void resize_runtime(std::uint32_t width, std::uint32_t height, double device_pixel_ratio);
     // Advances frame state after validating the frame timestamp.
     void tick_runtime(double time_ms);
+    // Returns the clamped frame delta in seconds for component updates.
+    [[nodiscard]] float frame_delta_seconds(double time_ms) noexcept;
+    // Clears one-frame control edges after components consume them.
+    void clear_consumed_control_edges() noexcept;
     // Marks the shared GPU renderer path as ready.
     void mark_gpu_ready(std::string adapter_name, std::string backend, std::string surface_format);
     // Records durable renderer resource counts for smoke/performance checks.
@@ -129,10 +133,10 @@ private:
     RuntimeDebugStatus m_status;
     std::string m_last_error;
     DemoScene m_demo_scene;
-    DebugCameraController m_debug_camera_controller;
-    DebugCameraInput m_debug_camera_input;
+    ControlInput m_control_input;
     std::unique_ptr<Scene> m_current_scene;
     double m_last_time_ms{0.0};
+    bool m_has_last_time{false};
     bool m_disposed{false};
     bool m_gpu_ready{false};
     bool m_surface_configured{false};

@@ -15,6 +15,7 @@ namespace ofg {
 
 class Camera;
 class MeshRenderer;
+class Player;
 class Scene;
 
 using EntityId = std::uint32_t;
@@ -62,6 +63,10 @@ public:
     [[nodiscard]] Camera* camera() noexcept;
     // Returns this entity's camera, if one exists.
     [[nodiscard]] const Camera* camera() const noexcept;
+    // Returns this entity's player, if one exists.
+    [[nodiscard]] Player* player() noexcept;
+    // Returns this entity's player, if one exists.
+    [[nodiscard]] const Player* player() const noexcept;
 
 private:
     friend class Scene;
@@ -80,6 +85,7 @@ private:
     Entity* m_next_sibling{nullptr};
     MeshRenderer* m_mesh_renderer{nullptr};
     Camera* m_camera{nullptr};
+    Player* m_player{nullptr};
 };
 
 } // namespace ofg

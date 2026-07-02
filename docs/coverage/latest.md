@@ -1,6 +1,6 @@
 # Latest Coverage
 
-Date: 2026-06-30
+Date: 2026-07-02
 
 Commands: `npm run coverage`.
 
@@ -20,8 +20,8 @@ Committed summary copies:
 
 | File | Lines |
 | --- | ---: |
+| `cpp/src/core/control_input.cpp` | 100.00% (6/6) |
 | `cpp/src/core/frame_state.cpp` | 100.00% (10/10) |
-| `cpp/src/game/debug_camera_controller.cpp` | 91.45% (107/117) |
 | `cpp/src/game/render_target.cpp` | 100.00% (18/18) |
 | `cpp/src/gpu/common.cpp` | 96.00% (96/100) |
 | `cpp/src/math/mat.cpp` | 100.00% (48/48) |
@@ -29,9 +29,9 @@ Committed summary copies:
 | `cpp/src/math/transform.cpp` | 100.00% (71/71) |
 | `cpp/src/render/bootstrap_scene.cpp` | 100.00% (3/3) |
 | `cpp/src/render/camera_properties.cpp` | 95.74% (45/47) |
-| `cpp/src/render/demo_scene.cpp` | 94.78% (218/230) |
+| `cpp/src/render/demo_scene.cpp` | 93.60% (234/250) |
 | `cpp/src/render/draw_list.cpp` | 96.77% (60/62) |
-| `cpp/src/render/opaque_pass.cpp` | 91.24% (250/274) |
+| `cpp/src/render/opaque_pass.cpp` | 91.30% (252/276) |
 | `cpp/src/render/pipeline_cache.cpp` | 96.58% (113/117) |
 | `cpp/src/render/renderer.cpp` | 90.27% (167/185) |
 | `cpp/src/resources/material.cpp` | 91.57% (228/249) |
@@ -41,12 +41,13 @@ Committed summary copies:
 | `cpp/src/resources/resources.cpp` | 93.49% (158/169) |
 | `cpp/src/resources/shader.cpp` | 94.84% (147/155) |
 | `cpp/src/resources/texture.cpp` | 93.73% (254/271) |
-| `cpp/src/runtime/runtime_debug_status.cpp` | 100.00% (73/73) |
-| `cpp/src/scene/camera.cpp` | 100.00% (58/58) |
+| `cpp/src/runtime/runtime_debug_status.cpp` | 100.00% (75/75) |
+| `cpp/src/scene/camera.cpp` | 92.59% (225/243) |
 | `cpp/src/scene/component.cpp` | 100.00% (10/10) |
-| `cpp/src/scene/entity.cpp` | 94.23% (49/52) |
+| `cpp/src/scene/entity.cpp` | 100.00% (58/58) |
 | `cpp/src/scene/mesh_renderer.cpp` | 100.00% (28/28) |
-| `cpp/src/scene/scene.cpp` | 95.72% (179/187) |
+| `cpp/src/scene/player.cpp` | 100.00% (79/79) |
+| `cpp/src/scene/scene.cpp` | 93.64% (206/220) |
 
 C++ exceptions:
 
@@ -58,11 +59,11 @@ C++ exceptions:
 
 | File | Lines |
 | --- | ---: |
-| `total` | 85.41% (621/727) |
+| `total` | 85.69% (635/741) |
 | `src/app/canvasHost.ts` | 97.51% (196/201) |
-| `src/app/debugInput.ts` | 96.20% (152/158) |
+| `src/app/controlInput.ts` | 96.40% (161/167) |
 | `src/app/main.ts` | 0.00% (0/83), documented exception |
-| `src/app/wasmRuntime.ts` | 95.78% (273/285) |
+| `src/app/wasmRuntime.ts` | 95.86% (278/290) |
 
 TypeScript exception:
 

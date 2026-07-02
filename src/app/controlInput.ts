@@ -1,19 +1,19 @@
-// Browser debug input collection for the C++ fly camera.
+// Browser control input collection for the C++ game runtime.
 //
 // This module owns DOM keyboard, mouse, and pointer-lock event listeners. It
-// does not mutate scene state; callers consume raw snapshots and pass them into
-// the C++ runtime once per animation frame.
+// does not mutate scene state; callers consume raw control snapshots and pass
+// them into the C++ runtime once per animation frame.
 
-import type { DebugCameraInput } from "./wasmRuntime.js";
+import type { ControlInput } from "./wasmRuntime.js";
 
-export interface DebugInputCollector {
+export interface ControlInputCollector {
   // Returns the latest raw input snapshot and clears accumulated mouse deltas.
-  consumeSnapshot(): DebugCameraInput;
+  consumeSnapshot(): ControlInput;
   // Removes all DOM listeners owned by this collector.
   dispose(): void;
 }
 
-interface DebugInputOptions {
+interface ControlInputOptions {
   readonly document?: Document;
   readonly window?: Window;
 }
@@ -28,26 +28,28 @@ const HANDLED_CODES = new Set([
   "ShiftLeft",
   "ShiftRight",
   "ControlLeft",
-  "ControlRight"
+  "ControlRight",
+  "Backquote"
 ]);
 
-// Creates a DOM-backed debug input collector for one canvas.
-export function createDebugInputCollector(
+// Creates a DOM-backed control input collector for one canvas.
+export function createControlInputCollector(
   canvas: HTMLCanvasElement,
-  options: DebugInputOptions = {}
-): DebugInputCollector {
+  options: ControlInputOptions = {}
+): ControlInputCollector {
   const documentRef = options.document ?? canvas.ownerDocument;
   const windowRef = options.window ?? documentRef.defaultView ?? window;
-  return new BrowserDebugInputCollector(canvas, documentRef, windowRef);
+  return new BrowserControlInputCollector(canvas, documentRef, windowRef);
 }
 
-class BrowserDebugInputCollector implements DebugInputCollector {
+class BrowserControlInputCollector implements ControlInputCollector {
   readonly #canvas: HTMLCanvasElement;
   readonly #document: Document;
   readonly #window: Window;
   readonly #pressedCodes = new Set<string>();
   #lookDeltaX = 0;
   #lookDeltaY = 0;
+  #cycleCameraMode = false;
   #disposed = false;
 
   // Registers DOM listeners for one canvas/runtime pair.
@@ -64,9 +66,9 @@ class BrowserDebugInputCollector implements DebugInputCollector {
   }
 
   // Returns the latest raw input snapshot and clears accumulated mouse deltas.
-  consumeSnapshot(): DebugCameraInput {
+  consumeSnapshot(): ControlInput {
     this.#assertLive();
-    const snapshot: DebugCameraInput = {
+    const snapshot: ControlInput = {
       moveX: axis(this.#pressedCodes.has("KeyD"), this.#pressedCodes.has("KeyA")),
       moveY: axis(this.#pressedCodes.has("Space"), this.#pressedCodes.has("KeyC")),
       moveZ: axis(this.#pressedCodes.has("KeyW"), this.#pressedCodes.has("KeyS")),
@@ -76,10 +78,12 @@ class BrowserDebugInputCollector implements DebugInputCollector {
       fast: this.#pressedCodes.has("ShiftLeft") || this.#pressedCodes.has("ShiftRight"),
       slow:
         this.#pressedCodes.has("ControlLeft") ||
-        this.#pressedCodes.has("ControlRight")
+        this.#pressedCodes.has("ControlRight"),
+      cycleCameraMode: this.#cycleCameraMode
     };
     this.#lookDeltaX = 0;
     this.#lookDeltaY = 0;
+    this.#cycleCameraMode = false;
     return snapshot;
   }
 
@@ -97,6 +101,7 @@ class BrowserDebugInputCollector implements DebugInputCollector {
     this.#pressedCodes.clear();
     this.#lookDeltaX = 0;
     this.#lookDeltaY = 0;
+    this.#cycleCameraMode = false;
     this.#disposed = true;
   }
 
@@ -126,6 +131,9 @@ class BrowserDebugInputCollector implements DebugInputCollector {
     if (!HANDLED_CODES.has(event.code)) {
       return;
     }
+    if (event.code === "Backquote" && !this.#pressedCodes.has("Backquote")) {
+      this.#cycleCameraMode = true;
+    }
     this.#pressedCodes.add(event.code);
     event.preventDefault();
   };
@@ -142,12 +150,13 @@ class BrowserDebugInputCollector implements DebugInputCollector {
     this.#pressedCodes.clear();
     this.#lookDeltaX = 0;
     this.#lookDeltaY = 0;
+    this.#cycleCameraMode = false;
   };
 
   // Throws the stable disposed-collector error used by tests.
   #assertLive(): void {
     if (this.#disposed) {
-      throw new Error("Debug input collector has been disposed.");
+      throw new Error("Control input collector has been disposed.");
     }
   }
 }

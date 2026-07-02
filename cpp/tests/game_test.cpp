@@ -7,7 +7,7 @@
 #include "webgpu_test_utils.hpp"
 
 #include "ofg/core/engine_error.hpp"
-#include "ofg/game/debug_camera_controller.hpp"
+#include "ofg/core/control_input.hpp"
 #include "ofg/game/game.hpp"
 #include "ofg/game/gpu_context.hpp"
 #include "ofg/game/render_target.hpp"
@@ -264,30 +264,29 @@ TEST_CASE("Game records recoverable and GPU errors") {
     CHECK(ofg::Game::state() == ofg::GameLifecycleState::Failed);
 }
 
-// Verifies debug camera input follows the Game singleton lifecycle.
-TEST_CASE("Game debug camera input validates lifecycle and finite values") {
+// Verifies control input follows the Game singleton lifecycle.
+TEST_CASE("Game control input validates lifecycle and finite values") {
     GameGuard guard;
 
-    CHECK_THROWS_WITH_AS(ofg::Game::set_debug_camera_input(ofg::DebugCameraInput{}),
+    CHECK_THROWS_WITH_AS(ofg::Game::set_control_input(ofg::ControlInput{}),
         doctest::Contains("requires Game::create"),
         ofg::EngineError);
 
     ofg::Game::create(ofg::GpuContext{fake_device(), fake_queue(), "fake adapter", "TestBackend"}, _test_format);
-    ofg::DebugCameraInput input;
-    input.move_z = 1.0f;
-    CHECK_NOTHROW(ofg::Game::set_debug_camera_input(input));
+    ofg::ControlInput input;
+    input.m_move_z = 1.0f;
+    CHECK_NOTHROW(ofg::Game::set_control_input(input));
 
-    input.move_x = std::numeric_limits<float>::infinity();
-    CHECK_THROWS_WITH_AS(ofg::Game::set_debug_camera_input(input), doctest::Contains("finite"), ofg::EngineError);
+    input.m_move_x = std::numeric_limits<float>::infinity();
+    CHECK_THROWS_WITH_AS(ofg::Game::set_control_input(input), doctest::Contains("finite"), ofg::EngineError);
 
-    ofg::Game::record_gpu_error("failed for debug input test");
+    ofg::Game::record_gpu_error("failed for control input test");
     CHECK_THROWS_WITH_AS(
-        ofg::Game::set_debug_camera_input(ofg::DebugCameraInput{}), doctest::Contains("failed"), ofg::EngineError);
+        ofg::Game::set_control_input(ofg::ControlInput{}), doctest::Contains("failed"), ofg::EngineError);
 
     CHECK(ofg::Game::release());
-    CHECK_THROWS_WITH_AS(ofg::Game::set_debug_camera_input(ofg::DebugCameraInput{}),
-        doctest::Contains("after Game release"),
-        ofg::EngineError);
+    CHECK_THROWS_WITH_AS(
+        ofg::Game::set_control_input(ofg::ControlInput{}), doctest::Contains("after Game release"), ofg::EngineError);
 }
 
 // Verifies invalid runtime inputs throw and update debug status.
@@ -328,7 +327,27 @@ TEST_CASE("Game prepares and renders through the static facade") {
     CHECK_NOTHROW(ofg::Game::render(encoder.m_value, ofg::RenderTarget{view.m_value, _test_format, 32, 32}));
 
     CHECK(ofg::Game::status().m_initialized);
+    CHECK(ofg::Game::status().m_camera_mode == "debug");
     CHECK(ofg::Game::status().m_surface_configure_count == 1);
     CHECK(ofg::Game::status().m_buffer_create_count >= 1);
     CHECK(ofg::Game::debug_status_json().find("\"lifecycleState\":\"ready\"") != std::string::npos);
+    CHECK(ofg::Game::debug_status_json().find("\"cameraMode\":\"debug\"") != std::string::npos);
+}
+
+// Verifies one-frame camera mode cycle input is consumed after one update.
+TEST_CASE("Game consumes camera mode cycle control edges") {
+    GameGuard guard;
+    ofg::tests::TestGpuContext gpu = make_test_gpu();
+
+    ofg::Game::create(gpu.borrowed_context(), _test_format);
+    ofg::Game::resize(32, 32, 1.0);
+    REQUIRE(ofg::Game::prepare());
+
+    ofg::ControlInput input;
+    input.m_cycle_camera_mode = true;
+    ofg::Game::set_control_input(input);
+    ofg::Game::update(16.0);
+    CHECK(ofg::Game::status().m_camera_mode == "first_person");
+    ofg::Game::update(32.0);
+    CHECK(ofg::Game::status().m_camera_mode == "first_person");
 }

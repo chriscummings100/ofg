@@ -49,7 +49,7 @@ describe("wasm runtime wrapper", () => {
 
     const runtime = createBrowserGameRuntimeFromRaw(raw);
     runtime.resize(800, 450, 1);
-    runtime.setDebugCameraInput({
+    runtime.setControlInput({
       moveX: 1,
       moveY: 0,
       moveZ: -1,
@@ -57,7 +57,8 @@ describe("wasm runtime wrapper", () => {
       lookDeltaY: 3,
       lookActive: true,
       fast: true,
-      slow: false
+      slow: false,
+      cycleCameraMode: true
     });
     runtime.frame(16.5);
     assert.equal(runtime.debugStatus().frameCount, 2);
@@ -66,7 +67,7 @@ describe("wasm runtime wrapper", () => {
 
     assert.deepEqual(calls, [
       "resize:800:450:1",
-      "debugInput:1:0:-1:2:3:true:true:false",
+      "controlInput:1:0:-1:2:3:true:true:false:true",
       "frame:16.5",
       "debug",
       "dispose",
@@ -78,14 +79,14 @@ describe("wasm runtime wrapper", () => {
     );
   });
 
-  // Verifies invalid debug camera input is rejected before Embind forwarding.
-  it("rejects non-finite debug camera input", () => {
+  // Verifies invalid control input is rejected before Embind forwarding.
+  it("rejects non-finite control input", () => {
     const calls: string[] = [];
     const runtime = createBrowserGameRuntimeFromRaw(fakeRawBrowserGame(calls));
 
     assert.throws(
       () =>
-        runtime.setDebugCameraInput({
+        runtime.setControlInput({
           moveX: Number.POSITIVE_INFINITY,
           moveY: 0,
           moveZ: 0,
@@ -93,7 +94,8 @@ describe("wasm runtime wrapper", () => {
           lookDeltaY: 0,
           lookActive: false,
           fast: false,
-          slow: false
+          slow: false,
+          cycleCameraMode: false
         }),
       /field moveX must be a finite number/
     );
@@ -162,8 +164,8 @@ function fakeRawBrowserGame(calls: string[]): RawBrowserGame {
     frame(timeMs) {
       calls.push(`frame:${timeMs}`);
     },
-    // Records debug camera input forwarding.
-    set_debug_camera_input(
+    // Records control input forwarding.
+    set_control_input(
       moveX,
       moveY,
       moveZ,
@@ -171,10 +173,11 @@ function fakeRawBrowserGame(calls: string[]): RawBrowserGame {
       lookDeltaY,
       lookActive,
       fast,
-      slow
+      slow,
+      cycleCameraMode
     ) {
       calls.push(
-        `debugInput:${moveX}:${moveY}:${moveZ}:${lookDeltaX}:${lookDeltaY}:${lookActive}:${fast}:${slow}`
+        `controlInput:${moveX}:${moveY}:${moveZ}:${lookDeltaX}:${lookDeltaY}:${lookActive}:${fast}:${slow}:${cycleCameraMode}`
       );
     },
     // Records debug-status reads and returns a valid status payload.
@@ -205,6 +208,7 @@ function validStatusPayload(): Record<string, unknown> {
     surfaceFormat: "Bgra8UnormSrgb",
     adapterName: "test adapter",
     backend: "BrowserWebGpu",
+    cameraMode: "debug",
     pipelineCreateCount: 1,
     bufferCreateCount: 1,
     surfaceConfigureCount: 1,

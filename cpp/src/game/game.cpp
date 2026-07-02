@@ -11,8 +11,12 @@
 #include "ofg/render/demo_scene.hpp"
 #include "ofg/render/renderer.hpp"
 #include "ofg/resources/resources.hpp"
+#include "ofg/scene/camera.hpp"
+#include "ofg/scene/player.hpp"
 #include "ofg/scene/scene.hpp"
+#include "ofg/scene/scene_update.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <exception>
@@ -49,6 +53,8 @@ std::string device_pixel_ratio_message(double value) {
     out << "Device pixel ratio must be a positive finite number, got " << value << ".";
     return out.str();
 }
+
+constexpr float _max_delta_seconds = 0.1f;
 
 } // namespace
 
@@ -167,10 +173,10 @@ void Game::update(double time_ms) {
     }
 }
 
-// Accepts the latest raw debug fly-camera input snapshot.
-void Game::set_debug_camera_input(DebugCameraInput input) {
+// Accepts the latest raw control input snapshot.
+void Game::set_control_input(ControlInput input) {
     try {
-        require_game("Game::set_debug_camera_input").set_debug_camera_input_impl(input);
+        require_game("Game::set_control_input").set_control_input_impl(input);
     } catch (const std::exception& error) {
         if (s_game != nullptr) {
             s_game->record_error_impl(error.what());
@@ -178,7 +184,7 @@ void Game::set_debug_camera_input(DebugCameraInput input) {
         throw;
     } catch (...) {
         if (s_game != nullptr) {
-            s_game->record_error_impl("Game::set_debug_camera_input failed with an unknown exception.");
+            s_game->record_error_impl("Game::set_control_input failed with an unknown exception.");
         }
         throw;
     }
@@ -345,25 +351,34 @@ void Game::update_impl(double time_ms) {
     }
 
     tick_runtime(time_ms);
-    m_last_time_ms = time_ms;
+    const float delta_seconds = frame_delta_seconds(time_ms);
     if (m_current_scene == nullptr) {
         throw EngineError("Game update requires a current scene.");
     }
-    update_demo_scene(m_demo_scene, m_last_time_ms, *m_current_scene);
-    m_debug_camera_controller.update(*m_current_scene, m_debug_camera_input, m_last_time_ms);
+    update_demo_scene(m_demo_scene, time_ms, *m_current_scene);
+    Player* primary_player = m_current_scene->player_count() == 0 ? nullptr : m_current_scene->get_player(0);
+    Camera* main_camera = m_current_scene->main_camera();
+    SceneUpdateContext context{m_control_input, time_ms, delta_seconds, primary_player, main_camera};
+    m_current_scene->update(context);
+    if (main_camera != nullptr) {
+        m_status.m_camera_mode = camera_control_mode_name(main_camera->control_mode());
+    }
+    clear_consumed_control_edges();
+    m_last_time_ms = time_ms;
+    m_has_last_time = true;
 }
 
-// Stores a validated raw debug fly-camera input snapshot.
-void Game::set_debug_camera_input_impl(DebugCameraInput input) {
+// Stores a validated raw control input snapshot.
+void Game::set_control_input_impl(ControlInput input) {
     if (m_state == GameLifecycleState::Failed) {
-        throw EngineError("Game::set_debug_camera_input cannot run while Game is failed: " + m_last_error);
+        throw EngineError("Game::set_control_input cannot run while Game is failed: " + m_last_error);
     }
     if (m_state == GameLifecycleState::Rel_Renderer || m_state == GameLifecycleState::Rel_Scene ||
         m_state == GameLifecycleState::Rel_Resources || m_state == GameLifecycleState::Released) {
-        throw EngineError("Game::set_debug_camera_input cannot run after Game release has started.");
+        throw EngineError("Game::set_control_input cannot run after Game release has started.");
     }
-    validate_debug_camera_input(input);
-    m_debug_camera_input = input;
+    validate_control_input(input);
+    m_control_input = input;
 }
 
 // Records render commands into the caller-owned command encoder.
@@ -423,9 +438,9 @@ bool Game::release_impl() {
         [[fallthrough]];
     case GameLifecycleState::Rel_Scene:
         m_demo_scene = DemoScene{};
-        m_debug_camera_input = DebugCameraInput{};
-        m_debug_camera_controller.reset();
+        m_control_input = ControlInput{};
         m_current_scene.reset();
+        m_has_last_time = false;
         set_state(GameLifecycleState::Rel_Resources);
         [[fallthrough]];
     case GameLifecycleState::Rel_Resources:
@@ -487,6 +502,23 @@ void Game::tick_runtime(double time_ms) {
     m_frame_state.tick(time_ms);
     m_status.m_frame_count = m_frame_state.frame_count();
     m_status.m_last_error.reset();
+}
+
+// Returns the clamped frame delta in seconds for component updates.
+float Game::frame_delta_seconds(double time_ms) noexcept {
+    if (!m_has_last_time) {
+        return 0.0f;
+    }
+    const double delta_ms = time_ms - m_last_time_ms;
+    if (!std::isfinite(delta_ms) || delta_ms <= 0.0) {
+        return 0.0f;
+    }
+    return std::min(static_cast<float>(delta_ms * 0.001), _max_delta_seconds);
+}
+
+// Clears one-frame control edges after components consume them.
+void Game::clear_consumed_control_edges() noexcept {
+    m_control_input.m_cycle_camera_mode = false;
 }
 
 // Marks the shared GPU renderer path as ready.

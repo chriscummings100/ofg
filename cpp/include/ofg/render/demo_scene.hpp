@@ -15,6 +15,7 @@ namespace ofg {
 
 class Material;
 class Mesh;
+class Player;
 class Shader;
 class Texture;
 
@@ -23,6 +24,7 @@ struct DemoScene {
     Texture* m_checker_texture{nullptr};
     Texture* m_white_texture{nullptr};
     Material* m_ground_material{nullptr};
+    Material* m_player_material{nullptr};
     std::array<Material*, 4> m_cube_materials{};
     Mesh* m_ground_mesh{nullptr};
     Mesh* m_cube_mesh{nullptr};
@@ -30,6 +32,9 @@ struct DemoScene {
     std::uint32_t m_scene_generation{0};
     Entity* m_ground_entity{nullptr};
     MeshRenderer* m_ground_renderer{nullptr};
+    Entity* m_player_entity{nullptr};
+    MeshRenderer* m_player_renderer{nullptr};
+    Player* m_player{nullptr};
     std::array<Entity*, 4> m_cube_entities{};
     std::array<MeshRenderer*, 4> m_cube_renderers{};
 };

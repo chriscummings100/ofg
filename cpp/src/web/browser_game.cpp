@@ -44,8 +44,8 @@ std::optional<std::uint32_t> parse_dimension(const char* label, double value, st
     return static_cast<std::uint32_t>(value);
 }
 
-// Converts a JavaScript debug-input number into a finite float.
-std::optional<float> parse_debug_input_float(const char* label, double value, std::string& error) {
+// Converts a JavaScript control-input number into a finite float.
+std::optional<float> parse_control_input_float(const char* label, double value, std::string& error) {
     if (!std::isfinite(value) || value < -static_cast<double>(std::numeric_limits<float>::max()) ||
         value > static_cast<double>(std::numeric_limits<float>::max())) {
         std::ostringstream out;
@@ -56,8 +56,8 @@ std::optional<float> parse_debug_input_float(const char* label, double value, st
     return static_cast<float>(value);
 }
 
-// Converts scalar Embind debug input into the C++ snapshot type.
-std::optional<DebugCameraInput> parse_debug_camera_input(double move_x,
+// Converts scalar Embind control input into the C++ snapshot type.
+std::optional<ControlInput> parse_control_input(double move_x,
     double move_y,
     double move_z,
     double look_delta_x,
@@ -65,38 +65,42 @@ std::optional<DebugCameraInput> parse_debug_camera_input(double move_x,
     bool look_active,
     bool fast,
     bool slow,
+    bool cycle_camera_mode,
     std::string& error) {
-    const std::optional<float> parsed_move_x = parse_debug_input_float("Debug camera move_x", move_x, error);
+    const std::optional<float> parsed_move_x = parse_control_input_float("Control input move_x", move_x, error);
     if (!parsed_move_x.has_value()) {
         return std::nullopt;
     }
-    const std::optional<float> parsed_move_y = parse_debug_input_float("Debug camera move_y", move_y, error);
+    const std::optional<float> parsed_move_y = parse_control_input_float("Control input move_y", move_y, error);
     if (!parsed_move_y.has_value()) {
         return std::nullopt;
     }
-    const std::optional<float> parsed_move_z = parse_debug_input_float("Debug camera move_z", move_z, error);
+    const std::optional<float> parsed_move_z = parse_control_input_float("Control input move_z", move_z, error);
     if (!parsed_move_z.has_value()) {
         return std::nullopt;
     }
     const std::optional<float> parsed_look_delta_x =
-        parse_debug_input_float("Debug camera look_delta_x", look_delta_x, error);
+        parse_control_input_float("Control input look_delta_x", look_delta_x, error);
     if (!parsed_look_delta_x.has_value()) {
         return std::nullopt;
     }
     const std::optional<float> parsed_look_delta_y =
-        parse_debug_input_float("Debug camera look_delta_y", look_delta_y, error);
+        parse_control_input_float("Control input look_delta_y", look_delta_y, error);
     if (!parsed_look_delta_y.has_value()) {
         return std::nullopt;
     }
 
-    return DebugCameraInput{*parsed_move_x,
+    return ControlInput{
+        *parsed_move_x,
         *parsed_move_y,
         *parsed_move_z,
         *parsed_look_delta_x,
         *parsed_look_delta_y,
         look_active,
         fast,
-        slow};
+        slow,
+        cycle_camera_mode,
+    };
 }
 
 // Reclaims callback heap context exactly once when Emdawn invokes a callback.
@@ -217,15 +221,16 @@ void BrowserGame::frame(double time_ms) {
     }
 }
 
-// Accepts raw debug fly-camera input from the TypeScript host.
-void BrowserGame::set_debug_camera_input(double move_x,
+// Accepts raw control input from the TypeScript host.
+void BrowserGame::set_control_input(double move_x,
     double move_y,
     double move_z,
     double look_delta_x,
     double look_delta_y,
     bool look_active,
     bool fast,
-    bool slow) {
+    bool slow,
+    bool cycle_camera_mode) {
     try {
         if (m_disposed) {
             record_error("Browser game runtime has been disposed.");
@@ -233,17 +238,17 @@ void BrowserGame::set_debug_camera_input(double move_x,
         }
 
         std::string error;
-        const std::optional<DebugCameraInput> input = parse_debug_camera_input(
-            move_x, move_y, move_z, look_delta_x, look_delta_y, look_active, fast, slow, error);
+        const std::optional<ControlInput> input = parse_control_input(
+            move_x, move_y, move_z, look_delta_x, look_delta_y, look_active, fast, slow, cycle_camera_mode, error);
         if (!input.has_value()) {
             record_error(error);
             return;
         }
-        accept_debug_camera_input(*input);
+        accept_control_input(*input);
     } catch (const std::exception& error) {
         record_error(error.what());
     } catch (...) {
-        record_error("BrowserGame::set_debug_camera_input failed with an unknown exception.");
+        record_error("BrowserGame::set_control_input failed with an unknown exception.");
     }
 }
 
@@ -393,8 +398,8 @@ void BrowserGame::on_device_request(WGPURequestDeviceStatus status, WGPUDevice d
     Game::create(
         GpuContext{m_device, m_queue, webgpu::adapter_name_from_info(m_adapter), "BrowserWebGpu"}, m_surface_format);
     m_game_active = true;
-    if (m_has_pending_debug_camera_input) {
-        Game::set_debug_camera_input(m_pending_debug_camera_input);
+    if (m_has_pending_control_input) {
+        Game::set_control_input(m_pending_control_input);
     }
 
     if (apply_pending_resize_to_game()) {
@@ -611,12 +616,12 @@ void BrowserGame::tick_setup_status(double time_ms) {
     m_setup_status.m_last_error.reset();
 }
 
-// Stores or forwards the latest sanitized debug camera input.
-void BrowserGame::accept_debug_camera_input(DebugCameraInput input) {
-    m_pending_debug_camera_input = input;
-    m_has_pending_debug_camera_input = true;
+// Stores or forwards the latest sanitized control input.
+void BrowserGame::accept_control_input(ControlInput input) {
+    m_pending_control_input = input;
+    m_has_pending_control_input = true;
     if (m_game_active) {
-        Game::set_debug_camera_input(input);
+        Game::set_control_input(input);
     }
 }
 

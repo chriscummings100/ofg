@@ -14,6 +14,9 @@ const smokeContract = JSON.parse(
 );
 const artifactsDir = resolve(root, "artifacts/browser-smoke");
 const screenshotPath = resolve(artifactsDir, "opaque-demo.png");
+const debugModeScreenshotPath = resolve(artifactsDir, "player-box-debug.png");
+const firstPersonScreenshotPath = resolve(artifactsDir, "first-person-mode.png");
+const thirdPersonScreenshotPath = resolve(artifactsDir, "third-person-mode.png");
 const reportPath = resolve(artifactsDir, "report.json");
 
 mkdirSync(artifactsDir, { recursive: true });
@@ -117,6 +120,37 @@ try {
       `Expected ${smokeContract.width}x${smokeContract.height} canvas backing size, got ${backingSize.width}x${backingSize.height}.`
     );
   }
+  const warmCounters = await page.evaluate(() => {
+    const status = window.__ofgDebugStatus?.();
+    if (status === undefined || status === null) {
+      throw new Error("Runtime debug status is unavailable.");
+    }
+    return {
+      pipelineCreateCount: status.pipelineCreateCount,
+      bufferCreateCount: status.bufferCreateCount,
+      cameraMode: status.cameraMode
+    };
+  });
+  if (warmCounters.cameraMode !== "debug") {
+    throw new Error(`Expected debug camera mode after warmup, got ${warmCounters.cameraMode}.`);
+  }
+  await canvas.screenshot({ path: debugModeScreenshotPath });
+  await dispatchKeyCode(page, "Backquote", "`");
+  await waitForCameraMode(page, "first_person");
+  await dispatchKeyDown(page, "KeyW", "w");
+  await waitForAnimationFrames(page, 8);
+  await dispatchKeyUp(page, "KeyW", "w");
+  await waitForAnimationFrames(page, 2);
+  await canvas.screenshot({ path: firstPersonScreenshotPath });
+  await dispatchKeyCode(page, "Backquote", "`");
+  await waitForCameraMode(page, "third_person");
+  await waitForAnimationFrames(page, 4);
+  await canvas.screenshot({ path: thirdPersonScreenshotPath });
+  await dispatchKeyCode(page, "Backquote", "`");
+  await waitForCameraMode(page, "debug");
+  await waitForAnimationFrames(page, 2);
+  const modeExerciseStatus = await page.evaluate(() => window.__ofgDebugStatus?.() ?? null);
+  assertStableRendererCounters(warmCounters, modeExerciseStatus);
   await canvas.screenshot({ path: screenshotPath });
   const pixelReport = inspectSceneScreenshot(screenshotPath);
   const debugStatus = await page.evaluate(() => window.__ofgDebugStatus?.() ?? null);
@@ -133,6 +167,13 @@ try {
     canvasBounds: box,
     backingSize,
     debugStatus,
+    modeExercise: {
+      warmCounters,
+      modeExerciseStatus,
+      debugModeScreenshotPath,
+      firstPersonScreenshotPath,
+      thirdPersonScreenshotPath
+    },
     pixels: pixelReport
   };
   writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
@@ -141,6 +182,90 @@ try {
     console.warn(`Failed to close browser cleanly: ${error}`);
   });
   server.kill();
+}
+
+// Dispatches a keydown/keyup pair with a stable KeyboardEvent.code value.
+async function dispatchKeyCode(page, code, key) {
+  await dispatchKeyDown(page, code, key);
+  await dispatchKeyUp(page, code, key);
+}
+
+// Dispatches one keydown event at the window listener used by the app.
+async function dispatchKeyDown(page, code, key) {
+  await page.evaluate(
+    ({ code: eventCode, key: eventKey }) => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          code: eventCode,
+          key: eventKey,
+          bubbles: true
+        })
+      );
+    },
+    { code, key }
+  );
+}
+
+// Dispatches one keyup event at the window listener used by the app.
+async function dispatchKeyUp(page, code, key) {
+  await page.evaluate(
+    ({ code: eventCode, key: eventKey }) => {
+      window.dispatchEvent(
+        new KeyboardEvent("keyup", {
+          code: eventCode,
+          key: eventKey,
+          bubbles: true
+        })
+      );
+    },
+    { code, key }
+  );
+}
+
+// Waits until the runtime reports a specific camera mode.
+async function waitForCameraMode(page, cameraMode) {
+  await page.waitForFunction(
+    (expectedMode) => window.__ofgDebugStatus?.().cameraMode === expectedMode,
+    cameraMode,
+    { timeout: 5000 }
+  );
+}
+
+// Waits for a fixed number of browser animation frames.
+async function waitForAnimationFrames(page, frameCount) {
+  await page.evaluate(
+    (count) =>
+      new Promise((resolveFrame) => {
+        let remaining = count;
+        function nextFrame() {
+          remaining -= 1;
+          if (remaining <= 0) {
+            resolveFrame();
+            return;
+          }
+          requestAnimationFrame(nextFrame);
+        }
+        requestAnimationFrame(nextFrame);
+      }),
+    frameCount
+  );
+}
+
+// Verifies mode cycling and movement did not create steady-state renderer resources.
+function assertStableRendererCounters(before, after) {
+  if (after === null) {
+    throw new Error("Runtime debug status is unavailable after mode exercise.");
+  }
+  if (after.pipelineCreateCount !== before.pipelineCreateCount) {
+    throw new Error(
+      `Pipeline count changed after mode exercise: ${before.pipelineCreateCount} -> ${after.pipelineCreateCount}.`
+    );
+  }
+  if (after.bufferCreateCount !== before.bufferCreateCount) {
+    throw new Error(
+      `Buffer count changed after mode exercise: ${before.bufferCreateCount} -> ${after.bufferCreateCount}.`
+    );
+  }
 }
 
 // Waits for the local dev server to print its review URL.

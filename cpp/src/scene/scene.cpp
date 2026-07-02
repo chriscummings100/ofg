@@ -2,11 +2,14 @@
 #include "ofg/scene/scene.hpp"
 
 #include "ofg/core/engine_error.hpp"
+#include "ofg/core/control_input.hpp"
 #include "ofg/math/mat.hpp"
 #include "ofg/math/quat.hpp"
 #include "ofg/math/transform.hpp"
 #include "ofg/math/vec.hpp"
 #include "ofg/scene/camera.hpp"
+#include "ofg/scene/player.hpp"
+#include "ofg/scene/scene_update.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -23,8 +26,8 @@ Scene::Scene() {
 // Moves scene storage and rebinds moved entity owner pointers.
 Scene::Scene(Scene&& other) noexcept
     : m_entities(std::move(other.m_entities)), m_mesh_renderers(std::move(other.m_mesh_renderers)),
-      m_cameras(std::move(other.m_cameras)), m_main_camera(other.m_main_camera), m_root(other.m_root),
-      m_next_entity_id(other.m_next_entity_id), m_generation(other.m_generation) {
+      m_cameras(std::move(other.m_cameras)), m_players(std::move(other.m_players)), m_main_camera(other.m_main_camera),
+      m_root(other.m_root), m_next_entity_id(other.m_next_entity_id), m_generation(other.m_generation) {
     rebind_entities_after_move();
     other.m_main_camera = nullptr;
     other.m_root = nullptr;
@@ -39,6 +42,7 @@ Scene& Scene::operator=(Scene&& other) noexcept {
     m_entities = std::move(other.m_entities);
     m_mesh_renderers = std::move(other.m_mesh_renderers);
     m_cameras = std::move(other.m_cameras);
+    m_players = std::move(other.m_players);
     m_main_camera = other.m_main_camera;
     m_root = other.m_root;
     m_next_entity_id = other.m_next_entity_id;
@@ -161,6 +165,38 @@ void Scene::set_main_camera(Camera* camera) {
     m_main_camera = camera;
 }
 
+// Reports the number of player components in creation order.
+std::size_t Scene::player_count() const noexcept {
+    return m_players.size();
+}
+
+// Returns one player by creation-order index.
+Player* Scene::get_player(std::size_t index) noexcept {
+    if (index >= m_players.size()) {
+        return nullptr;
+    }
+    return m_players[index].get();
+}
+
+// Returns one player by creation-order index.
+const Player* Scene::get_player(std::size_t index) const noexcept {
+    if (index >= m_players.size()) {
+        return nullptr;
+    }
+    return m_players[index].get();
+}
+
+// Updates scene-owned gameplay and camera components in deterministic order.
+void Scene::update(const SceneUpdateContext& context) {
+    validate_control_input(context.m_controls);
+    for (const std::unique_ptr<Player>& player : m_players) {
+        player->update(context);
+    }
+    for (const std::unique_ptr<Camera>& camera : m_cameras) {
+        camera->update(context);
+    }
+}
+
 // Returns the generation token invalidated by clear().
 std::uint32_t Scene::generation() const noexcept {
     return m_generation;
@@ -170,6 +206,7 @@ std::uint32_t Scene::generation() const noexcept {
 void Scene::clear() {
     m_main_camera = nullptr;
     m_cameras.clear();
+    m_players.clear();
     m_mesh_renderers.clear();
     m_entities.clear();
     m_root = nullptr;
@@ -199,6 +236,13 @@ Component* Scene::create_component(Entity& entity, ComponentType type) {
         m_cameras.push_back(std::make_unique<Camera>(&entity));
         entity.m_camera = m_cameras.back().get();
         return entity.m_camera;
+    case ComponentType::Player:
+        if (entity.m_player != nullptr) {
+            throw EngineError("Entity already has a Player component.");
+        }
+        m_players.push_back(std::make_unique<Player>(&entity));
+        entity.m_player = m_players.back().get();
+        return entity.m_player;
     }
 
     throw EngineError("Scene cannot create an unknown component type.");

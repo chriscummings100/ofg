@@ -13,6 +13,7 @@
 #include "ofg/resources/shader.hpp"
 #include "ofg/resources/texture.hpp"
 #include "ofg/scene/camera.hpp"
+#include "ofg/scene/player.hpp"
 #include "ofg/scene/scene.hpp"
 
 #include "shaders/opaque_uber.wgsl.hpp"
@@ -209,7 +210,7 @@ void configure_demo_camera(Entity& entity) {
 // Validates resources that must exist before scene entity setup or update.
 void validate_demo_resources(const DemoScene& demo_scene) {
     if (demo_scene.m_ground_mesh == nullptr || demo_scene.m_cube_mesh == nullptr ||
-        demo_scene.m_ground_material == nullptr) {
+        demo_scene.m_ground_material == nullptr || demo_scene.m_player_material == nullptr) {
         throw EngineError("Demo scene resources are not initialized.");
     }
     for (Material* material : demo_scene.m_cube_materials) {
@@ -226,6 +227,10 @@ void validate_demo_bindings(const DemoScene& demo_scene, const Scene& scene) {
     }
     if (demo_scene.m_ground_entity == nullptr || demo_scene.m_ground_renderer == nullptr) {
         throw EngineError("Demo scene ground entity binding is not initialized.");
+    }
+    if (demo_scene.m_player_entity == nullptr || demo_scene.m_player_renderer == nullptr ||
+        demo_scene.m_player == nullptr) {
+        throw EngineError("Demo scene player entity binding is not initialized.");
     }
     for (std::size_t index = 0; index < demo_scene.m_cube_entities.size(); ++index) {
         if (demo_scene.m_cube_entities[index] == nullptr || demo_scene.m_cube_renderers[index] == nullptr) {
@@ -261,6 +266,8 @@ void build_demo_scene(DemoScene& scene) {
     // Materials all share one shader layout: a uniform color factor plus texture.
     scene.m_ground_material = add_material(
         "OFG demo ground material", *scene.m_shader, math::vec4(1.0f, 1.0f, 1.0f, 1.0f), *scene.m_checker_texture);
+    scene.m_player_material = add_material(
+        "OFG demo player material", *scene.m_shader, math::vec4(0.15f, 0.86f, 0.92f, 1.0f), *scene.m_white_texture);
 
     const std::array<math::Vec4, 4> cube_colors{
         math::vec4(0.95f, 0.18f, 0.13f, 1.0f),
@@ -305,6 +312,19 @@ void setup_demo_scene(DemoScene& demo_scene, Scene& scene) {
     demo_scene.m_ground_renderer = &create_mesh_renderer(*demo_scene.m_ground_entity);
     demo_scene.m_ground_renderer->set_mesh(demo_scene.m_ground_mesh);
 
+    demo_scene.m_player_entity = scene.create_entity(root);
+    Component* player_component = demo_scene.m_player_entity->create_component(ComponentType::Player);
+    if (player_component == nullptr || player_component->type() != ComponentType::Player ||
+        demo_scene.m_player_entity->player() == nullptr) {
+        throw EngineError("Demo scene failed to create a Player component.");
+    }
+    demo_scene.m_player = demo_scene.m_player_entity->player();
+    demo_scene.m_player_renderer = &create_mesh_renderer(*demo_scene.m_player_entity);
+    demo_scene.m_player_renderer->set_mesh(demo_scene.m_cube_mesh);
+    demo_scene.m_player_renderer->set_material_overrides({MaterialOverride{0, demo_scene.m_player_material}});
+    demo_scene.m_player_entity->local_transform().m_position = math::vec3(0.0f, 0.9f, 0.0f);
+    demo_scene.m_player_entity->local_transform().m_scale = math::vec3(0.6f, 1.8f, 0.35f);
+
     const std::array<CubePlacement, 4> placements = cube_placements();
     for (std::size_t index = 0; index < placements.size(); ++index) {
         Entity* entity = scene.create_entity(root);
@@ -325,6 +345,8 @@ void update_demo_scene(const DemoScene& demo_scene, double time_ms, Scene& scene
     }
 
     demo_scene.m_ground_entity->local_transform() = LocalTransform{};
+    demo_scene.m_player_entity->local_transform().m_position.y = demo_scene.m_player->height() * 0.5f;
+    demo_scene.m_player_entity->local_transform().m_scale = math::vec3(0.6f, 1.8f, 0.35f);
 
     // The animation updates only entity transforms; resource objects remain stable.
     const float seconds = static_cast<float>(time_ms * 0.001);

@@ -9,6 +9,7 @@
 #include "ofg/scene/camera.hpp"
 #include "ofg/scene/entity.hpp"
 #include "ofg/scene/mesh_renderer.hpp"
+#include "ofg/scene/player.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -16,6 +17,8 @@
 #include <vector>
 
 namespace ofg {
+
+struct SceneUpdateContext;
 
 class Scene {
 public:
@@ -57,6 +60,14 @@ public:
     [[nodiscard]] const Camera* main_camera() const noexcept;
     // Replaces the explicit main camera selection, or clears it for first-camera fallback.
     void set_main_camera(Camera* camera);
+    // Reports the number of player components in creation order.
+    [[nodiscard]] std::size_t player_count() const noexcept;
+    // Returns one player by creation-order index.
+    [[nodiscard]] Player* get_player(std::size_t index) noexcept;
+    // Returns one player by creation-order index.
+    [[nodiscard]] const Player* get_player(std::size_t index) const noexcept;
+    // Updates scene-owned gameplay and camera components in deterministic order.
+    void update(const SceneUpdateContext& context);
     // Returns the generation token invalidated by clear().
     [[nodiscard]] std::uint32_t generation() const noexcept;
 
@@ -80,6 +91,7 @@ private:
     std::vector<std::unique_ptr<Entity>> m_entities;
     std::vector<std::unique_ptr<MeshRenderer>> m_mesh_renderers;
     std::vector<std::unique_ptr<Camera>> m_cameras;
+    std::vector<std::unique_ptr<Player>> m_players;
     Camera* m_main_camera{nullptr};
     Entity* m_root{nullptr};
     EntityId m_next_entity_id{0};

@@ -68,6 +68,8 @@ std::string RuntimeDebugStatus::to_json() const {
     write_json_string(out, m_adapter_name);
     out << ",\"backend\":";
     write_json_string(out, m_backend);
+    out << ",\"cameraMode\":";
+    write_json_string(out, m_camera_mode);
     out << ",\"pipelineCreateCount\":" << m_pipeline_create_count;
     out << ",\"bufferCreateCount\":" << m_buffer_create_count;
     out << ",\"surfaceConfigureCount\":" << m_surface_configure_count;

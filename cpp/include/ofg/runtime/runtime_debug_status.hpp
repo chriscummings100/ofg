@@ -21,6 +21,7 @@ struct RuntimeDebugStatus {
     std::string m_surface_format{"Unavailable"};
     std::string m_adapter_name{"Unavailable"};
     std::string m_backend{"CppWasm"};
+    std::string m_camera_mode{"debug"};
     std::uint32_t m_pipeline_create_count{0};
     std::uint32_t m_buffer_create_count{0};
     std::uint32_t m_surface_configure_count{0};

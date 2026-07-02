@@ -79,8 +79,8 @@ if(OFG_NEEDS_NATIVE_WEBGPU)
 endif()
 
 add_library(ofg_cpp
+  src/core/control_input.cpp
   src/core/frame_state.cpp
-  src/game/debug_camera_controller.cpp
   src/game/game.cpp
   src/game/render_target.cpp
   src/gpu/common.cpp
@@ -106,6 +106,7 @@ add_library(ofg_cpp
   src/scene/component.cpp
   src/scene/entity.cpp
   src/scene/mesh_renderer.cpp
+  src/scene/player.cpp
   src/scene/scene.cpp
 )
 
@@ -164,8 +165,9 @@ if(OFG_BUILD_TESTS AND NOT EMSCRIPTEN)
 
   add_executable(ofg_cpp_tests
     tests/bootstrap_scene_test.cpp
+    tests/camera_control_test.cpp
     tests/camera_properties_test.cpp
-    tests/debug_camera_controller_test.cpp
+    tests/control_input_test.cpp
     tests/demo_scene_test.cpp
     tests/draw_list_test.cpp
     tests/frame_state_test.cpp
