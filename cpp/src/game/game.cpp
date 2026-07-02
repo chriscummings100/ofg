@@ -6,19 +6,12 @@
 // handle ownership.
 #include "ofg/game/game.hpp"
 
-#include "ofg/animation/animation_clip.hpp"
-#include "ofg/assets/gltf_document.hpp"
-#include "ofg/assets/gltf_importer.hpp"
-#include "ofg/assets/model_resource.hpp"
 #include "ofg/core/engine_error.hpp"
 #include "ofg/gpu/common.hpp"
-#include "ofg/math/quat.hpp"
 #include "ofg/render/demo_scene.hpp"
 #include "ofg/render/renderer.hpp"
 #include "ofg/resources/resources.hpp"
-#include "ofg/scene/animation_player.hpp"
 #include "ofg/scene/camera.hpp"
-#include "ofg/scene/player_animation_controller.hpp"
 #include "ofg/scene/player.hpp"
 #include "ofg/scene/scene.hpp"
 #include "ofg/scene/scene_update.hpp"
@@ -29,14 +22,10 @@
 #include <cstdint>
 #include <exception>
 #include <memory>
-#include <optional>
 #include <span>
 #include <sstream>
 #include <string>
-#include <string_view>
-#include <unordered_map>
 #include <utility>
-#include <vector>
 
 namespace ofg {
 namespace {
@@ -68,99 +57,12 @@ std::string device_pixel_ratio_message(double value) {
 }
 
 constexpr float _max_delta_seconds = 0.1f;
-constexpr const char* _player_model_label = "Quaternius player";
-constexpr const char* _player_animation_label = "Quaternius UAL1 locomotion";
-constexpr const char* _player_model_source_uri = "assets/models/player/quaternius-superhero-male.glb";
-constexpr const char* _player_animation_source_uri = "assets/models/player/quaternius-ual1-standard.glb";
-constexpr const char* _idle_clip_name = "Idle_Loop";
-constexpr const char* _walk_clip_name = "Walk_Loop";
-constexpr const char* _sprint_clip_name = "Sprint_Loop";
-constexpr float _player_model_ground_offset_y = -0.9f;
 
 // Clears transient status errors without erasing a durable model-loading failure.
 void clear_status_last_error(RuntimeDebugStatus& status) noexcept {
     if (status.m_model_loading_state != "failed") {
         status.m_last_error.reset();
     }
-}
-
-class EmptyGltfResourceProvider final : public GltfResourceProvider {
-public:
-    // GLB player assets carry their buffers and images internally.
-    [[nodiscard]] std::optional<AssetFile> load_relative(std::string_view) override {
-        return std::nullopt;
-    }
-};
-
-// Returns one named clip from a model resource, or a diagnostic naming the missing clip.
-const AnimationClip& require_clip(const ModelResource& resource, std::string_view clip_name) {
-    for (std::size_t index = 0; index < resource.animation_clip_count(); ++index) {
-        const AnimationClip* clip = resource.animation_clip(index);
-        if (clip != nullptr && clip->name() == clip_name) {
-            return *clip;
-        }
-    }
-    throw EngineError("Player animation library does not contain required clip '" + std::string(clip_name) + "'.");
-}
-
-// Builds a node-name to source-node-index map for animation retargeting.
-std::unordered_map<std::string, std::uint32_t> node_indices_by_name(const ModelResource& resource) {
-    std::unordered_map<std::string, std::uint32_t> result;
-    for (std::size_t index = 0; index < resource.nodes().size(); ++index) {
-        const std::string& name = resource.nodes()[index].m_name;
-        if (name.empty()) {
-            continue;
-        }
-        const auto inserted = result.emplace(name, static_cast<std::uint32_t>(index));
-        if (!inserted.second) {
-            throw EngineError("ModelResource '" + resource.label() + "' contains duplicate node name '" + name + "'.");
-        }
-    }
-    return result;
-}
-
-// Copies one animation clip while remapping channel targets by node name.
-std::unique_ptr<AnimationClip> remap_clip_to_model_nodes(
-    const AnimationClip& source_clip, const ModelResource& source_nodes, const ModelResource& target_nodes) {
-    const std::unordered_map<std::string, std::uint32_t> target_by_name = node_indices_by_name(target_nodes);
-    auto remapped = std::make_unique<AnimationClip>(source_clip.name());
-    remapped->set_duration_seconds(source_clip.duration_seconds());
-
-    for (const AnimationChannel& channel : source_clip.channels()) {
-        if (channel.m_target_node_index >= source_nodes.nodes().size()) {
-            throw EngineError("Player animation clip '" + source_clip.name() + "' targets a node outside its library.");
-        }
-        const std::string& target_name = source_nodes.nodes()[channel.m_target_node_index].m_name;
-        if (target_name.empty()) {
-            throw EngineError(
-                "Player animation clip '" + source_clip.name() + "' targets an unnamed animation-library node.");
-        }
-        const auto found = target_by_name.find(target_name);
-        if (found == target_by_name.end()) {
-            throw EngineError("Player animation clip '" + source_clip.name() + "' targets node '" + target_name +
-                              "', which is absent from the player model.");
-        }
-
-        AnimationChannel remapped_channel = channel;
-        remapped_channel.m_target_node_index = found->second;
-        remapped->add_channel(std::move(remapped_channel));
-    }
-
-    return remapped;
-}
-
-// Creates the three clips consumed by PlayerAnimationController in idle/walk/sprint order.
-std::vector<std::unique_ptr<AnimationClip>> remap_locomotion_clips(
-    const ModelResource& animation_library, const ModelResource& player_model) {
-    std::vector<std::unique_ptr<AnimationClip>> clips;
-    clips.reserve(3U);
-    clips.push_back(
-        remap_clip_to_model_nodes(require_clip(animation_library, _idle_clip_name), animation_library, player_model));
-    clips.push_back(
-        remap_clip_to_model_nodes(require_clip(animation_library, _walk_clip_name), animation_library, player_model));
-    clips.push_back(
-        remap_clip_to_model_nodes(require_clip(animation_library, _sprint_clip_name), animation_library, player_model));
-    return clips;
 }
 
 } // namespace
@@ -428,7 +330,6 @@ bool Game::prepare_impl() {
         m_current_scene = std::make_unique<Scene>();
         build_demo_scene(m_demo_scene);
         setup_demo_scene(m_demo_scene, *m_current_scene);
-        attach_player_model_to_scene();
         update_demo_scene(m_demo_scene, m_last_time_ms, *m_current_scene);
         set_state(GameLifecycleState::Prep_Renderer);
     }
@@ -528,7 +429,10 @@ void Game::load_player_model_impl(std::span<const std::byte> player_glb, std::sp
     if (animation_glb.empty()) {
         throw EngineError("Game::load_player_model requires non-empty animation-library GLB bytes.");
     }
-    if (m_status.m_player_model_loaded || m_player_model_resource != nullptr) {
+    if (m_current_scene == nullptr || m_demo_scene.m_player == nullptr) {
+        throw EngineError("Game::load_player_model requires Game::prepare to create the player first.");
+    }
+    if (m_status.m_player_model_loaded || m_demo_scene.m_player->default_model_loaded()) {
         return;
     }
 
@@ -536,68 +440,7 @@ void Game::load_player_model_impl(std::span<const std::byte> player_glb, std::sp
     m_status.m_player_model_loaded = false;
     clear_status_last_error(m_status);
 
-    EmptyGltfResourceProvider resource_provider;
-    GltfDocument player_document = load_gltf_document(_player_model_source_uri, player_glb, resource_provider);
-    GltfDocument animation_document =
-        load_gltf_document(_player_animation_source_uri, animation_glb, resource_provider);
-
-    auto import_context = std::make_unique<ModelResourceImportContext>(m_gpu);
-    std::unique_ptr<ModelResource> player_resource = import_gltf_model_resource(
-        player_document, GltfImportOptions{_player_model_label, _player_model_source_uri}, *import_context);
-    std::unique_ptr<ModelResource> animation_resource = import_gltf_model_resource(
-        animation_document, GltfImportOptions{_player_animation_label, _player_animation_source_uri}, *import_context);
-    std::vector<std::unique_ptr<AnimationClip>> locomotion_clips =
-        remap_locomotion_clips(*animation_resource, *player_resource);
-
-    m_player_model_import_context = std::move(import_context);
-    m_player_model_resource = std::move(player_resource);
-    m_player_animation_resource = std::move(animation_resource);
-    m_player_locomotion_clips = std::move(locomotion_clips);
-    attach_player_model_to_scene();
-}
-
-// Attaches an already-imported player model to the active scene if possible.
-void Game::attach_player_model_to_scene() {
-    if (m_player_model_resource == nullptr || m_status.m_player_model_loaded) {
-        return;
-    }
-    if (m_current_scene == nullptr) {
-        return;
-    }
-    if (m_demo_scene.m_player_entity == nullptr || m_demo_scene.m_player == nullptr) {
-        throw EngineError("Player model attachment requires a prepared demo player entity.");
-    }
-    if (m_player_locomotion_clips.size() != 3U || m_player_locomotion_clips[0] == nullptr ||
-        m_player_locomotion_clips[1] == nullptr || m_player_locomotion_clips[2] == nullptr) {
-        throw EngineError("Player model attachment requires idle, walk, and sprint clips.");
-    }
-
-    ModelInstance instance =
-        instantiate_model_resource(*m_player_model_resource, *m_current_scene, *m_demo_scene.m_player_entity);
-    Entity* model_root = instance.m_root_entity.get();
-    if (model_root == nullptr) {
-        throw EngineError("Player model attachment failed to instantiate a model root entity.");
-    }
-    model_root->local_transform().m_position = math::vec3(0.0f, _player_model_ground_offset_y, 0.0f);
-    // The selected player mesh is authored facing +Z, matching OFG player/camera forward.
-    model_root->local_transform().m_rotation = math::quat_identity();
-    model_root->local_transform().m_scale = math::vec3(1.0f, 1.0f, 1.0f);
-
-    AnimationPlayer* animation_player = instance.m_animation_player.get();
-    if (animation_player == nullptr) {
-        animation_player = static_cast<AnimationPlayer*>(model_root->create_component(ComponentType::AnimationPlayer));
-        animation_player->bind_targets(std::move(instance.m_entities_by_node_index));
-    }
-    auto* controller =
-        static_cast<PlayerAnimationController*>(model_root->create_component(ComponentType::PlayerAnimationController));
-    controller->bind(*m_demo_scene.m_player, *animation_player);
-    controller->set_locomotion_clips(
-        *m_player_locomotion_clips[0], *m_player_locomotion_clips[1], *m_player_locomotion_clips[2]);
-
-    m_player_model_root_entity = model_root;
-    m_player_model_animation_player = animation_player;
-    m_player_animation_controller = controller;
-    m_demo_scene.m_player_fallback_visible = false;
+    m_demo_scene.m_player->load_default_model(m_gpu, *m_current_scene, player_glb, animation_glb);
     m_status.m_model_loading_state = "loaded";
     m_status.m_player_model_loaded = true;
     clear_status_last_error(m_status);
@@ -612,7 +455,9 @@ void Game::record_player_model_load_failure_impl(std::string message) noexcept {
     m_status.m_model_loading_state = "failed";
     m_status.m_player_model_loaded = false;
     m_status.m_last_error = m_last_error;
-    m_demo_scene.m_player_fallback_visible = true;
+    if (m_demo_scene.m_player != nullptr) {
+        m_demo_scene.m_player->set_fallback_visible(true);
+    }
 }
 
 // Records render commands into the caller-owned command encoder.
@@ -673,14 +518,7 @@ bool Game::release_impl() {
     case GameLifecycleState::Rel_Scene:
         m_demo_scene = DemoScene{};
         m_control_input = ControlInput{};
-        m_player_model_root_entity.reset();
-        m_player_model_animation_player.reset();
-        m_player_animation_controller.reset();
         m_current_scene.reset();
-        m_player_locomotion_clips.clear();
-        m_player_animation_resource.reset();
-        m_player_model_resource.reset();
-        m_player_model_import_context.reset();
         m_has_last_time = false;
         set_state(GameLifecycleState::Rel_Resources);
         [[fallthrough]];

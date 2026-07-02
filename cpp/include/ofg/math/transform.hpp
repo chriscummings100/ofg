@@ -21,6 +21,15 @@ namespace ofg::math {
 // Builds a Y-axis yaw rotation matrix for OFG's left-handed, +Z-forward space.
 [[nodiscard]] Mat4 mat4_rotation_y(float radians) noexcept;
 
+// Transforms a point by a matrix using homogeneous w=1.
+[[nodiscard]] Vec3 transform_point(Mat4 matrix, Vec3 point) noexcept;
+
+// Transforms a direction by a matrix using homogeneous w=0.
+[[nodiscard]] Vec3 transform_direction(Mat4 matrix, Vec3 direction) noexcept;
+
+// Returns the inverse of an affine matrix with a non-singular upper 3x3.
+[[nodiscard]] std::optional<Mat4> inverse_affine(Mat4 matrix, std::string& error);
+
 // Builds a left-handed perspective matrix with WebGPU depth range [0, 1].
 [[nodiscard]] std::optional<Mat4> perspective_lh(
     float fovy_radians, float aspect, float near_z, float far_z, std::string& error);

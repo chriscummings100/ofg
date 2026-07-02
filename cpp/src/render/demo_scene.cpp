@@ -366,6 +366,7 @@ void setup_demo_scene(DemoScene& demo_scene, Scene& scene) {
     demo_scene.m_player_renderer = &create_mesh_renderer(*demo_scene.m_player_visual_entity);
     demo_scene.m_player_renderer->set_mesh(demo_scene.m_cube_mesh);
     demo_scene.m_player_renderer->set_material_overrides({MaterialOverride{0, demo_scene.m_player_material}});
+    demo_scene.m_player->bind_fallback_renderer(*demo_scene.m_player_renderer);
     demo_scene.m_player_entity->local_transform().m_position = math::vec3(0.0f, 0.9f, 0.0f);
     demo_scene.m_player_entity->local_transform().m_scale = math::vec3(1.0f, 1.0f, 1.0f);
     demo_scene.m_player_visual_entity->local_transform().m_scale = math::vec3(0.6f, 1.8f, 0.35f);
@@ -395,7 +396,6 @@ void update_demo_scene(const DemoScene& demo_scene, double time_ms, Scene& scene
     demo_scene.m_player_visual_entity->local_transform().m_position = math::vec3(0.0f, 0.0f, 0.0f);
     demo_scene.m_player_visual_entity->local_transform().m_rotation = math::Quat{};
     demo_scene.m_player_visual_entity->local_transform().m_scale = math::vec3(0.6f, 1.8f, 0.35f);
-    demo_scene.m_player_renderer->set_visible(demo_scene.m_player_fallback_visible);
 
     // The animation updates only entity transforms; resource objects remain stable.
     const float seconds = static_cast<float>(time_ms * 0.001);

@@ -92,6 +92,8 @@ private:
     void accept_control_input(ControlInput input);
     // Stores or forwards fetched player model bytes.
     void accept_player_model_bytes(std::vector<std::byte> player_bytes, std::vector<std::byte> animation_bytes);
+    // Imports queued player model bytes once Game has prepared the player scene.
+    void drain_pending_player_model_to_game();
     // Records a setup-phase recoverable error.
     void record_setup_error(std::string message) noexcept;
     // Records a setup-phase player model loading failure.

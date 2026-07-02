@@ -38,7 +38,6 @@ struct DemoScene {
     Entity* m_player_visual_entity{nullptr};
     MeshRenderer* m_player_renderer{nullptr};
     Player* m_player{nullptr};
-    bool m_player_fallback_visible{true};
     std::array<Entity*, 4> m_cube_entities{};
     std::array<MeshRenderer*, 4> m_cube_renderers{};
 };

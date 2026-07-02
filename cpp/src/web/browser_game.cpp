@@ -236,6 +236,7 @@ void BrowserGame::frame(double time_ms) {
             if (!Game::prepare()) {
                 return;
             }
+            drain_pending_player_model_to_game();
             Game::update(time_ms);
 #ifdef __EMSCRIPTEN__
             render_frame_if_ready();
@@ -461,20 +462,6 @@ void BrowserGame::on_device_request(WGPURequestDeviceStatus status, WGPUDevice d
     m_game_active = true;
     if (m_has_pending_control_input) {
         Game::set_control_input(m_pending_control_input);
-    }
-    if (m_has_pending_player_model) {
-        try {
-            Game::load_player_model(m_pending_player_model_bytes, m_pending_player_animation_bytes);
-        } catch (const std::exception& error) {
-            Game::record_player_model_load_failure(error.what());
-        } catch (...) {
-            Game::record_player_model_load_failure("Queued player model import failed with an unknown exception.");
-        }
-        m_pending_player_model_bytes.clear();
-        m_pending_player_model_bytes.shrink_to_fit();
-        m_pending_player_animation_bytes.clear();
-        m_pending_player_animation_bytes.shrink_to_fit();
-        m_has_pending_player_model = false;
     }
 
     if (apply_pending_resize_to_game()) {
@@ -709,7 +696,7 @@ void BrowserGame::accept_player_model_bytes(
     if (animation_bytes.empty()) {
         throw EngineError("Player animation bytes must not be empty.");
     }
-    if (m_game_active) {
+    if (m_game_active && Game::state() == GameLifecycleState::Ready) {
         Game::load_player_model(player_bytes, animation_bytes);
         return;
     }
@@ -720,6 +707,26 @@ void BrowserGame::accept_player_model_bytes(
     m_setup_status.m_model_loading_state = "queued";
     m_setup_status.m_player_model_loaded = false;
     m_setup_status.m_last_error.reset();
+}
+
+// Imports queued player model bytes once Game has prepared the player scene.
+void BrowserGame::drain_pending_player_model_to_game() {
+    if (!m_game_active || !m_has_pending_player_model || Game::state() != GameLifecycleState::Ready) {
+        return;
+    }
+
+    try {
+        Game::load_player_model(m_pending_player_model_bytes, m_pending_player_animation_bytes);
+    } catch (const std::exception& error) {
+        Game::record_player_model_load_failure(error.what());
+    } catch (...) {
+        Game::record_player_model_load_failure("Queued player model import failed with an unknown exception.");
+    }
+    m_pending_player_model_bytes.clear();
+    m_pending_player_model_bytes.shrink_to_fit();
+    m_pending_player_animation_bytes.clear();
+    m_pending_player_animation_bytes.shrink_to_fit();
+    m_has_pending_player_model = false;
 }
 
 // Records a setup-phase recoverable error.

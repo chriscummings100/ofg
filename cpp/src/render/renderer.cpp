@@ -3,6 +3,7 @@
 
 #include "ofg/core/engine_error.hpp"
 #include "ofg/gpu/common.hpp"
+#include "ofg/math/transform.hpp"
 #include "ofg/math/vec.hpp"
 #include "ofg/render/camera_properties.hpp"
 #include "ofg/scene/camera.hpp"
@@ -17,12 +18,6 @@
 
 namespace ofg {
 namespace {
-
-// Transforms a point by a world-from-local matrix.
-math::Vec3 transform_point(math::Mat4 matrix, math::Vec3 point) noexcept {
-    const math::Vec4 transformed = math::mul(matrix, math::vec4(point.x, point.y, point.z, 1.0f));
-    return math::vec3(transformed.x, transformed.y, transformed.z);
-}
 
 // Builds the transient draw queue consumed by the current opaque pass.
 void build_draw_list_from_scene(const Scene& scene, DrawList& draw_list) {
@@ -44,7 +39,7 @@ void build_draw_list_from_scene(const Scene& scene, DrawList& draw_list) {
         command.m_properties = &mesh_renderer->properties();
         command.m_material_overrides =
             std::span<const MaterialOverride>(material_overrides.data(), material_overrides.size());
-        command.m_sort_origin = transform_point(world_from_renderer, mesh_renderer->sort_origin_offset());
+        command.m_sort_origin = math::transform_point(world_from_renderer, mesh_renderer->sort_origin_offset());
         draw_list.add(std::move(command));
     }
 

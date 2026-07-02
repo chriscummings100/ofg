@@ -1,6 +1,6 @@
 // Doctest coverage for animation blending and player locomotion weights.
 //
-// These tests keep generic clip blending and the player-to-animation controller
+// These tests keep generic clip blending and player-owned locomotion animation
 // separate from the lower-level glTF import tests.
 #include "doctest.h"
 
@@ -12,7 +12,6 @@
 #include "ofg/scene/animation_player.hpp"
 #include "ofg/scene/camera.hpp"
 #include "ofg/scene/player.hpp"
-#include "ofg/scene/player_animation_controller.hpp"
 #include "ofg/scene/scene.hpp"
 #include "ofg/scene/scene_update.hpp"
 
@@ -264,8 +263,8 @@ TEST_CASE("animation player reports invalid bindings and playback inputs") {
     CHECK_THROWS_WITH_AS(detached_player.update(context), doctest::Contains("destroyed"), ofg::EngineError);
 }
 
-// Verifies the locomotion controller maps player speed to clip weights before animation sampling.
-TEST_CASE("player animation controller drives idle walk sprint weights") {
+// Verifies Player maps movement speed to clip weights before animation sampling.
+TEST_CASE("player drives idle walk sprint animation weights") {
     ofg::Scene scene;
     ofg::Entity* player_entity = scene.create_entity(scene.get_root());
     ofg::Entity* camera_entity = scene.create_entity(scene.get_root());
@@ -280,8 +279,6 @@ TEST_CASE("player animation controller drives idle walk sprint weights") {
     auto* camera = static_cast<ofg::Camera*>(camera_entity->create_component(ofg::ComponentType::Camera));
     auto* animation_player =
         static_cast<ofg::AnimationPlayer*>(model_entity->create_component(ofg::ComponentType::AnimationPlayer));
-    auto* controller = static_cast<ofg::PlayerAnimationController*>(
-        model_entity->create_component(ofg::ComponentType::PlayerAnimationController));
     camera->set_control_mode(ofg::CameraControlMode::FirstPerson);
     bind_single_target(*animation_player, *target);
 
@@ -291,30 +288,29 @@ TEST_CASE("player animation controller drives idle walk sprint weights") {
         "Walk_Loop", ofg::AnimationTargetPath::Translation, ofg::math::vec4(10.0f, 0.0f, 0.0f, 0.0f));
     std::unique_ptr<ofg::AnimationClip> sprint = make_constant_clip(
         "Sprint_Loop", ofg::AnimationTargetPath::Translation, ofg::math::vec4(30.0f, 0.0f, 0.0f, 0.0f));
-    controller->bind(*player, *animation_player);
-    controller->set_locomotion_clips(*idle, *walk, *sprint);
+    player->bind_locomotion_animation(*animation_player, *idle, *walk, *sprint);
 
     ofg::ControlInput controls;
     ofg::SceneUpdateContext context{controls, 1000.0, 0.0f, player, camera};
     scene.update(context);
-    CHECK(controller->idle_weight() == doctest::Approx(1.0f));
-    CHECK(controller->walk_weight() == doctest::Approx(0.0f));
-    CHECK(controller->sprint_weight() == doctest::Approx(0.0f));
+    CHECK(player->idle_animation_weight() == doctest::Approx(1.0f));
+    CHECK(player->walk_animation_weight() == doctest::Approx(0.0f));
+    CHECK(player->sprint_animation_weight() == doctest::Approx(0.0f));
     CHECK(target->local_transform().m_position.x == doctest::Approx(0.0f));
 
     controls.m_move_z = 1.0f;
     scene.update(context);
     CHECK(player->current_speed() == doctest::Approx(player->walk_speed()));
-    CHECK(controller->idle_weight() == doctest::Approx(0.0f));
-    CHECK(controller->walk_weight() == doctest::Approx(1.0f));
-    CHECK(controller->sprint_weight() == doctest::Approx(0.0f));
+    CHECK(player->idle_animation_weight() == doctest::Approx(0.0f));
+    CHECK(player->walk_animation_weight() == doctest::Approx(1.0f));
+    CHECK(player->sprint_animation_weight() == doctest::Approx(0.0f));
     CHECK(target->local_transform().m_position.x == doctest::Approx(10.0f));
 
     controls.m_fast = true;
     scene.update(context);
-    CHECK(controller->idle_weight() == doctest::Approx(0.0f));
-    CHECK(controller->walk_weight() == doctest::Approx(0.0f));
-    CHECK(controller->sprint_weight() == doctest::Approx(1.0f));
+    CHECK(player->idle_animation_weight() == doctest::Approx(0.0f));
+    CHECK(player->walk_animation_weight() == doctest::Approx(0.0f));
+    CHECK(player->sprint_animation_weight() == doctest::Approx(1.0f));
     CHECK(target->local_transform().m_position.x == doctest::Approx(30.0f));
 }
 
@@ -348,23 +344,18 @@ TEST_CASE("locomotion animation weight helper covers edge speeds") {
         ofg::EngineError);
 }
 
-// Verifies player animation controllers handle missing setup and stale references clearly.
-TEST_CASE("player animation controller reports incomplete and stale bindings") {
-    ofg::PlayerAnimationController detached_controller(nullptr);
+// Verifies Player locomotion animation handles missing setup and stale references clearly.
+TEST_CASE("player locomotion animation reports incomplete and stale bindings") {
+    ofg::Player detached_player(nullptr);
     ofg::ControlInput controls;
     ofg::SceneUpdateContext context{controls, 1000.0, 0.0f, nullptr, nullptr};
-    CHECK_NOTHROW(detached_controller.update(context));
+    CHECK_NOTHROW(detached_player.update(context));
 
     ofg::Scene scene;
-    ofg::Entity* player_entity = scene.create_entity(scene.get_root());
     ofg::Entity* model_entity = scene.create_entity(scene.get_root());
-    REQUIRE(player_entity != nullptr);
     REQUIRE(model_entity != nullptr);
-    auto* player = static_cast<ofg::Player*>(player_entity->create_component(ofg::ComponentType::Player));
     auto* animation_player =
         static_cast<ofg::AnimationPlayer*>(model_entity->create_component(ofg::ComponentType::AnimationPlayer));
-    detached_controller.bind(*player, *animation_player);
-    CHECK_NOTHROW(detached_controller.update(context));
 
     std::unique_ptr<ofg::AnimationClip> idle =
         make_constant_clip("idle", ofg::AnimationTargetPath::Translation, ofg::math::vec4(0.0f, 0.0f, 0.0f, 0.0f));
@@ -372,9 +363,10 @@ TEST_CASE("player animation controller reports incomplete and stale bindings") {
         make_constant_clip("walk", ofg::AnimationTargetPath::Translation, ofg::math::vec4(1.0f, 0.0f, 0.0f, 0.0f));
     std::unique_ptr<ofg::AnimationClip> sprint =
         make_constant_clip("sprint", ofg::AnimationTargetPath::Translation, ofg::math::vec4(2.0f, 0.0f, 0.0f, 0.0f));
-    detached_controller.set_locomotion_clips(*idle, *walk, *sprint);
+    detached_player.bind_locomotion_animation(*animation_player, *idle, *walk, *sprint);
     scene.clear();
-    CHECK_THROWS_WITH_AS(detached_controller.update(context), doctest::Contains("binding target"), ofg::EngineError);
+    CHECK_THROWS_WITH_AS(
+        detached_player.update(context), doctest::Contains("target has been destroyed"), ofg::EngineError);
 
     ofg::Scene clip_scene;
     ofg::Entity* clip_player_entity = clip_scene.create_entity(clip_scene.get_root());
@@ -382,32 +374,7 @@ TEST_CASE("player animation controller reports incomplete and stale bindings") {
     auto* clip_player = static_cast<ofg::Player*>(clip_player_entity->create_component(ofg::ComponentType::Player));
     auto* clip_animation_player =
         static_cast<ofg::AnimationPlayer*>(clip_model_entity->create_component(ofg::ComponentType::AnimationPlayer));
-    ofg::PlayerAnimationController clip_controller(nullptr);
-    clip_controller.bind(*clip_player, *clip_animation_player);
-    clip_controller.set_locomotion_clips(*idle, *walk, *sprint);
+    clip_player->bind_locomotion_animation(*clip_animation_player, *idle, *walk, *sprint);
     sprint.reset();
-    CHECK_THROWS_WITH_AS(
-        clip_controller.update(context), doctest::Contains("clip has been destroyed"), ofg::EngineError);
-}
-
-// Verifies player animation controllers follow Scene component ownership.
-TEST_CASE("scene owns player animation controller components") {
-    ofg::Scene scene;
-    ofg::Entity* entity = scene.create_entity(scene.get_root());
-    ofg::Component* component = entity->create_component(ofg::ComponentType::PlayerAnimationController);
-
-    REQUIRE(component != nullptr);
-    CHECK(component->type() == ofg::ComponentType::PlayerAnimationController);
-    CHECK(entity->player_animation_controller() == component);
-    CHECK(scene.player_animation_controller_count() == 1);
-    CHECK(scene.get_player_animation_controller(0) == entity->player_animation_controller());
-    CHECK(scene.get_player_animation_controller(1) == nullptr);
-    CHECK_THROWS_WITH_AS(([&]() { (void)entity->create_component(ofg::ComponentType::PlayerAnimationController); }()),
-        doctest::Contains("PlayerAnimationController"),
-        ofg::EngineError);
-
-    ofg::Ptr<ofg::PlayerAnimationController> controller = entity->player_animation_controller();
-    scene.clear();
-    CHECK(scene.player_animation_controller_count() == 0);
-    CHECK(controller == nullptr);
+    CHECK_THROWS_WITH_AS(clip_player->update(context), doctest::Contains("clip has been destroyed"), ofg::EngineError);
 }

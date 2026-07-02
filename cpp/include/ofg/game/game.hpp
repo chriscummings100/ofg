@@ -8,7 +8,6 @@
 
 #include "ofg/core/control_input.hpp"
 #include "ofg/core/frame_state.hpp"
-#include "ofg/core/ptr.hpp"
 #include "ofg/game/gpu_context.hpp"
 #include "ofg/game/render_target.hpp"
 #include "ofg/render/demo_scene.hpp"
@@ -20,17 +19,10 @@
 #include <memory>
 #include <span>
 #include <string>
-#include <vector>
 
 #include <webgpu/webgpu.h>
 
 namespace ofg {
-
-class AnimationClip;
-class AnimationPlayer;
-class ModelResource;
-class ModelResourceImportContext;
-class PlayerAnimationController;
 
 enum class GameLifecycleState {
     Uninitialized,
@@ -104,8 +96,6 @@ private:
     void set_control_input_impl(ControlInput input);
     // Imports and attaches the default player model and animation library.
     void load_player_model_impl(std::span<const std::byte> player_glb, std::span<const std::byte> animation_glb);
-    // Attaches an already-imported player model to the active scene if possible.
-    void attach_player_model_to_scene();
     // Records a recoverable player-model loading failure.
     void record_player_model_load_failure_impl(std::string message) noexcept;
     // Records render commands into the caller-owned command encoder.
@@ -154,13 +144,6 @@ private:
     std::string m_last_error;
     DemoScene m_demo_scene;
     ControlInput m_control_input;
-    std::unique_ptr<ModelResourceImportContext> m_player_model_import_context;
-    std::unique_ptr<ModelResource> m_player_model_resource;
-    std::unique_ptr<ModelResource> m_player_animation_resource;
-    std::vector<std::unique_ptr<AnimationClip>> m_player_locomotion_clips;
-    Ptr<Entity> m_player_model_root_entity;
-    Ptr<AnimationPlayer> m_player_model_animation_player;
-    Ptr<PlayerAnimationController> m_player_animation_controller;
     std::unique_ptr<Scene> m_current_scene;
     double m_last_time_ms{0.0};
     bool m_has_last_time{false};

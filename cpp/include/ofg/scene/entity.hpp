@@ -18,7 +18,6 @@ class Camera;
 class AnimationPlayer;
 class MeshRenderer;
 class Player;
-class PlayerAnimationController;
 class Scene;
 
 using EntityId = std::uint32_t;
@@ -70,10 +69,6 @@ public:
     [[nodiscard]] Player* player() noexcept;
     // Returns this entity's player, if one exists.
     [[nodiscard]] const Player* player() const noexcept;
-    // Returns this entity's player animation controller, if one exists.
-    [[nodiscard]] PlayerAnimationController* player_animation_controller() noexcept;
-    // Returns this entity's player animation controller, if one exists.
-    [[nodiscard]] const PlayerAnimationController* player_animation_controller() const noexcept;
     // Returns this entity's animation player, if one exists.
     [[nodiscard]] AnimationPlayer* animation_player() noexcept;
     // Returns this entity's animation player, if one exists.
@@ -97,7 +92,6 @@ private:
     MeshRenderer* m_mesh_renderer{nullptr};
     Camera* m_camera{nullptr};
     Player* m_player{nullptr};
-    PlayerAnimationController* m_player_animation_controller{nullptr};
     AnimationPlayer* m_animation_player{nullptr};
 };
 

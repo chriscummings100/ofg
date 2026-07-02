@@ -12,7 +12,6 @@
 #include "ofg/scene/entity.hpp"
 #include "ofg/scene/mesh_renderer.hpp"
 #include "ofg/scene/player.hpp"
-#include "ofg/scene/player_animation_controller.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -88,12 +87,6 @@ public:
     [[nodiscard]] Player* get_player(std::size_t index) noexcept;
     // Returns one player by creation-order index.
     [[nodiscard]] const Player* get_player(std::size_t index) const noexcept;
-    // Reports the number of player animation controller components in creation order.
-    [[nodiscard]] std::size_t player_animation_controller_count() const noexcept;
-    // Returns one player animation controller by creation-order index.
-    [[nodiscard]] PlayerAnimationController* get_player_animation_controller(std::size_t index) noexcept;
-    // Returns one player animation controller by creation-order index.
-    [[nodiscard]] const PlayerAnimationController* get_player_animation_controller(std::size_t index) const noexcept;
     // Reports the number of animation-player components in creation order.
     [[nodiscard]] std::size_t animation_player_count() const noexcept;
     // Returns one animation player by creation-order index.
@@ -126,7 +119,6 @@ private:
     std::vector<std::unique_ptr<MeshRenderer>> m_mesh_renderers;
     std::vector<std::unique_ptr<Camera>> m_cameras;
     std::vector<std::unique_ptr<Player>> m_players;
-    std::vector<std::unique_ptr<PlayerAnimationController>> m_player_animation_controllers;
     std::vector<std::unique_ptr<AnimationPlayer>> m_animation_players;
     Ptr<Camera> m_main_camera;
     DirectionalLight m_main_light;

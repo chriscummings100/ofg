@@ -36,6 +36,7 @@ The end user-visible result is a browser scene where the player entity renders a
 - [x] (2026-07-02 10:10Z) Milestone 8 implementation completed and is ready for milestone review: added browser `Uint8Array` byte transport for the selected player and animation GLBs, imported and cached Quaternius model resources in `Game`, remapped UAL1 idle/walk/sprint clips by node name to the player model, attached the skinned model under the unscaled player entity, hid the fallback cube through `MeshRenderer::visible`, raised WASM memory to 256 MiB initial with growth enabled, packaged selected model GLBs, updated debug status with `modelLoadingState`/`playerModelLoaded`, and captured idle/walk/sprint screenshots under `C:\dev\ofg\artifacts\player-model`.
 - [x] (2026-07-02 10:48Z) Milestone 8 completed: local milestone review found one required coverage gap for invisible renderer extraction; added `renderer skips invisible scene mesh renderers`, reran validation, verified `.deploy` contains `quaternius-superhero-male.glb` and `quaternius-ual1-standard.glb`, and confirmed browser smoke status `modelLoadingState: "loaded"`, `playerModelLoaded: true`, `lastError: null`.
 - [x] (2026-07-02 11:18Z) Milestone 9 completed: refreshed coverage docs and summary JSON, expanded the C++ coverage gate to include `cpp/src/animation` and `opaque_pbr_shader.cpp`, documented the glTF importer coverage exception, added focused material/animation/controller coverage tests, reran final validation, and confirmed browser smoke still reports `modelLoadingState: "loaded"`, `playerModelLoaded: true`, and `lastError: null`.
+- [x] (2026-07-02 16:49Z) Follow-up architecture cleanup: removed the separate `PlayerAnimationController` component, moved locomotion clip weighting and default player model resource ownership into `Player`, reduced `Game::load_player_model` to lifecycle/status delegation, queued browser player bytes until `Game::prepare()` has created the player scene, and moved renderer transform helpers into shared math.
 
 ## Surprises & Discoveries
 
@@ -347,12 +348,12 @@ The end user-visible result is a browser scene where the player entity renders a
   Rationale: `AnimationPlayer` already owns bound source-node targets, rest transforms, local playback time, and transform writes. Extending it to multiple weighted clip states keeps pose blending local to the animation component and avoids introducing a second system that also writes animated entity transforms.
   Date/Author: 2026-07-02 / Codex
 
-- Decision: Add `PlayerAnimationController` as a scene component that writes animation weights, not movement.
-  Rationale: The existing `Player` component remains the only owner of player root movement. The controller reads `Player::current_speed()` and updates idle/walk/sprint clip weights on a bound `AnimationPlayer`, which keeps locomotion presentation separate from gameplay movement and avoids root motion in this milestone.
+- Decision: Keep player locomotion animation ownership inside the `Player` component.
+  Rationale: The `Player` component owns player movement and the first hardcoded player model binding. Its movement speed is the direct source of idle/walk/sprint weights, so a separate scene component would only hold metadata for the player and split one behavior across two ownership sites. `Player` updates clip weights on its bound `AnimationPlayer` before animation sampling and still avoids root motion.
   Date/Author: 2026-07-02 / Codex
 
-- Decision: Run player animation controllers between player movement and animation players.
-  Rationale: The controller needs the latest movement speed, and the animation player needs those weights before sampling. The canonical scene order is now players, player animation controllers, animation players, procedural overrides, CPU skinning, and cameras.
+- Decision: Run player updates before animation players.
+  Rationale: `Player` needs to process movement and write locomotion clip weights from the latest speed before `AnimationPlayer` samples weighted clips. The canonical scene order is now players, animation players, procedural overrides, CPU skinning, and cameras.
   Date/Author: 2026-07-02 / Codex
 
 - Decision: Bind Milestone 5 same-file animation clips by imported source-node index, and defer cross-file name binding to the player animation-library milestones.
@@ -360,7 +361,7 @@ The end user-visible result is a browser scene where the player entity renders a
   Date/Author: 2026-07-02 / Codex
 
 - Decision: Expose locomotion weight computation as a small pure helper.
-  Rationale: `PlayerAnimationController` remains the scene component that applies clip weights, but `compute_locomotion_animation_weights()` makes idle/walk/sprint edge cases directly testable without manufacturing impossible `Player` speeds. This keeps the runtime update path simple and gives coverage a stable target for invalid speed diagnostics.
+  Rationale: `Player` applies the computed weights to its bound animation player, but `compute_locomotion_animation_weights()` makes idle/walk/sprint edge cases directly testable without manufacturing impossible `Player` speeds. This keeps the runtime update path simple and gives coverage a stable target for invalid speed diagnostics.
   Date/Author: 2026-07-02 / Codex
 
 - Decision: Keep `cpp\src\assets` outside the default 90% native line gate for this milestone.
@@ -620,7 +621,7 @@ The static cube fixture can be loaded once into a reusable model resource and in
 
 The imported animated cube or box animation changes scene entity transforms over time in C++ without TypeScript owning animation state.
 
-Animation playback is owned by `AnimationPlayer` scene components, and player locomotion weights are owned by `PlayerAnimationController` scene components. Tests prove `Scene::clear` destroys animation players/controllers, invalidates returned `Ptr` values, and `Scene::update` runs in the canonical order: players, player animation controllers, animation players, procedural overrides, CPU skinning, cameras.
+Animation playback is owned by `AnimationPlayer` scene components, and player locomotion weights are owned by the `Player` component. Tests prove `Scene::clear` destroys animation players, invalidates returned `Ptr` values, and `Scene::update` runs in the canonical order: players, animation players, procedural overrides, CPU skinning, cameras.
 
 The imported simple skin or rigged fixture produces deterministic CPU-skinned vertices at rest, at a known animation time, and after a manual joint entity override applied after animation evaluation. Ordinary animation frames update existing dynamic vertex-buffer contents rather than recreating vertex buffers.
 

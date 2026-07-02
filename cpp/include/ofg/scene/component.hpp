@@ -16,7 +16,6 @@ enum class ComponentType {
     MeshRenderer,
     Camera,
     Player,
-    PlayerAnimationController,
     AnimationPlayer,
 };
 

@@ -68,6 +68,35 @@ TEST_CASE("math transforms compose as column-vector matrices") {
     CHECK(transformed.w == doctest::Approx(1.0f));
 }
 
+// Verifies shared transform helpers cover points, directions, and affine inverse.
+TEST_CASE("math transforms points directions and affine inverses") {
+    const ofg::math::Mat4 translation = ofg::math::mat4_translation(ofg::math::vec3(2.0f, 3.0f, 4.0f));
+    const ofg::math::Mat4 scale = ofg::math::mat4_scale(ofg::math::vec3(2.0f, 3.0f, 4.0f));
+    const ofg::math::Mat4 transform = ofg::math::mul(translation, scale);
+
+    const ofg::math::Vec3 point = ofg::math::transform_point(transform, ofg::math::vec3(1.0f, 1.0f, 1.0f));
+    CHECK(point.x == doctest::Approx(4.0f));
+    CHECK(point.y == doctest::Approx(6.0f));
+    CHECK(point.z == doctest::Approx(8.0f));
+
+    const ofg::math::Vec3 direction = ofg::math::transform_direction(transform, ofg::math::vec3(1.0f, 1.0f, 1.0f));
+    CHECK(direction.x == doctest::Approx(2.0f));
+    CHECK(direction.y == doctest::Approx(3.0f));
+    CHECK(direction.z == doctest::Approx(4.0f));
+
+    std::string error;
+    const std::optional<ofg::math::Mat4> inverse = ofg::math::inverse_affine(transform, error);
+    REQUIRE(inverse.has_value());
+    const ofg::math::Vec3 restored = ofg::math::transform_point(*inverse, point);
+    CHECK(restored.x == doctest::Approx(1.0f));
+    CHECK(restored.y == doctest::Approx(1.0f));
+    CHECK(restored.z == doctest::Approx(1.0f));
+
+    CHECK(ofg::math::inverse_affine(ofg::math::mat4_scale(ofg::math::vec3(0.0f, 1.0f, 1.0f)), error).has_value() ==
+          false);
+    CHECK(error.find("invertible") != std::string::npos);
+}
+
 // Verifies camera helpers build WebGPU-friendly left-handed matrices.
 TEST_CASE("math camera helpers validate projection and view matrices") {
     std::string error;

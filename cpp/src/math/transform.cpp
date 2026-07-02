@@ -9,6 +9,11 @@
 #include <string>
 
 namespace ofg::math {
+namespace {
+
+constexpr float _matrix_min_determinant = 0.000001F;
+
+} // namespace
 
 // Returns the vector length.
 float length(Vec3 value) noexcept {
@@ -51,6 +56,46 @@ Mat4 mat4_rotation_y(float radians) noexcept {
     matrix[0] = vec4(c, 0.0F, -s, 0.0F);
     matrix[2] = vec4(s, 0.0F, c, 0.0F);
     return matrix;
+}
+
+// Transforms a point by a matrix using homogeneous w=1.
+Vec3 transform_point(Mat4 matrix, Vec3 point) noexcept {
+    const Vec4 transformed = mul(matrix, vec4(point.x, point.y, point.z, 1.0F));
+    return vec3(transformed.x, transformed.y, transformed.z);
+}
+
+// Transforms a direction by a matrix using homogeneous w=0.
+Vec3 transform_direction(Mat4 matrix, Vec3 direction) noexcept {
+    const Vec4 transformed = mul(matrix, vec4(direction.x, direction.y, direction.z, 0.0F));
+    return vec3(transformed.x, transformed.y, transformed.z);
+}
+
+// Returns the inverse of an affine matrix with a non-singular upper 3x3.
+std::optional<Mat4> inverse_affine(Mat4 matrix, std::string& error) {
+    const Vec3 column0 = vec3(matrix[0].x, matrix[0].y, matrix[0].z);
+    const Vec3 column1 = vec3(matrix[1].x, matrix[1].y, matrix[1].z);
+    const Vec3 column2 = vec3(matrix[2].x, matrix[2].y, matrix[2].z);
+    const Vec3 row0 = cross(column1, column2);
+    const float determinant = dot(column0, row0);
+    if (!std::isfinite(determinant) || std::fabs(determinant) < _matrix_min_determinant) {
+        error = "Affine matrix is not invertible.";
+        return std::nullopt;
+    }
+
+    const float inverse_determinant = 1.0F / determinant;
+    const Vec3 inverse_row0 = mul(row0, inverse_determinant);
+    const Vec3 inverse_row1 = mul(cross(column2, column0), inverse_determinant);
+    const Vec3 inverse_row2 = mul(cross(column0, column1), inverse_determinant);
+    const Vec3 translation = vec3(matrix[3].x, matrix[3].y, matrix[3].z);
+
+    Mat4 inverse = mat4_identity();
+    inverse[0] = vec4(inverse_row0.x, inverse_row1.x, inverse_row2.x, 0.0F);
+    inverse[1] = vec4(inverse_row0.y, inverse_row1.y, inverse_row2.y, 0.0F);
+    inverse[2] = vec4(inverse_row0.z, inverse_row1.z, inverse_row2.z, 0.0F);
+    inverse[3] =
+        vec4(-dot(inverse_row0, translation), -dot(inverse_row1, translation), -dot(inverse_row2, translation), 1.0F);
+    error.clear();
+    return inverse;
 }
 
 // Builds a left-handed perspective matrix with WebGPU depth range [0, 1].

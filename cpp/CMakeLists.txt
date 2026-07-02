@@ -134,7 +134,6 @@ add_library(ofg_cpp
   src/scene/entity.cpp
   src/scene/mesh_renderer.cpp
   src/scene/player.cpp
-  src/scene/player_animation_controller.cpp
   src/scene/scene.cpp
 )
 

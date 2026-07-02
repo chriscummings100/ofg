@@ -10,7 +10,6 @@
 #include "ofg/scene/animation_player.hpp"
 #include "ofg/scene/camera.hpp"
 #include "ofg/scene/player.hpp"
-#include "ofg/scene/player_animation_controller.hpp"
 #include "ofg/scene/scene_update.hpp"
 
 #include <cmath>
@@ -65,7 +64,6 @@ Scene::Scene() {
 Scene::Scene(Scene&& other) noexcept
     : m_entities(std::move(other.m_entities)), m_mesh_renderers(std::move(other.m_mesh_renderers)),
       m_cameras(std::move(other.m_cameras)), m_players(std::move(other.m_players)),
-      m_player_animation_controllers(std::move(other.m_player_animation_controllers)),
       m_animation_players(std::move(other.m_animation_players)), m_main_camera(std::move(other.m_main_camera)),
       m_world_transform_cache(std::move(other.m_world_transform_cache)), m_root(other.m_root),
       m_next_entity_id(other.m_next_entity_id), m_generation(other.m_generation) {
@@ -84,7 +82,6 @@ Scene& Scene::operator=(Scene&& other) noexcept {
     m_mesh_renderers = std::move(other.m_mesh_renderers);
     m_cameras = std::move(other.m_cameras);
     m_players = std::move(other.m_players);
-    m_player_animation_controllers = std::move(other.m_player_animation_controllers);
     m_animation_players = std::move(other.m_animation_players);
     m_main_camera = std::move(other.m_main_camera);
     m_world_transform_cache = std::move(other.m_world_transform_cache);
@@ -258,27 +255,6 @@ const Player* Scene::get_player(std::size_t index) const noexcept {
     return m_players[index].get();
 }
 
-// Reports the number of player animation controller components in creation order.
-std::size_t Scene::player_animation_controller_count() const noexcept {
-    return m_player_animation_controllers.size();
-}
-
-// Returns one player animation controller by creation-order index.
-PlayerAnimationController* Scene::get_player_animation_controller(std::size_t index) noexcept {
-    if (index >= m_player_animation_controllers.size()) {
-        return nullptr;
-    }
-    return m_player_animation_controllers[index].get();
-}
-
-// Returns one player animation controller by creation-order index.
-const PlayerAnimationController* Scene::get_player_animation_controller(std::size_t index) const noexcept {
-    if (index >= m_player_animation_controllers.size()) {
-        return nullptr;
-    }
-    return m_player_animation_controllers[index].get();
-}
-
 // Reports the number of animation-player components in creation order.
 std::size_t Scene::animation_player_count() const noexcept {
     return m_animation_players.size();
@@ -306,9 +282,6 @@ void Scene::update(const SceneUpdateContext& context) {
     for (const std::unique_ptr<Player>& player : m_players) {
         player->update(context);
     }
-    for (const std::unique_ptr<PlayerAnimationController>& controller : m_player_animation_controllers) {
-        controller->update(context);
-    }
     for (const std::unique_ptr<AnimationPlayer>& animation_player : m_animation_players) {
         animation_player->update(context);
     }
@@ -334,7 +307,6 @@ void Scene::clear() {
     m_main_camera = nullptr;
     m_cameras.clear();
     m_players.clear();
-    m_player_animation_controllers.clear();
     m_animation_players.clear();
     m_mesh_renderers.clear();
     m_world_transform_cache.clear();
@@ -373,13 +345,6 @@ Component* Scene::create_component(Entity& entity, ComponentType type) {
         m_players.push_back(std::make_unique<Player>(&entity));
         entity.m_player = m_players.back().get();
         return entity.m_player;
-    case ComponentType::PlayerAnimationController:
-        if (entity.m_player_animation_controller != nullptr) {
-            throw EngineError("Entity already has a PlayerAnimationController component.");
-        }
-        m_player_animation_controllers.push_back(std::make_unique<PlayerAnimationController>(&entity));
-        entity.m_player_animation_controller = m_player_animation_controllers.back().get();
-        return entity.m_player_animation_controller;
     case ComponentType::AnimationPlayer:
         if (entity.m_animation_player != nullptr) {
             throw EngineError("Entity already has an AnimationPlayer component.");
