@@ -4,6 +4,8 @@
 // bag. GPU-ready materials own their uniform buffer and bind group state.
 #pragma once
 
+#include "ofg/core/object.hpp"
+#include "ofg/core/ptr.hpp"
 #include "ofg/game/gpu_context.hpp"
 #include "ofg/resources/property_bag.hpp"
 #include "ofg/resources/shader.hpp"
@@ -15,15 +17,15 @@
 
 namespace ofg {
 
-class Material {
+class Material : public Object {
 public:
     // Allocates a labeled material resource using the creating Resources context.
     Material(GpuContext gpu, std::string label);
     Material(const Material&) = delete;
     Material& operator=(const Material&) = delete;
-    Material(Material&& other) noexcept;
-    Material& operator=(Material&& other) noexcept;
-    ~Material();
+    Material(Material&& other) = delete;
+    Material& operator=(Material&& other) = delete;
+    ~Material() override;
 
     // Initializes this material and validates its properties against material scope.
     void init(Shader& shader, PropertyBag properties);
@@ -31,7 +33,7 @@ public:
     // Replaces one property and refreshes validation state.
     void set_property(std::string name, PropertyValue value);
     // Returns the referenced shader.
-    [[nodiscard]] const Shader& shader() const noexcept;
+    [[nodiscard]] const Shader& shader() const;
     // Returns the material label.
     [[nodiscard]] const std::string& label() const noexcept;
     // Returns the material properties.
@@ -53,7 +55,7 @@ private:
 
     GpuContext m_gpu;
     std::string m_label;
-    Shader* m_shader{nullptr};
+    Ptr<Shader> m_shader;
     PropertyBag m_properties;
     WGPUBindGroupLayout m_bind_group_layout{nullptr};
     WGPUBuffer m_uniform_buffer{nullptr};

@@ -78,9 +78,34 @@ if(OFG_NEEDS_NATIVE_WEBGPU)
   )
 endif()
 
+add_library(ofg_tinygltf
+  third_party/tinygltf/tiny_gltf.cc
+)
+target_include_directories(ofg_tinygltf
+  PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tinygltf
+)
+target_compile_features(ofg_tinygltf PUBLIC cxx_std_20)
+if(MSVC)
+  target_compile_options(ofg_tinygltf PRIVATE /W0 /clang:-Wno-deprecated-literal-operator)
+else()
+  target_compile_options(ofg_tinygltf PRIVATE -w)
+endif()
+target_compile_options(ofg_tinygltf PRIVATE ${OFG_WASM_EXCEPTION_OPTIONS})
+
 add_library(ofg_cpp
+  src/animation/animation_clip.cpp
+  src/assets/gltf_document_accessors.cpp
+  src/assets/gltf_document.cpp
+  src/assets/gltf_importer_animation.cpp
+  src/assets/gltf_importer.cpp
+  src/assets/gltf_importer_geometry.cpp
+  src/assets/gltf_importer_resources.cpp
+  src/assets/gltf_importer_skinning.cpp
+  src/assets/model_resource.cpp
   src/core/control_input.cpp
   src/core/frame_state.cpp
+  src/core/object.cpp
   src/game/game.cpp
   src/game/render_target.cpp
   src/gpu/common.cpp
@@ -92,6 +117,7 @@ add_library(ofg_cpp
   src/render/demo_scene.cpp
   src/render/draw_list.cpp
   src/render/opaque_pass.cpp
+  src/render/opaque_pbr_shader.cpp
   src/render/pipeline_cache.cpp
   src/render/renderer.cpp
   src/resources/material.cpp
@@ -103,10 +129,12 @@ add_library(ofg_cpp
   src/resources/texture.cpp
   src/runtime/runtime_debug_status.cpp
   src/scene/camera.cpp
+  src/scene/animation_player.cpp
   src/scene/component.cpp
   src/scene/entity.cpp
   src/scene/mesh_renderer.cpp
   src/scene/player.cpp
+  src/scene/player_animation_controller.cpp
   src/scene/scene.cpp
 )
 
@@ -118,6 +146,7 @@ target_include_directories(ofg_cpp
 target_compile_features(ofg_cpp PUBLIC cxx_std_20)
 
 target_compile_options(ofg_cpp PRIVATE ${OFG_CXX_WARNING_OPTIONS})
+target_link_libraries(ofg_cpp PRIVATE ofg_tinygltf)
 
 if(EMSCRIPTEN)
   target_compile_options(ofg_cpp PRIVATE --use-port=emdawnwebgpu ${OFG_WASM_EXCEPTION_OPTIONS})
@@ -162,8 +191,11 @@ endif()
 if(OFG_BUILD_TESTS AND NOT EMSCRIPTEN)
   # Native tests exercise the shared OFG C++ library through doctest/CTest.
   enable_testing()
+  file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../assets/models/tests" OFG_TEST_ASSET_DIR)
+  file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../assets/models/player" OFG_PLAYER_ASSET_DIR)
 
   add_executable(ofg_cpp_tests
+    tests/animation_blending_test.cpp
     tests/bootstrap_scene_test.cpp
     tests/camera_control_test.cpp
     tests/camera_properties_test.cpp
@@ -171,11 +203,16 @@ if(OFG_BUILD_TESTS AND NOT EMSCRIPTEN)
     tests/demo_scene_test.cpp
     tests/draw_list_test.cpp
     tests/frame_state_test.cpp
+    tests/gltf_document_test.cpp
     tests/gpu_common_test.cpp
     tests/game_test.cpp
     tests/material_resource_test.cpp
     tests/math_test.cpp
     tests/mesh_resource_test.cpp
+    tests/model_skinning_test.cpp
+    tests/model_resource_test.cpp
+    tests/object_ptr_test.cpp
+    tests/player_asset_audit_test.cpp
     tests/property_bag_test.cpp
     tests/resource_gpu_test.cpp
     tests/resource_error_test.cpp
@@ -184,6 +221,7 @@ if(OFG_BUILD_TESTS AND NOT EMSCRIPTEN)
     tests/renderer_test.cpp
     tests/shader_resource_test.cpp
     tests/runtime_debug_status_test.cpp
+    tests/scene_animation_test.cpp
     tests/scene_test.cpp
     tests/test_main.cpp
     tests/texture_resource_test.cpp
@@ -196,6 +234,10 @@ if(OFG_BUILD_TESTS AND NOT EMSCRIPTEN)
   )
   target_include_directories(ofg_cpp_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/doctest
+  )
+  target_compile_definitions(ofg_cpp_tests PRIVATE
+    OFG_TEST_ASSET_DIR="${OFG_TEST_ASSET_DIR}"
+    OFG_PLAYER_ASSET_DIR="${OFG_PLAYER_ASSET_DIR}"
   )
   target_compile_options(ofg_cpp_tests PRIVATE ${OFG_CXX_WARNING_OPTIONS})
   if(OFG_ENABLE_COVERAGE)
@@ -229,11 +271,11 @@ if(OFG_BUILD_WASM)
     --bind
     --use-port=emdawnwebgpu
     ${OFG_WASM_EXCEPTION_OPTIONS}
-    -sALLOW_MEMORY_GROWTH=0
+    -sALLOW_MEMORY_GROWTH=1
     -sENVIRONMENT=web
     -sEXPORT_ES6=1
     -sEXPORT_NAME=createOfgCppModule
-    -sINITIAL_MEMORY=33554432
+    -sINITIAL_MEMORY=268435456
     -sMODULARIZE=1
     -sNO_EXIT_RUNTIME=1
   )

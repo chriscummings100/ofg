@@ -115,39 +115,6 @@ Texture::Texture(GpuContext gpu, std::string label) : m_gpu(std::move(gpu)), m_l
     }
 }
 
-// Moves texture CPU and GPU handles without duplicating ownership.
-Texture::Texture(Texture&& other) noexcept
-    : m_gpu(std::move(other.m_gpu)), m_label(std::move(other.m_label)), m_width(other.m_width),
-      m_height(other.m_height), m_pixel_format(other.m_pixel_format), m_mip_map_policy(other.m_mip_map_policy),
-      m_mip_pixels(std::move(other.m_mip_pixels)), m_texture(other.m_texture), m_view(other.m_view),
-      m_sampler(other.m_sampler), m_revision(other.m_revision) {
-    other.m_texture = nullptr;
-    other.m_view = nullptr;
-    other.m_sampler = nullptr;
-}
-
-// Moves texture CPU and GPU handles without duplicating ownership.
-Texture& Texture::operator=(Texture&& other) noexcept {
-    if (this != &other) {
-        release_gpu_state();
-        m_gpu = std::move(other.m_gpu);
-        m_label = std::move(other.m_label);
-        m_width = other.m_width;
-        m_height = other.m_height;
-        m_pixel_format = other.m_pixel_format;
-        m_mip_map_policy = other.m_mip_map_policy;
-        m_mip_pixels = std::move(other.m_mip_pixels);
-        m_texture = other.m_texture;
-        m_view = other.m_view;
-        m_sampler = other.m_sampler;
-        m_revision = other.m_revision;
-        other.m_texture = nullptr;
-        other.m_view = nullptr;
-        other.m_sampler = nullptr;
-    }
-    return *this;
-}
-
 // Releases owned GPU texture state.
 Texture::~Texture() {
     release_gpu_state();

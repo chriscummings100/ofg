@@ -10,24 +10,25 @@
 
 #include <cstddef>
 #include <cstring>
+#include <memory>
 #include <vector>
 
 namespace {
 
 // Builds a shader with material and draw parameters for property tests.
-ofg::Shader make_property_shader() {
+std::unique_ptr<ofg::Shader> make_property_shader() {
     ofg::ShaderParameterLayout layout;
     layout.m_parameters.push_back(
         ofg::ShaderParameter{"base_color_factor", ofg::ShaderParameterType::Vec4, ofg::ShaderParameterScope::Material});
     layout.m_parameters.push_back(
         ofg::ShaderParameter{"model", ofg::ShaderParameterType::Mat4, ofg::ShaderParameterScope::Draw});
-    ofg::Shader shader{ofg::GpuContext{}, "property shader"};
-    shader.init_from_wgsl("source", layout, {});
+    auto shader = std::make_unique<ofg::Shader>(ofg::GpuContext{}, "property shader");
+    shader->init_from_wgsl("source", layout, {});
     return shader;
 }
 
 // Builds a shader with every uniform-compatible property type.
-ofg::Shader make_uniform_shader() {
+std::unique_ptr<ofg::Shader> make_uniform_shader() {
     ofg::ShaderParameterLayout layout;
     layout.m_parameters.push_back(
         ofg::ShaderParameter{"roughness", ofg::ShaderParameterType::Float, ofg::ShaderParameterScope::Draw});
@@ -43,8 +44,8 @@ ofg::Shader make_uniform_shader() {
         ofg::ShaderParameter{"model", ofg::ShaderParameterType::Mat4, ofg::ShaderParameterScope::Draw});
     layout.m_parameters.push_back(ofg::ShaderParameter{
         "optional_texture", ofg::ShaderParameterType::Texture, ofg::ShaderParameterScope::Draw, 0, false});
-    ofg::Shader shader{ofg::GpuContext{}, "uniform shader"};
-    shader.init_from_wgsl("source", layout, {});
+    auto shader = std::make_unique<ofg::Shader>(ofg::GpuContext{}, "uniform shader");
+    shader->init_from_wgsl("source", layout, {});
     return shader;
 }
 
@@ -59,32 +60,32 @@ float read_packed_float(const std::vector<std::byte>& packed, std::size_t float_
 
 // Verifies property bags validate declared shader scopes.
 TEST_CASE("property bag validates shader parameter scopes") {
-    ofg::Shader shader = make_property_shader();
+    std::unique_ptr<ofg::Shader> shader = make_property_shader();
     ofg::PropertyBag material_properties;
     material_properties.set("base_color_factor", ofg::math::vec4(1.0F, 0.5F, 0.25F, 1.0F));
 
-    CHECK_NOTHROW(material_properties.validate_for_scope(shader, ofg::ShaderParameterScope::Material));
+    CHECK_NOTHROW(material_properties.validate_for_scope(*shader, ofg::ShaderParameterScope::Material));
 
     material_properties.set("unknown", 1.0F);
-    CHECK_THROWS_WITH_AS(material_properties.validate_for_scope(shader, ofg::ShaderParameterScope::Material),
+    CHECK_THROWS_WITH_AS(material_properties.validate_for_scope(*shader, ofg::ShaderParameterScope::Material),
         "Property 'unknown' is not declared for material scope.",
         ofg::EngineError);
 
     ofg::PropertyBag wrong_type;
     wrong_type.set("base_color_factor", 1.0F);
-    CHECK_THROWS_WITH_AS(wrong_type.validate_for_scope(shader, ofg::ShaderParameterScope::Material),
+    CHECK_THROWS_WITH_AS(wrong_type.validate_for_scope(*shader, ofg::ShaderParameterScope::Material),
         "Property 'base_color_factor' does not match expected type vec4.",
         ofg::EngineError);
 }
 
 // Verifies uniform packing follows declared layout order.
 TEST_CASE("property bag packs uniform values") {
-    ofg::Shader shader = make_property_shader();
+    std::unique_ptr<ofg::Shader> shader = make_property_shader();
     ofg::PropertyBag draw_properties;
     draw_properties.set("model", ofg::math::mat4_translation(ofg::math::vec3(2.0F, 3.0F, 4.0F)));
 
     const std::vector<std::byte> packed =
-        draw_properties.pack_uniforms_for_scope(shader, ofg::ShaderParameterScope::Draw);
+        draw_properties.pack_uniforms_for_scope(*shader, ofg::ShaderParameterScope::Draw);
     CHECK(packed.size() == sizeof(float) * 16);
     const auto* floats = reinterpret_cast<const float*>(packed.data());
     CHECK(floats[12] == doctest::Approx(2.0F));
@@ -94,7 +95,7 @@ TEST_CASE("property bag packs uniform values") {
 
 // Verifies all uniform-compatible value types can be packed in layout order.
 TEST_CASE("property bag packs all scalar vector and matrix uniform types") {
-    ofg::Shader shader = make_uniform_shader();
+    std::unique_ptr<ofg::Shader> shader = make_uniform_shader();
     ofg::PropertyBag draw_properties;
     draw_properties.set("roughness", 0.5F);
     draw_properties.set("uv_scale", ofg::math::vec2(2.0F, 3.0F));
@@ -103,7 +104,7 @@ TEST_CASE("property bag packs all scalar vector and matrix uniform types") {
     draw_properties.set("model", ofg::math::mat4_identity());
 
     const std::vector<std::byte> packed =
-        draw_properties.pack_uniforms_for_scope(shader, ofg::ShaderParameterScope::Draw);
+        draw_properties.pack_uniforms_for_scope(*shader, ofg::ShaderParameterScope::Draw);
     CHECK(packed.size() == sizeof(float) * 26);
     CHECK(read_packed_float(packed, 0) == doctest::Approx(0.5F));
     CHECK(read_packed_float(packed, 1) == doctest::Approx(2.0F));
@@ -180,13 +181,13 @@ TEST_CASE("property bag helper functions describe shader value types") {
 
 // Verifies invalid bags fail before packing bytes.
 TEST_CASE("property bag refuses to pack invalid scoped values") {
-    ofg::Shader shader = make_property_shader();
+    std::unique_ptr<ofg::Shader> shader = make_property_shader();
     ofg::PropertyBag draw_properties;
     draw_properties.set("model", ofg::math::mat4_identity());
     draw_properties.set("unknown", 1.0F);
 
     CHECK_THROWS_WITH_AS(
-        [&]() { (void)draw_properties.pack_uniforms_for_scope(shader, ofg::ShaderParameterScope::Draw); }(),
+        [&]() { (void)draw_properties.pack_uniforms_for_scope(*shader, ofg::ShaderParameterScope::Draw); }(),
         "Property 'unknown' is not declared for draw scope.",
         ofg::EngineError);
 }

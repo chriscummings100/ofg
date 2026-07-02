@@ -149,7 +149,10 @@ PreparedMaterialGpuState create_material_gpu_state(
         if (value == nullptr) {
             continue;
         }
-        Texture* texture = std::get<Texture*>(*value);
+        Texture* texture = std::get<Ptr<Texture>>(*value).get();
+        if (texture == nullptr) {
+            throw EngineError("Material texture property '" + parameter.m_name + "' must not be null.");
+        }
         if (texture->view() == nullptr || texture->sampler() == nullptr) {
             throw EngineError("Material texture property '" + parameter.m_name + "' requires a GPU-ready texture.");
         }
@@ -213,37 +216,6 @@ Material::Material(GpuContext gpu, std::string label) : m_gpu(std::move(gpu)), m
     }
 }
 
-// Moves material CPU and GPU handles without duplicating ownership.
-Material::Material(Material&& other) noexcept
-    : m_gpu(std::move(other.m_gpu)), m_label(std::move(other.m_label)), m_shader(other.m_shader),
-      m_properties(std::move(other.m_properties)), m_bind_group_layout(other.m_bind_group_layout),
-      m_uniform_buffer(other.m_uniform_buffer), m_bind_group(other.m_bind_group), m_revision(other.m_revision) {
-    other.m_shader = nullptr;
-    other.m_bind_group_layout = nullptr;
-    other.m_uniform_buffer = nullptr;
-    other.m_bind_group = nullptr;
-}
-
-// Moves material CPU and GPU handles without duplicating ownership.
-Material& Material::operator=(Material&& other) noexcept {
-    if (this != &other) {
-        release_gpu_state();
-        m_gpu = std::move(other.m_gpu);
-        m_label = std::move(other.m_label);
-        m_shader = other.m_shader;
-        m_properties = std::move(other.m_properties);
-        m_bind_group_layout = other.m_bind_group_layout;
-        m_uniform_buffer = other.m_uniform_buffer;
-        m_bind_group = other.m_bind_group;
-        m_revision = other.m_revision;
-        other.m_shader = nullptr;
-        other.m_bind_group_layout = nullptr;
-        other.m_uniform_buffer = nullptr;
-        other.m_bind_group = nullptr;
-    }
-    return *this;
-}
-
 // Releases owned GPU material state.
 Material::~Material() {
     release_gpu_state();
@@ -261,7 +233,7 @@ void Material::init(Shader& shader, PropertyBag properties) {
 
 // Replaces one property and refreshes validation state.
 void Material::set_property(std::string name, PropertyValue value) {
-    if (m_shader == nullptr) {
+    if (!m_shader) {
         throw EngineError("Material shader reference is not initialized.");
     }
 
@@ -289,7 +261,7 @@ void Material::set_property(std::string name, PropertyValue value) {
 }
 
 // Returns the referenced shader.
-const Shader& Material::shader() const noexcept {
+const Shader& Material::shader() const {
     return *m_shader;
 }
 
@@ -331,7 +303,7 @@ void Material::prepare_gpu_state() {
     if (!gpu_context_is_ready(m_gpu)) {
         throw EngineError("Material GPU preparation requires a WebGPU device and queue.");
     }
-    if (m_shader == nullptr) {
+    if (!m_shader) {
         throw EngineError("Material shader reference is not initialized.");
     }
 

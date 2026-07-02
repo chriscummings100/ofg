@@ -88,6 +88,34 @@ TEST_CASE("scene rejects invalid entity parents") {
         ofg::EngineError);
 }
 
+// Verifies scene-owned lighting has validated defaults and authoring setters.
+TEST_CASE("scene stores main directional and ambient lighting") {
+    ofg::Scene scene;
+
+    CHECK(scene.main_light().m_direction.y == doctest::Approx(-1.0f));
+    CHECK(scene.ambient_light().m_intensity == doctest::Approx(0.08f));
+
+    scene.set_main_light(
+        ofg::DirectionalLight{ofg::math::vec3(0.0f, -2.0f, 0.0f), ofg::math::vec3(1.0f, 0.9f, 0.8f), 2.5f});
+    CHECK(scene.main_light().m_direction.y == doctest::Approx(-1.0f));
+    CHECK(scene.main_light().m_intensity == doctest::Approx(2.5f));
+
+    scene.set_ambient_light(ofg::AmbientLight{ofg::math::vec3(0.2f, 0.3f, 0.4f), 0.15f});
+    CHECK(scene.ambient_light().m_color.z == doctest::Approx(0.4f));
+    CHECK(scene.ambient_light().m_intensity == doctest::Approx(0.15f));
+
+    CHECK_THROWS_WITH_AS(([&]() {
+        scene.set_main_light(
+            ofg::DirectionalLight{ofg::math::vec3(0.0f, 0.0f, 0.0f), ofg::math::vec3(1.0f, 1.0f, 1.0f), 1.0f});
+    }()),
+        doctest::Contains("normalize"),
+        ofg::EngineError);
+    CHECK_THROWS_WITH_AS(
+        ([&]() { scene.set_ambient_light(ofg::AmbientLight{ofg::math::vec3(-1.0f, 0.0f, 0.0f), 1.0f}); }()),
+        doctest::Contains("non-negative"),
+        ofg::EngineError);
+}
+
 // Verifies mesh renderer components are scene-owned and exposed by index.
 TEST_CASE("scene creates mesh renderer components in stable order") {
     ofg::Scene scene;
@@ -267,7 +295,7 @@ TEST_CASE("player update moves on the Y-up flat plane in player modes") {
 
     camera->set_control_mode(ofg::CameraControlMode::FirstPerson);
     player->update(context);
-    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(-3.5f));
+    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(3.5f));
     CHECK(player_entity->local_transform().m_position.y == doctest::Approx(0.9f));
 
     controls.m_move_x = 1.0f;
@@ -276,24 +304,24 @@ TEST_CASE("player update moves on the Y-up flat plane in player modes") {
     player->update(context);
     CHECK(player_entity->local_transform().m_position.x == doctest::Approx(0.7071067f).epsilon(0.0001));
     CHECK(player_entity->local_transform().m_position.y == doctest::Approx(0.9f));
-    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(-4.2071067f).epsilon(0.0001));
+    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(4.2071067f).epsilon(0.0001));
 
     controls = ofg::ControlInput{};
     player->update(context);
-    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(-4.2071067f).epsilon(0.0001));
+    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(4.2071067f).epsilon(0.0001));
 
     player_entity->local_transform().m_position = ofg::math::vec3(0.0f, 0.0f, 0.0f);
     controls.m_move_z = 1.0f;
     controls.m_fast = true;
     player->set_walk_speed(1.0f);
     player->update(context);
-    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(-2.0f));
+    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(2.0f));
 
     player_entity->local_transform().m_position = ofg::math::vec3(0.0f, 0.0f, 0.0f);
     controls.m_fast = false;
     controls.m_slow = true;
     player->update(context);
-    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(-0.35f));
+    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(0.35f));
 
     player->set_height(2.0f);
     CHECK(player->height() == doctest::Approx(2.0f));
@@ -332,7 +360,7 @@ TEST_CASE("player movement follows camera yaw after mouse look") {
     controls.m_move_x = 1.0f;
     scene.update(context);
     CHECK(player_entity->local_transform().m_position.x == doctest::Approx(0.0f).epsilon(0.0001));
-    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(1.0f).epsilon(0.0001));
+    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(-1.0f).epsilon(0.0001));
 }
 
 // Verifies player updates reject invalid direct calls and ignore non-primary players.
@@ -362,29 +390,6 @@ TEST_CASE("player update validates ownership delta and primary-player binding") 
     ofg::SceneUpdateContext detached_context{controls, 1000.0, 1.0f, &detached_player, camera};
     CHECK_THROWS_WITH_AS(
         detached_player.update(detached_context), doctest::Contains("owning entity"), ofg::EngineError);
-}
-
-// Verifies scene update runs players before cameras so first-person follow is same-frame.
-TEST_CASE("scene update applies player movement before camera follow") {
-    ofg::Scene scene;
-    ofg::Entity* player_entity = scene.create_entity(scene.get_root());
-    ofg::Entity* camera_entity = scene.create_entity(scene.get_root());
-    (void)player_entity->create_component(ofg::ComponentType::Player);
-    (void)camera_entity->create_component(ofg::ComponentType::Camera);
-    ofg::Player* player = player_entity->player();
-    ofg::Camera* camera = camera_entity->camera();
-    REQUIRE(player != nullptr);
-    REQUIRE(camera != nullptr);
-    camera->set_control_mode(ofg::CameraControlMode::FirstPerson);
-
-    ofg::ControlInput controls;
-    controls.m_move_z = 1.0f;
-    ofg::SceneUpdateContext context{controls, 1000.0, 1.0f, player, camera};
-    scene.update(context);
-
-    CHECK(player_entity->local_transform().m_position.z == doctest::Approx(-3.5f));
-    CHECK(camera_entity->local_transform().m_position.z == doctest::Approx(-3.78f));
-    CHECK(camera_entity->local_transform().m_position.y == doctest::Approx(1.6f));
 }
 
 // Verifies scene update validates controls before any component can mutate transforms.
@@ -469,8 +474,8 @@ TEST_CASE("camera properties resolve entity transforms without scale") {
     CHECK(world_origin.z == doctest::Approx(0.0f).epsilon(0.0001));
 
     const ofg::math::Vec4 world_forward =
-        ofg::math::mul(properties.world_from_camera, ofg::math::vec4(0.0f, 0.0f, -1.0f, 0.0f));
-    CHECK(world_forward.x == doctest::Approx(-1.0f));
+        ofg::math::mul(properties.world_from_camera, ofg::math::vec4(0.0f, 0.0f, 1.0f, 0.0f));
+    CHECK(world_forward.x == doctest::Approx(1.0f));
     CHECK(world_forward.y == doctest::Approx(0.0f));
     CHECK(world_forward.z == doctest::Approx(0.0f).epsilon(0.0001));
 

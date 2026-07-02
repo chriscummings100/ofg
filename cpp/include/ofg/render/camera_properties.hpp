@@ -16,7 +16,9 @@ class Camera;
 
 struct CameraProperties {
     const Camera* camera{nullptr};
+    // Scene camera transform; camera-local +Z is the authored/gameplay forward direction.
     math::Mat4 world_from_camera;
+    // Renderer view matrix paired with a +Z-forward camera and WebGPU depth range [0, 1].
     math::Mat4 camera_from_world;
     math::Mat4 clip_from_camera;
     math::Mat4 clip_from_world;
@@ -26,7 +28,7 @@ struct CameraProperties {
     float far_z{80.0f};
 };
 
-// Builds camera properties from explicit right-handed look-at inputs.
+// Builds camera properties from explicit +Z-forward look-at inputs.
 [[nodiscard]] CameraProperties camera_properties_from_look_at(const Camera* camera,
     math::Vec3 eye,
     math::Vec3 target,

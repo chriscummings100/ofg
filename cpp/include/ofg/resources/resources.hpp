@@ -85,14 +85,6 @@ private:
     [[nodiscard]] Material& create_material_impl(std::string label);
     // Allocates and stores a labeled mesh resource.
     [[nodiscard]] Mesh& create_mesh_impl(std::string label);
-    // Adds a texture and returns its stable reference.
-    [[nodiscard]] Texture& add_texture(Texture texture);
-    // Adds a shader and returns its stable reference.
-    [[nodiscard]] Shader& add_shader(Shader shader);
-    // Adds a material and returns its stable reference.
-    [[nodiscard]] Material& add_material(Material material);
-    // Adds a mesh and returns its stable reference.
-    [[nodiscard]] Mesh& add_mesh(Mesh mesh);
     // Clears all resources in reverse dependency-friendly order.
     void clear_resources();
     // Throws if resource allocation is no longer allowed.

@@ -4,6 +4,7 @@
 // prepare WebGPU texture/view/sampler state when created with a ready GpuContext.
 #pragma once
 
+#include "ofg/core/object.hpp"
 #include "ofg/game/gpu_context.hpp"
 
 #include <cstddef>
@@ -31,15 +32,15 @@ enum class MipMapPolicy {
     GenerateCpuFullChain,
 };
 
-class Texture {
+class Texture : public Object {
 public:
     // Allocates a labeled texture resource using the creating Resources context.
     Texture(GpuContext gpu, std::string label);
     Texture(const Texture&) = delete;
     Texture& operator=(const Texture&) = delete;
-    Texture(Texture&& other) noexcept;
-    Texture& operator=(Texture&& other) noexcept;
-    ~Texture();
+    Texture(Texture&& other) = delete;
+    Texture& operator=(Texture&& other) = delete;
+    ~Texture() override;
 
     // Initializes this texture from tightly packed RGBA8 level-zero pixels.
     void init_from_rgba8_pixels(std::uint32_t width,

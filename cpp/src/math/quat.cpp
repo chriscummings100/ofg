@@ -78,32 +78,23 @@ std::optional<Quat> quat_from_axis_angle(Vec3 axis, float radians, std::string& 
     return normalize(quaternion, error);
 }
 
-// Builds a camera entity rotation that looks from eye toward target in right-handed space.
-std::optional<Quat> quat_look_at_rh(Vec3 eye, Vec3 target, Vec3 up, std::string& error) {
+// Builds an entity rotation whose local +Z axis looks from eye toward target in OFG's left-handed space.
+std::optional<Quat> quat_look_at_lh(Vec3 eye, Vec3 target, Vec3 up, std::string& error) {
     std::optional<Vec3> forward = normalize(sub(target, eye), error);
     if (!forward.has_value()) {
-        error = "Quaternion look-at eye and target must be distinct.";
+        error = "Quaternion left-handed look-at eye and target must be distinct.";
         return std::nullopt;
     }
 
-    std::optional<Vec3> right = normalize(cross(*forward, up), error);
+    std::optional<Vec3> right = normalize(cross(up, *forward), error);
     if (!right.has_value()) {
-        error = "Quaternion look-at up vector must not be parallel to the view direction.";
+        error = "Quaternion left-handed look-at up vector must not be parallel to the view direction.";
         return std::nullopt;
     }
-    const Vec3 camera_up = cross(*right, *forward);
-    const Vec3 camera_back = mul(*forward, -1.0f);
+    const Vec3 camera_up = cross(*forward, *right);
 
-    return quat_from_rotation_matrix(right->x,
-        camera_up.x,
-        camera_back.x,
-        right->y,
-        camera_up.y,
-        camera_back.y,
-        right->z,
-        camera_up.z,
-        camera_back.z,
-        error);
+    return quat_from_rotation_matrix(
+        right->x, camera_up.x, forward->x, right->y, camera_up.y, forward->y, right->z, camera_up.z, forward->z, error);
 }
 
 // Returns a normalized quaternion or an error for zero-length/non-finite input.

@@ -11,7 +11,7 @@
 namespace ofg {
 namespace {
 
-// Builds the camera-to-world transform that corresponds to a right-handed look-at view.
+// Builds the scene camera-to-world transform for OFG's +Z-forward camera convention.
 math::Mat4 world_from_look_at(math::Vec3 eye, math::Vec3 target, math::Vec3 up, std::string& error) {
     std::optional<math::Vec3> forward = math::normalize(math::sub(target, eye), error);
     if (!forward.has_value()) {
@@ -19,17 +19,17 @@ math::Mat4 world_from_look_at(math::Vec3 eye, math::Vec3 target, math::Vec3 up, 
         return math::mat4_identity();
     }
 
-    std::optional<math::Vec3> right = math::normalize(math::cross(*forward, up), error);
+    std::optional<math::Vec3> right = math::normalize(math::cross(up, *forward), error);
     if (!right.has_value()) {
         error = "Camera properties up vector must not be parallel to the view direction.";
         return math::mat4_identity();
     }
 
-    const math::Vec3 camera_up = math::cross(*right, *forward);
+    const math::Vec3 camera_up = math::cross(*forward, *right);
     math::Mat4 matrix;
     matrix[0] = math::vec4(right->x, right->y, right->z, 0.0f);
     matrix[1] = math::vec4(camera_up.x, camera_up.y, camera_up.z, 0.0f);
-    matrix[2] = math::vec4(-forward->x, -forward->y, -forward->z, 0.0f);
+    matrix[2] = math::vec4(forward->x, forward->y, forward->z, 0.0f);
     matrix[3] = math::vec4(eye.x, eye.y, eye.z, 1.0f);
     error.clear();
     return matrix;
@@ -37,7 +37,7 @@ math::Mat4 world_from_look_at(math::Vec3 eye, math::Vec3 target, math::Vec3 up, 
 
 } // namespace
 
-// Builds camera properties from explicit right-handed look-at inputs.
+// Builds camera properties from explicit +Z-forward look-at inputs.
 CameraProperties camera_properties_from_look_at(const Camera* camera,
     math::Vec3 eye,
     math::Vec3 target,
@@ -53,7 +53,7 @@ CameraProperties camera_properties_from_look_at(const Camera* camera,
     }
 
     std::optional<math::Mat4> clip_from_camera =
-        math::perspective_rh(vertical_fov_radians, aspect, near_z, far_z, error);
+        math::perspective_lh(vertical_fov_radians, aspect, near_z, far_z, error);
     if (!clip_from_camera.has_value()) {
         throw EngineError(error.empty() ? "Camera properties projection creation failed." : error);
     }
@@ -61,7 +61,7 @@ CameraProperties camera_properties_from_look_at(const Camera* camera,
     CameraProperties properties;
     properties.camera = camera;
     properties.world_from_camera = world_from_camera;
-    std::optional<math::Mat4> camera_from_world = math::look_at_rh(eye, target, up, error);
+    std::optional<math::Mat4> camera_from_world = math::look_at_lh(eye, target, up, error);
     if (!camera_from_world.has_value()) {
         throw EngineError(error.empty() ? "Camera properties view creation failed." : error);
     }

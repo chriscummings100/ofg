@@ -39,17 +39,20 @@ WGPURenderPipeline create_render_pipeline(WGPUDevice device,
     WGPUShaderModule shader_module) {
     WGPUPipelineLayout layout = create_pipeline_layout(device, frame_layout, draw_layout, key.m_material_layout);
 
-    std::array<WGPUVertexAttribute, 3> attributes{
-        WGPU_VERTEX_ATTRIBUTE_INIT, WGPU_VERTEX_ATTRIBUTE_INIT, WGPU_VERTEX_ATTRIBUTE_INIT};
+    std::array<WGPUVertexAttribute, 4> attributes{
+        WGPU_VERTEX_ATTRIBUTE_INIT, WGPU_VERTEX_ATTRIBUTE_INIT, WGPU_VERTEX_ATTRIBUTE_INIT, WGPU_VERTEX_ATTRIBUTE_INIT};
     attributes[0].format = WGPUVertexFormat_Float32x3;
     attributes[0].offset = offsetof(MeshVertex, m_position);
     attributes[0].shaderLocation = 0;
     attributes[1].format = WGPUVertexFormat_Float32x3;
     attributes[1].offset = offsetof(MeshVertex, m_normal);
     attributes[1].shaderLocation = 1;
-    attributes[2].format = WGPUVertexFormat_Float32x2;
-    attributes[2].offset = offsetof(MeshVertex, m_uv);
+    attributes[2].format = WGPUVertexFormat_Float32x4;
+    attributes[2].offset = offsetof(MeshVertex, m_tangent);
     attributes[2].shaderLocation = 2;
+    attributes[3].format = WGPUVertexFormat_Float32x2;
+    attributes[3].offset = offsetof(MeshVertex, m_uv);
+    attributes[3].shaderLocation = 3;
 
     WGPUVertexBufferLayout vertex_buffer_layout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
     vertex_buffer_layout.arrayStride = mesh_vertex_stride_bytes();

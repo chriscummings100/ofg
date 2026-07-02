@@ -130,6 +130,11 @@ for (const file of checkedFiles) {
 console.log(`C++ coverage summary written to ${path.relative(rootDir, summaryPath)}`);
 
 // Extracts per-file line coverage for source files covered by this gate.
+//
+// glTF parser/importer files under cpp/src/assets are intentionally outside
+// this per-file gate for now because their useful contract coverage comes from
+// fixture-driven importer tests, player asset audits, and browser/native smoke.
+// COVERAGE.md and the active glTF plan record that exception.
 function collectCheckedFiles(report) {
   const files = report.data?.[0]?.files ?? [];
   return files
@@ -138,6 +143,7 @@ function collectCheckedFiles(report) {
       percent: Number(file.summary?.lines?.percent ?? 0)
     }))
     .filter((file) =>
+      isUnder(file.path, path.join(rootDir, "cpp", "src", "animation")) ||
       isUnder(file.path, path.join(rootDir, "cpp", "src", "core")) ||
       isUnder(file.path, path.join(rootDir, "cpp", "src", "gpu")) ||
       isUnder(file.path, path.join(rootDir, "cpp", "src", "math")) ||
@@ -152,6 +158,7 @@ function collectCheckedFiles(report) {
         "demo_scene.cpp",
         "draw_list.cpp",
         "opaque_pass.cpp",
+        "opaque_pbr_shader.cpp",
         "pipeline_cache.cpp",
         "renderer.cpp"
       ].includes(path.basename(file.path)) && isUnder(file.path, path.join(rootDir, "cpp", "src", "render"))

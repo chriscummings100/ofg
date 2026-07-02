@@ -5,6 +5,7 @@
 // one Scene generation and invalidated by Scene::clear().
 #pragma once
 
+#include "ofg/core/object.hpp"
 #include "ofg/math/quat.hpp"
 #include "ofg/math/vec.hpp"
 #include "ofg/scene/component.hpp"
@@ -14,8 +15,10 @@
 namespace ofg {
 
 class Camera;
+class AnimationPlayer;
 class MeshRenderer;
 class Player;
+class PlayerAnimationController;
 class Scene;
 
 using EntityId = std::uint32_t;
@@ -26,7 +29,7 @@ struct LocalTransform {
     math::Vec3 m_scale{1.0f, 1.0f, 1.0f};
 };
 
-class Entity {
+class Entity : public Object {
 public:
     Entity(const Entity&) = delete;
     Entity& operator=(const Entity&) = delete;
@@ -67,6 +70,14 @@ public:
     [[nodiscard]] Player* player() noexcept;
     // Returns this entity's player, if one exists.
     [[nodiscard]] const Player* player() const noexcept;
+    // Returns this entity's player animation controller, if one exists.
+    [[nodiscard]] PlayerAnimationController* player_animation_controller() noexcept;
+    // Returns this entity's player animation controller, if one exists.
+    [[nodiscard]] const PlayerAnimationController* player_animation_controller() const noexcept;
+    // Returns this entity's animation player, if one exists.
+    [[nodiscard]] AnimationPlayer* animation_player() noexcept;
+    // Returns this entity's animation player, if one exists.
+    [[nodiscard]] const AnimationPlayer* animation_player() const noexcept;
 
 private:
     friend class Scene;
@@ -86,6 +97,8 @@ private:
     MeshRenderer* m_mesh_renderer{nullptr};
     Camera* m_camera{nullptr};
     Player* m_player{nullptr};
+    PlayerAnimationController* m_player_animation_controller{nullptr};
+    AnimationPlayer* m_animation_player{nullptr};
 };
 
 } // namespace ofg

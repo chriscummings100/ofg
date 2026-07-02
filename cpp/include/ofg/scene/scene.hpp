@@ -5,11 +5,14 @@
 // resolves each owning entity's world transform into a transient draw list.
 #pragma once
 
+#include "ofg/core/ptr.hpp"
 #include "ofg/math/mat.hpp"
+#include "ofg/scene/animation_player.hpp"
 #include "ofg/scene/camera.hpp"
 #include "ofg/scene/entity.hpp"
 #include "ofg/scene/mesh_renderer.hpp"
 #include "ofg/scene/player.hpp"
+#include "ofg/scene/player_animation_controller.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -19,6 +22,17 @@
 namespace ofg {
 
 struct SceneUpdateContext;
+
+struct DirectionalLight {
+    math::Vec3 m_direction{0.0f, -1.0f, 0.0f};
+    math::Vec3 m_color{1.0f, 1.0f, 1.0f};
+    float m_intensity{1.0f};
+};
+
+struct AmbientLight {
+    math::Vec3 m_color{1.0f, 1.0f, 1.0f};
+    float m_intensity{0.08f};
+};
 
 class Scene {
 public:
@@ -60,12 +74,32 @@ public:
     [[nodiscard]] const Camera* main_camera() const noexcept;
     // Replaces the explicit main camera selection, or clears it for first-camera fallback.
     void set_main_camera(Camera* camera);
+    // Returns the main directional light used by the first PBR renderer path.
+    [[nodiscard]] const DirectionalLight& main_light() const noexcept;
+    // Replaces the main directional light after normalizing its direction.
+    void set_main_light(DirectionalLight light);
+    // Returns the ambient light term used by the first PBR renderer path.
+    [[nodiscard]] const AmbientLight& ambient_light() const noexcept;
+    // Replaces the ambient light term.
+    void set_ambient_light(AmbientLight light);
     // Reports the number of player components in creation order.
     [[nodiscard]] std::size_t player_count() const noexcept;
     // Returns one player by creation-order index.
     [[nodiscard]] Player* get_player(std::size_t index) noexcept;
     // Returns one player by creation-order index.
     [[nodiscard]] const Player* get_player(std::size_t index) const noexcept;
+    // Reports the number of player animation controller components in creation order.
+    [[nodiscard]] std::size_t player_animation_controller_count() const noexcept;
+    // Returns one player animation controller by creation-order index.
+    [[nodiscard]] PlayerAnimationController* get_player_animation_controller(std::size_t index) noexcept;
+    // Returns one player animation controller by creation-order index.
+    [[nodiscard]] const PlayerAnimationController* get_player_animation_controller(std::size_t index) const noexcept;
+    // Reports the number of animation-player components in creation order.
+    [[nodiscard]] std::size_t animation_player_count() const noexcept;
+    // Returns one animation player by creation-order index.
+    [[nodiscard]] AnimationPlayer* get_animation_player(std::size_t index) noexcept;
+    // Returns one animation player by creation-order index.
+    [[nodiscard]] const AnimationPlayer* get_animation_player(std::size_t index) const noexcept;
     // Updates scene-owned gameplay and camera components in deterministic order.
     void update(const SceneUpdateContext& context);
     // Returns the generation token invalidated by clear().
@@ -92,7 +126,12 @@ private:
     std::vector<std::unique_ptr<MeshRenderer>> m_mesh_renderers;
     std::vector<std::unique_ptr<Camera>> m_cameras;
     std::vector<std::unique_ptr<Player>> m_players;
-    Camera* m_main_camera{nullptr};
+    std::vector<std::unique_ptr<PlayerAnimationController>> m_player_animation_controllers;
+    std::vector<std::unique_ptr<AnimationPlayer>> m_animation_players;
+    Ptr<Camera> m_main_camera;
+    DirectionalLight m_main_light;
+    AmbientLight m_ambient_light;
+    std::vector<math::Mat4> m_world_transform_cache;
     Entity* m_root{nullptr};
     EntityId m_next_entity_id{0};
     std::uint32_t m_generation{0};

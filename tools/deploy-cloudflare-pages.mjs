@@ -66,7 +66,9 @@ function verifyDeployPackage() {
     "dist/app/wasmRuntime.js",
     "src/app/styles.css",
     "assets/wasm/ofg_cpp/ofg_cpp.js",
-    "assets/wasm/ofg_cpp/ofg_cpp.wasm"
+    "assets/wasm/ofg_cpp/ofg_cpp.wasm",
+    "assets/models/player/quaternius-superhero-male.glb",
+    "assets/models/player/quaternius-ual1-standard.glb"
   ];
   for (const relativePath of requiredFiles) {
     const fullPath = resolve(deployDir, relativePath);

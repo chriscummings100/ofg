@@ -6,7 +6,7 @@ The active cross-system contracts are recorded in `docs/API_CONTRACTS.md`. This 
 
 ## BrowserHost
 
-The browser host owns the web page shell. It creates or finds the canvas, sizes it from the viewport and device pixel ratio, collects raw control input from DOM events, reports fatal startup errors, loads the C++/WASM module, and provides the local static dev server. It does not own gameplay simulation, player movement, camera behavior, scene graph data, GPU pipeline creation, or draw submission.
+The browser host owns the web page shell. It creates or finds the canvas, sizes it from the viewport and device pixel ratio, collects raw control input from DOM events, reports fatal startup errors, loads the C++/WASM module, fetches player model files as opaque bytes, and provides the local static dev server. It does not own glTF parsing, gameplay simulation, player movement, camera behavior, scene graph data, GPU pipeline creation, or draw submission.
 
 Public interfaces:
 
@@ -21,12 +21,13 @@ Communication contracts:
 
 - BrowserHost supplies physical canvas width, physical canvas height, and clamped device pixel ratio to the C++ `BrowserGame` facade.
 - BrowserHost supplies raw control input snapshots to `BrowserGame` once per animation frame before requesting the C++ frame update. The raw snapshots contain movement axes, look deltas, look-active state, speed modifiers, and a one-frame camera-mode cycle edge only.
+- BrowserHost fetches the selected player model and animation-library GLBs from `assets/models/player` and passes only `Uint8Array` bytes to `BrowserGame`; C++ owns parsing, resource creation, scene mutation, animation binding, and skinning.
 - BrowserHost must preserve zero-size canvas axes. Zero size is a recoverable state that C++ reports through debug status instead of a host-side failure.
 - BrowserHost may inspect runtime debug JSON and display fatal startup failures, but must not reach into scene objects, camera components, renderer internals, or generated WASM glue.
 
 ## CppRuntime
 
-The C++ runtime is the C++/WASM facade exposed to TypeScript. `BrowserGame` owns the browser-specific frame driver: WebGPU instance/adapter/device/surface setup, surface resize policy, setup-phase control-input buffering, surface texture acquisition, command encoder creation, command-buffer finish, queue submit, and Embind lifecycle ownership. `Game` exposes a static public lifecycle backed by one private singleton instance: single-shot `create`, repeated `prepare`, `resize`, `update`, `render`, repeated `release`, and single-shot `destroy`. `Resources` and `Renderer` expose their own static lifecycles. `Resources` owns active high-level resource storage for the borrowed WebGPU device; `Renderer` owns pass creation, pass lifetime, resize propagation, command recording, transient draw-list construction, and renderer counters. `Game` owns frame counting, debug-status serialization, the current `Scene` pointer, the latest raw `ControlInput` snapshot, demo-scene binding state, target validation, and the active scene passed to `Renderer::render`.
+The C++ runtime is the C++/WASM facade exposed to TypeScript. `BrowserGame` owns the browser-specific frame driver: WebGPU instance/adapter/device/surface setup, surface resize policy, setup-phase control-input and player-model byte buffering, surface texture acquisition, command encoder creation, command-buffer finish, queue submit, and Embind lifecycle ownership. `Game` exposes a static public lifecycle backed by one private singleton instance: single-shot `create`, repeated `prepare`, `resize`, `update`, `render`, repeated `release`, and single-shot `destroy`. `Resources` and `Renderer` expose their own static lifecycles. `Resources` owns active high-level resource storage for the borrowed WebGPU device; `Renderer` owns pass creation, pass lifetime, resize propagation, command recording, transient draw-list construction, and renderer counters. `Game` owns frame counting, debug-status serialization, the current `Scene` pointer, the latest raw `ControlInput` snapshot, demo-scene binding state, imported player model resources, target validation, and the active scene passed to `Renderer::render`.
 
 Public interfaces:
 
@@ -48,14 +49,15 @@ Communication contracts:
 
 - CppRuntime consumes only the canvas and resize/frame calls supplied by BrowserHost.
 - `BrowserGame` accepts sanitized raw control input from TypeScript. If input arrives before async WebGPU setup has created `Game`, `BrowserGame` stores the latest snapshot and forwards it once `Game` becomes active.
+- `BrowserGame` accepts selected player model and animation-library bytes from TypeScript. If bytes arrive before async WebGPU setup has created `Game`, `BrowserGame` queues them and reports `modelLoadingState: "queued"` until `Game` can import them.
 - `BrowserGame` creates the static `Game` singleton after browser WebGPU device setup, drives `Game::prepare()` from frame processing until ready, delegates frame state, component updates, and render command recording to `Game`, and keeps browser surface acquisition and one queue submit per frame in the browser frame driver.
 - `Game::prepare()` prepares `Resources`, builds the current demo scene, then prepares `Renderer`. `Game::release()` drains `Renderer`, clears scene state, then drains `Resources`; `Game::destroy()` then destroys `Renderer` before `Resources`.
-- The `debug_status_json()` fields are a public inspection contract for TypeScript tests, Playwright smoke, and later diagnostics.
+- The `debug_status_json()` fields are a public inspection contract for TypeScript tests, Playwright smoke, and later diagnostics. The current model-loading fields are `modelLoadingState` and `playerModelLoaded`.
 - `dispose()` drains `Game::release()`, calls `Game::destroy()`, then releases borrowed WebGPU device and queue handles and browser WebGPU resources.
 
 ## CppRenderer
 
-The C++ renderer owns the current pass-based draw-list renderer used behind static `Game` in browser and native frame drivers. `Renderer` is a static lifecycle facade that creates and owns its internal pass list; the current list contains one opaque pass. `Resources` owns active high-level resource storage and the borrowed `GpuContext`; `Game` uses that facade to build demo resources, then maintains a current ECS `Scene` containing scene-owned `Camera`, `Player`, and `MeshRenderer` components, floor entity, player entity, cube entities, and local transforms. `Scene::update` updates player components before camera components so same-frame camera follow observes player movement. `Camera` owns debug, first-person, and third-person mode behavior for the single active camera entity. `CameraProperties` is the renderer-facing camera snapshot that carries resolved camera matrices, source camera, aspect, and clip distances. `Renderer::render` resolves `Scene::main_camera()` into `CameraProperties`, iterates scene mesh renderers, and converts them into a private transient `DrawList` before executing its passes. `Resources::create_*` only allocates labeled resources; the explicit texture, shader, material, and mesh `init_*` methods validate data and create GPU state. The demo scene creates a camera entity, mipmapped checker texture, a white texture, opaque materials, a ground mesh, a cube mesh, a visible player box, and stable floor/player/cube entities whose transforms are updated per frame. The renderer owns the opaque pass, transient draw list, frame and draw uniform buffers, depth texture, pipeline cache, resource counters, and WebGPU command recording for the current visual contract.
+The C++ renderer owns the current pass-based draw-list renderer used behind static `Game` in browser and native frame drivers. `Renderer` is a static lifecycle facade that creates and owns its internal pass list; the current list contains one opaque pass. `Resources` owns active high-level resource storage and the borrowed `GpuContext`; `Game` uses that facade to build demo resources, then maintains a current ECS `Scene` containing scene-owned `Camera`, `Player`, `AnimationPlayer`, `PlayerAnimationController`, and `MeshRenderer` components, floor entity, player entity, model entities, cube entities, and local transforms. OFG scene/game space is left-handed with `+X` right, `+Y` up, and `+Z` forward; cameras also use local `+Z` as forward, and `CameraProperties` resolves that convention into the WebGPU projection/view data consumed by render passes. `Scene::update` updates players, player animation controllers, animation players, CPU-skinned mesh renderers, then cameras so same-frame camera follow observes player movement and rendering sees current skinned vertices. `Camera` owns debug, first-person, and third-person mode behavior for the single active camera entity. `CameraProperties` is the renderer-facing camera snapshot that carries resolved camera matrices, source camera, aspect, and clip distances. `Renderer::render` resolves `Scene::main_camera()` into `CameraProperties`, iterates visible scene mesh renderers, and converts them into a private transient `DrawList` before executing its passes. `Resources::create_*` only allocates labeled resources; the explicit texture, shader, material, and mesh `init_*` methods validate data and create GPU state. The demo scene creates a camera entity, mipmapped checker texture, a white texture, opaque materials, a ground mesh, a cube mesh, a fallback player box, and stable floor/player/cube entities whose transforms are updated per frame. When the browser player model loads, the fallback player-box renderer is hidden and the imported skinned model supplies the visible player. The renderer owns the opaque pass, transient draw list, frame and draw uniform buffers, depth texture, pipeline cache, resource counters, and WebGPU command recording for the current visual contract.
 
 Public interfaces:
 
@@ -71,11 +73,11 @@ Communication contracts:
 - Static `Game` must use equivalent resource data, shader source, ECS mesh-renderer submission, renderer passes, and clear color regardless of whether the frame target comes from the browser surface or native offscreen texture.
 - Resource objects are high-level assets, not wrappers for every WebGPU type. They may store the borrowed `GpuContext` that prepared them, but they do not own or release the platform device or queue.
 - The renderer requests no optional GPU features and creates durable resources during lifecycle creation, first render for a new material/shader pipeline key, explicit mutation, or resize, not every ordinary steady-state frame.
-- Surface/texture format may differ between browser and native targets, but the visual contract remains a dark blue-gray background, a large textured checker ground plane, a visible player box, and multiple colored cubes rendered through the opaque draw-list path.
+- Surface/texture format may differ between browser and native targets, but the visual contract remains a dark blue-gray background, a large textured checker ground plane, an imported player model or fallback player box, and multiple colored cubes rendered through the opaque draw-list path.
 
 ## BrowserSmoke
 
-Browser smoke validates that the built site loads in a real browser-like environment controlled by Playwright core. It proves the TypeScript host can load generated C++/WASM, initialize WebGPU, resize, render frames, and read debug status.
+Browser smoke validates that the built site loads in a real browser-like environment controlled by Playwright core. It proves the TypeScript host can load generated C++/WASM, initialize WebGPU, fetch the selected player GLBs, pass bytes to C++, resize, render frames, exercise movement/camera modes, and read debug status.
 
 Public interfaces:
 
@@ -88,7 +90,7 @@ Public interfaces:
 Communication contracts:
 
 - BrowserSmoke depends on `npm run build` output and the local static serving behavior.
-- BrowserSmoke treats debug status JSON as the public runtime inspection interface.
+- BrowserSmoke treats debug status JSON as the public runtime inspection interface and waits for `playerModelLoaded` before checking steady-state renderer counters.
 - BrowserSmoke may verify page behavior and pixels, but must not depend on private generated WASM internals.
 
 ## NativeRenderSmoke
@@ -132,7 +134,7 @@ Communication contracts:
 
 ## DeploymentPackaging
 
-Deployment packaging owns the static Cloudflare Pages output. It rebuilds the app, copies only runtime files into `.deploy`, writes cross-origin isolation headers required by WebGPU, verifies required files, and reports the generated C++ WASM size.
+Deployment packaging owns the static Cloudflare Pages output. It rebuilds the app, copies only runtime files and selected player model assets into `.deploy`, writes cross-origin isolation headers required by WebGPU, verifies required files, and reports the generated C++ WASM size.
 
 Public interfaces:
 
@@ -146,6 +148,6 @@ Public interfaces:
 Communication contracts:
 
 - Cloudflare Pages should use build command `npm run build:cloudflare` and output directory `.deploy`.
-- DeploymentPackaging must publish `assets/wasm/ofg_cpp/ofg_cpp.js` and `assets/wasm/ofg_cpp/ofg_cpp.wasm`.
+- DeploymentPackaging must publish `assets/wasm/ofg_cpp/ofg_cpp.js`, `assets/wasm/ofg_cpp/ofg_cpp.wasm`, `assets/models/player/quaternius-superhero-male.glb`, and `assets/models/player/quaternius-ual1-standard.glb`.
 - DeploymentPackaging must not publish source-only files, tests, or large build directories.
 - Browser WebGPU requires cross-origin isolation headers, so `_headers` is part of the deployment contract.

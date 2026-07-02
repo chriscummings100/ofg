@@ -23,6 +23,8 @@ struct DemoScene {
     Shader* m_shader{nullptr};
     Texture* m_checker_texture{nullptr};
     Texture* m_white_texture{nullptr};
+    Texture* m_neutral_metallic_roughness_texture{nullptr};
+    Texture* m_flat_normal_texture{nullptr};
     Material* m_ground_material{nullptr};
     Material* m_player_material{nullptr};
     std::array<Material*, 4> m_cube_materials{};
@@ -33,8 +35,10 @@ struct DemoScene {
     Entity* m_ground_entity{nullptr};
     MeshRenderer* m_ground_renderer{nullptr};
     Entity* m_player_entity{nullptr};
+    Entity* m_player_visual_entity{nullptr};
     MeshRenderer* m_player_renderer{nullptr};
     Player* m_player{nullptr};
+    bool m_player_fallback_visible{true};
     std::array<Entity*, 4> m_cube_entities{};
     std::array<MeshRenderer*, 4> m_cube_renderers{};
 };

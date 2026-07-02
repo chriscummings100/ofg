@@ -15,6 +15,8 @@ export interface RuntimeDebugStatus {
   readonly adapterName: string;
   readonly backend: string;
   readonly cameraMode: string;
+  readonly modelLoadingState: string;
+  readonly playerModelLoaded: boolean;
   readonly pipelineCreateCount: number;
   readonly bufferCreateCount: number;
   readonly surfaceConfigureCount: number;
@@ -40,6 +42,10 @@ export interface BrowserGameRuntime {
   frame(timeMs: number): void;
   // Forwards one raw control input snapshot.
   setControlInput(input: ControlInput): void;
+  // Passes fetched player model bytes through to the C++ runtime.
+  loadPlayerModel(playerBytes: Uint8Array, animationBytes: Uint8Array): void;
+  // Reports a player model fetch/transport failure to runtime debug status.
+  reportPlayerModelLoadError(message: string): void;
   // Returns validated debug status for UI, smoke tests, and diagnostics.
   debugStatus(): RuntimeDebugStatus;
   // Releases runtime resources and makes later calls fail clearly.
@@ -63,6 +69,10 @@ export interface RawBrowserGame {
     slow: boolean,
     cycleCameraMode: boolean
   ): void;
+  // Passes fetched player model bytes to the C++ runtime.
+  load_player_model(playerBytes: Uint8Array, animationBytes: Uint8Array): void;
+  // Reports player model fetch/transport failures to the C++ runtime.
+  report_player_model_load_error(message: string): void;
   // Returns the raw debug-status JSON string from C++.
   debug_status_json(): string;
   // Releases WebGPU resources owned by the C++ runtime.
@@ -156,6 +166,18 @@ class CppBrowserGameRuntime implements BrowserGameRuntime {
     );
   }
 
+  // Passes fetched player model bytes through to C++.
+  loadPlayerModel(playerBytes: Uint8Array, animationBytes: Uint8Array): void {
+    this.#assertLive();
+    this.#game.load_player_model(playerBytes, animationBytes);
+  }
+
+  // Reports a player model fetch/transport failure to runtime debug status.
+  reportPlayerModelLoadError(message: string): void {
+    this.#assertLive();
+    this.#game.report_player_model_load_error(message);
+  }
+
   // Parses the C++ debug-status JSON through the shared validator.
   debugStatus(): RuntimeDebugStatus {
     this.#assertLive();
@@ -215,6 +237,8 @@ export function parseRuntimeDebugStatus(json: string): RuntimeDebugStatus {
     adapterName: requireString(record, "adapterName"),
     backend: requireString(record, "backend"),
     cameraMode: requireString(record, "cameraMode"),
+    modelLoadingState: requireString(record, "modelLoadingState"),
+    playerModelLoaded: requireBoolean(record, "playerModelLoaded"),
     pipelineCreateCount: requireNonNegativeInteger(record, "pipelineCreateCount"),
     bufferCreateCount: requireNonNegativeInteger(record, "bufferCreateCount"),
     surfaceConfigureCount: requireNonNegativeInteger(record, "surfaceConfigureCount"),

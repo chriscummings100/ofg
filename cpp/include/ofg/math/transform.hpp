@@ -18,14 +18,14 @@ namespace ofg::math {
 // Builds a scale matrix.
 [[nodiscard]] Mat4 mat4_scale(Vec3 scale) noexcept;
 
-// Builds a right-handed Y-axis rotation matrix.
+// Builds a Y-axis yaw rotation matrix for OFG's left-handed, +Z-forward space.
 [[nodiscard]] Mat4 mat4_rotation_y(float radians) noexcept;
 
-// Builds a right-handed perspective matrix with WebGPU depth range [0, 1].
-[[nodiscard]] std::optional<Mat4> perspective_rh(
+// Builds a left-handed perspective matrix with WebGPU depth range [0, 1].
+[[nodiscard]] std::optional<Mat4> perspective_lh(
     float fovy_radians, float aspect, float near_z, float far_z, std::string& error);
 
-// Builds a right-handed view matrix that looks from eye toward target.
-[[nodiscard]] std::optional<Mat4> look_at_rh(Vec3 eye, Vec3 target, Vec3 up, std::string& error);
+// Builds a left-handed view matrix that treats camera-local +Z as forward.
+[[nodiscard]] std::optional<Mat4> look_at_lh(Vec3 eye, Vec3 target, Vec3 up, std::string& error);
 
 } // namespace ofg::math

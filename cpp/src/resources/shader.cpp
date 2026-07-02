@@ -52,30 +52,6 @@ Shader::Shader(GpuContext gpu, std::string label) : m_gpu(std::move(gpu)), m_lab
     }
 }
 
-// Moves shader CPU and GPU handles without duplicating ownership.
-Shader::Shader(Shader&& other) noexcept
-    : m_gpu(std::move(other.m_gpu)), m_label(std::move(other.m_label)), m_wgsl_source(std::move(other.m_wgsl_source)),
-      m_parameter_layout(std::move(other.m_parameter_layout)), m_pipelines(std::move(other.m_pipelines)),
-      m_module(other.m_module), m_revision(other.m_revision) {
-    other.m_module = nullptr;
-}
-
-// Moves shader CPU and GPU handles without duplicating ownership.
-Shader& Shader::operator=(Shader&& other) noexcept {
-    if (this != &other) {
-        release_gpu_state();
-        m_gpu = std::move(other.m_gpu);
-        m_label = std::move(other.m_label);
-        m_wgsl_source = std::move(other.m_wgsl_source);
-        m_parameter_layout = std::move(other.m_parameter_layout);
-        m_pipelines = std::move(other.m_pipelines);
-        m_module = other.m_module;
-        m_revision = other.m_revision;
-        other.m_module = nullptr;
-    }
-    return *this;
-}
-
 // Releases the owned WebGPU shader module.
 Shader::~Shader() {
     release_gpu_state();

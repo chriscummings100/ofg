@@ -5,6 +5,7 @@
 #include "ofg/resources/shader.hpp"
 
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -79,17 +80,10 @@ TEST_CASE("shader resource rejects duplicate and unnamed parameters") {
     }
 }
 
-// Verifies shader move assignment keeps ownership single and readable.
-TEST_CASE("shader resource supports move assignment") {
-    ofg::Shader destination{ofg::GpuContext{}, "destination"};
-    destination.init_from_wgsl("source a", {}, {});
-    ofg::Shader source{ofg::GpuContext{}, "source"};
-    source.init_from_wgsl("source b", {}, {});
-
-    destination = std::move(source);
-    CHECK(destination.label() == "source");
-    CHECK(destination.source() == "source b");
-    CHECK(destination.module() == nullptr);
+// Verifies shader resources are address-stable Object-derived values.
+TEST_CASE("shader resource is not movable") {
+    CHECK_FALSE(std::is_move_constructible_v<ofg::Shader>);
+    CHECK_FALSE(std::is_move_assignable_v<ofg::Shader>);
 }
 
 // Verifies readable enum names cover the public shader vocabulary.

@@ -17,6 +17,9 @@
 
 namespace ofg {
 
+struct AmbientLight;
+struct DirectionalLight;
+
 struct RendererCounters {
     std::uint32_t m_pipeline_create_count{0};
     std::uint32_t m_buffer_create_count{0};
@@ -37,8 +40,12 @@ public:
     // Resizes or releases the pass depth target.
     void resize(std::uint32_t width, std::uint32_t height);
     // Encodes opaque draws into the caller-owned command encoder.
-    void render(
-        WGPUCommandEncoder encoder, RenderTarget target, const CameraProperties& camera, const DrawList& draw_list);
+    void render(WGPUCommandEncoder encoder,
+        RenderTarget target,
+        const CameraProperties& camera,
+        const DirectionalLight& main_light,
+        const AmbientLight& ambient_light,
+        const DrawList& draw_list);
     // Reports durable renderer resource counters.
     [[nodiscard]] RendererCounters counters() const noexcept;
 

@@ -64,20 +64,23 @@ math::Vec3 direction_from_column(math::Vec4 column) noexcept {
 
 // Returns the current camera forward direction in world space.
 math::Vec3 camera_forward(const Camera& camera) {
-    const CameraProperties properties = camera.camera_properties(1.0f);
-    const math::Vec4 forward = math::mul(properties.world_from_camera, math::vec4(0.0f, 0.0f, -1.0f, 0.0f));
+    if (camera.entity() == nullptr) {
+        throw EngineError("Camera control requires an owning entity.");
+    }
+    const math::Mat4 world_from_camera = world_from_camera_entity(*camera.entity());
+    const math::Vec4 forward = math::mul(world_from_camera, math::vec4(0.0f, 0.0f, 1.0f, 0.0f));
     return math::vec3(forward.x, forward.y, forward.z);
 }
 
 // Builds a normalized forward vector from controller yaw and pitch.
 math::Vec3 forward_from_angles(float yaw_radians, float pitch_radians) noexcept {
     const float cos_pitch = std::cos(pitch_radians);
-    return math::vec3(std::sin(yaw_radians) * cos_pitch, std::sin(pitch_radians), -std::cos(yaw_radians) * cos_pitch);
+    return math::vec3(std::sin(yaw_radians) * cos_pitch, std::sin(pitch_radians), std::cos(yaw_radians) * cos_pitch);
 }
 
 // Builds the horizontal right vector for the current yaw.
 math::Vec3 right_from_yaw(float yaw_radians) noexcept {
-    return math::vec3(std::cos(yaw_radians), 0.0f, std::sin(yaw_radians));
+    return math::vec3(std::cos(yaw_radians), 0.0f, -std::sin(yaw_radians));
 }
 
 // Normalizes movement only when combined axes would otherwise move faster diagonally.
@@ -97,7 +100,7 @@ void derive_angles(math::Vec3 forward, float& yaw_radians, float& pitch_radians)
         throw EngineError(error.empty() ? "Camera control could not derive orientation." : error);
     }
 
-    yaw_radians = std::atan2(normalized_forward->x, -normalized_forward->z);
+    yaw_radians = std::atan2(normalized_forward->x, normalized_forward->z);
     pitch_radians =
         std::clamp(std::asin(std::clamp(normalized_forward->y, -1.0f, 1.0f)), -_max_pitch_radians, _max_pitch_radians);
 }
@@ -117,7 +120,7 @@ void apply_camera_orientation(Entity& entity, float yaw_radians, float pitch_rad
     const math::Vec3 forward = forward_from_angles(yaw_radians, pitch_radians);
     std::string error;
     std::optional<math::Quat> rotation =
-        math::quat_look_at_rh(position, math::add(position, forward), math::vec3(0.0f, 1.0f, 0.0f), error);
+        math::quat_look_at_lh(position, math::add(position, forward), math::vec3(0.0f, 1.0f, 0.0f), error);
     if (!rotation.has_value()) {
         throw EngineError(error.empty() ? "Camera control rotation creation failed." : error);
     }
@@ -151,8 +154,8 @@ float debug_speed_multiplier(const ControlInput& input) noexcept {
 // Builds a yaw-only player rotation used by player camera modes.
 math::Quat yaw_rotation(float yaw_radians) {
     std::string error;
-    // Camera yaw uses +X as positive look direction; axis-angle Y yaw uses the opposite sign for local -Z.
-    std::optional<math::Quat> rotation = math::quat_from_axis_angle(math::vec3(0.0f, 1.0f, 0.0f), -yaw_radians, error);
+    // Camera yaw uses +X as positive look direction from the shared local +Z forward axis.
+    std::optional<math::Quat> rotation = math::quat_from_axis_angle(math::vec3(0.0f, 1.0f, 0.0f), yaw_radians, error);
     if (!rotation.has_value()) {
         throw EngineError(error.empty() ? "Camera control player yaw creation failed." : error);
     }
@@ -236,7 +239,7 @@ void Camera::update_third_person_control(const SceneUpdateContext& context) {
     const math::Vec3 eye = math::add(target, math::mul(forward, -_third_person_distance));
 
     std::string error;
-    std::optional<math::Quat> rotation = math::quat_look_at_rh(eye, target, math::vec3(0.0f, 1.0f, 0.0f), error);
+    std::optional<math::Quat> rotation = math::quat_look_at_lh(eye, target, math::vec3(0.0f, 1.0f, 0.0f), error);
     if (!rotation.has_value()) {
         throw EngineError(error.empty() ? "Third-person camera rotation creation failed." : error);
     }
@@ -330,8 +333,7 @@ CameraProperties Camera::camera_properties(float aspect) const {
     const math::Mat4 world_from_camera = world_from_camera_entity(*entity());
     const math::Vec3 eye = direction_from_column(world_from_camera[3]);
     const math::Vec3 camera_up = direction_from_column(world_from_camera[1]);
-    const math::Vec3 camera_back = direction_from_column(world_from_camera[2]);
-    const math::Vec3 camera_forward = math::mul(camera_back, -1.0f);
+    const math::Vec3 camera_forward = direction_from_column(world_from_camera[2]);
     const math::Vec3 target = math::add(eye, camera_forward);
 
     CameraProperties properties =

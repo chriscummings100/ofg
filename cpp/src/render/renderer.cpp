@@ -32,6 +32,9 @@ void build_draw_list_from_scene(const Scene& scene, DrawList& draw_list) {
         if (mesh_renderer == nullptr || mesh_renderer->entity() == nullptr) {
             throw EngineError("Scene mesh renderer must have an owning entity.");
         }
+        if (!mesh_renderer->visible()) {
+            continue;
+        }
 
         const math::Mat4 world_from_renderer = world_from_local(*mesh_renderer->entity());
         const std::vector<MaterialOverride>& material_overrides = mesh_renderer->material_overrides();
@@ -208,7 +211,7 @@ void Renderer::render_impl(WGPUCommandEncoder encoder, RenderTarget target, cons
 
     build_draw_list_from_scene(scene, m_draw_list);
     for (std::unique_ptr<OpaquePass>& pass : m_passes) {
-        pass->render(encoder, target, camera_properties, m_draw_list);
+        pass->render(encoder, target, camera_properties, scene.main_light(), scene.ambient_light(), m_draw_list);
     }
 }
 

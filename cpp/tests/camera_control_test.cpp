@@ -37,7 +37,7 @@ ofg::math::Vec3 camera_position(const ofg::Camera& camera) {
 ofg::math::Vec3 camera_forward(const ofg::Camera& camera) {
     const ofg::CameraProperties properties = camera.camera_properties(1.0f);
     const ofg::math::Vec4 forward =
-        ofg::math::mul(properties.world_from_camera, ofg::math::vec4(0.0f, 0.0f, -1.0f, 0.0f));
+        ofg::math::mul(properties.world_from_camera, ofg::math::vec4(0.0f, 0.0f, 1.0f, 0.0f));
     return ofg::math::vec3(forward.x, forward.y, forward.z);
 }
 
@@ -62,7 +62,7 @@ TEST_CASE("camera debug mode moves with raw controls and clamps diagonal speed")
 
     ofg::SceneUpdateContext second_context = context_for(input, 0.016f, nullptr, &camera);
     camera.update(second_context);
-    CHECK(camera_position(camera).z == doctest::Approx(-0.08f).epsilon(0.0001));
+    CHECK(camera_position(camera).z == doctest::Approx(0.08f).epsilon(0.0001));
 
     input = ofg::ControlInput{};
     input.m_move_x = 1.0f;
@@ -109,7 +109,7 @@ TEST_CASE("camera controls apply mouse look and clamp pitch") {
     const ofg::math::Vec3 forward = camera_forward(camera);
     CHECK(forward.x > 0.0f);
     CHECK(forward.y == doctest::Approx(std::sin(89.0f * 3.14159265358979323846f / 180.0f)).epsilon(0.0001));
-    CHECK(forward.z < 0.0f);
+    CHECK(forward.z > 0.0f);
 }
 
 // Verifies first-person mode follows the already-updated player position.
@@ -133,7 +133,7 @@ TEST_CASE("first-person camera follows the player at eye height") {
     const ofg::math::Vec3 position = camera_position(*camera);
     CHECK(position.x == doctest::Approx(2.0f));
     CHECK(position.y == doctest::Approx(1.6f));
-    CHECK(position.z == doctest::Approx(-3.28f));
+    CHECK(position.z == doctest::Approx(-2.72f));
 }
 
 // Verifies third-person mode follows behind and above the player.
@@ -157,7 +157,7 @@ TEST_CASE("third-person camera follows behind the player") {
     const ofg::math::Vec3 position = camera_position(*camera);
     CHECK(position.x == doctest::Approx(0.0f));
     CHECK(position.y == doctest::Approx(1.45f));
-    CHECK(position.z == doctest::Approx(4.0f));
+    CHECK(position.z == doctest::Approx(-4.0f));
 }
 
 // Verifies validation rejects non-finite raw controls.

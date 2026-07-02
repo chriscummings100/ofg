@@ -15,12 +15,12 @@ ComponentType Component::type() const noexcept {
 
 // Returns the entity that owns this component.
 Entity* Component::entity() noexcept {
-    return m_entity;
+    return m_entity.get();
 }
 
 // Returns the entity that owns this component.
 const Entity* Component::entity() const noexcept {
-    return m_entity;
+    return m_entity.get();
 }
 
 } // namespace ofg

@@ -4,9 +4,11 @@
 // can pack uniform-compatible values in declared layout order.
 #pragma once
 
+#include "ofg/core/ptr.hpp"
 #include "ofg/math/mat.hpp"
 #include "ofg/math/vec.hpp"
 #include "ofg/resources/shader.hpp"
+#include "ofg/resources/texture.hpp"
 
 #include <cstddef>
 #include <string>
@@ -16,9 +18,7 @@
 
 namespace ofg {
 
-class Texture;
-
-using PropertyValue = std::variant<float, math::Vec2, math::Vec3, math::Vec4, math::Mat4, Texture*>;
+using PropertyValue = std::variant<float, math::Vec2, math::Vec3, math::Vec4, math::Mat4, Ptr<Texture>>;
 
 class PropertyBag {
 public:

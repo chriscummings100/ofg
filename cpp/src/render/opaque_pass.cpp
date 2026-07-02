@@ -8,9 +8,11 @@
 #include "ofg/resources/material.hpp"
 #include "ofg/resources/mesh.hpp"
 #include "ofg/resources/shader.hpp"
+#include "ofg/scene/scene.hpp"
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -18,9 +20,11 @@
 namespace ofg {
 namespace {
 
-constexpr std::uint64_t _matrix_uniform_bytes = sizeof(float) * 16;
+constexpr std::uint64_t _frame_uniform_bytes = sizeof(float) * 32;
+constexpr std::uint64_t _draw_uniform_bytes = sizeof(float) * 32;
 constexpr std::uint64_t _draw_uniform_stride = 256;
 constexpr std::uint32_t _initial_draw_capacity = 1;
+constexpr float _normal_matrix_min_determinant = 0.000001f;
 
 // Converts the shared renderer clear color into WebGPU descriptor form.
 WGPUColor webgpu_clear_color() noexcept {
@@ -48,14 +52,15 @@ WGPUBuffer create_uniform_buffer(WGPUDevice device, const char* label, std::uint
 }
 
 // Creates a single uniform-buffer bind group layout.
-WGPUBindGroupLayout create_uniform_layout(WGPUDevice device, const char* label, bool dynamic_offset) {
+WGPUBindGroupLayout create_uniform_layout(
+    WGPUDevice device, const char* label, std::uint64_t byte_size, WGPUShaderStage visibility, bool dynamic_offset) {
     WGPUBindGroupLayoutEntry entry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
     entry.binding = 0;
-    entry.visibility = WGPUShaderStage_Vertex;
+    entry.visibility = visibility;
     entry.buffer = WGPU_BUFFER_BINDING_LAYOUT_INIT;
     entry.buffer.type = WGPUBufferBindingType_Uniform;
     entry.buffer.hasDynamicOffset = dynamic_offset ? WGPU_TRUE : WGPU_FALSE;
-    entry.buffer.minBindingSize = _matrix_uniform_bytes;
+    entry.buffer.minBindingSize = byte_size;
 
     WGPUBindGroupLayoutDescriptor descriptor = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
     descriptor.label = gpu::cstring_view(label);
@@ -71,12 +76,12 @@ WGPUBindGroupLayout create_uniform_layout(WGPUDevice device, const char* label, 
 
 // Creates a bind group for one matrix uniform buffer binding.
 WGPUBindGroup create_uniform_bind_group(
-    WGPUDevice device, const char* label, WGPUBindGroupLayout layout, WGPUBuffer buffer) {
+    WGPUDevice device, const char* label, WGPUBindGroupLayout layout, WGPUBuffer buffer, std::uint64_t byte_size) {
     WGPUBindGroupEntry entry = WGPU_BIND_GROUP_ENTRY_INIT;
     entry.binding = 0;
     entry.buffer = buffer;
     entry.offset = 0;
-    entry.size = _matrix_uniform_bytes;
+    entry.size = byte_size;
 
     WGPUBindGroupDescriptor descriptor = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
     descriptor.label = gpu::cstring_view(label);
@@ -95,6 +100,72 @@ WGPUBindGroup create_uniform_bind_group(
 void write_mat4(WGPUQueue queue, WGPUBuffer buffer, std::uint64_t offset, const math::Mat4& matrix) {
     const std::array<float, 16> packed = math::pack_mat4(matrix);
     wgpuQueueWriteBuffer(queue, buffer, offset, packed.data(), sizeof(float) * packed.size());
+}
+
+// Returns the inverse-transpose upper 3x3 matrix needed for normal/tangent transforms.
+math::Mat4 normal_model_from_model(const math::Mat4& model) {
+    const math::Vec3 column0 = math::vec3(model[0].x, model[0].y, model[0].z);
+    const math::Vec3 column1 = math::vec3(model[1].x, model[1].y, model[1].z);
+    const math::Vec3 column2 = math::vec3(model[2].x, model[2].y, model[2].z);
+    const math::Vec3 inverse_transpose0 = math::cross(column1, column2);
+    const float determinant = math::dot(column0, inverse_transpose0);
+    if (!std::isfinite(determinant) || std::fabs(determinant) < _normal_matrix_min_determinant) {
+        throw EngineError("Opaque draw model matrix is not invertible for normal transformation.");
+    }
+
+    const float inverse_determinant = 1.0f / determinant;
+    math::Mat4 normal_model = math::mat4_identity();
+    const math::Vec3 inverse_transpose1 = math::cross(column2, column0);
+    const math::Vec3 inverse_transpose2 = math::cross(column0, column1);
+    normal_model[0] = math::vec4(inverse_transpose0.x * inverse_determinant,
+        inverse_transpose0.y * inverse_determinant,
+        inverse_transpose0.z * inverse_determinant,
+        0.0f);
+    normal_model[1] = math::vec4(inverse_transpose1.x * inverse_determinant,
+        inverse_transpose1.y * inverse_determinant,
+        inverse_transpose1.z * inverse_determinant,
+        0.0f);
+    normal_model[2] = math::vec4(inverse_transpose2.x * inverse_determinant,
+        inverse_transpose2.y * inverse_determinant,
+        inverse_transpose2.z * inverse_determinant,
+        0.0f);
+    return normal_model;
+}
+
+// Writes the model matrix and matching normal matrix for one draw command.
+void write_draw_uniforms(WGPUQueue queue, WGPUBuffer buffer, std::uint64_t offset, const math::Mat4& model) {
+    write_mat4(queue, buffer, offset, model);
+    write_mat4(queue, buffer, offset + sizeof(float) * 16U, normal_model_from_model(model));
+}
+
+// Writes camera and lighting frame data into the frame uniform buffer.
+void write_frame_uniforms(WGPUQueue queue,
+    WGPUBuffer buffer,
+    const CameraProperties& camera,
+    const DirectionalLight& main_light,
+    const AmbientLight& ambient_light) {
+    std::array<float, 32> packed{};
+    const std::array<float, 16> view_projection = math::pack_mat4(camera.clip_from_world);
+    std::copy(view_projection.begin(), view_projection.end(), packed.begin());
+
+    packed[16] = main_light.m_direction.x;
+    packed[17] = main_light.m_direction.y;
+    packed[18] = main_light.m_direction.z;
+    packed[19] = 0.0f;
+    packed[20] = main_light.m_color.x * main_light.m_intensity;
+    packed[21] = main_light.m_color.y * main_light.m_intensity;
+    packed[22] = main_light.m_color.z * main_light.m_intensity;
+    packed[23] = 0.0f;
+    packed[24] = ambient_light.m_color.x * ambient_light.m_intensity;
+    packed[25] = ambient_light.m_color.y * ambient_light.m_intensity;
+    packed[26] = ambient_light.m_color.z * ambient_light.m_intensity;
+    packed[27] = 0.0f;
+    packed[28] = camera.world_from_camera[3].x;
+    packed[29] = camera.world_from_camera[3].y;
+    packed[30] = camera.world_from_camera[3].z;
+    packed[31] = 1.0f;
+
+    wgpuQueueWriteBuffer(queue, buffer, 0, packed.data(), sizeof(float) * packed.size());
 }
 
 // Returns the pipeline key for a resolved material.
@@ -152,16 +223,21 @@ std::unique_ptr<OpaquePass> OpaquePass::create(GpuContext gpu, WGPUTextureFormat
 
     std::unique_ptr<OpaquePass> pass(new OpaquePass(
         gpu, color_format, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, _initial_draw_capacity));
-    pass->m_frame_layout = create_uniform_layout(gpu.m_device, "OFG opaque frame layout", false);
-    pass->m_frame_buffer = create_uniform_buffer(gpu.m_device, "OFG opaque frame uniforms", _matrix_uniform_bytes);
-    pass->m_draw_layout = create_uniform_layout(gpu.m_device, "OFG opaque draw layout", true);
+    pass->m_frame_layout = create_uniform_layout(gpu.m_device,
+        "OFG opaque frame layout",
+        _frame_uniform_bytes,
+        WGPUShaderStage_Vertex | WGPUShaderStage_Fragment,
+        false);
+    pass->m_frame_buffer = create_uniform_buffer(gpu.m_device, "OFG opaque frame uniforms", _frame_uniform_bytes);
+    pass->m_draw_layout = create_uniform_layout(
+        gpu.m_device, "OFG opaque draw layout", _draw_uniform_bytes, WGPUShaderStage_Vertex, true);
     pass->m_draw_buffer = create_uniform_buffer(gpu.m_device, "OFG opaque draw uniforms", _draw_uniform_stride);
     pass->m_buffer_create_count = 2;
 
     pass->m_frame_bind_group = create_uniform_bind_group(
-        gpu.m_device, "OFG opaque frame bind group", pass->m_frame_layout, pass->m_frame_buffer);
-    pass->m_draw_bind_group =
-        create_uniform_bind_group(gpu.m_device, "OFG opaque draw bind group", pass->m_draw_layout, pass->m_draw_buffer);
+        gpu.m_device, "OFG opaque frame bind group", pass->m_frame_layout, pass->m_frame_buffer, _frame_uniform_bytes);
+    pass->m_draw_bind_group = create_uniform_bind_group(
+        gpu.m_device, "OFG opaque draw bind group", pass->m_draw_layout, pass->m_draw_buffer, _draw_uniform_bytes);
 
     return pass;
 }
@@ -213,8 +289,12 @@ void OpaquePass::resize(std::uint32_t width, std::uint32_t height) {
 }
 
 // Encodes opaque draws into the caller-owned command encoder.
-void OpaquePass::render(
-    WGPUCommandEncoder encoder, RenderTarget target, const CameraProperties& camera, const DrawList& draw_list) {
+void OpaquePass::render(WGPUCommandEncoder encoder,
+    RenderTarget target,
+    const CameraProperties& camera,
+    const DirectionalLight& main_light,
+    const AmbientLight& ambient_light,
+    const DrawList& draw_list) {
     if (encoder == nullptr || target.m_view == nullptr) {
         throw EngineError("OpaquePass render requires an encoder and texture view.");
     }
@@ -222,10 +302,10 @@ void OpaquePass::render(
     prepare(draw_list);
     ensure_draw_capacity(static_cast<std::uint32_t>(draw_list.size()));
 
-    write_mat4(m_gpu.m_queue, m_frame_buffer, 0, camera.clip_from_world);
+    write_frame_uniforms(m_gpu.m_queue, m_frame_buffer, camera, main_light, ambient_light);
     std::uint32_t draw_index = 0;
     for (const DrawCommand& command : draw_list.commands()) {
-        write_mat4(m_gpu.m_queue,
+        write_draw_uniforms(m_gpu.m_queue,
             m_draw_buffer,
             static_cast<std::uint64_t>(draw_index) * _draw_uniform_stride,
             command.m_model);
@@ -310,8 +390,8 @@ void OpaquePass::ensure_draw_capacity(std::uint32_t draw_count) {
     m_buffer_create_count += 1;
     WGPUBindGroup next_bind_group = nullptr;
     try {
-        next_bind_group =
-            create_uniform_bind_group(m_gpu.m_device, "OFG opaque draw bind group", m_draw_layout, next_buffer);
+        next_bind_group = create_uniform_bind_group(
+            m_gpu.m_device, "OFG opaque draw bind group", m_draw_layout, next_buffer, _draw_uniform_bytes);
     } catch (...) {
         wgpuBufferRelease(next_buffer);
         throw;

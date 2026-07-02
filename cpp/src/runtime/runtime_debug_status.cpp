@@ -70,6 +70,9 @@ std::string RuntimeDebugStatus::to_json() const {
     write_json_string(out, m_backend);
     out << ",\"cameraMode\":";
     write_json_string(out, m_camera_mode);
+    out << ",\"modelLoadingState\":";
+    write_json_string(out, m_model_loading_state);
+    out << ",\"playerModelLoaded\":" << m_player_model_loaded;
     out << ",\"pipelineCreateCount\":" << m_pipeline_create_count;
     out << ",\"bufferCreateCount\":" << m_buffer_create_count;
     out << ",\"surfaceConfigureCount\":" << m_surface_configure_count;

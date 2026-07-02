@@ -71,14 +71,19 @@ TEST_CASE("demo scene builds generated resources with mipmapped textures") {
     ofg::build_demo_scene(scene);
 
     CHECK(ofg::Resources::shaders().size() == 1);
-    CHECK(ofg::Resources::textures().size() == 2);
+    CHECK(ofg::Resources::textures().size() == 4);
     CHECK(ofg::Resources::materials().size() == 6);
     CHECK(ofg::Resources::meshes().size() == 2);
     REQUIRE(scene.m_checker_texture != nullptr);
     REQUIRE(scene.m_white_texture != nullptr);
+    REQUIRE(scene.m_neutral_metallic_roughness_texture != nullptr);
+    REQUIRE(scene.m_flat_normal_texture != nullptr);
     REQUIRE(scene.m_player_material != nullptr);
     CHECK(scene.m_checker_texture->mip_level_count() == 7);
     CHECK(scene.m_white_texture->mip_level_count() == 1);
+    CHECK(scene.m_checker_texture->pixel_format() == ofg::TexturePixelFormat::Rgba8Srgb);
+    CHECK(scene.m_neutral_metallic_roughness_texture->pixel_format() == ofg::TexturePixelFormat::Rgba8);
+    CHECK(scene.m_flat_normal_texture->pixel_format() == ofg::TexturePixelFormat::Rgba8);
     CHECK(scene.m_ground_mesh->submeshes()[0].m_default_material == scene.m_ground_material);
     CHECK(scene.m_cube_mesh->submeshes()[0].m_default_material == scene.m_cube_materials[0]);
 }
@@ -94,27 +99,35 @@ TEST_CASE("demo scene setup and update create deterministic plane player and cub
     ofg::Scene first_scene;
     REQUIRE_NOTHROW(ofg::setup_demo_scene(scene, first_scene));
     REQUIRE_NOTHROW(ofg::update_demo_scene(scene, 0.0, first_scene));
-    REQUIRE(first_scene.entity_count() == 8);
+    REQUIRE(first_scene.entity_count() == 9);
     REQUIRE(first_scene.camera_count() == 1);
     REQUIRE(first_scene.player_count() == 1);
     REQUIRE(first_scene.mesh_renderer_count() == 6);
     REQUIRE(first_scene.main_camera() != nullptr);
     CHECK(first_scene.main_camera() == first_scene.get_camera(0));
+    CHECK(first_scene.main_light().m_direction.y < -0.8f);
+    CHECK(first_scene.ambient_light().m_intensity == doctest::Approx(0.22f));
     REQUIRE(scene.m_ground_renderer != nullptr);
     CHECK(first_scene.get_mesh_renderer(0) == scene.m_ground_renderer);
     CHECK(scene.m_ground_renderer->mesh() == scene.m_ground_mesh);
     REQUIRE(scene.m_player != nullptr);
     REQUIRE(scene.m_player_entity != nullptr);
+    REQUIRE(scene.m_player_visual_entity != nullptr);
     REQUIRE(scene.m_player_renderer != nullptr);
     CHECK(first_scene.get_player(0) == scene.m_player);
     CHECK(first_scene.get_mesh_renderer(1) == scene.m_player_renderer);
+    CHECK(scene.m_player_visual_entity->parent() == scene.m_player_entity);
     CHECK(scene.m_player_renderer->mesh() == scene.m_cube_mesh);
+    CHECK(scene.m_player_renderer->visible());
     REQUIRE(scene.m_player_renderer->material_overrides().size() == 1);
     CHECK(scene.m_player_renderer->material_overrides()[0].m_material == scene.m_player_material);
     CHECK(scene.m_player_entity->local_transform().m_position.y == doctest::Approx(0.9f));
-    CHECK(scene.m_player_entity->local_transform().m_scale.x == doctest::Approx(0.6f));
-    CHECK(scene.m_player_entity->local_transform().m_scale.y == doctest::Approx(1.8f));
-    CHECK(scene.m_player_entity->local_transform().m_scale.z == doctest::Approx(0.35f));
+    CHECK(scene.m_player_entity->local_transform().m_scale.x == doctest::Approx(1.0f));
+    CHECK(scene.m_player_entity->local_transform().m_scale.y == doctest::Approx(1.0f));
+    CHECK(scene.m_player_entity->local_transform().m_scale.z == doctest::Approx(1.0f));
+    CHECK(scene.m_player_visual_entity->local_transform().m_scale.x == doctest::Approx(0.6f));
+    CHECK(scene.m_player_visual_entity->local_transform().m_scale.y == doctest::Approx(1.8f));
+    CHECK(scene.m_player_visual_entity->local_transform().m_scale.z == doctest::Approx(0.35f));
     CHECK(first_scene.get_mesh_renderer(2)->mesh() == scene.m_cube_mesh);
     CHECK(first_scene.get_mesh_renderer(2)->sort_origin_offset().x == doctest::Approx(0.0f));
     CHECK(first_scene.get_mesh_renderer(2)->sort_origin_offset().y == doctest::Approx(0.0f));
@@ -129,13 +142,13 @@ TEST_CASE("demo scene setup and update create deterministic plane player and cub
     const ofg::CameraProperties camera_properties = camera->camera_properties(16.0f / 9.0f);
     CHECK(camera_properties.camera == camera);
     std::string error;
-    const std::optional<ofg::math::Mat4> view = ofg::math::look_at_rh(ofg::math::vec3(6.2f, 4.4f, 7.6f),
+    const std::optional<ofg::math::Mat4> view = ofg::math::look_at_lh(ofg::math::vec3(6.2f, 4.4f, 7.6f),
         ofg::math::vec3(0.0f, 0.55f, 0.0f),
         ofg::math::vec3(0.0f, 1.0f, 0.0f),
         error);
     REQUIRE(view.has_value());
     const std::optional<ofg::math::Mat4> projection =
-        ofg::math::perspective_rh(55.0f * _pi / 180.0f, 16.0f / 9.0f, 0.1f, 80.0f, error);
+        ofg::math::perspective_lh(55.0f * _pi / 180.0f, 16.0f / 9.0f, 0.1f, 80.0f, error);
     REQUIRE(projection.has_value());
     check_mat4_close(camera_properties.clip_from_world, ofg::math::mul(*projection, *view));
 

@@ -7,6 +7,7 @@
 #include "ofg/math/mat.hpp"
 #include "ofg/math/vec.hpp"
 #include "ofg/render/draw_list.hpp"
+#include "ofg/render/opaque_pbr_shader.hpp"
 #include "ofg/render/renderer.hpp"
 #include "ofg/gpu/common.hpp"
 #include "ofg/resources/material.hpp"
@@ -14,6 +15,7 @@
 #include "ofg/resources/property_bag.hpp"
 #include "ofg/resources/shader.hpp"
 #include "ofg/resources/texture.hpp"
+#include "ofg/scene/mesh_renderer.hpp"
 #include "ofg/scene/scene.hpp"
 
 #include "../src/render/shaders/opaque_uber.wgsl.hpp"
@@ -37,27 +39,27 @@ struct RenderResources {
     std::vector<std::unique_ptr<ofg::Material>> m_materials;
     std::vector<std::unique_ptr<ofg::Mesh>> m_meshes;
 
-    // Adds a texture and returns its stable test-fixture reference.
-    ofg::Texture& add_texture(ofg::Texture texture) {
-        m_textures.push_back(std::make_unique<ofg::Texture>(std::move(texture)));
+    // Creates a texture in stable test-fixture storage.
+    ofg::Texture& create_texture(ofg::GpuContext gpu, std::string label) {
+        m_textures.push_back(std::make_unique<ofg::Texture>(gpu, std::move(label)));
         return *m_textures.back();
     }
 
-    // Adds a shader and returns its stable test-fixture reference.
-    ofg::Shader& add_shader(ofg::Shader shader) {
-        m_shaders.push_back(std::make_unique<ofg::Shader>(std::move(shader)));
+    // Creates a shader in stable test-fixture storage.
+    ofg::Shader& create_shader(ofg::GpuContext gpu, std::string label) {
+        m_shaders.push_back(std::make_unique<ofg::Shader>(gpu, std::move(label)));
         return *m_shaders.back();
     }
 
-    // Adds a material and returns its stable test-fixture reference.
-    ofg::Material& add_material(ofg::Material material) {
-        m_materials.push_back(std::make_unique<ofg::Material>(std::move(material)));
+    // Creates a material in stable test-fixture storage.
+    ofg::Material& create_material(ofg::GpuContext gpu, std::string label) {
+        m_materials.push_back(std::make_unique<ofg::Material>(gpu, std::move(label)));
         return *m_materials.back();
     }
 
-    // Adds a mesh and returns its stable test-fixture reference.
-    ofg::Mesh& add_mesh(ofg::Mesh mesh) {
-        m_meshes.push_back(std::make_unique<ofg::Mesh>(std::move(mesh)));
+    // Creates a mesh in stable test-fixture storage.
+    ofg::Mesh& create_mesh(ofg::GpuContext gpu, std::string label) {
+        m_meshes.push_back(std::make_unique<ofg::Mesh>(gpu, std::move(label)));
         return *m_meshes.back();
     }
 };
@@ -65,7 +67,9 @@ struct RenderResources {
 struct RenderScene {
     RenderResources m_resources;
     ofg::Scene m_scene;
-    ofg::Texture* m_texture{nullptr};
+    ofg::Texture* m_base_color_texture{nullptr};
+    ofg::Texture* m_metallic_roughness_texture{nullptr};
+    ofg::Texture* m_normal_texture{nullptr};
     ofg::Mesh* m_mesh{nullptr};
 };
 
@@ -179,19 +183,6 @@ ofg::tests::TestGpuContext make_test_gpu() {
     return std::move(*gpu);
 }
 
-// Returns the shader parameter layout used by the opaque renderer tests.
-ofg::ShaderParameterLayout renderer_shader_layout() {
-    return ofg::ShaderParameterLayout{{
-        ofg::ShaderParameter{
-            "view_projection", ofg::ShaderParameterType::Mat4, ofg::ShaderParameterScope::Frame, 0, true},
-        ofg::ShaderParameter{"model", ofg::ShaderParameterType::Mat4, ofg::ShaderParameterScope::Draw, 0, false},
-        ofg::ShaderParameter{
-            "base_color_factor", ofg::ShaderParameterType::Vec4, ofg::ShaderParameterScope::Material, 0, true},
-        ofg::ShaderParameter{
-            "base_color_texture", ofg::ShaderParameterType::Texture, ofg::ShaderParameterScope::Material, 0, true},
-    }};
-}
-
 // Builds a byte vector from RGBA8 channel values.
 std::vector<std::byte> rgba_bytes(std::initializer_list<std::uint8_t> values) {
     std::vector<std::byte> bytes;
@@ -204,21 +195,21 @@ std::vector<std::byte> rgba_bytes(std::initializer_list<std::uint8_t> values) {
 // Returns the vertices shared by renderer resource fixtures.
 std::vector<ofg::MeshVertex> triangle_vertices() {
     return {
-        ofg::MeshVertex{{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-        ofg::MeshVertex{{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-        ofg::MeshVertex{{0.0f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.5f, 1.0f}},
+        ofg::MeshVertex{{-0.5f, -0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+        ofg::MeshVertex{{0.5f, -0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
+        ofg::MeshVertex{{0.0f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.5f, 1.0f}},
     };
 }
 
-// Adds the white texture required by the always-textured opaque material layout.
-ofg::Texture* add_white_texture(RenderResources& resources, ofg::GpuContext gpu) {
-    ofg::Texture texture{gpu, "renderer test white texture"};
-    texture.init_from_rgba8_pixels(1,
-        1,
-        ofg::TextureColorSpace::Linear,
-        rgba_bytes({255, 255, 255, 255}),
-        ofg::MipMapPolicy::GenerateCpuFullChain);
-    return &resources.add_texture(std::move(texture));
+// Adds a texture required by the PBR material layout.
+ofg::Texture* add_test_texture(RenderResources& resources,
+    ofg::GpuContext gpu,
+    std::string label,
+    ofg::TextureColorSpace color_space,
+    std::initializer_list<std::uint8_t> pixel) {
+    ofg::Texture& texture = resources.create_texture(gpu, std::move(label));
+    texture.init_from_rgba8_pixels(1, 1, color_space, rgba_bytes(pixel), ofg::MipMapPolicy::GenerateCpuFullChain);
+    return &texture;
 }
 
 // Appends one mesh-renderer entity for a scene-owned mesh.
@@ -245,25 +236,40 @@ RenderScene make_render_scene_with_modes(
     ofg::GpuContext shader_gpu, ofg::GpuContext material_gpu, ofg::GpuContext mesh_gpu) {
     RenderScene scene;
 
-    ofg::Shader shader{shader_gpu, "renderer test shader"};
-    shader.init_from_wgsl(ofg::render::shaders::opaque_uber_wgsl,
-        renderer_shader_layout(),
+    ofg::Shader& stored_shader = scene.m_resources.create_shader(shader_gpu, "renderer test shader");
+    stored_shader.init_from_wgsl(ofg::render::shaders::opaque_uber_wgsl,
+        ofg::opaque_pbr_shader_layout(),
         {ofg::PipelineDefinition{"renderer test pipeline"}});
-    ofg::Shader& stored_shader = scene.m_resources.add_shader(std::move(shader));
-    scene.m_texture = add_white_texture(scene.m_resources, material_gpu);
+    scene.m_base_color_texture = add_test_texture(scene.m_resources,
+        material_gpu,
+        "renderer test white texture",
+        ofg::TextureColorSpace::Srgb,
+        {255, 255, 255, 255});
+    scene.m_metallic_roughness_texture = add_test_texture(scene.m_resources,
+        material_gpu,
+        "renderer test metallic roughness texture",
+        ofg::TextureColorSpace::Linear,
+        {255, 255, 0, 255});
+    scene.m_normal_texture = add_test_texture(scene.m_resources,
+        material_gpu,
+        "renderer test normal texture",
+        ofg::TextureColorSpace::Linear,
+        {128, 128, 255, 255});
 
     ofg::PropertyBag properties;
     properties.set("base_color_factor", ofg::math::vec4(1.0f, 1.0f, 1.0f, 1.0f));
-    properties.set("base_color_texture", scene.m_texture);
-    ofg::Material material{material_gpu, "renderer test material"};
-    material.init(stored_shader, std::move(properties));
-    ofg::Material& stored_material = scene.m_resources.add_material(std::move(material));
+    properties.set("pbr_factors", ofg::math::vec4(0.0f, 1.0f, 1.0f, 0.0f));
+    properties.set("base_color_texture", scene.m_base_color_texture);
+    properties.set("metallic_roughness_texture", scene.m_metallic_roughness_texture);
+    properties.set("normal_texture", scene.m_normal_texture);
+    ofg::Material& stored_material = scene.m_resources.create_material(material_gpu, "renderer test material");
+    stored_material.init(stored_shader, std::move(properties));
 
     std::vector<std::uint32_t> indices{0, 1, 2};
     std::vector<ofg::SubMesh> submeshes{ofg::SubMesh{"triangle", 0, 3, &stored_material}};
-    ofg::Mesh mesh{mesh_gpu, "renderer test mesh"};
+    ofg::Mesh& mesh = scene.m_resources.create_mesh(mesh_gpu, "renderer test mesh");
     mesh.init(triangle_vertices(), std::move(indices), submeshes);
-    scene.m_mesh = &scene.m_resources.add_mesh(std::move(mesh));
+    scene.m_mesh = &mesh;
 
     add_scene_camera(scene.m_scene);
     add_scene_object(scene);
@@ -470,6 +476,33 @@ TEST_CASE("renderer render rejects non gpu ready draw resources") {
     }()),
         doctest::Contains("bind group"),
         ofg::EngineError);
+}
+
+// Verifies invisible mesh renderers are skipped before draw-list resource validation.
+TEST_CASE("renderer skips invisible scene mesh renderers") {
+    RendererGuard guard;
+    ofg::tests::TestGpuContext gpu = make_test_gpu();
+    RenderScene scene = make_render_scene_with_modes(ofg::GpuContext{}, ofg::GpuContext{}, ofg::GpuContext{});
+
+    for (std::size_t index = 0; index < scene.m_scene.mesh_renderer_count(); ++index) {
+        ofg::MeshRenderer* renderer = scene.m_scene.get_mesh_renderer(index);
+        REQUIRE(renderer != nullptr);
+        renderer->set_visible(false);
+    }
+
+    init_prepared_renderer(gpu.borrowed_context());
+    ofg::Renderer::resize(32, 32);
+
+    ScopedTexture texture;
+    ScopedTextureView view = make_render_target_view(gpu.borrowed_context(), texture);
+    ScopedCommandEncoder encoder = make_encoder(gpu.borrowed_context());
+    const ofg::Scene& render_scene = scene.m_scene;
+
+    CHECK_NOTHROW(
+        ofg::Renderer::render(encoder.m_value, ofg::RenderTarget{view.m_value, _test_format, 32, 32}, render_scene));
+
+    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 0);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 2);
 }
 
 // Verifies scene mesh renderers record into a null-backend render target and finish cleanly.

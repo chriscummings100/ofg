@@ -68,6 +68,14 @@ try {
     undefined,
     { timeout: 15000 }
   );
+  await page.waitForFunction(
+    () => {
+      const status = window.__ofgDebugStatus?.();
+      return status?.playerModelLoaded === true && status.modelLoadingState === "loaded";
+    },
+    undefined,
+    { timeout: 60000 }
+  );
   const initialDebugStatus = await page.evaluate(() => window.__ofgDebugStatus?.() ?? null);
   await page.setViewportSize({
     width: smokeContract.resizeProbeWidth,

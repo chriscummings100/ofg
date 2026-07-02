@@ -43,7 +43,7 @@ Mat4 mat4_scale(Vec3 scale) noexcept {
     return matrix;
 }
 
-// Builds a right-handed Y-axis rotation matrix.
+// Builds a Y-axis yaw rotation matrix for OFG's left-handed, +Z-forward space.
 Mat4 mat4_rotation_y(float radians) noexcept {
     const float c = std::cos(radians);
     const float s = std::sin(radians);
@@ -53,14 +53,14 @@ Mat4 mat4_rotation_y(float radians) noexcept {
     return matrix;
 }
 
-// Builds a right-handed perspective matrix with WebGPU depth range [0, 1].
-std::optional<Mat4> perspective_rh(float fovy_radians, float aspect, float near_z, float far_z, std::string& error) {
+// Builds a left-handed perspective matrix with WebGPU depth range [0, 1].
+std::optional<Mat4> perspective_lh(float fovy_radians, float aspect, float near_z, float far_z, std::string& error) {
     if (!std::isfinite(fovy_radians) || !std::isfinite(aspect) || !std::isfinite(near_z) || !std::isfinite(far_z)) {
         error = "Perspective parameters must be finite.";
         return std::nullopt;
     }
     if (fovy_radians <= 0.0F || fovy_radians >= 3.1415926535F || aspect <= 0.0F || near_z <= 0.0F || far_z <= near_z) {
-        error = "Perspective parameters are outside the supported right-handed range.";
+        error = "Perspective parameters are outside the supported left-handed range.";
         return std::nullopt;
     }
 
@@ -68,32 +68,32 @@ std::optional<Mat4> perspective_rh(float fovy_radians, float aspect, float near_
     Mat4 matrix;
     matrix[0] = vec4(f / aspect, 0.0F, 0.0F, 0.0F);
     matrix[1] = vec4(0.0F, f, 0.0F, 0.0F);
-    matrix[2] = vec4(0.0F, 0.0F, far_z / (near_z - far_z), -1.0F);
-    matrix[3] = vec4(0.0F, 0.0F, (far_z * near_z) / (near_z - far_z), 0.0F);
+    matrix[2] = vec4(0.0F, 0.0F, far_z / (far_z - near_z), 1.0F);
+    matrix[3] = vec4(0.0F, 0.0F, -(far_z * near_z) / (far_z - near_z), 0.0F);
     error.clear();
     return matrix;
 }
 
-// Builds a right-handed view matrix that looks from eye toward target.
-std::optional<Mat4> look_at_rh(Vec3 eye, Vec3 target, Vec3 up, std::string& error) {
+// Builds a left-handed view matrix that treats camera-local +Z as forward.
+std::optional<Mat4> look_at_lh(Vec3 eye, Vec3 target, Vec3 up, std::string& error) {
     std::optional<Vec3> forward = normalize(sub(target, eye), error);
     if (!forward.has_value()) {
         error = "Look-at eye and target must be distinct.";
         return std::nullopt;
     }
 
-    std::optional<Vec3> side = normalize(cross(*forward, up), error);
+    std::optional<Vec3> side = normalize(cross(up, *forward), error);
     if (!side.has_value()) {
         error = "Look-at up vector must not be parallel to the view direction.";
         return std::nullopt;
     }
-    const Vec3 view_up = cross(*side, *forward);
+    const Vec3 view_up = cross(*forward, *side);
 
     Mat4 matrix;
-    matrix[0] = vec4(side->x, view_up.x, -forward->x, 0.0F);
-    matrix[1] = vec4(side->y, view_up.y, -forward->y, 0.0F);
-    matrix[2] = vec4(side->z, view_up.z, -forward->z, 0.0F);
-    matrix[3] = vec4(-dot(*side, eye), -dot(view_up, eye), dot(*forward, eye), 1.0F);
+    matrix[0] = vec4(side->x, view_up.x, forward->x, 0.0F);
+    matrix[1] = vec4(side->y, view_up.y, forward->y, 0.0F);
+    matrix[2] = vec4(side->z, view_up.z, forward->z, 0.0F);
+    matrix[3] = vec4(-dot(*side, eye), -dot(view_up, eye), -dot(*forward, eye), 1.0F);
     error.clear();
     return matrix;
 }

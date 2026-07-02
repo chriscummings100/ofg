@@ -21,7 +21,9 @@ const runtimeFiles = [
   "dist/app/wasmRuntime.js",
   "src/app/styles.css",
   "assets/wasm/ofg_cpp/ofg_cpp.js",
-  "assets/wasm/ofg_cpp/ofg_cpp.wasm"
+  "assets/wasm/ofg_cpp/ofg_cpp.wasm",
+  "assets/models/player/quaternius-superhero-male.glb",
+  "assets/models/player/quaternius-ual1-standard.glb"
 ];
 const expectedOutputPaths = ["_headers", ...runtimeFiles].sort();
 const headers = [
@@ -41,6 +43,9 @@ const headers = [
   "",
   "/assets/wasm/*",
   "  Cache-Control: no-cache",
+  "",
+  "/assets/models/*",
+  "  Cache-Control: public, max-age=31536000, immutable",
   ""
 ].join("\n");
 

@@ -6,6 +6,7 @@
 #include "ofg/math/quat.hpp"
 #include "ofg/math/transform.hpp"
 #include "ofg/math/vec.hpp"
+#include "ofg/render/opaque_pbr_shader.hpp"
 #include "ofg/resources/material.hpp"
 #include "ofg/resources/mesh.hpp"
 #include "ofg/resources/property_bag.hpp"
@@ -82,11 +83,19 @@ Texture* add_texture(std::string label,
     return &texture;
 }
 
-// Creates and initializes a material that binds a color factor and generated texture.
-Material* add_material(std::string label, Shader& shader, math::Vec4 color_factor, Texture& texture) {
+// Creates and initializes a PBR material backed by generated fallback textures.
+Material* add_material(std::string label,
+    Shader& shader,
+    math::Vec4 color_factor,
+    Texture& base_color_texture,
+    Texture& metallic_roughness_texture,
+    Texture& normal_texture) {
     PropertyBag properties;
     properties.set("base_color_factor", color_factor);
-    properties.set("base_color_texture", &texture);
+    properties.set("pbr_factors", math::vec4(0.0f, 0.92f, 1.0f, 0.0f));
+    properties.set("base_color_texture", &base_color_texture);
+    properties.set("metallic_roughness_texture", &metallic_roughness_texture);
+    properties.set("normal_texture", &normal_texture);
 
     Material& material = Resources::create_material(std::move(label));
     material.init(shader, std::move(properties));
@@ -96,21 +105,41 @@ Material* add_material(std::string label, Shader& shader, math::Vec4 color_facto
 // Builds the large XZ ground plane vertex data.
 std::vector<MeshVertex> ground_vertices() {
     return {
-        MeshVertex{{-8.0f, 0.0f, -8.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-        MeshVertex{{8.0f, 0.0f, -8.0f}, {1.0f, 1.0f, 1.0f}, {8.0f, 0.0f}},
-        MeshVertex{{8.0f, 0.0f, 8.0f}, {1.0f, 1.0f, 1.0f}, {8.0f, 8.0f}},
-        MeshVertex{{-8.0f, 0.0f, 8.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 8.0f}},
+        MeshVertex{{-8.0f, 0.0f, -8.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+        MeshVertex{{8.0f, 0.0f, -8.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {8.0f, 0.0f}},
+        MeshVertex{{8.0f, 0.0f, 8.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {8.0f, 8.0f}},
+        MeshVertex{{-8.0f, 0.0f, 8.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 8.0f}},
     };
 }
 
 // Appends one cube face as four vertices plus two triangles.
 void append_cube_face(
     std::vector<MeshVertex>& vertices, std::vector<std::uint32_t>& indices, std::array<math::Vec3, 4> positions) {
+    std::string error;
+    const std::optional<math::Vec3> tangent = math::normalize(math::sub(positions[1], positions[0]), error);
+    if (!tangent.has_value()) {
+        throw EngineError("Demo cube face tangent creation failed.");
+    }
+    const std::optional<math::Vec3> bitangent = math::normalize(math::sub(positions[3], positions[0]), error);
+    if (!bitangent.has_value()) {
+        throw EngineError("Demo cube face bitangent creation failed.");
+    }
+    const std::optional<math::Vec3> normal = math::normalize(math::cross(*tangent, *bitangent), error);
+    if (!normal.has_value()) {
+        throw EngineError("Demo cube face normal creation failed.");
+    }
+
     const std::uint32_t start = static_cast<std::uint32_t>(vertices.size());
-    vertices.push_back(MeshVertex{{positions[0].x, positions[0].y, positions[0].z}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}});
-    vertices.push_back(MeshVertex{{positions[1].x, positions[1].y, positions[1].z}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}});
-    vertices.push_back(MeshVertex{{positions[2].x, positions[2].y, positions[2].z}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}});
-    vertices.push_back(MeshVertex{{positions[3].x, positions[3].y, positions[3].z}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}});
+    const std::array<float, 3> normal_array{normal->x, normal->y, normal->z};
+    const std::array<float, 4> tangent_array{tangent->x, tangent->y, tangent->z, 1.0f};
+    vertices.push_back(
+        MeshVertex{{positions[0].x, positions[0].y, positions[0].z}, normal_array, tangent_array, {0.0f, 0.0f}});
+    vertices.push_back(
+        MeshVertex{{positions[1].x, positions[1].y, positions[1].z}, normal_array, tangent_array, {1.0f, 0.0f}});
+    vertices.push_back(
+        MeshVertex{{positions[2].x, positions[2].y, positions[2].z}, normal_array, tangent_array, {1.0f, 1.0f}});
+    vertices.push_back(
+        MeshVertex{{positions[3].x, positions[3].y, positions[3].z}, normal_array, tangent_array, {0.0f, 1.0f}});
     indices.insert(indices.end(), {start, start + 1U, start + 2U, start, start + 2U, start + 3U});
 }
 
@@ -191,11 +220,11 @@ MeshRenderer& create_mesh_renderer(Entity& entity) {
     return *entity.mesh_renderer();
 }
 
-// Configures the default camera entity so no-input visuals match the legacy look-at view.
+// Configures the default +Z-forward camera entity for no-input browser and smoke-test views.
 void configure_demo_camera(Entity& entity) {
     std::string error;
     std::optional<math::Quat> rotation =
-        math::quat_look_at_rh(demo_camera_eye(), demo_camera_target(), demo_camera_up(), error);
+        math::quat_look_at_lh(demo_camera_eye(), demo_camera_target(), demo_camera_up(), error);
     if (!rotation.has_value()) {
         throw EngineError(error.empty() ? "Demo scene camera rotation creation failed." : error);
     }
@@ -228,8 +257,8 @@ void validate_demo_bindings(const DemoScene& demo_scene, const Scene& scene) {
     if (demo_scene.m_ground_entity == nullptr || demo_scene.m_ground_renderer == nullptr) {
         throw EngineError("Demo scene ground entity binding is not initialized.");
     }
-    if (demo_scene.m_player_entity == nullptr || demo_scene.m_player_renderer == nullptr ||
-        demo_scene.m_player == nullptr) {
+    if (demo_scene.m_player_entity == nullptr || demo_scene.m_player_visual_entity == nullptr ||
+        demo_scene.m_player_renderer == nullptr || demo_scene.m_player == nullptr) {
         throw EngineError("Demo scene player entity binding is not initialized.");
     }
     for (std::size_t index = 0; index < demo_scene.m_cube_entities.size(); ++index) {
@@ -243,12 +272,7 @@ void validate_demo_bindings(const DemoScene& demo_scene, const Scene& scene) {
 
 // Returns the always-textured opaque shader parameter layout used by the demo.
 ShaderParameterLayout opaque_demo_shader_layout() {
-    return ShaderParameterLayout{{
-        ShaderParameter{"view_projection", ShaderParameterType::Mat4, ShaderParameterScope::Frame, 0, true},
-        ShaderParameter{"model", ShaderParameterType::Mat4, ShaderParameterScope::Draw, 0, false},
-        ShaderParameter{"base_color_factor", ShaderParameterType::Vec4, ShaderParameterScope::Material, 0, true},
-        ShaderParameter{"base_color_texture", ShaderParameterType::Texture, ShaderParameterScope::Material, 0, true},
-    }};
+    return opaque_pbr_shader_layout();
 }
 
 // Creates generated textures, materials, meshes, and shader resources.
@@ -259,15 +283,30 @@ void build_demo_scene(DemoScene& scene) {
         render::shaders::opaque_uber_wgsl, opaque_demo_shader_layout(), {PipelineDefinition{"opaque demo"}});
 
     scene.m_checker_texture = add_texture(
-        "OFG generated checker texture", _checker_size, _checker_size, TextureColorSpace::Linear, checker_pixels());
+        "OFG generated checker texture", _checker_size, _checker_size, TextureColorSpace::Srgb, checker_pixels());
     scene.m_white_texture =
-        add_texture("OFG generated white texture", 1, 1, TextureColorSpace::Linear, rgba_bytes({255, 255, 255, 255}));
+        add_texture("OFG generated white texture", 1, 1, TextureColorSpace::Srgb, rgba_bytes({255, 255, 255, 255}));
+    scene.m_neutral_metallic_roughness_texture = add_texture("OFG generated neutral metallic-roughness texture",
+        1,
+        1,
+        TextureColorSpace::Linear,
+        rgba_bytes({255, 255, 0, 255}));
+    scene.m_flat_normal_texture = add_texture(
+        "OFG generated flat normal texture", 1, 1, TextureColorSpace::Linear, rgba_bytes({128, 128, 255, 255}));
 
-    // Materials all share one shader layout: a uniform color factor plus texture.
-    scene.m_ground_material = add_material(
-        "OFG demo ground material", *scene.m_shader, math::vec4(1.0f, 1.0f, 1.0f, 1.0f), *scene.m_checker_texture);
-    scene.m_player_material = add_material(
-        "OFG demo player material", *scene.m_shader, math::vec4(0.15f, 0.86f, 0.92f, 1.0f), *scene.m_white_texture);
+    // Materials all share one shader layout: PBR factors plus the required texture slots.
+    scene.m_ground_material = add_material("OFG demo ground material",
+        *scene.m_shader,
+        math::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+        *scene.m_checker_texture,
+        *scene.m_neutral_metallic_roughness_texture,
+        *scene.m_flat_normal_texture);
+    scene.m_player_material = add_material("OFG demo player material",
+        *scene.m_shader,
+        math::vec4(0.15f, 0.86f, 0.92f, 1.0f),
+        *scene.m_white_texture,
+        *scene.m_neutral_metallic_roughness_texture,
+        *scene.m_flat_normal_texture);
 
     const std::array<math::Vec4, 4> cube_colors{
         math::vec4(0.95f, 0.18f, 0.13f, 1.0f),
@@ -279,7 +318,9 @@ void build_demo_scene(DemoScene& scene) {
         scene.m_cube_materials[index] = add_material("OFG demo cube material " + std::to_string(index),
             *scene.m_shader,
             cube_colors[index],
-            *scene.m_white_texture);
+            *scene.m_white_texture,
+            *scene.m_neutral_metallic_roughness_texture,
+            *scene.m_flat_normal_texture);
     }
 
     // Meshes are added last so their submeshes can point at arena-owned materials.
@@ -301,6 +342,8 @@ void setup_demo_scene(DemoScene& demo_scene, Scene& scene) {
     validate_demo_resources(demo_scene);
 
     scene.clear();
+    scene.set_main_light(DirectionalLight{math::vec3(-0.35f, -1.0f, -0.25f), math::vec3(1.0f, 0.96f, 0.88f), 3.2f});
+    scene.set_ambient_light(AmbientLight{math::vec3(0.46f, 0.52f, 0.62f), 0.22f});
     demo_scene.m_scene = &scene;
     demo_scene.m_scene_generation = scene.generation();
 
@@ -319,11 +362,13 @@ void setup_demo_scene(DemoScene& demo_scene, Scene& scene) {
         throw EngineError("Demo scene failed to create a Player component.");
     }
     demo_scene.m_player = demo_scene.m_player_entity->player();
-    demo_scene.m_player_renderer = &create_mesh_renderer(*demo_scene.m_player_entity);
+    demo_scene.m_player_visual_entity = scene.create_entity(demo_scene.m_player_entity);
+    demo_scene.m_player_renderer = &create_mesh_renderer(*demo_scene.m_player_visual_entity);
     demo_scene.m_player_renderer->set_mesh(demo_scene.m_cube_mesh);
     demo_scene.m_player_renderer->set_material_overrides({MaterialOverride{0, demo_scene.m_player_material}});
     demo_scene.m_player_entity->local_transform().m_position = math::vec3(0.0f, 0.9f, 0.0f);
-    demo_scene.m_player_entity->local_transform().m_scale = math::vec3(0.6f, 1.8f, 0.35f);
+    demo_scene.m_player_entity->local_transform().m_scale = math::vec3(1.0f, 1.0f, 1.0f);
+    demo_scene.m_player_visual_entity->local_transform().m_scale = math::vec3(0.6f, 1.8f, 0.35f);
 
     const std::array<CubePlacement, 4> placements = cube_placements();
     for (std::size_t index = 0; index < placements.size(); ++index) {
@@ -346,7 +391,11 @@ void update_demo_scene(const DemoScene& demo_scene, double time_ms, Scene& scene
 
     demo_scene.m_ground_entity->local_transform() = LocalTransform{};
     demo_scene.m_player_entity->local_transform().m_position.y = demo_scene.m_player->height() * 0.5f;
-    demo_scene.m_player_entity->local_transform().m_scale = math::vec3(0.6f, 1.8f, 0.35f);
+    demo_scene.m_player_entity->local_transform().m_scale = math::vec3(1.0f, 1.0f, 1.0f);
+    demo_scene.m_player_visual_entity->local_transform().m_position = math::vec3(0.0f, 0.0f, 0.0f);
+    demo_scene.m_player_visual_entity->local_transform().m_rotation = math::Quat{};
+    demo_scene.m_player_visual_entity->local_transform().m_scale = math::vec3(0.6f, 1.8f, 0.35f);
+    demo_scene.m_player_renderer->set_visible(demo_scene.m_player_fallback_visible);
 
     // The animation updates only entity transforms; resource objects remain stable.
     const float seconds = static_cast<float>(time_ms * 0.001);

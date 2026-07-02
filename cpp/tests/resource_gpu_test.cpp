@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -55,18 +56,18 @@ ofg::tests::TestGpuContext make_test_gpu() {
 }
 
 // Builds a GPU-ready texture used by material tests.
-ofg::Texture make_gpu_texture(ofg::GpuContext gpu) {
-    ofg::Texture texture{gpu, "gpu texture"};
-    texture.init_from_rgba8_pixels(
+std::unique_ptr<ofg::Texture> make_gpu_texture(ofg::GpuContext gpu) {
+    auto texture = std::make_unique<ofg::Texture>(gpu, "gpu texture");
+    texture->init_from_rgba8_pixels(
         1, 1, ofg::TextureColorSpace::Linear, rgba_bytes({255, 255, 255, 255}), ofg::MipMapPolicy::None);
     return texture;
 }
 
 // Builds a CPU-only material pointer for mesh submesh validation.
-ofg::Material make_cpu_material(ofg::Shader& shader) {
+std::unique_ptr<ofg::Material> make_cpu_material(ofg::Shader& shader) {
     ofg::PropertyBag properties;
-    ofg::Material material{ofg::GpuContext{}, "mesh material"};
-    material.init(shader, properties);
+    auto material = std::make_unique<ofg::Material>(ofg::GpuContext{}, "mesh material");
+    material->init(shader, properties);
     return material;
 }
 
@@ -115,7 +116,7 @@ TEST_CASE("gpu texture resource uploads full mip chains") {
 // Verifies materials create uniform buffers and bind groups from shader schemas.
 TEST_CASE("gpu material resource creates uniform and texture bind groups") {
     ofg::tests::TestGpuContext gpu = make_test_gpu();
-    ofg::Texture texture = make_gpu_texture(gpu.borrowed_context());
+    std::unique_ptr<ofg::Texture> texture = make_gpu_texture(gpu.borrowed_context());
 
     ofg::ShaderParameterLayout layout;
     layout.m_parameters.push_back(
@@ -128,7 +129,7 @@ TEST_CASE("gpu material resource creates uniform and texture bind groups") {
 
     ofg::PropertyBag properties;
     properties.set("base_color_factor", ofg::math::vec4(1.0F, 0.5F, 0.25F, 1.0F));
-    properties.set("base_color_texture", &texture);
+    properties.set("base_color_texture", texture.get());
     ofg::Material material{gpu.borrowed_context(), "gpu material"};
     material.init(shader, properties);
     CHECK(material.bind_group_layout() != nullptr);
@@ -216,11 +217,11 @@ TEST_CASE("gpu mesh resource creates and replaces buffers") {
 
     ofg::Shader shader{ofg::GpuContext{}, "mesh shader"};
     shader.init_from_wgsl("source", {}, {});
-    ofg::Material material = make_cpu_material(shader);
+    std::unique_ptr<ofg::Material> material = make_cpu_material(shader);
 
     std::vector<ofg::MeshVertex> vertices{vertex(0.0F, 0.0F, 0.0F), vertex(1.0F, 0.0F, 0.0F), vertex(0.0F, 1.0F, 0.0F)};
     std::vector<std::uint32_t> indices{0, 1, 2};
-    std::vector<ofg::SubMesh> submeshes{ofg::SubMesh{"triangle", 0, 3, &material}};
+    std::vector<ofg::SubMesh> submeshes{ofg::SubMesh{"triangle", 0, 3, material.get()}};
 
     ofg::Mesh mesh{gpu.borrowed_context(), "gpu mesh"};
     mesh.init(vertices, indices, submeshes);
@@ -263,11 +264,11 @@ TEST_CASE("gpu mesh resource rejects incomplete gpu contexts") {
 
     ofg::Shader shader{ofg::GpuContext{}, "mesh shader"};
     shader.init_from_wgsl("source", {}, {});
-    ofg::Material material = make_cpu_material(shader);
+    std::unique_ptr<ofg::Material> material = make_cpu_material(shader);
 
     std::vector<ofg::MeshVertex> vertices{vertex(0.0F, 0.0F, 0.0F), vertex(1.0F, 0.0F, 0.0F), vertex(0.0F, 1.0F, 0.0F)};
     std::vector<std::uint32_t> indices{0, 1, 2};
-    std::vector<ofg::SubMesh> submeshes{ofg::SubMesh{"triangle", 0, 3, &material}};
+    std::vector<ofg::SubMesh> submeshes{ofg::SubMesh{"triangle", 0, 3, material.get()}};
     ofg::GpuContext incomplete_gpu = gpu.borrowed_context();
     incomplete_gpu.m_queue = nullptr;
 

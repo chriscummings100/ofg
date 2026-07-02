@@ -68,25 +68,26 @@ TEST_CASE("math transforms compose as column-vector matrices") {
     CHECK(transformed.w == doctest::Approx(1.0f));
 }
 
-// Verifies camera helpers build WebGPU-friendly right-handed matrices.
-TEST_CASE("math camera helpers validate right-handed projection and view") {
+// Verifies camera helpers build WebGPU-friendly left-handed matrices.
+TEST_CASE("math camera helpers validate projection and view matrices") {
     std::string error;
     const std::optional<ofg::math::Mat4> projection =
-        ofg::math::perspective_rh(1.0f, 16.0f / 9.0f, 0.1f, 100.0f, error);
+        ofg::math::perspective_lh(1.0f, 16.0f / 9.0f, 0.1f, 100.0f, error);
     REQUIRE(projection.has_value());
-
-    const ofg::math::Vec4 near_point = ofg::math::mul(*projection, ofg::math::vec4(0.0f, 0.0f, -0.1f, 1.0f));
+    const ofg::math::Vec4 near_point = ofg::math::mul(*projection, ofg::math::vec4(0.0f, 0.0f, 0.1f, 1.0f));
     CHECK(near_point.z / near_point.w == doctest::Approx(0.0f));
 
-    const std::optional<ofg::math::Mat4> view = ofg::math::look_at_rh(
-        ofg::math::vec3(0.0f, 0.0f, 5.0f), ofg::math::vec3(0.0f, 0.0f, 0.0f), ofg::math::vec3(0.0f, 1.0f, 0.0f), error);
+    const std::optional<ofg::math::Mat4> view = ofg::math::look_at_lh(ofg::math::vec3(0.0f, 0.0f, -5.0f),
+        ofg::math::vec3(0.0f, 0.0f, 0.0f),
+        ofg::math::vec3(0.0f, 1.0f, 0.0f),
+        error);
     REQUIRE(view.has_value());
     const ofg::math::Vec4 origin_view = ofg::math::mul(*view, ofg::math::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-    CHECK(origin_view.z == doctest::Approx(-5.0f));
+    CHECK(origin_view.z == doctest::Approx(5.0f));
 
-    CHECK(ofg::math::perspective_rh(1.0f, 0.0f, 0.1f, 100.0f, error).has_value() == false);
+    CHECK(ofg::math::perspective_lh(1.0f, 0.0f, 0.1f, 100.0f, error).has_value() == false);
     CHECK(error.find("Perspective") != std::string::npos);
-    CHECK(ofg::math::look_at_rh(ofg::math::vec3(0.0f, 0.0f, 0.0f),
+    CHECK(ofg::math::look_at_lh(ofg::math::vec3(0.0f, 0.0f, 0.0f),
               ofg::math::vec3(0.0f, 0.0f, 0.0f),
               ofg::math::vec3(0.0f, 1.0f, 0.0f),
               error)
@@ -113,7 +114,7 @@ TEST_CASE("math exposes shader-like const access and rotation") {
     CHECK(rotated.z == doctest::Approx(-1.0f));
 }
 
-// Verifies quaternion helpers create right-handed scene rotations.
+// Verifies quaternion helpers create scene rotations.
 TEST_CASE("math quaternions support scene rotations") {
     std::string error;
     const std::optional<ofg::math::Quat> rotation =
@@ -143,14 +144,14 @@ TEST_CASE("math quaternions support scene rotations") {
     CHECK(error.find("zero-length") != std::string::npos);
 }
 
-// Verifies look-at quaternions produce the same camera basis as the view helpers.
-TEST_CASE("math quaternions support right-handed camera look-at rotations") {
+// Verifies look-at quaternions match the OFG left-handed player/camera convention.
+TEST_CASE("math quaternions support left-handed z-forward look-at rotations") {
     std::string error;
     const ofg::math::Vec3 eye = ofg::math::vec3(6.2f, 4.4f, 7.6f);
     const ofg::math::Vec3 target = ofg::math::vec3(0.0f, 0.55f, 0.0f);
     const ofg::math::Vec3 up = ofg::math::vec3(0.0f, 1.0f, 0.0f);
 
-    const std::optional<ofg::math::Quat> rotation = ofg::math::quat_look_at_rh(eye, target, up, error);
+    const std::optional<ofg::math::Quat> rotation = ofg::math::quat_look_at_lh(eye, target, up, error);
     REQUIRE(rotation.has_value());
     CHECK(error.empty());
 
@@ -158,11 +159,11 @@ TEST_CASE("math quaternions support right-handed camera look-at rotations") {
     const std::optional<ofg::math::Vec3> expected_forward = ofg::math::normalize(ofg::math::sub(target, eye), error);
     REQUIRE(expected_forward.has_value());
     const std::optional<ofg::math::Vec3> expected_right =
-        ofg::math::normalize(ofg::math::cross(*expected_forward, up), error);
+        ofg::math::normalize(ofg::math::cross(up, *expected_forward), error);
     REQUIRE(expected_right.has_value());
-    const ofg::math::Vec3 expected_up = ofg::math::cross(*expected_right, *expected_forward);
+    const ofg::math::Vec3 expected_up = ofg::math::cross(*expected_forward, *expected_right);
 
-    const ofg::math::Vec4 forward = ofg::math::mul(matrix, ofg::math::vec4(0.0f, 0.0f, -1.0f, 0.0f));
+    const ofg::math::Vec4 forward = ofg::math::mul(matrix, ofg::math::vec4(0.0f, 0.0f, 1.0f, 0.0f));
     CHECK(forward.x == doctest::Approx(expected_forward->x).epsilon(0.0001));
     CHECK(forward.y == doctest::Approx(expected_forward->y).epsilon(0.0001));
     CHECK(forward.z == doctest::Approx(expected_forward->z).epsilon(0.0001));
@@ -173,19 +174,27 @@ TEST_CASE("math quaternions support right-handed camera look-at rotations") {
     CHECK(matrix[1].y == doctest::Approx(expected_up.y).epsilon(0.0001));
     CHECK(matrix[1].z == doctest::Approx(expected_up.z).epsilon(0.0001));
 
-    CHECK(ofg::math::quat_look_at_rh(eye, eye, up, error).has_value() == false);
+    const std::optional<ofg::math::Quat> identity_forward =
+        ofg::math::quat_look_at_lh(ofg::math::vec3(0.0f, 0.0f, 0.0f), ofg::math::vec3(0.0f, 0.0f, 1.0f), up, error);
+    REQUIRE(identity_forward.has_value());
+    const ofg::math::Mat4 identity_forward_matrix = ofg::math::mat4_from_quat(*identity_forward);
+    CHECK(identity_forward_matrix[0].x == doctest::Approx(1.0f));
+    CHECK(identity_forward_matrix[1].y == doctest::Approx(1.0f));
+    CHECK(identity_forward_matrix[2].z == doctest::Approx(1.0f));
+
+    CHECK(ofg::math::quat_look_at_lh(eye, eye, up, error).has_value() == false);
     CHECK(error.find("distinct") != std::string::npos);
-    CHECK(ofg::math::quat_look_at_rh(eye, target, ofg::math::sub(target, eye), error).has_value() == false);
+    CHECK(ofg::math::quat_look_at_lh(eye, target, ofg::math::sub(target, eye), error).has_value() == false);
     CHECK(error.find("parallel") != std::string::npos);
 }
 
-// Verifies look-at quaternion conversion covers the 180-degree matrix branches.
-TEST_CASE("math look-at quaternions support half-turn camera rotations") {
+// Verifies look-at quaternion conversion covers half-turn matrix branches.
+TEST_CASE("math left-handed look-at quaternions support half-turn rotations") {
     std::string error;
     const ofg::math::Vec3 eye = ofg::math::vec3(0.0f, 0.0f, 0.0f);
 
     const std::optional<ofg::math::Quat> turn_x =
-        ofg::math::quat_look_at_rh(eye, ofg::math::vec3(0.0f, 0.0f, 1.0f), ofg::math::vec3(0.0f, -1.0f, 0.0f), error);
+        ofg::math::quat_look_at_lh(eye, ofg::math::vec3(0.0f, 0.0f, -1.0f), ofg::math::vec3(0.0f, -1.0f, 0.0f), error);
     REQUIRE(turn_x.has_value());
     const ofg::math::Mat4 matrix_x = ofg::math::mat4_from_quat(*turn_x);
     CHECK(matrix_x[0].x == doctest::Approx(1.0f));
@@ -193,7 +202,7 @@ TEST_CASE("math look-at quaternions support half-turn camera rotations") {
     CHECK(matrix_x[2].z == doctest::Approx(-1.0f));
 
     const std::optional<ofg::math::Quat> turn_y =
-        ofg::math::quat_look_at_rh(eye, ofg::math::vec3(0.0f, 0.0f, 1.0f), ofg::math::vec3(0.0f, 1.0f, 0.0f), error);
+        ofg::math::quat_look_at_lh(eye, ofg::math::vec3(0.0f, 0.0f, -1.0f), ofg::math::vec3(0.0f, 1.0f, 0.0f), error);
     REQUIRE(turn_y.has_value());
     const ofg::math::Mat4 matrix_y = ofg::math::mat4_from_quat(*turn_y);
     CHECK(matrix_y[0].x == doctest::Approx(-1.0f));
@@ -201,7 +210,7 @@ TEST_CASE("math look-at quaternions support half-turn camera rotations") {
     CHECK(matrix_y[2].z == doctest::Approx(-1.0f));
 
     const std::optional<ofg::math::Quat> turn_z =
-        ofg::math::quat_look_at_rh(eye, ofg::math::vec3(0.0f, 0.0f, -1.0f), ofg::math::vec3(0.0f, -1.0f, 0.0f), error);
+        ofg::math::quat_look_at_lh(eye, ofg::math::vec3(0.0f, 0.0f, 1.0f), ofg::math::vec3(0.0f, -1.0f, 0.0f), error);
     REQUIRE(turn_z.has_value());
     const ofg::math::Mat4 matrix_z = ofg::math::mat4_from_quat(*turn_z);
     CHECK(matrix_z[0].x == doctest::Approx(-1.0f));
@@ -212,13 +221,13 @@ TEST_CASE("math look-at quaternions support half-turn camera rotations") {
 // Verifies invalid camera parameters produce useful errors.
 TEST_CASE("math camera helpers reject non-finite and parallel inputs") {
     std::string error;
-    CHECK(ofg::math::perspective_rh(std::numeric_limits<float>::infinity(), 1.0f, 0.1f, 100.0f, error).has_value() ==
+    CHECK(ofg::math::perspective_lh(std::numeric_limits<float>::infinity(), 1.0f, 0.1f, 100.0f, error).has_value() ==
           false);
     CHECK(error.find("finite") != std::string::npos);
 
-    CHECK(ofg::math::look_at_rh(ofg::math::vec3(0.0f, 0.0f, 0.0f),
-              ofg::math::vec3(0.0f, 0.0f, -1.0f),
-              ofg::math::vec3(0.0f, 0.0f, -2.0f),
+    CHECK(ofg::math::look_at_lh(ofg::math::vec3(0.0f, 0.0f, 0.0f),
+              ofg::math::vec3(0.0f, 0.0f, 1.0f),
+              ofg::math::vec3(0.0f, 0.0f, 2.0f),
               error)
               .has_value() == false);
     CHECK(error.find("parallel") != std::string::npos);

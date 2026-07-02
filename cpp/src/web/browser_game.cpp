@@ -5,6 +5,7 @@
 #include "ofg/core/engine_error.hpp"
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <limits>
@@ -13,6 +14,7 @@
 #include <sstream>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace ofg {
 
@@ -42,6 +44,13 @@ std::optional<std::uint32_t> parse_dimension(const char* label, double value, st
         return std::nullopt;
     }
     return static_cast<std::uint32_t>(value);
+}
+
+// Clears transient status errors without erasing a durable model-loading failure.
+void clear_status_last_error(RuntimeDebugStatus& status) noexcept {
+    if (status.m_model_loading_state != "failed") {
+        status.m_last_error.reset();
+    }
 }
 
 // Converts a JavaScript control-input number into a finite float.
@@ -101,6 +110,27 @@ std::optional<ControlInput> parse_control_input(double move_x,
         slow,
         cycle_camera_mode,
     };
+}
+
+// Copies one JavaScript Uint8Array-like value into durable C++ bytes.
+std::vector<std::byte> copy_uint8_array_bytes(emscripten::val value, const char* label) {
+    if (value.isNull() || value.isUndefined()) {
+        throw EngineError(std::string(label) + " must be a Uint8Array.");
+    }
+    const double byte_length_value = value["byteLength"].as<double>();
+    if (!std::isfinite(byte_length_value) || byte_length_value < 0.0 ||
+        std::trunc(byte_length_value) != byte_length_value ||
+        byte_length_value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+        throw EngineError(std::string(label) + " must expose a valid Uint8Array byteLength.");
+    }
+    const auto byte_length = static_cast<std::uint32_t>(byte_length_value);
+    std::vector<std::byte> bytes(byte_length);
+    if (!bytes.empty()) {
+        emscripten::val memory_view =
+            emscripten::val(emscripten::typed_memory_view(byte_length, reinterpret_cast<std::uint8_t*>(bytes.data())));
+        memory_view.call<void>("set", value);
+    }
+    return bytes;
 }
 
 // Reclaims callback heap context exactly once when Emdawn invokes a callback.
@@ -252,6 +282,37 @@ void BrowserGame::set_control_input(double move_x,
     }
 }
 
+#ifdef __EMSCRIPTEN__
+// Receives fetched default player model bytes from the TypeScript host.
+void BrowserGame::load_player_model(emscripten::val player_bytes, emscripten::val animation_bytes) {
+    try {
+        if (m_disposed) {
+            record_error("Browser game runtime has been disposed.");
+            return;
+        }
+        accept_player_model_bytes(copy_uint8_array_bytes(player_bytes, "Player model bytes"),
+            copy_uint8_array_bytes(animation_bytes, "Player animation bytes"));
+    } catch (const std::exception& error) {
+        report_player_model_load_error(error.what());
+    } catch (...) {
+        report_player_model_load_error("BrowserGame::load_player_model failed with an unknown exception.");
+    }
+}
+#endif
+
+// Records a player model fetch/transport error from the TypeScript host.
+void BrowserGame::report_player_model_load_error(std::string message) {
+    try {
+        if (m_game_active) {
+            Game::record_player_model_load_failure(std::move(message));
+            return;
+        }
+        record_setup_player_model_load_failure(std::move(message));
+    } catch (...) {
+        record_error("BrowserGame::report_player_model_load_error failed.");
+    }
+}
+
 // Returns the browser-facing debug-status JSON payload.
 std::string BrowserGame::debug_status_json() const {
     try {
@@ -400,6 +461,20 @@ void BrowserGame::on_device_request(WGPURequestDeviceStatus status, WGPUDevice d
     m_game_active = true;
     if (m_has_pending_control_input) {
         Game::set_control_input(m_pending_control_input);
+    }
+    if (m_has_pending_player_model) {
+        try {
+            Game::load_player_model(m_pending_player_model_bytes, m_pending_player_animation_bytes);
+        } catch (const std::exception& error) {
+            Game::record_player_model_load_failure(error.what());
+        } catch (...) {
+            Game::record_player_model_load_failure("Queued player model import failed with an unknown exception.");
+        }
+        m_pending_player_model_bytes.clear();
+        m_pending_player_model_bytes.shrink_to_fit();
+        m_pending_player_animation_bytes.clear();
+        m_pending_player_animation_bytes.shrink_to_fit();
+        m_has_pending_player_model = false;
     }
 
     if (apply_pending_resize_to_game()) {
@@ -593,7 +668,7 @@ void BrowserGame::resize_setup_status(std::uint32_t width, std::uint32_t height,
     m_setup_status.m_canvas_height = height;
     m_setup_status.m_device_pixel_ratio = device_pixel_ratio;
     m_setup_status.m_initialized = false;
-    m_setup_status.m_last_error.reset();
+    clear_status_last_error(m_setup_status);
 }
 
 // Advances setup-phase frame diagnostics before the Game singleton exists.
@@ -613,7 +688,7 @@ void BrowserGame::tick_setup_status(double time_ms) {
 
     m_setup_frame_state.tick(time_ms);
     m_setup_status.m_frame_count = m_setup_frame_state.frame_count();
-    m_setup_status.m_last_error.reset();
+    clear_status_last_error(m_setup_status);
 }
 
 // Stores or forwards the latest sanitized control input.
@@ -625,6 +700,28 @@ void BrowserGame::accept_control_input(ControlInput input) {
     }
 }
 
+// Stores or forwards fetched player model bytes.
+void BrowserGame::accept_player_model_bytes(
+    std::vector<std::byte> player_bytes, std::vector<std::byte> animation_bytes) {
+    if (player_bytes.empty()) {
+        throw EngineError("Player model bytes must not be empty.");
+    }
+    if (animation_bytes.empty()) {
+        throw EngineError("Player animation bytes must not be empty.");
+    }
+    if (m_game_active) {
+        Game::load_player_model(player_bytes, animation_bytes);
+        return;
+    }
+
+    m_pending_player_model_bytes = std::move(player_bytes);
+    m_pending_player_animation_bytes = std::move(animation_bytes);
+    m_has_pending_player_model = true;
+    m_setup_status.m_model_loading_state = "queued";
+    m_setup_status.m_player_model_loaded = false;
+    m_setup_status.m_last_error.reset();
+}
+
 // Records a setup-phase recoverable error.
 void BrowserGame::record_setup_error(std::string message) noexcept {
     if (m_setup_disposed) {
@@ -632,6 +729,23 @@ void BrowserGame::record_setup_error(std::string message) noexcept {
         return;
     }
     fail_setup_status(std::move(message));
+}
+
+// Records a setup-phase player model loading failure.
+void BrowserGame::record_setup_player_model_load_failure(std::string message) noexcept {
+    if (m_setup_disposed) {
+        fail_setup_status("Browser game runtime has been disposed.");
+        return;
+    }
+    if (message.empty()) {
+        message = "Unknown player model loading error.";
+    }
+    m_setup_status.m_model_loading_state = "failed";
+    m_setup_status.m_player_model_loaded = false;
+    m_setup_status.m_last_error = std::move(message);
+    m_has_pending_player_model = false;
+    m_pending_player_model_bytes.clear();
+    m_pending_player_animation_bytes.clear();
 }
 
 // Records a setup-phase GPU/device error.

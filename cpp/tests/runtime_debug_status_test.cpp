@@ -19,6 +19,8 @@ TEST_CASE("RuntimeDebugStatus emits the browser debug contract") {
     status.m_adapter_name = "test adapter";
     status.m_backend = "BrowserWebGpu";
     status.m_camera_mode = "third_person";
+    status.m_model_loading_state = "loaded";
+    status.m_player_model_loaded = true;
     status.m_pipeline_create_count = 1;
     status.m_buffer_create_count = 1;
     status.m_surface_configure_count = 1;
@@ -27,7 +29,8 @@ TEST_CASE("RuntimeDebugStatus emits the browser debug contract") {
                               "\"canvasWidth\":800,\"canvasHeight\":450,"
                               "\"devicePixelRatio\":1.25,\"surfaceFormat\":\"Bgra8UnormSrgb\","
                               "\"adapterName\":\"test adapter\",\"backend\":\"BrowserWebGpu\","
-                              "\"cameraMode\":\"third_person\",\"pipelineCreateCount\":1,\"bufferCreateCount\":1,"
+                              "\"cameraMode\":\"third_person\",\"modelLoadingState\":\"loaded\","
+                              "\"playerModelLoaded\":true,\"pipelineCreateCount\":1,\"bufferCreateCount\":1,"
                               "\"surfaceConfigureCount\":1,\"lastError\":null}");
 }
 

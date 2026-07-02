@@ -51,7 +51,7 @@ void DrawList::validate() const {
 
         const std::span<const SubMesh> submeshes = command.m_mesh->submeshes();
         for (const MaterialOverride& material_override : command.m_material_overrides) {
-            if (material_override.m_material == nullptr) {
+            if (!material_override.m_material) {
                 throw EngineError("Draw command material override must not be null.");
             }
             if (material_override.m_submesh_index >= submeshes.size()) {
@@ -76,7 +76,7 @@ Material& resolve_material(const DrawCommand& command, std::uint32_t submesh_ind
         throw EngineError("Draw command references a missing submesh.");
     }
 
-    Material* resolved = submeshes[submesh_index].m_default_material;
+    Material* resolved = submeshes[submesh_index].m_default_material.get();
     if (resolved == nullptr) {
         throw EngineError("Draw command submesh default material must not be null.");
     }
@@ -85,10 +85,10 @@ Material& resolve_material(const DrawCommand& command, std::uint32_t submesh_ind
         if (material_override.m_submesh_index != submesh_index) {
             continue;
         }
-        if (material_override.m_material == nullptr) {
+        if (!material_override.m_material) {
             throw EngineError("Draw command material override must not be null.");
         }
-        resolved = material_override.m_material;
+        resolved = material_override.m_material.get();
     }
 
     return *resolved;

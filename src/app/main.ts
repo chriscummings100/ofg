@@ -17,6 +17,9 @@ declare global {
   }
 }
 
+const DEFAULT_PLAYER_MODEL_URL = "/assets/models/player/quaternius-superhero-male.glb";
+const DEFAULT_PLAYER_ANIMATION_URL = "/assets/models/player/quaternius-ual1-standard.glb";
+
 // Creates the canvas/runtime pair and starts the animation loop.
 async function main(): Promise<void> {
   const status = document.getElementById("ofg-status");
@@ -30,6 +33,7 @@ async function main(): Promise<void> {
       host.size.physicalHeight,
       host.size.devicePixelRatio
     );
+    void loadDefaultPlayerModel(runtime, status);
 
     window.__ofgDebugStatus = () => runtime.debugStatus();
     window.addEventListener("beforeunload", () => {
@@ -62,7 +66,7 @@ function renderFrame(
     const debugStatus = runtime.debugStatus();
     statusMessage(
       status,
-      `C++/WASM WebGPU frame ${debugStatus.frameCount} - ${debugStatus.canvasWidth}x${debugStatus.canvasHeight} - ${debugStatus.surfaceFormat}`
+      `C++/WASM WebGPU frame ${debugStatus.frameCount} - ${debugStatus.canvasWidth}x${debugStatus.canvasHeight} - ${debugStatus.surfaceFormat} - model ${debugStatus.modelLoadingState}`
     );
   } catch (error) {
     statusMessage(status, error instanceof Error ? error.message : String(error));
@@ -71,6 +75,37 @@ function renderFrame(
   requestAnimationFrame((nextTimeMs) =>
     renderFrame(host, runtime, controlInput, status, nextTimeMs)
   );
+}
+
+// Fetches the default player GLBs and passes raw bytes to C++.
+async function loadDefaultPlayerModel(
+  runtime: BrowserGameRuntime,
+  status: HTMLElement | null
+): Promise<void> {
+  try {
+    const [playerBytes, animationBytes] = await Promise.all([
+      fetchAssetBytes(DEFAULT_PLAYER_MODEL_URL),
+      fetchAssetBytes(DEFAULT_PLAYER_ANIMATION_URL)
+    ]);
+    runtime.loadPlayerModel(playerBytes, animationBytes);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    try {
+      runtime.reportPlayerModelLoadError(message);
+    } catch {
+      // The runtime may already be disposed during page teardown.
+    }
+    statusMessage(status, message);
+  }
+}
+
+// Fetches one binary asset as a Uint8Array for Embind transport.
+async function fetchAssetBytes(url: string): Promise<Uint8Array> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
 }
 
 // Writes transient runtime status text when the status element exists.

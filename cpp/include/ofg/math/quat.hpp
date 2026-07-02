@@ -28,8 +28,8 @@ struct Quat {
 // Builds a normalized quaternion from an axis and angle in radians.
 [[nodiscard]] std::optional<Quat> quat_from_axis_angle(Vec3 axis, float radians, std::string& error);
 
-// Builds a camera entity rotation that looks from eye toward target in right-handed space.
-[[nodiscard]] std::optional<Quat> quat_look_at_rh(Vec3 eye, Vec3 target, Vec3 up, std::string& error);
+// Builds an entity rotation whose local +Z axis looks from eye toward target in OFG's left-handed space.
+[[nodiscard]] std::optional<Quat> quat_look_at_lh(Vec3 eye, Vec3 target, Vec3 up, std::string& error);
 
 // Returns a normalized quaternion or an error for zero-length/non-finite input.
 [[nodiscard]] std::optional<Quat> normalize(Quat value, std::string& error);

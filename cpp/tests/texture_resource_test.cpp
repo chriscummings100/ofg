@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -110,19 +111,8 @@ TEST_CASE("texture resource generates ceil-halved odd mip levels") {
     CHECK(ofg::full_mip_level_count(3, 1) == 3);
 }
 
-// Verifies texture move assignment transfers CPU data and empty GPU handles.
-TEST_CASE("texture resource supports move assignment") {
-    ofg::Texture destination{ofg::GpuContext{}, "destination"};
-    destination.init_from_rgba8_pixels(
-        1, 1, ofg::TextureColorSpace::Linear, rgba_bytes({1, 2, 3, 4}), ofg::MipMapPolicy::None);
-    ofg::Texture source{ofg::GpuContext{}, "source"};
-    source.init_from_rgba8_pixels(
-        1, 1, ofg::TextureColorSpace::Srgb, rgba_bytes({5, 6, 7, 8}), ofg::MipMapPolicy::None);
-
-    destination = std::move(source);
-    CHECK(destination.label() == "source");
-    CHECK(destination.pixel_format() == ofg::TexturePixelFormat::Rgba8Srgb);
-    CHECK(std::to_integer<std::uint8_t>(destination.pixels(0)[0]) == 5);
-    CHECK(destination.view() == nullptr);
-    CHECK(destination.sampler() == nullptr);
+// Verifies texture resources are address-stable Object-derived values.
+TEST_CASE("texture resource is not movable") {
+    CHECK_FALSE(std::is_move_constructible_v<ofg::Texture>);
+    CHECK_FALSE(std::is_move_assignable_v<ofg::Texture>);
 }

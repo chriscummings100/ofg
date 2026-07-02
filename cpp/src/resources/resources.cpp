@@ -178,48 +178,28 @@ bool Resources::release_impl() {
 // Allocates and stores a labeled texture resource.
 Texture& Resources::create_texture_impl(std::string label) {
     require_live_for_create("Resources::create_texture");
-    return add_texture(Texture(m_gpu, std::move(label)));
+    m_textures.push_back(std::make_unique<Texture>(m_gpu, std::move(label)));
+    return *m_textures.back();
 }
 
 // Allocates and stores a labeled shader resource.
 Shader& Resources::create_shader_impl(std::string label) {
     require_live_for_create("Resources::create_shader");
-    return add_shader(Shader(m_gpu, std::move(label)));
+    m_shaders.push_back(std::make_unique<Shader>(m_gpu, std::move(label)));
+    return *m_shaders.back();
 }
 
 // Allocates and stores a labeled material resource.
 Material& Resources::create_material_impl(std::string label) {
     require_live_for_create("Resources::create_material");
-    return add_material(Material(m_gpu, std::move(label)));
+    m_materials.push_back(std::make_unique<Material>(m_gpu, std::move(label)));
+    return *m_materials.back();
 }
 
 // Allocates and stores a labeled mesh resource.
 Mesh& Resources::create_mesh_impl(std::string label) {
     require_live_for_create("Resources::create_mesh");
-    return add_mesh(Mesh(m_gpu, std::move(label)));
-}
-
-// Adds a texture and returns its stable reference.
-Texture& Resources::add_texture(Texture texture) {
-    m_textures.push_back(std::make_unique<Texture>(std::move(texture)));
-    return *m_textures.back();
-}
-
-// Adds a shader and returns its stable reference.
-Shader& Resources::add_shader(Shader shader) {
-    m_shaders.push_back(std::make_unique<Shader>(std::move(shader)));
-    return *m_shaders.back();
-}
-
-// Adds a material and returns its stable reference.
-Material& Resources::add_material(Material material) {
-    m_materials.push_back(std::make_unique<Material>(std::move(material)));
-    return *m_materials.back();
-}
-
-// Adds a mesh and returns its stable reference.
-Mesh& Resources::add_mesh(Mesh mesh) {
-    m_meshes.push_back(std::make_unique<Mesh>(std::move(mesh)));
+    m_meshes.push_back(std::make_unique<Mesh>(m_gpu, std::move(label)));
     return *m_meshes.back();
 }
 

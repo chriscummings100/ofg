@@ -4,6 +4,7 @@
 // eagerly prepare a WebGPU shader module when created with a ready GpuContext.
 #pragma once
 
+#include "ofg/core/object.hpp"
 #include "ofg/game/gpu_context.hpp"
 
 #include <cstdint>
@@ -49,15 +50,15 @@ struct PipelineDefinition {
     std::string m_fragment_entry{"fs_main"};
 };
 
-class Shader {
+class Shader : public Object {
 public:
     // Allocates a labeled shader resource using the creating Resources context.
     Shader(GpuContext gpu, std::string label);
     Shader(const Shader&) = delete;
     Shader& operator=(const Shader&) = delete;
-    Shader(Shader&& other) noexcept;
-    Shader& operator=(Shader&& other) noexcept;
-    ~Shader();
+    Shader(Shader&& other) = delete;
+    Shader& operator=(Shader&& other) = delete;
+    ~Shader() override;
 
     // Initializes this shader from WGSL source and explicit parameter layout.
     void init_from_wgsl(

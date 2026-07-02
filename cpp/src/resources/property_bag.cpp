@@ -4,6 +4,7 @@
 #include "ofg/core/engine_error.hpp"
 #include "ofg/math/mat.hpp"
 #include "ofg/math/vec.hpp"
+#include "ofg/resources/texture.hpp"
 #include "ofg/resources/shader.hpp"
 
 #include <algorithm>
@@ -170,7 +171,7 @@ bool property_value_matches_type(const PropertyValue& value, ShaderParameterType
     case ShaderParameterType::Mat4:
         return std::holds_alternative<math::Mat4>(value);
     case ShaderParameterType::Texture:
-        return std::holds_alternative<Texture*>(value) && std::get<Texture*>(value) != nullptr;
+        return std::holds_alternative<Ptr<Texture>>(value) && static_cast<bool>(std::get<Ptr<Texture>>(value));
     }
     return false;
 }

@@ -20,6 +20,8 @@ describe("wasm runtime wrapper", () => {
     assert.equal(status.lifecycleState, "ready");
     assert.equal(status.frameCount, 2);
     assert.equal(status.canvasWidth, 800);
+    assert.equal(status.modelLoadingState, "loaded");
+    assert.equal(status.playerModelLoaded, true);
     assert.equal(status.pipelineCreateCount, 1);
   });
 
@@ -61,6 +63,8 @@ describe("wasm runtime wrapper", () => {
       cycleCameraMode: true
     });
     runtime.frame(16.5);
+    runtime.loadPlayerModel(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5]));
+    runtime.reportPlayerModelLoadError("fetch failed");
     assert.equal(runtime.debugStatus().frameCount, 2);
     runtime.dispose();
     runtime.dispose();
@@ -69,6 +73,8 @@ describe("wasm runtime wrapper", () => {
       "resize:800:450:1",
       "controlInput:1:0:-1:2:3:true:true:false:true",
       "frame:16.5",
+      "loadPlayerModel:3:2",
+      "modelError:fetch failed",
       "debug",
       "dispose",
       "delete"
@@ -185,6 +191,14 @@ function fakeRawBrowserGame(calls: string[]): RawBrowserGame {
       calls.push("debug");
       return JSON.stringify(validStatusPayload());
     },
+    // Records player model byte transport.
+    load_player_model(playerBytes, animationBytes) {
+      calls.push(`loadPlayerModel:${playerBytes.byteLength}:${animationBytes.byteLength}`);
+    },
+    // Records player model loading errors.
+    report_player_model_load_error(message) {
+      calls.push(`modelError:${message}`);
+    },
     // Records runtime disposal.
     dispose() {
       calls.push("dispose");
@@ -209,6 +223,8 @@ function validStatusPayload(): Record<string, unknown> {
     adapterName: "test adapter",
     backend: "BrowserWebGpu",
     cameraMode: "debug",
+    modelLoadingState: "loaded",
+    playerModelLoaded: true,
     pipelineCreateCount: 1,
     bufferCreateCount: 1,
     surfaceConfigureCount: 1,

@@ -30,8 +30,8 @@ void check_mat4_close(ofg::math::Mat4 actual, ofg::math::Mat4 expected) {
 
 } // namespace
 
-// Verifies CameraProperties preserves the existing projection*view math.
-TEST_CASE("camera properties from look-at match legacy view projection") {
+// Verifies CameraProperties preserves the +Z-forward projection*view math.
+TEST_CASE("camera properties from look-at match z-forward view projection") {
     const ofg::math::Vec3 eye = ofg::math::vec3(6.2f, 4.4f, 7.6f);
     const ofg::math::Vec3 target = ofg::math::vec3(0.0f, 0.55f, 0.0f);
     const ofg::math::Vec3 up = ofg::math::vec3(0.0f, 1.0f, 0.0f);
@@ -45,9 +45,9 @@ TEST_CASE("camera properties from look-at match legacy view projection") {
         ofg::camera_properties_from_look_at(source_camera, eye, target, up, fov, aspect, near_z, far_z);
 
     std::string error;
-    const std::optional<ofg::math::Mat4> view = ofg::math::look_at_rh(eye, target, up, error);
+    const std::optional<ofg::math::Mat4> view = ofg::math::look_at_lh(eye, target, up, error);
     REQUIRE(view.has_value());
-    const std::optional<ofg::math::Mat4> projection = ofg::math::perspective_rh(fov, aspect, near_z, far_z, error);
+    const std::optional<ofg::math::Mat4> projection = ofg::math::perspective_lh(fov, aspect, near_z, far_z, error);
     REQUIRE(projection.has_value());
 
     CHECK(properties.camera == source_camera);
@@ -66,7 +66,7 @@ TEST_CASE("camera properties from look-at match legacy view projection") {
     CHECK(camera_origin.z == doctest::Approx(eye.z));
 
     const ofg::math::Vec4 camera_forward =
-        ofg::math::mul(properties.world_from_camera, ofg::math::vec4(0.0f, 0.0f, -1.0f, 0.0f));
+        ofg::math::mul(properties.world_from_camera, ofg::math::vec4(0.0f, 0.0f, 1.0f, 0.0f));
     const std::optional<ofg::math::Vec3> expected_forward = ofg::math::normalize(ofg::math::sub(target, eye), error);
     REQUIRE(expected_forward.has_value());
     CHECK(camera_forward.x == doctest::Approx(expected_forward->x));

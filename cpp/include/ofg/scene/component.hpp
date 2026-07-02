@@ -5,6 +5,9 @@
 // later systems can iterate Scene's flat component containers.
 #pragma once
 
+#include "ofg/core/object.hpp"
+#include "ofg/core/ptr.hpp"
+
 namespace ofg {
 
 class Entity;
@@ -13,9 +16,11 @@ enum class ComponentType {
     MeshRenderer,
     Camera,
     Player,
+    PlayerAnimationController,
+    AnimationPlayer,
 };
 
-class Component {
+class Component : public Object {
 public:
     Component(const Component&) = delete;
     Component& operator=(const Component&) = delete;
@@ -32,11 +37,11 @@ public:
 protected:
     // Binds a component to one scene-owned entity.
     Component(ComponentType type, Entity* entity) noexcept;
-    ~Component() = default;
+    ~Component() override = default;
 
 private:
     ComponentType m_type;
-    Entity* m_entity{nullptr};
+    Ptr<Entity> m_entity;
 };
 
 } // namespace ofg

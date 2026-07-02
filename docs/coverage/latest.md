@@ -4,7 +4,7 @@ Date: 2026-07-02
 
 Commands: `npm run coverage`.
 
-Result: passed. The C++ coverage wrapper reported that checked C++ core/gpu/runtime/math/render/resource/scene files met the 90% per-file line coverage gate, and the TypeScript coverage wrapper reported that checked TypeScript files met the 90% per-file line coverage gate.
+Result: passed. The C++ coverage wrapper reported that checked animation/core/gpu/runtime/math/render/resource/scene files met the 90% per-file line coverage gate, and the TypeScript coverage wrapper reported that checked TypeScript files met the 90% per-file line coverage gate.
 
 Generated local artifacts:
 
@@ -20,8 +20,10 @@ Committed summary copies:
 
 | File | Lines |
 | --- | ---: |
+| `cpp/src/animation/animation_clip.cpp` | 100.00% (29/29) |
 | `cpp/src/core/control_input.cpp` | 100.00% (6/6) |
 | `cpp/src/core/frame_state.cpp` | 100.00% (10/10) |
+| `cpp/src/core/object.cpp` | 100.00% (37/37) |
 | `cpp/src/game/render_target.cpp` | 100.00% (18/18) |
 | `cpp/src/gpu/common.cpp` | 96.00% (96/100) |
 | `cpp/src/math/mat.cpp` | 100.00% (48/48) |
@@ -29,28 +31,32 @@ Committed summary copies:
 | `cpp/src/math/transform.cpp` | 100.00% (71/71) |
 | `cpp/src/render/bootstrap_scene.cpp` | 100.00% (3/3) |
 | `cpp/src/render/camera_properties.cpp` | 95.74% (45/47) |
-| `cpp/src/render/demo_scene.cpp` | 93.60% (234/250) |
+| `cpp/src/render/demo_scene.cpp` | 92.47% (270/292) |
 | `cpp/src/render/draw_list.cpp` | 96.77% (60/62) |
-| `cpp/src/render/opaque_pass.cpp` | 91.30% (252/276) |
-| `cpp/src/render/pipeline_cache.cpp` | 96.58% (113/117) |
-| `cpp/src/render/renderer.cpp` | 90.27% (167/185) |
-| `cpp/src/resources/material.cpp` | 91.57% (228/249) |
-| `cpp/src/resources/mesh.cpp` | 95.00% (171/180) |
+| `cpp/src/render/opaque_pass.cpp` | 92.22% (308/334) |
+| `cpp/src/render/opaque_pbr_shader.cpp` | 100.00% (17/17) |
+| `cpp/src/render/pipeline_cache.cpp` | 96.67% (116/120) |
+| `cpp/src/render/renderer.cpp` | 90.43% (170/188) |
+| `cpp/src/resources/material.cpp` | 90.71% (205/226) |
+| `cpp/src/resources/mesh.cpp` | 93.72% (194/207) |
 | `cpp/src/resources/property_bag.cpp` | 94.56% (139/147) |
 | `cpp/src/resources/resource_error.cpp` | 93.75% (15/16) |
-| `cpp/src/resources/resources.cpp` | 93.49% (158/169) |
-| `cpp/src/resources/shader.cpp` | 94.84% (147/155) |
-| `cpp/src/resources/texture.cpp` | 93.73% (254/271) |
-| `cpp/src/runtime/runtime_debug_status.cpp` | 100.00% (75/75) |
+| `cpp/src/resources/resources.cpp` | 92.99% (146/157) |
+| `cpp/src/resources/shader.cpp` | 94.12% (128/136) |
+| `cpp/src/resources/texture.cpp` | 93.00% (226/243) |
+| `cpp/src/runtime/runtime_debug_status.cpp` | 100.00% (78/78) |
+| `cpp/src/scene/animation_player.cpp` | 91.26% (282/309) |
 | `cpp/src/scene/camera.cpp` | 92.59% (225/243) |
 | `cpp/src/scene/component.cpp` | 100.00% (10/10) |
-| `cpp/src/scene/entity.cpp` | 100.00% (58/58) |
-| `cpp/src/scene/mesh_renderer.cpp` | 100.00% (28/28) |
-| `cpp/src/scene/player.cpp` | 100.00% (79/79) |
-| `cpp/src/scene/scene.cpp` | 93.64% (206/220) |
+| `cpp/src/scene/entity.cpp` | 91.43% (64/70) |
+| `cpp/src/scene/mesh_renderer.cpp` | 94.76% (217/229) |
+| `cpp/src/scene/player.cpp` | 100.00% (87/87) |
+| `cpp/src/scene/player_animation_controller.cpp` | 100.00% (77/77) |
+| `cpp/src/scene/scene.cpp` | 90.83% (297/327) |
 
 C++ exceptions:
 
+- `cpp/src/assets/`: glTF parsing/importing is fixture-matrix code covered by focused glTF/model/skinning/player asset tests plus browser/native smoke, rather than the per-file native line gate.
 - `cpp/src/game/game.cpp`: device-bound `Game` renderer ownership and command encoding; covered by `npm run build:wasm`, browser smoke, and native smoke rather than native line coverage.
 - `cpp/src/web/`: browser-only Emscripten/Embind/WebGPU glue and frame-driver submission; covered by `npm run build:wasm`, TypeScript adapter tests, and browser smoke rather than native line coverage.
 - `cpp/src/native/`: native Dawn smoke harness; covered by `npm run smoke:render` because the validation value is GPU readback plus PNG/report output.
@@ -59,11 +65,11 @@ C++ exceptions:
 
 | File | Lines |
 | --- | ---: |
-| `total` | 85.69% (635/741) |
+| `total` | 82.37% (659/800) |
 | `src/app/canvasHost.ts` | 97.51% (196/201) |
 | `src/app/controlInput.ts` | 96.40% (161/167) |
-| `src/app/main.ts` | 0.00% (0/83), documented exception |
-| `src/app/wasmRuntime.ts` | 95.86% (278/290) |
+| `src/app/main.ts` | 0.00% (0/118), documented exception |
+| `src/app/wasmRuntime.ts` | 96.17% (302/314) |
 
 TypeScript exception:
 

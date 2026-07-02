@@ -4,8 +4,10 @@
 // Resource storage or a scene bundle must outlive every render call that uses it.
 #pragma once
 
+#include "ofg/core/ptr.hpp"
 #include "ofg/math/mat.hpp"
 #include "ofg/math/vec.hpp"
+#include "ofg/resources/material.hpp"
 #include "ofg/resources/property_bag.hpp"
 
 #include <cstdint>
@@ -14,12 +16,11 @@
 
 namespace ofg {
 
-class Material;
 class Mesh;
 
 struct MaterialOverride {
     std::uint32_t m_submesh_index{0};
-    Material* m_material{nullptr};
+    Ptr<Material> m_material;
 };
 
 struct DrawCommand {

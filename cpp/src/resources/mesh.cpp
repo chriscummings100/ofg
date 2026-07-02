@@ -38,7 +38,7 @@ void validate_submeshes(const std::vector<SubMesh>& submeshes, std::size_t index
         if (submesh.m_label.empty()) {
             throw EngineError("Submesh label must not be empty.");
         }
-        if (submesh.m_default_material == nullptr) {
+        if (!submesh.m_default_material) {
             throw EngineError("Submesh default material must not be null.");
         }
         const std::uint64_t range_end =
@@ -86,33 +86,6 @@ Mesh::Mesh(GpuContext gpu, std::string label) : m_gpu(std::move(gpu)), m_label(s
     }
 }
 
-// Moves mesh CPU and GPU handles without duplicating ownership.
-Mesh::Mesh(Mesh&& other) noexcept
-    : m_gpu(std::move(other.m_gpu)), m_label(std::move(other.m_label)), m_vertices(std::move(other.m_vertices)),
-      m_indices(std::move(other.m_indices)), m_submeshes(std::move(other.m_submeshes)),
-      m_vertex_buffer(other.m_vertex_buffer), m_index_buffer(other.m_index_buffer), m_revision(other.m_revision) {
-    other.m_vertex_buffer = nullptr;
-    other.m_index_buffer = nullptr;
-}
-
-// Moves mesh CPU and GPU handles without duplicating ownership.
-Mesh& Mesh::operator=(Mesh&& other) noexcept {
-    if (this != &other) {
-        release_gpu_state();
-        m_gpu = std::move(other.m_gpu);
-        m_label = std::move(other.m_label);
-        m_vertices = std::move(other.m_vertices);
-        m_indices = std::move(other.m_indices);
-        m_submeshes = std::move(other.m_submeshes);
-        m_vertex_buffer = other.m_vertex_buffer;
-        m_index_buffer = other.m_index_buffer;
-        m_revision = other.m_revision;
-        other.m_vertex_buffer = nullptr;
-        other.m_index_buffer = nullptr;
-    }
-    return *this;
-}
-
 // Releases owned GPU mesh buffers.
 Mesh::~Mesh() {
     release_gpu_state();
@@ -122,6 +95,22 @@ Mesh::~Mesh() {
 void Mesh::init(std::vector<MeshVertex> vertices, std::vector<std::uint32_t> indices, std::vector<SubMesh> submeshes) {
     validate_mesh_data(vertices, indices, submeshes);
     release_gpu_state();
+    m_dynamic_vertices = false;
+    m_dynamic_vertex_capacity = 0;
+    m_vertices = std::move(vertices);
+    m_indices = std::move(indices);
+    m_submeshes = std::move(submeshes);
+    prepare_gpu_state();
+    m_revision += 1;
+}
+
+// Initializes a fixed-size dynamic vertex mesh for per-frame vertex updates.
+void Mesh::init_dynamic_vertices(
+    std::vector<MeshVertex> vertices, std::vector<std::uint32_t> indices, std::vector<SubMesh> submeshes) {
+    validate_mesh_data(vertices, indices, submeshes);
+    release_gpu_state();
+    m_dynamic_vertices = true;
+    m_dynamic_vertex_capacity = vertices.size();
     m_vertices = std::move(vertices);
     m_indices = std::move(indices);
     m_submeshes = std::move(submeshes);
@@ -143,12 +132,37 @@ void Mesh::replace_vertices(std::vector<MeshVertex> vertices) {
         const std::size_t vertex_bytes = sizeof(MeshVertex) * vertices.size();
         next_vertex_buffer =
             create_gpu_buffer(m_gpu, m_label + " vertex buffer", vertices.data(), vertex_bytes, WGPUBufferUsage_Vertex);
+        m_vertex_buffer_create_count += 1;
+        m_vertex_upload_bytes += vertex_bytes;
     }
     if (m_vertex_buffer != nullptr) {
         wgpuBufferRelease(m_vertex_buffer);
     }
     m_vertex_buffer = next_vertex_buffer;
     m_vertices = std::move(vertices);
+    m_revision += 1;
+}
+
+// Updates an already-initialized dynamic vertex mesh without recreating GPU buffers.
+void Mesh::update_vertices_in_place(std::span<const MeshVertex> vertices) {
+    if (!m_dynamic_vertices) {
+        throw EngineError("Mesh in-place vertex updates require a dynamic vertex mesh.");
+    }
+    if (vertices.size() != m_vertices.size() || vertices.size() > m_dynamic_vertex_capacity) {
+        throw EngineError("Mesh in-place vertex update must match the dynamic vertex capacity.");
+    }
+    if (!gpu_context_is_empty(m_gpu)) {
+        if (!gpu_context_is_ready(m_gpu) || m_vertex_buffer == nullptr) {
+            throw EngineError("Mesh in-place vertex update requires a prepared WebGPU vertex buffer.");
+        }
+    }
+
+    std::copy(vertices.begin(), vertices.end(), m_vertices.begin());
+    if (!gpu_context_is_empty(m_gpu)) {
+        const std::size_t vertex_bytes = sizeof(MeshVertex) * vertices.size();
+        wgpuQueueWriteBuffer(m_gpu.m_queue, m_vertex_buffer, 0, vertices.data(), vertex_bytes);
+        m_vertex_upload_bytes += vertex_bytes;
+    }
     m_revision += 1;
 }
 
@@ -178,6 +192,11 @@ const std::string& Mesh::label() const noexcept {
     return m_label;
 }
 
+// Returns the borrowed GPU context used by this mesh, or an empty context for CPU-only meshes.
+GpuContext Mesh::gpu_context() const noexcept {
+    return m_gpu;
+}
+
 // Returns immutable CPU vertices.
 std::span<const MeshVertex> Mesh::vertices() const noexcept {
     return m_vertices;
@@ -203,9 +222,24 @@ WGPUBuffer Mesh::index_buffer() const noexcept {
     return m_index_buffer;
 }
 
+// Returns whether this mesh supports fixed-capacity in-place vertex updates.
+bool Mesh::is_dynamic_vertex_mesh() const noexcept {
+    return m_dynamic_vertices;
+}
+
 // Returns the mesh revision.
 std::uint64_t Mesh::revision() const noexcept {
     return m_revision;
+}
+
+// Reports how many GPU vertex buffers this mesh has created.
+std::uint64_t Mesh::vertex_buffer_create_count() const noexcept {
+    return m_vertex_buffer_create_count;
+}
+
+// Reports bytes uploaded to this mesh's GPU vertex buffer.
+std::uint64_t Mesh::vertex_upload_bytes() const noexcept {
+    return m_vertex_upload_bytes;
 }
 
 // Creates GPU vertex and index buffers from CPU mesh data.
@@ -220,6 +254,8 @@ void Mesh::prepare_gpu_state() {
     const std::size_t vertex_bytes = sizeof(MeshVertex) * m_vertices.size();
     WGPUBuffer next_vertex_buffer =
         create_gpu_buffer(m_gpu, m_label + " vertex buffer", m_vertices.data(), vertex_bytes, WGPUBufferUsage_Vertex);
+    m_vertex_buffer_create_count += 1;
+    m_vertex_upload_bytes += vertex_bytes;
 
     const std::size_t index_bytes = sizeof(std::uint32_t) * m_indices.size();
     WGPUBuffer next_index_buffer = nullptr;

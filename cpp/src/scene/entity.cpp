@@ -1,9 +1,11 @@
 // Entity tree node implementation for the OFG scene graph.
 #include "ofg/scene/entity.hpp"
 
+#include "ofg/scene/animation_player.hpp"
 #include "ofg/scene/camera.hpp"
 #include "ofg/scene/mesh_renderer.hpp"
 #include "ofg/scene/player.hpp"
+#include "ofg/scene/player_animation_controller.hpp"
 #include "ofg/scene/scene.hpp"
 
 namespace ofg {
@@ -89,6 +91,26 @@ Player* Entity::player() noexcept {
 // Returns this entity's player, if one exists.
 const Player* Entity::player() const noexcept {
     return m_player;
+}
+
+// Returns this entity's player animation controller, if one exists.
+PlayerAnimationController* Entity::player_animation_controller() noexcept {
+    return m_player_animation_controller;
+}
+
+// Returns this entity's player animation controller, if one exists.
+const PlayerAnimationController* Entity::player_animation_controller() const noexcept {
+    return m_player_animation_controller;
+}
+
+// Returns this entity's animation player, if one exists.
+AnimationPlayer* Entity::animation_player() noexcept {
+    return m_animation_player;
+}
+
+// Returns this entity's animation player, if one exists.
+const AnimationPlayer* Entity::animation_player() const noexcept {
+    return m_animation_player;
 }
 
 // Appends a child entity in stable sibling order.

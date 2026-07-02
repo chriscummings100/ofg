@@ -32,6 +32,7 @@ Current TypeScript exception:
 
 Current C++ exception:
 
+- `cpp/src/assets/`: glTF parsing/importing is fixture-matrix code with many malformed-format and unsupported-feature branches. It is covered by focused glTF/model/skinning/player asset tests, `npm run build:wasm`, `npm run smoke:browser`, and `npm run smoke:render`; it is not yet part of the per-file 90% native line gate.
 - `cpp/src/game/game.cpp`: device-bound `Game` renderer ownership and command encoding. Native tests cover invalid setup before WebGPU calls, while full render behavior is covered by `npm run build:wasm`, `npm run smoke:browser:cpp`, and `npm run smoke:render` through the browser/native frame drivers that call `Game`.
 - `cpp/src/web/`: browser-only Emscripten/Embind/WebGPU glue and frame-driver submission. It is covered by `npm run build:wasm`, TypeScript adapter tests, and `npm run smoke:browser` / `npm run smoke:browser:cpp` rather than native line coverage.
 - `cpp/src/native/`: native Dawn smoke harness code. It is covered by `npm run smoke:render` because its value is the produced PNG/report and GPU readback behavior, not line-only unit coverage.

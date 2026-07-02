@@ -1,22 +1,60 @@
 // Entity/component scene graph implementation.
 #include "ofg/scene/scene.hpp"
 
-#include "ofg/core/engine_error.hpp"
 #include "ofg/core/control_input.hpp"
+#include "ofg/core/engine_error.hpp"
 #include "ofg/math/mat.hpp"
 #include "ofg/math/quat.hpp"
 #include "ofg/math/transform.hpp"
 #include "ofg/math/vec.hpp"
+#include "ofg/scene/animation_player.hpp"
 #include "ofg/scene/camera.hpp"
 #include "ofg/scene/player.hpp"
+#include "ofg/scene/player_animation_controller.hpp"
 #include "ofg/scene/scene_update.hpp"
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <string>
 #include <utility>
+#include <vector>
 
 namespace ofg {
+namespace {
+
+// Returns whether every component is finite.
+bool is_finite_vec3(math::Vec3 value) noexcept {
+    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+// Validates a non-negative finite light color and intensity.
+void validate_light_color(math::Vec3 color, float intensity, const char* label) {
+    if (!is_finite_vec3(color) || !std::isfinite(intensity)) {
+        throw EngineError(std::string(label) + " light values must be finite.");
+    }
+    if (color.x < 0.0f || color.y < 0.0f || color.z < 0.0f || intensity < 0.0f) {
+        throw EngineError(std::string(label) + " light color and intensity must be non-negative.");
+    }
+}
+
+// Writes one cached world transform per entity id in tree order.
+void write_world_transform_cache(
+    const Entity& entity, const math::Mat4& world_from_parent, std::vector<math::Mat4>& cache) {
+    if (entity.id() >= cache.size()) {
+        throw EngineError("Scene world-transform cache is smaller than the entity id range.");
+    }
+
+    const math::Mat4 world_from_entity = math::mul(world_from_parent, parent_from_local(entity.local_transform()));
+    cache[entity.id()] = world_from_entity;
+    for (const Entity* child = entity.first_child(); child != nullptr; child = child->next_sibling()) {
+        write_world_transform_cache(*child, world_from_entity, cache);
+    }
+}
+
+} // namespace
 
 // Creates a scene with a single root entity.
 Scene::Scene() {
@@ -26,8 +64,11 @@ Scene::Scene() {
 // Moves scene storage and rebinds moved entity owner pointers.
 Scene::Scene(Scene&& other) noexcept
     : m_entities(std::move(other.m_entities)), m_mesh_renderers(std::move(other.m_mesh_renderers)),
-      m_cameras(std::move(other.m_cameras)), m_players(std::move(other.m_players)), m_main_camera(other.m_main_camera),
-      m_root(other.m_root), m_next_entity_id(other.m_next_entity_id), m_generation(other.m_generation) {
+      m_cameras(std::move(other.m_cameras)), m_players(std::move(other.m_players)),
+      m_player_animation_controllers(std::move(other.m_player_animation_controllers)),
+      m_animation_players(std::move(other.m_animation_players)), m_main_camera(std::move(other.m_main_camera)),
+      m_world_transform_cache(std::move(other.m_world_transform_cache)), m_root(other.m_root),
+      m_next_entity_id(other.m_next_entity_id), m_generation(other.m_generation) {
     rebind_entities_after_move();
     other.m_main_camera = nullptr;
     other.m_root = nullptr;
@@ -43,7 +84,10 @@ Scene& Scene::operator=(Scene&& other) noexcept {
     m_mesh_renderers = std::move(other.m_mesh_renderers);
     m_cameras = std::move(other.m_cameras);
     m_players = std::move(other.m_players);
-    m_main_camera = other.m_main_camera;
+    m_player_animation_controllers = std::move(other.m_player_animation_controllers);
+    m_animation_players = std::move(other.m_animation_players);
+    m_main_camera = std::move(other.m_main_camera);
+    m_world_transform_cache = std::move(other.m_world_transform_cache);
     m_root = other.m_root;
     m_next_entity_id = other.m_next_entity_id;
     m_generation = other.m_generation;
@@ -144,7 +188,7 @@ const Camera* Scene::get_camera(std::size_t index) const noexcept {
 // Returns the explicit main camera or the first camera when none is selected.
 Camera* Scene::main_camera() noexcept {
     if (m_main_camera != nullptr) {
-        return m_main_camera;
+        return m_main_camera.get();
     }
     return m_cameras.empty() ? nullptr : m_cameras.front().get();
 }
@@ -152,7 +196,7 @@ Camera* Scene::main_camera() noexcept {
 // Returns the explicit main camera or the first camera when none is selected.
 const Camera* Scene::main_camera() const noexcept {
     if (m_main_camera != nullptr) {
-        return m_main_camera;
+        return m_main_camera.get();
     }
     return m_cameras.empty() ? nullptr : m_cameras.front().get();
 }
@@ -163,6 +207,34 @@ void Scene::set_main_camera(Camera* camera) {
         throw EngineError("Scene::set_main_camera requires a camera from the same scene.");
     }
     m_main_camera = camera;
+}
+
+// Returns the main directional light used by the first PBR renderer path.
+const DirectionalLight& Scene::main_light() const noexcept {
+    return m_main_light;
+}
+
+// Replaces the main directional light after normalizing its direction.
+void Scene::set_main_light(DirectionalLight light) {
+    validate_light_color(light.m_color, light.m_intensity, "Directional");
+    std::string error;
+    std::optional<math::Vec3> direction = math::normalize(light.m_direction, error);
+    if (!direction.has_value()) {
+        throw EngineError(error.empty() ? "Directional light direction must be nonzero." : error);
+    }
+    light.m_direction = *direction;
+    m_main_light = light;
+}
+
+// Returns the ambient light term used by the first PBR renderer path.
+const AmbientLight& Scene::ambient_light() const noexcept {
+    return m_ambient_light;
+}
+
+// Replaces the ambient light term.
+void Scene::set_ambient_light(AmbientLight light) {
+    validate_light_color(light.m_color, light.m_intensity, "Ambient");
+    m_ambient_light = light;
 }
 
 // Reports the number of player components in creation order.
@@ -186,11 +258,66 @@ const Player* Scene::get_player(std::size_t index) const noexcept {
     return m_players[index].get();
 }
 
+// Reports the number of player animation controller components in creation order.
+std::size_t Scene::player_animation_controller_count() const noexcept {
+    return m_player_animation_controllers.size();
+}
+
+// Returns one player animation controller by creation-order index.
+PlayerAnimationController* Scene::get_player_animation_controller(std::size_t index) noexcept {
+    if (index >= m_player_animation_controllers.size()) {
+        return nullptr;
+    }
+    return m_player_animation_controllers[index].get();
+}
+
+// Returns one player animation controller by creation-order index.
+const PlayerAnimationController* Scene::get_player_animation_controller(std::size_t index) const noexcept {
+    if (index >= m_player_animation_controllers.size()) {
+        return nullptr;
+    }
+    return m_player_animation_controllers[index].get();
+}
+
+// Reports the number of animation-player components in creation order.
+std::size_t Scene::animation_player_count() const noexcept {
+    return m_animation_players.size();
+}
+
+// Returns one animation player by creation-order index.
+AnimationPlayer* Scene::get_animation_player(std::size_t index) noexcept {
+    if (index >= m_animation_players.size()) {
+        return nullptr;
+    }
+    return m_animation_players[index].get();
+}
+
+// Returns one animation player by creation-order index.
+const AnimationPlayer* Scene::get_animation_player(std::size_t index) const noexcept {
+    if (index >= m_animation_players.size()) {
+        return nullptr;
+    }
+    return m_animation_players[index].get();
+}
+
 // Updates scene-owned gameplay and camera components in deterministic order.
 void Scene::update(const SceneUpdateContext& context) {
     validate_control_input(context.m_controls);
     for (const std::unique_ptr<Player>& player : m_players) {
         player->update(context);
+    }
+    for (const std::unique_ptr<PlayerAnimationController>& controller : m_player_animation_controllers) {
+        controller->update(context);
+    }
+    for (const std::unique_ptr<AnimationPlayer>& animation_player : m_animation_players) {
+        animation_player->update(context);
+    }
+    m_world_transform_cache.resize(m_next_entity_id);
+    if (m_root != nullptr) {
+        write_world_transform_cache(*m_root, math::mat4_identity(), m_world_transform_cache);
+    }
+    for (const std::unique_ptr<MeshRenderer>& mesh_renderer : m_mesh_renderers) {
+        mesh_renderer->update_skinning(m_world_transform_cache);
     }
     for (const std::unique_ptr<Camera>& camera : m_cameras) {
         camera->update(context);
@@ -207,7 +334,10 @@ void Scene::clear() {
     m_main_camera = nullptr;
     m_cameras.clear();
     m_players.clear();
+    m_player_animation_controllers.clear();
+    m_animation_players.clear();
     m_mesh_renderers.clear();
+    m_world_transform_cache.clear();
     m_entities.clear();
     m_root = nullptr;
     m_next_entity_id = 0;
@@ -243,6 +373,20 @@ Component* Scene::create_component(Entity& entity, ComponentType type) {
         m_players.push_back(std::make_unique<Player>(&entity));
         entity.m_player = m_players.back().get();
         return entity.m_player;
+    case ComponentType::PlayerAnimationController:
+        if (entity.m_player_animation_controller != nullptr) {
+            throw EngineError("Entity already has a PlayerAnimationController component.");
+        }
+        m_player_animation_controllers.push_back(std::make_unique<PlayerAnimationController>(&entity));
+        entity.m_player_animation_controller = m_player_animation_controllers.back().get();
+        return entity.m_player_animation_controller;
+    case ComponentType::AnimationPlayer:
+        if (entity.m_animation_player != nullptr) {
+            throw EngineError("Entity already has an AnimationPlayer component.");
+        }
+        m_animation_players.push_back(std::make_unique<AnimationPlayer>(&entity));
+        entity.m_animation_player = m_animation_players.back().get();
+        return entity.m_animation_player;
     }
 
     throw EngineError("Scene cannot create an unknown component type.");
