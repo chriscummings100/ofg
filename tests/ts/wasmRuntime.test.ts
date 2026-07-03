@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import {
   createBrowserGameRuntimeFromModule,
   createBrowserGameRuntimeFromRaw,
+  parseBlobLoadRequests,
   parseRuntimeDebugStatus,
   type GeneratedWasmModule,
   type RawBrowserGame
@@ -63,8 +64,10 @@ describe("wasm runtime wrapper", () => {
       cycleCameraMode: true
     });
     runtime.frame(16.5);
-    runtime.loadPlayerModel(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5]));
-    runtime.reportPlayerModelLoadError("fetch failed");
+    assert.deepEqual(runtime.blobLoads(), [{ id: 7, uri: "assets/test.bin" }]);
+    runtime.markBlobLoading(7);
+    runtime.completeBlobLoad(7, new Uint8Array([9, 8, 7]));
+    runtime.failBlobLoad(8, "missing");
     assert.equal(runtime.debugStatus().frameCount, 2);
     runtime.dispose();
     runtime.dispose();
@@ -73,8 +76,10 @@ describe("wasm runtime wrapper", () => {
       "resize:800:450:1",
       "controlInput:1:0:-1:2:3:true:true:false:true",
       "frame:16.5",
-      "loadPlayerModel:3:2",
-      "modelError:fetch failed",
+      "blobLoads",
+      "markBlob:7",
+      "completeBlob:7:3",
+      "failBlob:8:missing",
       "debug",
       "dispose",
       "delete"
@@ -83,6 +88,75 @@ describe("wasm runtime wrapper", () => {
       () => runtime.frame(33),
       /Browser game runtime has been disposed/
     );
+  });
+
+  // Verifies generic blob-load JSON parsing rejects invalid host payloads.
+  it("parses generic blob load requests", () => {
+    assert.deepEqual(parseBlobLoadRequests('[{"id":1,"uri":"assets/a.bin"}]'), [
+      { id: 1, uri: "assets/a.bin" }
+    ]);
+    assert.throws(() => parseBlobLoadRequests("{}"), /must be an array/);
+    assert.throws(
+      () => parseBlobLoadRequests('[{"id":0,"uri":"assets/a.bin"}]'),
+      /field id must be a positive safe integer/
+    );
+    assert.throws(
+      () => parseBlobLoadRequests('[{"id":1,"uri":""}]'),
+      /field uri must be a non-empty string/
+    );
+  });
+
+  // Verifies the wrapper starts one fetch per queued generic blob request id.
+  it("pumps generic blob loads without duplicating in-flight fetches", async () => {
+    const calls: string[] = [];
+    let resolveFetch!: (bytes: Uint8Array) => void;
+    const fetchPromise = new Promise<Uint8Array>((resolve) => {
+      resolveFetch = resolve;
+    });
+    let fetchCount = 0;
+    const runtime = createBrowserGameRuntimeFromRaw(
+      fakeRawBrowserGame(calls, () => '[{"id":3,"uri":"assets/blob.bin"}]')
+    );
+
+    runtime.pumpBlobLoads(async (uri) => {
+      fetchCount += 1;
+      assert.equal(uri, "assets/blob.bin");
+      return fetchPromise;
+    });
+    runtime.pumpBlobLoads(async () => {
+      fetchCount += 1;
+      return new Uint8Array([0]);
+    });
+
+    assert.equal(fetchCount, 1);
+    assert.deepEqual(calls, ["blobLoads", "markBlob:3", "blobLoads"]);
+
+    resolveFetch(new Uint8Array([5, 4]));
+    await flushAsyncCallbacks();
+
+    assert.deepEqual(calls, [
+      "blobLoads",
+      "markBlob:3",
+      "blobLoads",
+      "completeBlob:3:2"
+    ]);
+    runtime.dispose();
+  });
+
+  // Verifies blob fetch failures are reported through the generic fail method.
+  it("reports generic blob load fetch failures", async () => {
+    const calls: string[] = [];
+    const runtime = createBrowserGameRuntimeFromRaw(
+      fakeRawBrowserGame(calls, () => '[{"id":4,"uri":"assets/missing.bin"}]')
+    );
+
+    runtime.pumpBlobLoads(async () => {
+      throw new Error("network broke");
+    });
+    await flushAsyncCallbacks();
+
+    assert.deepEqual(calls, ["blobLoads", "markBlob:4", "failBlob:4:network broke"]);
+    runtime.dispose();
   });
 
   // Verifies invalid control input is rejected before Embind forwarding.
@@ -160,7 +234,10 @@ describe("wasm runtime wrapper", () => {
 });
 
 // Builds a fake raw Embind object that records every lifecycle call.
-function fakeRawBrowserGame(calls: string[]): RawBrowserGame {
+function fakeRawBrowserGame(
+  calls: string[],
+  blobLoadsJson: () => string = () => '[{"id":7,"uri":"assets/test.bin"}]'
+): RawBrowserGame {
   return {
     // Records resize forwarding.
     resize(width, height, devicePixelRatio) {
@@ -191,13 +268,22 @@ function fakeRawBrowserGame(calls: string[]): RawBrowserGame {
       calls.push("debug");
       return JSON.stringify(validStatusPayload());
     },
-    // Records player model byte transport.
-    load_player_model(playerBytes, animationBytes) {
-      calls.push(`loadPlayerModel:${playerBytes.byteLength}:${animationBytes.byteLength}`);
+    // Records generic blob polling and returns the provided fake payload.
+    blob_loads_json() {
+      calls.push("blobLoads");
+      return blobLoadsJson();
     },
-    // Records player model loading errors.
-    report_player_model_load_error(message) {
-      calls.push(`modelError:${message}`);
+    // Records generic blob in-flight marking.
+    mark_blob_loading(id) {
+      calls.push(`markBlob:${id}`);
+    },
+    // Records generic blob completion.
+    complete_blob_load(id, bytes) {
+      calls.push(`completeBlob:${id}:${bytes.byteLength}`);
+    },
+    // Records generic blob failure.
+    fail_blob_load(id, message) {
+      calls.push(`failBlob:${id}:${message}`);
     },
     // Records runtime disposal.
     dispose() {
@@ -208,6 +294,13 @@ function fakeRawBrowserGame(calls: string[]): RawBrowserGame {
       calls.push("delete");
     }
   };
+}
+
+// Waits for promise callbacks scheduled by the blob pump to settle.
+async function flushAsyncCallbacks(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
 }
 
 // Returns a valid C++ runtime debug-status payload for parser tests.

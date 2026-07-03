@@ -5,11 +5,9 @@
 #include "ofg/game/game.hpp"
 #include "ofg/runtime/runtime_debug_status.hpp"
 
-#include <cstdint>
-#include <cstddef>
 #include <memory>
+#include <cstdint>
 #include <string>
-#include <vector>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/val.h>
@@ -48,12 +46,16 @@ public:
         bool fast,
         bool slow,
         bool cycle_camera_mode);
-    // Receives fetched default player model bytes from the TypeScript host.
+    // Returns queued generic blob-load requests as browser-facing JSON.
+    [[nodiscard]] std::string blob_loads_json();
+    // Marks a generic blob-load request as being serviced by the browser host.
+    void mark_blob_loading(double blob_id);
+    // Completes a generic blob-load request with bytes from the browser host.
 #ifdef __EMSCRIPTEN__
-    void load_player_model(emscripten::val player_bytes, emscripten::val animation_bytes);
+    void complete_blob_load(double blob_id, emscripten::val bytes);
 #endif
-    // Records a player model fetch/transport error from the TypeScript host.
-    void report_player_model_load_error(std::string message);
+    // Fails a generic blob-load request with a browser host diagnostic.
+    void fail_blob_load(double blob_id, std::string message);
     // Returns the browser-facing debug-status JSON payload.
     [[nodiscard]] std::string debug_status_json() const;
     // Releases WebGPU resources and makes later lifecycle calls fail clearly.
@@ -90,14 +92,8 @@ private:
     void tick_setup_status(double time_ms);
     // Stores or forwards the latest sanitized control input.
     void accept_control_input(ControlInput input);
-    // Stores or forwards fetched player model bytes.
-    void accept_player_model_bytes(std::vector<std::byte> player_bytes, std::vector<std::byte> animation_bytes);
-    // Imports queued player model bytes once Game has prepared the player scene.
-    void drain_pending_player_model_to_game();
     // Records a setup-phase recoverable error.
     void record_setup_error(std::string message) noexcept;
-    // Records a setup-phase player model loading failure.
-    void record_setup_player_model_load_failure(std::string message) noexcept;
     // Records a setup-phase GPU/device error.
     void record_setup_gpu_error(std::string message) noexcept;
     // Makes setup status inert after browser disposal.
@@ -137,13 +133,10 @@ private:
     std::uint32_t m_pending_height{0};
     double m_pending_device_pixel_ratio{1.0};
     ControlInput m_pending_control_input;
-    std::vector<std::byte> m_pending_player_model_bytes;
-    std::vector<std::byte> m_pending_player_animation_bytes;
     std::uint32_t m_configured_width{0};
     std::uint32_t m_configured_height{0};
     bool m_has_pending_size{false};
     bool m_has_pending_control_input{false};
-    bool m_has_pending_player_model{false};
     bool m_game_active{false};
     bool m_surface_configured{false};
     bool m_disposed{false};

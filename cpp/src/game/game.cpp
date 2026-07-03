@@ -18,11 +18,9 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <memory>
-#include <span>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -199,30 +197,6 @@ void Game::set_control_input(ControlInput input) {
     }
 }
 
-// Imports and attaches the default player model and animation library.
-void Game::load_player_model(std::span<const std::byte> player_glb, std::span<const std::byte> animation_glb) {
-    try {
-        require_game("Game::load_player_model").load_player_model_impl(player_glb, animation_glb);
-    } catch (const std::exception& error) {
-        if (s_game != nullptr) {
-            s_game->record_player_model_load_failure_impl(error.what());
-        }
-        throw;
-    } catch (...) {
-        if (s_game != nullptr) {
-            s_game->record_player_model_load_failure_impl("Game::load_player_model failed with an unknown exception.");
-        }
-        throw;
-    }
-}
-
-// Records a recoverable player-model loading failure before bytes reach C++ import.
-void Game::record_player_model_load_failure(std::string message) noexcept {
-    if (s_game != nullptr) {
-        s_game->record_player_model_load_failure_impl(std::move(message));
-    }
-}
-
 // Records render commands into the caller-owned command encoder.
 void Game::render(WGPUCommandEncoder encoder, RenderTarget target) {
     try {
@@ -389,10 +363,22 @@ void Game::update_impl(double time_ms) {
         throw EngineError("Game update requires a current scene.");
     }
     update_demo_scene(m_demo_scene, time_ms, *m_current_scene);
+    Resources::advance_loads();
     Player* primary_player = m_current_scene->player_count() == 0 ? nullptr : m_current_scene->get_player(0);
     Camera* main_camera = m_current_scene->main_camera();
-    SceneUpdateContext context{m_control_input, time_ms, delta_seconds, primary_player, main_camera};
+    SceneUpdateContext context{
+        m_control_input, time_ms, delta_seconds, primary_player, main_camera, m_current_scene.get(), m_gpu};
     m_current_scene->update(context);
+    if (primary_player != nullptr) {
+        m_status.m_model_loading_state = primary_player->default_model_loading_state();
+        m_status.m_player_model_loaded = primary_player->default_model_loaded();
+        if (primary_player->default_model_loading_state() == "failed") {
+            m_last_error = primary_player->default_model_load_error();
+            m_status.m_last_error = m_last_error;
+        } else {
+            clear_status_last_error(m_status);
+        }
+    }
     if (main_camera != nullptr) {
         m_status.m_camera_mode = camera_control_mode_name(main_camera->control_mode());
     }
@@ -412,52 +398,6 @@ void Game::set_control_input_impl(ControlInput input) {
     }
     validate_control_input(input);
     m_control_input = input;
-}
-
-// Imports and attaches the default player model and animation library.
-void Game::load_player_model_impl(std::span<const std::byte> player_glb, std::span<const std::byte> animation_glb) {
-    if (m_state == GameLifecycleState::Failed) {
-        throw EngineError("Game::load_player_model cannot run while Game is failed: " + m_last_error);
-    }
-    if (m_state == GameLifecycleState::Rel_Renderer || m_state == GameLifecycleState::Rel_Scene ||
-        m_state == GameLifecycleState::Rel_Resources || m_state == GameLifecycleState::Released) {
-        throw EngineError("Game::load_player_model cannot run after Game release has started.");
-    }
-    if (player_glb.empty()) {
-        throw EngineError("Game::load_player_model requires non-empty player GLB bytes.");
-    }
-    if (animation_glb.empty()) {
-        throw EngineError("Game::load_player_model requires non-empty animation-library GLB bytes.");
-    }
-    if (m_current_scene == nullptr || m_demo_scene.m_player == nullptr) {
-        throw EngineError("Game::load_player_model requires Game::prepare to create the player first.");
-    }
-    if (m_status.m_player_model_loaded || m_demo_scene.m_player->default_model_loaded()) {
-        return;
-    }
-
-    m_status.m_model_loading_state = "loading";
-    m_status.m_player_model_loaded = false;
-    clear_status_last_error(m_status);
-
-    m_demo_scene.m_player->load_default_model(m_gpu, *m_current_scene, player_glb, animation_glb);
-    m_status.m_model_loading_state = "loaded";
-    m_status.m_player_model_loaded = true;
-    clear_status_last_error(m_status);
-}
-
-// Records a recoverable player-model loading failure.
-void Game::record_player_model_load_failure_impl(std::string message) noexcept {
-    if (message.empty()) {
-        message = "Unknown player model loading error.";
-    }
-    m_last_error = std::move(message);
-    m_status.m_model_loading_state = "failed";
-    m_status.m_player_model_loaded = false;
-    m_status.m_last_error = m_last_error;
-    if (m_demo_scene.m_player != nullptr) {
-        m_demo_scene.m_player->set_fallback_visible(true);
-    }
 }
 
 // Records render commands into the caller-owned command encoder.

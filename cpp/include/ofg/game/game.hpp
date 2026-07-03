@@ -14,10 +14,8 @@
 #include "ofg/runtime/runtime_debug_status.hpp"
 #include "ofg/scene/scene.hpp"
 
-#include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <span>
 #include <string>
 
 #include <webgpu/webgpu.h>
@@ -59,10 +57,6 @@ public:
     static void update(double time_ms);
     // Accepts the latest raw control input snapshot.
     static void set_control_input(ControlInput input);
-    // Imports and attaches the default player model and animation library.
-    static void load_player_model(std::span<const std::byte> player_glb, std::span<const std::byte> animation_glb);
-    // Records a recoverable player-model loading failure before bytes reach C++ import.
-    static void record_player_model_load_failure(std::string message) noexcept;
     // Records render commands into the caller-owned command encoder.
     static void render(WGPUCommandEncoder encoder, RenderTarget target);
     // Advances teardown work and reports whether Game has released resources.
@@ -94,10 +88,6 @@ private:
     void update_impl(double time_ms);
     // Stores a validated raw control input snapshot.
     void set_control_input_impl(ControlInput input);
-    // Imports and attaches the default player model and animation library.
-    void load_player_model_impl(std::span<const std::byte> player_glb, std::span<const std::byte> animation_glb);
-    // Records a recoverable player-model loading failure.
-    void record_player_model_load_failure_impl(std::string message) noexcept;
     // Records render commands into the caller-owned command encoder.
     void render_impl(WGPUCommandEncoder encoder, RenderTarget target);
     // Advances the renderer/resource release state machine.

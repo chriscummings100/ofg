@@ -35,6 +35,13 @@ export interface ControlInput {
   readonly cycleCameraMode: boolean;
 }
 
+export interface BlobLoadRequest {
+  readonly id: number;
+  readonly uri: string;
+}
+
+export type BlobFetch = (uri: string) => Promise<Uint8Array>;
+
 export interface BrowserGameRuntime {
   // Receives physical canvas size and device-pixel ratio from the host.
   resize(width: number, height: number, devicePixelRatio: number): void;
@@ -42,10 +49,16 @@ export interface BrowserGameRuntime {
   frame(timeMs: number): void;
   // Forwards one raw control input snapshot.
   setControlInput(input: ControlInput): void;
-  // Passes fetched player model bytes through to the C++ runtime.
-  loadPlayerModel(playerBytes: Uint8Array, animationBytes: Uint8Array): void;
-  // Reports a player model fetch/transport failure to runtime debug status.
-  reportPlayerModelLoadError(message: string): void;
+  // Returns queued generic blob-load requests from the C++ runtime.
+  blobLoads(): readonly BlobLoadRequest[];
+  // Marks a generic blob request as actively loading in the browser host.
+  markBlobLoading(id: number): void;
+  // Completes a generic blob request with fetched bytes.
+  completeBlobLoad(id: number, bytes: Uint8Array): void;
+  // Fails a generic blob request with a browser-side diagnostic.
+  failBlobLoad(id: number, message: string): void;
+  // Starts browser fetches for queued generic blob requests.
+  pumpBlobLoads(fetchBlob?: BlobFetch): void;
   // Returns validated debug status for UI, smoke tests, and diagnostics.
   debugStatus(): RuntimeDebugStatus;
   // Releases runtime resources and makes later calls fail clearly.
@@ -69,10 +82,14 @@ export interface RawBrowserGame {
     slow: boolean,
     cycleCameraMode: boolean
   ): void;
-  // Passes fetched player model bytes to the C++ runtime.
-  load_player_model(playerBytes: Uint8Array, animationBytes: Uint8Array): void;
-  // Reports player model fetch/transport failures to the C++ runtime.
-  report_player_model_load_error(message: string): void;
+  // Returns generic blob-load requests as a JSON array.
+  blob_loads_json(): string;
+  // Marks a generic blob-load request as in-flight.
+  mark_blob_loading(id: number): void;
+  // Completes a generic blob-load request with fetched bytes.
+  complete_blob_load(id: number, bytes: Uint8Array): void;
+  // Fails a generic blob-load request with a browser-side diagnostic.
+  fail_blob_load(id: number, message: string): void;
   // Returns the raw debug-status JSON string from C++.
   debug_status_json(): string;
   // Releases WebGPU resources owned by the C++ runtime.
@@ -97,6 +114,8 @@ interface GeneratedWasmFactory {
 }
 
 type RuntimeDebugStatusRecord = Record<keyof RuntimeDebugStatus, unknown>;
+
+type BlobLoadRequestRecord = Record<keyof BlobLoadRequest, unknown>;
 
 const WASM_MODULE_URL = "/assets/wasm/ofg_cpp/ofg_cpp.js";
 
@@ -130,6 +149,7 @@ export function createBrowserGameRuntimeFromRaw(game: RawBrowserGame): BrowserGa
 // Owns the raw Embind BrowserGame object and enforces dispose-before-use errors.
 class CppBrowserGameRuntime implements BrowserGameRuntime {
   readonly #game: RawBrowserGame;
+  readonly #inFlightBlobLoads = new Set<number>();
   #disposed = false;
 
   // Stores the raw Embind object for lifecycle delegation.
@@ -166,16 +186,66 @@ class CppBrowserGameRuntime implements BrowserGameRuntime {
     );
   }
 
-  // Passes fetched player model bytes through to C++.
-  loadPlayerModel(playerBytes: Uint8Array, animationBytes: Uint8Array): void {
+  // Parses queued generic blob requests from the C++ runtime.
+  blobLoads(): readonly BlobLoadRequest[] {
     this.#assertLive();
-    this.#game.load_player_model(playerBytes, animationBytes);
+    return parseBlobLoadRequests(this.#game.blob_loads_json());
   }
 
-  // Reports a player model fetch/transport failure to runtime debug status.
-  reportPlayerModelLoadError(message: string): void {
+  // Marks a generic blob request as actively loading.
+  markBlobLoading(id: number): void {
     this.#assertLive();
-    this.#game.report_player_model_load_error(message);
+    validateBlobLoadId(id);
+    this.#game.mark_blob_loading(id);
+  }
+
+  // Completes a generic blob request with fetched bytes.
+  completeBlobLoad(id: number, bytes: Uint8Array): void {
+    this.#assertLive();
+    validateBlobLoadId(id);
+    this.#game.complete_blob_load(id, bytes);
+  }
+
+  // Fails a generic blob request with a diagnostic message.
+  failBlobLoad(id: number, message: string): void {
+    this.#assertLive();
+    validateBlobLoadId(id);
+    this.#game.fail_blob_load(id, message);
+  }
+
+  // Starts one browser fetch per queued generic blob id.
+  pumpBlobLoads(fetchBlob: BlobFetch = fetchBlobLoadBytes): void {
+    this.#assertLive();
+    for (const request of this.blobLoads()) {
+      if (this.#inFlightBlobLoads.has(request.id)) {
+        continue;
+      }
+      this.#inFlightBlobLoads.add(request.id);
+      try {
+        this.markBlobLoading(request.id);
+      } catch (error) {
+        this.#inFlightBlobLoads.delete(request.id);
+        throw error;
+      }
+
+      void fetchBlob(request.uri)
+        .then((bytes) => {
+          if (!this.#disposed) {
+            this.completeBlobLoad(request.id, bytes);
+          }
+        })
+        .catch((error: unknown) => {
+          if (!this.#disposed) {
+            this.failBlobLoad(
+              request.id,
+              error instanceof Error ? error.message : String(error)
+            );
+          }
+        })
+        .finally(() => {
+          this.#inFlightBlobLoads.delete(request.id);
+        });
+    }
   }
 
   // Parses the C++ debug-status JSON through the shared validator.
@@ -191,6 +261,7 @@ class CppBrowserGameRuntime implements BrowserGameRuntime {
     }
     this.#game.dispose();
     this.#game.delete();
+    this.#inFlightBlobLoads.clear();
     this.#disposed = true;
   }
 
@@ -216,6 +287,50 @@ function requireFiniteControlNumber(value: number, key: keyof ControlInput): voi
   if (!Number.isFinite(value)) {
     throw new Error(`Control input field ${key} must be a finite number.`);
   }
+}
+
+// Validates blob ids before crossing the Embind boundary.
+function validateBlobLoadId(id: number): void {
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw new Error("Blob load id must be a positive safe integer.");
+  }
+}
+
+// Fetches one C++-requested blob URI from packaged site assets.
+async function fetchBlobLoadBytes(uri: string): Promise<Uint8Array> {
+  const url = uri.startsWith("/") ? uri : `/${uri}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+// Parses and validates the generic blob-load request JSON payload.
+export function parseBlobLoadRequests(json: string): readonly BlobLoadRequest[] {
+  const value = JSON.parse(json) as unknown;
+  if (!Array.isArray(value)) {
+    throw new Error("Blob load requests must be an array.");
+  }
+  return value.map((entry, index) => parseBlobLoadRequest(entry, index));
+}
+
+// Parses one blob-load request record with precise field errors.
+function parseBlobLoadRequest(value: unknown, index: number): BlobLoadRequest {
+  if (!isRecord(value)) {
+    throw new Error(`Blob load request ${index} must be an object.`);
+  }
+
+  const record = value as Partial<BlobLoadRequestRecord>;
+  const id = record.id;
+  if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0) {
+    throw new Error(`Blob load request ${index} field id must be a positive safe integer.`);
+  }
+  const uri = record.uri;
+  if (typeof uri !== "string" || uri.length === 0) {
+    throw new Error(`Blob load request ${index} field uri must be a non-empty string.`);
+  }
+  return { id, uri };
 }
 
 // Parses and validates the runtime debug-status JSON payload.

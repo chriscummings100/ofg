@@ -4,6 +4,7 @@
 // mesh-renderer component storage, generation invalidation, and transform
 // composition used by renderer draw-list extraction.
 #include "doctest.h"
+#include "webgpu_test_utils.hpp"
 
 #include "ofg/core/engine_error.hpp"
 #include "ofg/core/control_input.hpp"
@@ -12,16 +13,25 @@
 #include "ofg/math/transform.hpp"
 #include "ofg/math/vec.hpp"
 #include "ofg/resources/mesh.hpp"
+#include "ofg/resources/resources.hpp"
 #include "ofg/scene/camera.hpp"
+#include "ofg/scene/mesh_renderer.hpp"
 #include "ofg/scene/player.hpp"
 #include "ofg/scene/scene.hpp"
 #include "ofg/scene/scene_update.hpp"
 
+#include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
+
+#include <webgpu/webgpu.h>
 
 namespace {
 
@@ -32,6 +42,66 @@ ofg::math::Quat require_y_rotation(float radians) {
         ofg::math::quat_from_axis_angle(ofg::math::vec3(0.0f, 1.0f, 0.0f), radians, error);
     REQUIRE_MESSAGE(rotation.has_value(), error);
     return *rotation;
+}
+
+// Produces a non-null opaque WebGPU device handle for resource facade tests.
+WGPUDevice fake_device() {
+    return reinterpret_cast<WGPUDevice>(static_cast<std::uintptr_t>(20));
+}
+
+// Produces a non-null opaque WebGPU queue handle for resource facade tests.
+WGPUQueue fake_queue() {
+    return reinterpret_cast<WGPUQueue>(static_cast<std::uintptr_t>(21));
+}
+
+// Returns the player asset directory supplied by CMake.
+std::filesystem::path player_asset_dir() {
+    return std::filesystem::path{OFG_PLAYER_ASSET_DIR};
+}
+
+// Reads one player runtime asset into byte storage.
+std::vector<std::byte> read_player_asset_bytes(std::string_view filename) {
+    const std::filesystem::path path = player_asset_dir() / std::filesystem::path{std::string(filename)};
+    std::ifstream file(path, std::ios::binary);
+    REQUIRE_MESSAGE(file.good(), "Could not open player asset " << path.string());
+    file.seekg(0, std::ios::end);
+    const std::streamoff size = file.tellg();
+    REQUIRE(size >= 0);
+    file.seekg(0, std::ios::beg);
+    std::vector<std::byte> bytes(static_cast<std::size_t>(size));
+    if (!bytes.empty()) {
+        file.read(reinterpret_cast<char*>(bytes.data()), size);
+    }
+    REQUIRE_MESSAGE(file.good(), "Could not read player asset " << path.string());
+    return bytes;
+}
+
+// Creates and prepares Resources with a real Dawn null-backend device.
+ofg::tests::TestGpuContext create_real_test_resources() {
+    std::string error;
+    std::optional<ofg::tests::TestGpuContext> gpu = ofg::tests::TestGpuContext::create(error);
+    REQUIRE_MESSAGE(gpu.has_value(), error);
+
+    ofg::Resources::destroy();
+    ofg::Resources::create(gpu->borrowed_context());
+    REQUIRE(ofg::Resources::prepare());
+    return std::move(*gpu);
+}
+
+// Completes queued player model-resource blob requests from the checked-in assets.
+void complete_player_asset_blob_requests() {
+    const std::vector<ofg::PendingBlobLoad> pending(
+        ofg::Resources::pending_blob_loads().begin(), ofg::Resources::pending_blob_loads().end());
+    for (const ofg::PendingBlobLoad& request : pending) {
+        ofg::Resources::mark_blob_loading(request.m_id);
+        if (request.m_uri.ends_with("quaternius-superhero-male.glb")) {
+            ofg::Resources::complete_blob_load(request.m_id, read_player_asset_bytes("quaternius-superhero-male.glb"));
+        } else if (request.m_uri.ends_with("quaternius-ual1-standard.glb")) {
+            ofg::Resources::complete_blob_load(request.m_id, read_player_asset_bytes("quaternius-ual1-standard.glb"));
+        } else {
+            FAIL("Unexpected player asset blob request: " << request.m_uri);
+        }
+    }
 }
 
 } // namespace
@@ -390,6 +460,204 @@ TEST_CASE("player update validates ownership delta and primary-player binding") 
     ofg::SceneUpdateContext detached_context{controls, 1000.0, 1.0f, &detached_player, camera};
     CHECK_THROWS_WITH_AS(
         detached_player.update(detached_context), doctest::Contains("owning entity"), ofg::EngineError);
+}
+
+// Verifies player update owns default model-resource requests rather than TypeScript.
+TEST_CASE("player update requests default model resources through Resources") {
+    ofg::Resources::destroy();
+    ofg::Resources::create(ofg::GpuContext{fake_device(), fake_queue(), "fake adapter", "TestBackend"});
+    REQUIRE(ofg::Resources::prepare());
+
+    ofg::Scene scene;
+    ofg::Entity* player_entity = scene.create_entity(scene.get_root());
+    (void)player_entity->create_component(ofg::ComponentType::Player);
+    ofg::Player* player = player_entity->player();
+    REQUIRE(player != nullptr);
+
+    ofg::ControlInput controls;
+    ofg::SceneUpdateContext context{controls, 1000.0, 0.0f, player, nullptr, &scene, ofg::Resources::gpu_context()};
+    player->update(context);
+
+    CHECK(player->default_model_loading_state() == "queued");
+    CHECK_FALSE(player->default_model_loaded());
+    CHECK(ofg::Resources::model_resources().size() == 2);
+    REQUIRE(ofg::Resources::pending_blob_loads().size() == 2);
+    CHECK(ofg::Resources::pending_blob_loads()[0].m_uri == "assets/models/player/quaternius-superhero-male.glb");
+    CHECK(ofg::Resources::pending_blob_loads()[1].m_uri == "assets/models/player/quaternius-ual1-standard.glb");
+
+    CHECK(ofg::Resources::release());
+    ofg::Resources::destroy();
+}
+
+// Verifies player model-resource failures stay on the player and keep fallback visible.
+TEST_CASE("player update records default model resource load failures") {
+    ofg::Resources::destroy();
+    ofg::Resources::create(ofg::GpuContext{fake_device(), fake_queue(), "fake adapter", "TestBackend"});
+    REQUIRE(ofg::Resources::prepare());
+
+    ofg::Scene scene;
+    ofg::Entity* player_entity = scene.create_entity(scene.get_root());
+    ofg::Entity* visual_entity = scene.create_entity(player_entity);
+    (void)player_entity->create_component(ofg::ComponentType::Player);
+    (void)visual_entity->create_component(ofg::ComponentType::MeshRenderer);
+    ofg::Player* player = player_entity->player();
+    ofg::MeshRenderer* fallback = visual_entity->mesh_renderer();
+    REQUIRE(player != nullptr);
+    REQUIRE(fallback != nullptr);
+    player->bind_fallback_renderer(*fallback);
+
+    ofg::ControlInput controls;
+    ofg::SceneUpdateContext context{controls, 1000.0, 0.0f, player, nullptr, &scene, ofg::Resources::gpu_context()};
+    player->update(context);
+    REQUIRE(ofg::Resources::pending_blob_loads().size() == 2);
+    const ofg::BlobLoadId model_id = ofg::Resources::pending_blob_loads()[0].m_id;
+
+    ofg::Resources::mark_blob_loading(model_id);
+    ofg::Resources::fail_blob_load(model_id, "missing from package");
+    ofg::Resources::advance_loads();
+    ofg::Resources::advance_loads();
+    player->update(context);
+
+    CHECK(player->default_model_loading_state() == "failed");
+    CHECK_FALSE(player->default_model_loaded());
+    CHECK(player->fallback_visible());
+    CHECK(fallback->visible());
+    CHECK(player->default_model_load_error().find("quaternius-superhero-male.glb") != std::string::npos);
+    CHECK(player->default_model_load_error().find("missing from package") != std::string::npos);
+
+    CHECK(ofg::Resources::release());
+    ofg::Resources::destroy();
+}
+
+// Verifies animation-library resource failures also surface through Player debug state.
+TEST_CASE("player update records default animation resource load failures") {
+    ofg::Resources::destroy();
+    ofg::Resources::create(ofg::GpuContext{fake_device(), fake_queue(), "fake adapter", "TestBackend"});
+    REQUIRE(ofg::Resources::prepare());
+
+    ofg::Scene scene;
+    ofg::Entity* player_entity = scene.create_entity(scene.get_root());
+    ofg::Entity* visual_entity = scene.create_entity(player_entity);
+    (void)player_entity->create_component(ofg::ComponentType::Player);
+    (void)visual_entity->create_component(ofg::ComponentType::MeshRenderer);
+    ofg::Player* player = player_entity->player();
+    ofg::MeshRenderer* fallback = visual_entity->mesh_renderer();
+    REQUIRE(player != nullptr);
+    REQUIRE(fallback != nullptr);
+    player->bind_fallback_renderer(*fallback);
+
+    ofg::ControlInput controls;
+    ofg::SceneUpdateContext context{controls, 1000.0, 0.0f, player, nullptr, &scene, ofg::Resources::gpu_context()};
+    player->update(context);
+    REQUIRE(ofg::Resources::pending_blob_loads().size() == 2);
+    const ofg::BlobLoadId animation_id = ofg::Resources::pending_blob_loads()[1].m_id;
+
+    ofg::Resources::mark_blob_loading(animation_id);
+    ofg::Resources::fail_blob_load(animation_id, "animation library missing");
+    ofg::Resources::advance_loads();
+    ofg::Resources::advance_loads();
+    player->update(context);
+
+    CHECK(player->default_model_loading_state() == "failed");
+    CHECK_FALSE(player->default_model_loaded());
+    CHECK(player->fallback_visible());
+    CHECK(fallback->visible());
+    CHECK(player->default_model_load_error().find("quaternius-ual1-standard.glb") != std::string::npos);
+    CHECK(player->default_model_load_error().find("animation library missing") != std::string::npos);
+
+    CHECK(ofg::Resources::release());
+    ofg::Resources::destroy();
+}
+
+// Verifies Player converts resource-system exceptions into observable load failure state.
+TEST_CASE("player update reports resource system setup failures") {
+    ofg::Resources::destroy();
+
+    ofg::Scene scene;
+    ofg::Entity* player_entity = scene.create_entity(scene.get_root());
+    ofg::Entity* visual_entity = scene.create_entity(player_entity);
+    (void)player_entity->create_component(ofg::ComponentType::Player);
+    (void)visual_entity->create_component(ofg::ComponentType::MeshRenderer);
+    ofg::Player* player = player_entity->player();
+    ofg::MeshRenderer* fallback = visual_entity->mesh_renderer();
+    REQUIRE(player != nullptr);
+    REQUIRE(fallback != nullptr);
+    player->bind_fallback_renderer(*fallback);
+
+    ofg::ControlInput controls;
+    ofg::SceneUpdateContext context{controls, 1000.0, 0.0f, player, nullptr, &scene};
+    player->update(context);
+
+    CHECK(player->default_model_loading_state() == "failed");
+    CHECK_FALSE(player->default_model_loaded());
+    CHECK(player->fallback_visible());
+    CHECK(fallback->visible());
+    CHECK(player->default_model_load_error().find("Resources::load_model_resource") != std::string::npos);
+}
+
+// Verifies the Player can load, instantiate, and animate its default model resources.
+TEST_CASE("player update binds loaded default model resources") {
+    ofg::tests::TestGpuContext gpu = create_real_test_resources();
+
+    ofg::Scene scene;
+    ofg::Entity* player_entity = scene.create_entity(scene.get_root());
+    ofg::Entity* visual_entity = scene.create_entity(player_entity);
+    ofg::Entity* camera_entity = scene.create_entity(scene.get_root());
+    (void)player_entity->create_component(ofg::ComponentType::Player);
+    (void)visual_entity->create_component(ofg::ComponentType::MeshRenderer);
+    (void)camera_entity->create_component(ofg::ComponentType::Camera);
+    ofg::Player* player = player_entity->player();
+    ofg::MeshRenderer* fallback = visual_entity->mesh_renderer();
+    ofg::Camera* camera = camera_entity->camera();
+    REQUIRE(player != nullptr);
+    REQUIRE(fallback != nullptr);
+    REQUIRE(camera != nullptr);
+    camera->set_control_mode(ofg::CameraControlMode::FirstPerson);
+    player->bind_fallback_renderer(*fallback);
+
+    ofg::ControlInput controls;
+    ofg::SceneUpdateContext context{controls, 1000.0, 0.0f, player, camera, &scene, ofg::Resources::gpu_context()};
+    player->update(context);
+    CHECK(player->default_model_loading_state() == "queued");
+    CHECK(player->fallback_visible());
+    CHECK(fallback->visible());
+
+    for (int step = 0;
+        step < 20 && !player->default_model_loaded() && player->default_model_loading_state() != "failed";
+        ++step) {
+        complete_player_asset_blob_requests();
+        ofg::Resources::advance_loads();
+        player->update(context);
+    }
+
+    INFO("player model state: " << player->default_model_loading_state());
+    INFO("player model error: " << player->default_model_load_error());
+    CHECK(player->default_model_loaded());
+    CHECK(player->default_model_loading_state() == "loaded");
+    CHECK(player->default_model_load_error().empty());
+    CHECK_FALSE(player->fallback_visible());
+    CHECK_FALSE(fallback->visible());
+    CHECK(ofg::Resources::model_resources().size() == 2);
+    CHECK(scene.animation_player_count() >= 1);
+    CHECK(scene.mesh_renderer_count() > 1);
+    CHECK(player->idle_animation_weight() == doctest::Approx(1.0f));
+    CHECK(player->walk_animation_weight() == doctest::Approx(0.0f));
+    CHECK(player->sprint_animation_weight() == doctest::Approx(0.0f));
+
+    controls.m_move_z = 1.0f;
+    player->update(context);
+    CHECK(player->idle_animation_weight() == doctest::Approx(0.0f));
+    CHECK(player->walk_animation_weight() == doctest::Approx(1.0f));
+    CHECK(player->sprint_animation_weight() == doctest::Approx(0.0f));
+
+    controls.m_fast = true;
+    player->update(context);
+    CHECK(player->idle_animation_weight() == doctest::Approx(0.0f));
+    CHECK(player->walk_animation_weight() == doctest::Approx(0.0f));
+    CHECK(player->sprint_animation_weight() == doctest::Approx(1.0f));
+
+    CHECK(ofg::Resources::release());
+    ofg::Resources::destroy();
 }
 
 // Verifies scene update validates controls before any component can mutate transforms.

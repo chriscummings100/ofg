@@ -11,6 +11,7 @@
 #include "ofg/core/ptr.hpp"
 #include "ofg/render/draw_list.hpp"
 #include "ofg/resources/mesh.hpp"
+#include "ofg/resources/resource.hpp"
 #include "ofg/scene/entity.hpp"
 
 #include <cstddef>
@@ -50,7 +51,7 @@ struct SkinTemplate {
     std::optional<std::uint32_t> m_skeleton_root_node_index;
 };
 
-class ModelResource : public Object {
+class ModelResource : public Resource {
 public:
     ModelResource() = default;
     ModelResource(const ModelResource&) = delete;
@@ -110,8 +111,13 @@ public:
     void add_animation_clip(std::unique_ptr<AnimationClip> clip);
     // Builds the final non-movable model resource.
     [[nodiscard]] std::unique_ptr<ModelResource> build();
+    // Moves the built content into an existing stable model resource.
+    void build_into(ModelResource& resource);
 
 private:
+    // Validates the pending resource before build or build_into returns.
+    void validate_resource() const;
+
     std::unique_ptr<ModelResource> m_resource;
 };
 

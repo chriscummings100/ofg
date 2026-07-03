@@ -3,14 +3,17 @@
 #include "ofg/web/webgpu_utils.hpp"
 
 #include "ofg/core/engine_error.hpp"
+#include "ofg/resources/resources.hpp"
 
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <iomanip>
 #include <limits>
 #include <memory>
 #include <optional>
+#include <ostream>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -44,6 +47,24 @@ std::optional<std::uint32_t> parse_dimension(const char* label, double value, st
         return std::nullopt;
     }
     return static_cast<std::uint32_t>(value);
+}
+
+// Converts a JavaScript blob id number into the C++ value-handle domain.
+std::optional<BlobLoadId> parse_blob_load_id(const char* label, double value, std::string& error) {
+    if (!std::isfinite(value) || value <= 0.0 || std::trunc(value) != value) {
+        std::ostringstream out;
+        out << label << " must be a positive integer within BlobLoadId range, got " << value << ".";
+        error = out.str();
+        return std::nullopt;
+    }
+    constexpr double max_blob_id = static_cast<double>(std::numeric_limits<BlobLoadId>::max());
+    if (value > max_blob_id) {
+        std::ostringstream out;
+        out << label << " must be a positive integer within BlobLoadId range, got " << value << ".";
+        error = out.str();
+        return std::nullopt;
+    }
+    return static_cast<BlobLoadId>(value);
 }
 
 // Clears transient status errors without erasing a durable model-loading failure.
@@ -131,6 +152,63 @@ std::vector<std::byte> copy_uint8_array_bytes(emscripten::val value, const char*
         memory_view.call<void>("set", value);
     }
     return bytes;
+}
+
+// Writes one JSON string literal for generic browser facade payloads.
+void write_json_string(std::ostream& out, const std::string& value) {
+    out << '"';
+    for (const char ch : value) {
+        switch (ch) {
+        case '"':
+            out << "\\\"";
+            break;
+        case '\\':
+            out << "\\\\";
+            break;
+        case '\b':
+            out << "\\b";
+            break;
+        case '\f':
+            out << "\\f";
+            break;
+        case '\n':
+            out << "\\n";
+            break;
+        case '\r':
+            out << "\\r";
+            break;
+        case '\t':
+            out << "\\t";
+            break;
+        default:
+            if (static_cast<unsigned char>(ch) < 0x20U) {
+                out << "\\u" << std::hex << std::setw(4) << std::setfill('0')
+                    << static_cast<int>(static_cast<unsigned char>(ch)) << std::dec << std::setfill(' ');
+            } else {
+                out << ch;
+            }
+            break;
+        }
+    }
+    out << '"';
+}
+
+// Serializes pending generic blob-load requests into the TypeScript polling payload.
+std::string pending_blob_loads_json() {
+    std::ostringstream out;
+    out << '[';
+    bool first = true;
+    for (const PendingBlobLoad& request : Resources::pending_blob_loads()) {
+        if (!first) {
+            out << ',';
+        }
+        first = false;
+        out << "{\"id\":" << request.m_id << ",\"uri\":";
+        write_json_string(out, request.m_uri);
+        out << '}';
+    }
+    out << ']';
+    return out.str();
 }
 
 // Reclaims callback heap context exactly once when Emdawn invokes a callback.
@@ -236,7 +314,6 @@ void BrowserGame::frame(double time_ms) {
             if (!Game::prepare()) {
                 return;
             }
-            drain_pending_player_model_to_game();
             Game::update(time_ms);
 #ifdef __EMSCRIPTEN__
             render_frame_if_ready();
@@ -283,34 +360,84 @@ void BrowserGame::set_control_input(double move_x,
     }
 }
 
-#ifdef __EMSCRIPTEN__
-// Receives fetched default player model bytes from the TypeScript host.
-void BrowserGame::load_player_model(emscripten::val player_bytes, emscripten::val animation_bytes) {
+// Returns queued generic blob-load requests as browser-facing JSON.
+std::string BrowserGame::blob_loads_json() {
+    try {
+        if (m_disposed || !m_game_active) {
+            return "[]";
+        }
+        return pending_blob_loads_json();
+    } catch (const std::exception& error) {
+        record_error(error.what());
+        return "[]";
+    } catch (...) {
+        record_error("BrowserGame::blob_loads_json failed with an unknown exception.");
+        return "[]";
+    }
+}
+
+// Marks a generic blob-load request as being serviced by the browser host.
+void BrowserGame::mark_blob_loading(double blob_id) {
     try {
         if (m_disposed) {
             record_error("Browser game runtime has been disposed.");
             return;
         }
-        accept_player_model_bytes(copy_uint8_array_bytes(player_bytes, "Player model bytes"),
-            copy_uint8_array_bytes(animation_bytes, "Player animation bytes"));
+        std::string error;
+        const std::optional<BlobLoadId> id = parse_blob_load_id("Blob load id", blob_id, error);
+        if (!id.has_value()) {
+            record_error(error);
+            return;
+        }
+        Resources::mark_blob_loading(*id);
     } catch (const std::exception& error) {
-        report_player_model_load_error(error.what());
+        record_error(error.what());
     } catch (...) {
-        report_player_model_load_error("BrowserGame::load_player_model failed with an unknown exception.");
+        record_error("BrowserGame::mark_blob_loading failed with an unknown exception.");
+    }
+}
+
+#ifdef __EMSCRIPTEN__
+// Completes a generic blob-load request with bytes from the browser host.
+void BrowserGame::complete_blob_load(double blob_id, emscripten::val bytes) {
+    try {
+        if (m_disposed) {
+            record_error("Browser game runtime has been disposed.");
+            return;
+        }
+        std::string error;
+        const std::optional<BlobLoadId> id = parse_blob_load_id("Blob load id", blob_id, error);
+        if (!id.has_value()) {
+            record_error(error);
+            return;
+        }
+        Resources::complete_blob_load(*id, copy_uint8_array_bytes(bytes, "Blob load bytes"));
+    } catch (const std::exception& error) {
+        record_error(error.what());
+    } catch (...) {
+        record_error("BrowserGame::complete_blob_load failed with an unknown exception.");
     }
 }
 #endif
 
-// Records a player model fetch/transport error from the TypeScript host.
-void BrowserGame::report_player_model_load_error(std::string message) {
+// Fails a generic blob-load request with a browser host diagnostic.
+void BrowserGame::fail_blob_load(double blob_id, std::string message) {
     try {
-        if (m_game_active) {
-            Game::record_player_model_load_failure(std::move(message));
+        if (m_disposed) {
+            record_error("Browser game runtime has been disposed.");
             return;
         }
-        record_setup_player_model_load_failure(std::move(message));
+        std::string error;
+        const std::optional<BlobLoadId> id = parse_blob_load_id("Blob load id", blob_id, error);
+        if (!id.has_value()) {
+            record_error(error);
+            return;
+        }
+        Resources::fail_blob_load(*id, std::move(message));
+    } catch (const std::exception& error) {
+        record_error(error.what());
     } catch (...) {
-        record_error("BrowserGame::report_player_model_load_error failed.");
+        record_error("BrowserGame::fail_blob_load failed with an unknown exception.");
     }
 }
 
@@ -687,48 +814,6 @@ void BrowserGame::accept_control_input(ControlInput input) {
     }
 }
 
-// Stores or forwards fetched player model bytes.
-void BrowserGame::accept_player_model_bytes(
-    std::vector<std::byte> player_bytes, std::vector<std::byte> animation_bytes) {
-    if (player_bytes.empty()) {
-        throw EngineError("Player model bytes must not be empty.");
-    }
-    if (animation_bytes.empty()) {
-        throw EngineError("Player animation bytes must not be empty.");
-    }
-    if (m_game_active && Game::state() == GameLifecycleState::Ready) {
-        Game::load_player_model(player_bytes, animation_bytes);
-        return;
-    }
-
-    m_pending_player_model_bytes = std::move(player_bytes);
-    m_pending_player_animation_bytes = std::move(animation_bytes);
-    m_has_pending_player_model = true;
-    m_setup_status.m_model_loading_state = "queued";
-    m_setup_status.m_player_model_loaded = false;
-    m_setup_status.m_last_error.reset();
-}
-
-// Imports queued player model bytes once Game has prepared the player scene.
-void BrowserGame::drain_pending_player_model_to_game() {
-    if (!m_game_active || !m_has_pending_player_model || Game::state() != GameLifecycleState::Ready) {
-        return;
-    }
-
-    try {
-        Game::load_player_model(m_pending_player_model_bytes, m_pending_player_animation_bytes);
-    } catch (const std::exception& error) {
-        Game::record_player_model_load_failure(error.what());
-    } catch (...) {
-        Game::record_player_model_load_failure("Queued player model import failed with an unknown exception.");
-    }
-    m_pending_player_model_bytes.clear();
-    m_pending_player_model_bytes.shrink_to_fit();
-    m_pending_player_animation_bytes.clear();
-    m_pending_player_animation_bytes.shrink_to_fit();
-    m_has_pending_player_model = false;
-}
-
 // Records a setup-phase recoverable error.
 void BrowserGame::record_setup_error(std::string message) noexcept {
     if (m_setup_disposed) {
@@ -736,23 +821,6 @@ void BrowserGame::record_setup_error(std::string message) noexcept {
         return;
     }
     fail_setup_status(std::move(message));
-}
-
-// Records a setup-phase player model loading failure.
-void BrowserGame::record_setup_player_model_load_failure(std::string message) noexcept {
-    if (m_setup_disposed) {
-        fail_setup_status("Browser game runtime has been disposed.");
-        return;
-    }
-    if (message.empty()) {
-        message = "Unknown player model loading error.";
-    }
-    m_setup_status.m_model_loading_state = "failed";
-    m_setup_status.m_player_model_loaded = false;
-    m_setup_status.m_last_error = std::move(message);
-    m_has_pending_player_model = false;
-    m_pending_player_model_bytes.clear();
-    m_pending_player_animation_bytes.clear();
 }
 
 // Records a setup-phase GPU/device error.

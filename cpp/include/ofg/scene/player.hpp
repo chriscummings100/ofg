@@ -7,12 +7,11 @@
 #pragma once
 
 #include "ofg/core/ptr.hpp"
-#include "ofg/game/gpu_context.hpp"
+#include "ofg/resources/resources.hpp"
 #include "ofg/scene/component.hpp"
 
-#include <cstddef>
 #include <memory>
-#include <span>
+#include <string>
 #include <vector>
 
 namespace ofg {
@@ -21,7 +20,6 @@ class AnimationClip;
 class AnimationPlayer;
 class MeshRenderer;
 class ModelResource;
-class ModelResourceImportContext;
 class Scene;
 struct SceneUpdateContext;
 
@@ -54,11 +52,12 @@ public:
     void set_height(float height);
     // Returns the latest intended flat movement speed in world units per second.
     [[nodiscard]] float current_speed() const noexcept;
-    // Imports and attaches the default hardcoded player model to this player entity.
-    void load_default_model(
-        GpuContext gpu, Scene& scene, std::span<const std::byte> player_glb, std::span<const std::byte> animation_glb);
     // Returns whether the hardcoded player model has been imported and attached.
     [[nodiscard]] bool default_model_loaded() const noexcept;
+    // Returns the current default model loading state for debug status.
+    [[nodiscard]] const std::string& default_model_loading_state() const noexcept;
+    // Returns the current default model loading error, or an empty string.
+    [[nodiscard]] const std::string& default_model_load_error() const noexcept;
     // Binds the mesh renderer used as a visible fallback while the model is unavailable.
     void bind_fallback_renderer(MeshRenderer& renderer);
     // Sets whether the fallback renderer is currently visible.
@@ -82,15 +81,24 @@ public:
 private:
     // Updates locomotion clip weights from the current movement speed.
     void update_locomotion_animation();
+    // Requests and imports the default player model through model resources.
+    void update_default_model_load(const SceneUpdateContext& context) noexcept;
+    // Requests the default model and animation-library resources.
+    void request_default_model_resources();
+    // Binds loaded default model resources into the scene.
+    void bind_loaded_default_model_resources(Scene& scene);
+    // Records a default model load failure and keeps the fallback visible.
+    void fail_default_model_load(std::string message) noexcept;
 
     float m_walk_speed{3.5f};
     float m_height{1.8f};
     float m_current_speed{0.0f};
     bool m_fallback_visible{true};
     bool m_default_model_loaded{false};
-    std::unique_ptr<ModelResourceImportContext> m_model_import_context;
-    std::unique_ptr<ModelResource> m_model_resource;
-    std::unique_ptr<ModelResource> m_animation_resource;
+    std::string m_default_model_loading_state{"not_requested"};
+    std::string m_default_model_load_error;
+    Ptr<ModelResource> m_model_resource;
+    Ptr<ModelResource> m_animation_resource;
     std::vector<std::unique_ptr<AnimationClip>> m_locomotion_clips;
     Ptr<MeshRenderer> m_fallback_renderer;
     Ptr<Entity> m_model_root_entity;

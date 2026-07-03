@@ -158,13 +158,33 @@ void ModelResourceBuilder::add_animation_clip(std::unique_ptr<AnimationClip> cli
 
 // Builds the final non-movable model resource.
 std::unique_ptr<ModelResource> ModelResourceBuilder::build() {
+    validate_resource();
+    return std::move(m_resource);
+}
+
+// Moves the built content into an existing stable model resource.
+void ModelResourceBuilder::build_into(ModelResource& resource) {
+    validate_resource();
+    resource.m_label = std::move(m_resource->m_label);
+    resource.m_root_node_indices = std::move(m_resource->m_root_node_indices);
+    resource.m_nodes = std::move(m_resource->m_nodes);
+    resource.m_mesh_renderers = std::move(m_resource->m_mesh_renderers);
+    resource.m_skins = std::move(m_resource->m_skins);
+    resource.m_animation_clips = std::move(m_resource->m_animation_clips);
+    m_resource.reset();
+}
+
+// Validates the pending resource before build or build_into returns.
+void ModelResourceBuilder::validate_resource() const {
+    if (m_resource == nullptr) {
+        throw EngineError("ModelResourceBuilder has already built its resource.");
+    }
     if (m_resource->m_nodes.empty()) {
         throw EngineError("ModelResource requires at least one node.");
     }
     if (m_resource->m_root_node_indices.empty()) {
         throw EngineError("ModelResource requires at least one root node.");
     }
-    return std::move(m_resource);
 }
 
 // Instantiates a model resource under a scene parent.

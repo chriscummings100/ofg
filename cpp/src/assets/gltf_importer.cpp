@@ -518,6 +518,16 @@ void add_root_nodes(ModelResourceBuilder& builder, const std::vector<std::int32_
 // Converts a parsed glTF document into a reusable model resource.
 std::unique_ptr<ModelResource> import_gltf_model_resource(
     const GltfDocument& document, const GltfImportOptions& options, ModelResourceImportContext& context) {
+    auto resource = std::make_unique<ModelResource>();
+    import_gltf_model_resource_into(document, options, context, *resource);
+    return resource;
+}
+
+// Converts a parsed glTF document into an existing reusable model resource.
+void import_gltf_model_resource_into(const GltfDocument& document,
+    const GltfImportOptions& options,
+    ModelResourceImportContext& context,
+    ModelResource& resource) {
     if (options.m_model_name.empty()) {
         throw EngineError("GltfImportOptions requires a non-empty model name.");
     }
@@ -576,7 +586,7 @@ std::unique_ptr<ModelResource> import_gltf_model_resource(
         }
     }
 
-    return builder.build();
+    builder.build_into(resource);
 }
 
 } // namespace ofg

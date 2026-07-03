@@ -88,4 +88,10 @@ struct GltfImportOptions {
 [[nodiscard]] std::unique_ptr<ModelResource> import_gltf_model_resource(
     const GltfDocument& document, const GltfImportOptions& options, ModelResourceImportContext& context);
 
+// Converts a parsed glTF document into an existing reusable model resource.
+void import_gltf_model_resource_into(const GltfDocument& document,
+    const GltfImportOptions& options,
+    ModelResourceImportContext& context,
+    ModelResource& resource);
+
 } // namespace ofg

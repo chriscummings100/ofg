@@ -123,6 +123,7 @@ add_library(ofg_cpp
   src/resources/material.cpp
   src/resources/mesh.cpp
   src/resources/property_bag.cpp
+  src/resources/resource.cpp
   src/resources/resource_error.cpp
   src/resources/resources.cpp
   src/resources/shader.cpp
@@ -216,6 +217,7 @@ if(OFG_BUILD_TESTS AND NOT EMSCRIPTEN)
     tests/resource_gpu_test.cpp
     tests/resource_error_test.cpp
     tests/resources_lifecycle_test.cpp
+    tests/resources_model_load_test.cpp
     tests/pipeline_cache_test.cpp
     tests/renderer_test.cpp
     tests/shader_resource_test.cpp

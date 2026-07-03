@@ -2,13 +2,12 @@
 #include "ofg/scene/player.hpp"
 
 #include "ofg/animation/animation_clip.hpp"
-#include "ofg/assets/gltf_document.hpp"
-#include "ofg/assets/gltf_importer.hpp"
 #include "ofg/assets/model_resource.hpp"
 #include "ofg/core/engine_error.hpp"
 #include "ofg/math/mat.hpp"
 #include "ofg/math/quat.hpp"
 #include "ofg/math/vec.hpp"
+#include "ofg/resources/resources.hpp"
 #include "ofg/scene/animation_player.hpp"
 #include "ofg/scene/camera.hpp"
 #include "ofg/scene/entity.hpp"
@@ -20,9 +19,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <memory>
-#include <optional>
-#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -43,14 +41,6 @@ constexpr const char* _idle_clip_name = "Idle_Loop";
 constexpr const char* _walk_clip_name = "Walk_Loop";
 constexpr const char* _sprint_clip_name = "Sprint_Loop";
 constexpr float _player_model_ground_offset_y = -0.9f;
-
-class EmptyGltfResourceProvider final : public GltfResourceProvider {
-public:
-    // GLB player assets carry their buffers and images internally.
-    [[nodiscard]] std::optional<AssetFile> load_relative(std::string_view) override {
-        return std::nullopt;
-    }
-};
 
 // Returns a flat normalized direction, or a zero vector when no movement exists.
 math::Vec3 flat_normalized(math::Vec3 value) {
@@ -250,30 +240,21 @@ float Player::current_speed() const noexcept {
     return m_current_speed;
 }
 
-// Imports and attaches the default hardcoded player model to this player entity.
-void Player::load_default_model(
-    GpuContext gpu, Scene& scene, std::span<const std::byte> player_glb, std::span<const std::byte> animation_glb) {
-    if (m_default_model_loaded || m_model_resource != nullptr) {
+// Binds loaded default model resources into the scene.
+void Player::bind_loaded_default_model_resources(Scene& scene) {
+    if (m_default_model_loaded || m_model_root_entity != nullptr) {
         return;
     }
-    if (player_glb.empty()) {
-        throw EngineError("Player default model requires non-empty player GLB bytes.");
+    ModelResource* player_resource = m_model_resource.get();
+    ModelResource* animation_resource = m_animation_resource.get();
+    if (player_resource == nullptr || animation_resource == nullptr) {
+        throw EngineError("Player default model binding requires model-resource handles.");
     }
-    if (animation_glb.empty()) {
-        throw EngineError("Player default model requires non-empty animation-library GLB bytes.");
+    if (!player_resource->is_loaded() || !animation_resource->is_loaded()) {
+        throw EngineError("Player default model binding requires loaded model resources.");
     }
 
     Entity& owner = require_entity(*this);
-    EmptyGltfResourceProvider resource_provider;
-    GltfDocument player_document = load_gltf_document(_player_model_source_uri, player_glb, resource_provider);
-    GltfDocument animation_document =
-        load_gltf_document(_player_animation_source_uri, animation_glb, resource_provider);
-
-    auto import_context = std::make_unique<ModelResourceImportContext>(gpu);
-    std::unique_ptr<ModelResource> player_resource = import_gltf_model_resource(
-        player_document, GltfImportOptions{_player_model_label, _player_model_source_uri}, *import_context);
-    std::unique_ptr<ModelResource> animation_resource = import_gltf_model_resource(
-        animation_document, GltfImportOptions{_player_animation_label, _player_animation_source_uri}, *import_context);
     std::vector<std::unique_ptr<AnimationClip>> locomotion_clips =
         remap_locomotion_clips(*animation_resource, *player_resource);
     if (locomotion_clips.size() != 3U || locomotion_clips[0] == nullptr || locomotion_clips[1] == nullptr ||
@@ -297,21 +278,30 @@ void Player::load_default_model(
         animation_player->bind_targets(std::move(instance.m_entities_by_node_index));
     }
 
-    m_model_import_context = std::move(import_context);
-    m_model_resource = std::move(player_resource);
-    m_animation_resource = std::move(animation_resource);
     m_locomotion_clips = std::move(locomotion_clips);
     m_model_root_entity = model_root;
     m_model_animation_player = animation_player;
     bind_locomotion_animation(
         *animation_player, *m_locomotion_clips[0], *m_locomotion_clips[1], *m_locomotion_clips[2]);
     m_default_model_loaded = true;
+    m_default_model_loading_state = "loaded";
+    m_default_model_load_error.clear();
     set_fallback_visible(false);
 }
 
 // Returns whether the hardcoded player model has been imported and attached.
 bool Player::default_model_loaded() const noexcept {
     return m_default_model_loaded;
+}
+
+// Returns the current default model loading state for debug status.
+const std::string& Player::default_model_loading_state() const noexcept {
+    return m_default_model_loading_state;
+}
+
+// Returns the current default model loading error, or an empty string.
+const std::string& Player::default_model_load_error() const noexcept {
+    return m_default_model_load_error;
 }
 
 // Binds the mesh renderer used as a visible fallback while the model is unavailable.
@@ -362,6 +352,7 @@ float Player::sprint_animation_weight() const noexcept {
 
 // Applies player-relevant controls for one frame.
 void Player::update(const SceneUpdateContext& context) {
+    update_default_model_load(context);
     m_current_speed = 0.0f;
     if (context.m_primary_player != this) {
         update_locomotion_animation();
@@ -391,6 +382,77 @@ void Player::update(const SceneUpdateContext& context) {
         transform.m_position.y = m_height * 0.5f;
     }
     update_locomotion_animation();
+}
+
+// Requests and imports the default player model through model resources.
+void Player::update_default_model_load(const SceneUpdateContext& context) noexcept {
+    if (m_default_model_loaded || m_default_model_loading_state == "failed") {
+        return;
+    }
+    if (context.m_scene == nullptr) {
+        return;
+    }
+
+    try {
+        request_default_model_resources();
+        ModelResource* model_resource = m_model_resource.get();
+        ModelResource* animation_resource = m_animation_resource.get();
+        if (model_resource == nullptr || animation_resource == nullptr) {
+            fail_default_model_load("Player default model resources were destroyed before loading completed.");
+            return;
+        }
+
+        if (model_resource->is_failed()) {
+            fail_default_model_load("Failed to load player model resource '" + model_resource->source_uri() +
+                                    "': " + model_resource->load_error());
+            return;
+        }
+        if (animation_resource->is_failed()) {
+            fail_default_model_load("Failed to load player animation resource '" + animation_resource->source_uri() +
+                                    "': " + animation_resource->load_error());
+            return;
+        }
+        if (model_resource->is_loaded() && animation_resource->is_loaded()) {
+            bind_loaded_default_model_resources(*context.m_scene);
+            return;
+        }
+        if (model_resource->state() == ResourceState::Queued || animation_resource->state() == ResourceState::Queued) {
+            m_default_model_loading_state = "queued";
+        } else {
+            m_default_model_loading_state = "loading";
+        }
+    } catch (const std::exception& error) {
+        fail_default_model_load(error.what());
+    } catch (...) {
+        fail_default_model_load("Player default model resource loading failed with an unknown exception.");
+    }
+}
+
+// Requests the default model and animation-library resources.
+void Player::request_default_model_resources() {
+    if (m_model_resource == nullptr) {
+        m_model_resource =
+            Resources::load_model_resource(_player_model_source_uri, ModelResourceLoadOptions{_player_model_label});
+    }
+    if (m_animation_resource == nullptr) {
+        m_animation_resource = Resources::load_model_resource(
+            _player_animation_source_uri, ModelResourceLoadOptions{_player_animation_label});
+    }
+    if (m_default_model_loading_state == "not_requested") {
+        m_default_model_loading_state = "queued";
+        m_default_model_load_error.clear();
+    }
+}
+
+// Records a default model load failure and keeps the fallback visible.
+void Player::fail_default_model_load(std::string message) noexcept {
+    if (message.empty()) {
+        message = "Unknown player model loading error.";
+    }
+    m_default_model_loading_state = "failed";
+    m_default_model_load_error = std::move(message);
+    m_default_model_loaded = false;
+    set_fallback_visible(true);
 }
 
 // Updates locomotion clip weights from the current movement speed.
