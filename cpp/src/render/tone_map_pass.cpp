@@ -14,7 +14,7 @@
 namespace ofg {
 namespace {
 
-constexpr std::uint64_t _tone_map_uniform_bytes = sizeof(float) * 4U;
+constexpr std::uint64_t _tone_map_uniform_bytes = sizeof(float) * 8U;
 
 // Creates a shader module from the built-in tone-map WGSL source.
 WGPUShaderModule create_tone_map_shader_module(WGPUDevice device) {
@@ -32,10 +32,10 @@ WGPUShaderModule create_tone_map_shader_module(WGPUDevice device) {
     return module;
 }
 
-// Creates the uniform and scene-color bind group layout.
+// Creates the uniform, scene-color, and bloom bind group layout.
 WGPUBindGroupLayout create_tone_map_bind_group_layout(WGPUDevice device) {
-    std::array<WGPUBindGroupLayoutEntry, 2> entries{
-        WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT, WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT};
+    std::array<WGPUBindGroupLayoutEntry, 3> entries{
+        WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT, WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT, WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT};
 
     entries[0].binding = 0;
     entries[0].visibility = WGPUShaderStage_Fragment;
@@ -51,6 +51,13 @@ WGPUBindGroupLayout create_tone_map_bind_group_layout(WGPUDevice device) {
     entries[1].texture.viewDimension = WGPUTextureViewDimension_2D;
     entries[1].texture.multisampled = WGPU_FALSE;
 
+    entries[2].binding = 2;
+    entries[2].visibility = WGPUShaderStage_Fragment;
+    entries[2].texture = WGPU_TEXTURE_BINDING_LAYOUT_INIT;
+    entries[2].texture.sampleType = WGPUTextureSampleType_UnfilterableFloat;
+    entries[2].texture.viewDimension = WGPUTextureViewDimension_2D;
+    entries[2].texture.multisampled = WGPU_FALSE;
+
     WGPUBindGroupLayoutDescriptor descriptor = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
     descriptor.label = gpu::cstring_view("OFG tone-map bind group layout");
     descriptor.entryCount = entries.size();
@@ -61,6 +68,43 @@ WGPUBindGroupLayout create_tone_map_bind_group_layout(WGPUDevice device) {
         throw EngineError("wgpuDeviceCreateBindGroupLayout returned null for tone-map pass.");
     }
     return layout;
+}
+
+// Creates the durable disabled-bloom fallback texture.
+WGPUTexture create_fallback_bloom_texture(WGPUDevice device) {
+    WGPUTextureDescriptor descriptor = WGPU_TEXTURE_DESCRIPTOR_INIT;
+    descriptor.label = gpu::cstring_view("OFG tone-map black bloom fallback texture");
+    descriptor.usage = WGPUTextureUsage_TextureBinding;
+    descriptor.dimension = WGPUTextureDimension_2D;
+    descriptor.size = WGPUExtent3D{1, 1, 1};
+    descriptor.format = WGPUTextureFormat_RGBA16Float;
+    descriptor.mipLevelCount = 1;
+    descriptor.sampleCount = 1;
+
+    WGPUTexture texture = wgpuDeviceCreateTexture(device, &descriptor);
+    if (texture == nullptr) {
+        throw EngineError("wgpuDeviceCreateTexture returned null for tone-map bloom fallback.");
+    }
+    return texture;
+}
+
+// Creates the default 2D view for the disabled-bloom fallback texture.
+WGPUTextureView create_fallback_bloom_view(WGPUTexture texture) {
+    WGPUTextureViewDescriptor descriptor = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+    descriptor.label = gpu::cstring_view("OFG tone-map black bloom fallback view");
+    descriptor.format = WGPUTextureFormat_RGBA16Float;
+    descriptor.dimension = WGPUTextureViewDimension_2D;
+    descriptor.baseMipLevel = 0;
+    descriptor.mipLevelCount = 1;
+    descriptor.baseArrayLayer = 0;
+    descriptor.arrayLayerCount = 1;
+    descriptor.aspect = WGPUTextureAspect_All;
+
+    WGPUTextureView view = wgpuTextureCreateView(texture, &descriptor);
+    if (view == nullptr) {
+        throw EngineError("wgpuTextureCreateView returned null for tone-map bloom fallback.");
+    }
+    return view;
 }
 
 // Creates the pipeline layout for the tone-map pass.
@@ -129,15 +173,21 @@ WGPUBuffer create_tone_map_uniform_buffer(WGPUDevice device) {
 }
 
 // Creates the size-dependent bind group for the current scene-color view.
-WGPUBindGroup create_tone_map_bind_group(
-    WGPUDevice device, WGPUBindGroupLayout layout, WGPUBuffer uniform_buffer, WGPUTextureView scene_color_view) {
-    std::array<WGPUBindGroupEntry, 2> entries{WGPU_BIND_GROUP_ENTRY_INIT, WGPU_BIND_GROUP_ENTRY_INIT};
+WGPUBindGroup create_tone_map_bind_group(WGPUDevice device,
+    WGPUBindGroupLayout layout,
+    WGPUBuffer uniform_buffer,
+    WGPUTextureView scene_color_view,
+    WGPUTextureView bloom_view) {
+    std::array<WGPUBindGroupEntry, 3> entries{
+        WGPU_BIND_GROUP_ENTRY_INIT, WGPU_BIND_GROUP_ENTRY_INIT, WGPU_BIND_GROUP_ENTRY_INIT};
     entries[0].binding = 0;
     entries[0].buffer = uniform_buffer;
     entries[0].offset = 0;
     entries[0].size = _tone_map_uniform_bytes;
     entries[1].binding = 1;
     entries[1].textureView = scene_color_view;
+    entries[2].binding = 2;
+    entries[2].textureView = bloom_view;
 
     WGPUBindGroupDescriptor descriptor = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
     descriptor.label = gpu::cstring_view("OFG tone-map bind group");
@@ -174,6 +224,11 @@ ToneMapOutputEncoding tone_map_output_encoding_for(WGPUTextureFormat output_form
     }
 }
 
+// Returns a disabled bloom input that makes tone mapping match the old path.
+ToneMapBloomInput disabled_tone_map_bloom_input() noexcept {
+    return ToneMapBloomInput{};
+}
+
 // Stores already-created pass GPU state.
 ToneMapPass::ToneMapPass(GpuContext gpu,
     WGPUTextureFormat output_format,
@@ -182,10 +237,13 @@ ToneMapPass::ToneMapPass(GpuContext gpu,
     WGPUBindGroupLayout bind_group_layout,
     WGPUPipelineLayout pipeline_layout,
     WGPURenderPipeline pipeline,
-    WGPUBuffer uniform_buffer)
+    WGPUBuffer uniform_buffer,
+    WGPUTexture fallback_bloom_texture,
+    WGPUTextureView fallback_bloom_view)
     : m_gpu(std::move(gpu)), m_output_format(output_format), m_encoding(encoding), m_shader_module(shader_module),
       m_bind_group_layout(bind_group_layout), m_pipeline_layout(pipeline_layout), m_pipeline(pipeline),
-      m_uniform_buffer(uniform_buffer) {}
+      m_uniform_buffer(uniform_buffer), m_fallback_bloom_texture(fallback_bloom_texture),
+      m_fallback_bloom_view(fallback_bloom_view) {}
 
 // Releases owned WebGPU resources.
 ToneMapPass::~ToneMapPass() {
@@ -205,6 +263,8 @@ std::unique_ptr<ToneMapPass> ToneMapPass::create(
     WGPUPipelineLayout pipeline_layout = nullptr;
     WGPURenderPipeline pipeline = nullptr;
     WGPUBuffer uniform_buffer = nullptr;
+    WGPUTexture fallback_bloom_texture = nullptr;
+    WGPUTextureView fallback_bloom_view = nullptr;
 
     try {
         shader_module = create_tone_map_shader_module(gpu.m_device);
@@ -212,7 +272,15 @@ std::unique_ptr<ToneMapPass> ToneMapPass::create(
         pipeline_layout = create_tone_map_pipeline_layout(gpu.m_device, bind_group_layout);
         pipeline = create_tone_map_pipeline(gpu.m_device, pipeline_layout, shader_module, output_format);
         uniform_buffer = create_tone_map_uniform_buffer(gpu.m_device);
+        fallback_bloom_texture = create_fallback_bloom_texture(gpu.m_device);
+        fallback_bloom_view = create_fallback_bloom_view(fallback_bloom_texture);
     } catch (...) {
+        if (fallback_bloom_view != nullptr) {
+            wgpuTextureViewRelease(fallback_bloom_view);
+        }
+        if (fallback_bloom_texture != nullptr) {
+            wgpuTextureRelease(fallback_bloom_texture);
+        }
         if (uniform_buffer != nullptr) {
             wgpuBufferRelease(uniform_buffer);
         }
@@ -238,17 +306,29 @@ std::unique_ptr<ToneMapPass> ToneMapPass::create(
         bind_group_layout,
         pipeline_layout,
         pipeline,
-        uniform_buffer));
+        uniform_buffer,
+        fallback_bloom_texture,
+        fallback_bloom_view));
     pass->m_counters.m_shader_module_create_count = 1;
     pass->m_counters.m_bind_group_layout_create_count = 1;
     pass->m_counters.m_pipeline_create_count = 1;
     pass->m_counters.m_buffer_create_count = 1;
-    pass->write_uniforms();
+    pass->m_counters.m_texture_create_count = 1;
+    pass->m_counters.m_texture_view_create_count = 1;
+    pass->write_uniforms(disabled_tone_map_bloom_input());
     return pass;
 }
 
 // Encodes the full-screen tone-map draw into the caller-owned command encoder.
 void ToneMapPass::render(WGPUCommandEncoder encoder, WGPUTextureView scene_color_view, RenderTarget output_target) {
+    render(encoder, scene_color_view, disabled_tone_map_bloom_input(), output_target);
+}
+
+// Encodes the full-screen tone-map draw with an optional bloom contribution.
+void ToneMapPass::render(WGPUCommandEncoder encoder,
+    WGPUTextureView scene_color_view,
+    ToneMapBloomInput bloom_input,
+    RenderTarget output_target) {
     if (encoder == nullptr || scene_color_view == nullptr || output_target.m_view == nullptr) {
         throw EngineError("ToneMapPass render requires an encoder, scene color view, and output texture view.");
     }
@@ -260,8 +340,24 @@ void ToneMapPass::render(WGPUCommandEncoder encoder, WGPUTextureView scene_color
                           " does not match pass format " + gpu::texture_format_name(m_output_format) + ".");
     }
 
-    ensure_bind_group(scene_color_view);
-    write_uniforms();
+    if (bloom_input.m_intensity < 0.0f || !std::isfinite(bloom_input.m_intensity)) {
+        throw EngineError("ToneMapPass bloom intensity must be finite and non-negative.");
+    }
+    if (bloom_input.m_tint.x < 0.0f || bloom_input.m_tint.y < 0.0f || bloom_input.m_tint.z < 0.0f ||
+        !std::isfinite(bloom_input.m_tint.x) || !std::isfinite(bloom_input.m_tint.y) ||
+        !std::isfinite(bloom_input.m_tint.z)) {
+        throw EngineError("ToneMapPass bloom tint must be finite and non-negative.");
+    }
+    if (bloom_input.m_view == nullptr || bloom_input.m_width == 0 || bloom_input.m_height == 0 ||
+        bloom_input.m_intensity == 0.0f) {
+        bloom_input = disabled_tone_map_bloom_input();
+        bloom_input.m_view = m_fallback_bloom_view;
+        bloom_input.m_width = 1;
+        bloom_input.m_height = 1;
+    }
+
+    ensure_bind_group(scene_color_view, bloom_input.m_view);
+    write_uniforms(bloom_input);
 
     WGPURenderPassColorAttachment color_attachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
     color_attachment.view = output_target.m_view;
@@ -309,25 +405,33 @@ RendererCounters ToneMapPass::counters() const noexcept {
     return m_counters;
 }
 
-// Recreates the scene-color bind group when the texture view changes.
-void ToneMapPass::ensure_bind_group(WGPUTextureView scene_color_view) {
-    if (m_bind_group != nullptr && m_bound_scene_color_view == scene_color_view) {
+// Recreates the scene-color/bloom bind group when texture views change.
+void ToneMapPass::ensure_bind_group(WGPUTextureView scene_color_view, WGPUTextureView bloom_view) {
+    if (m_bind_group != nullptr && m_bound_scene_color_view == scene_color_view && m_bound_bloom_view == bloom_view) {
         return;
     }
 
     WGPUBindGroup next_bind_group =
-        create_tone_map_bind_group(m_gpu.m_device, m_bind_group_layout, m_uniform_buffer, scene_color_view);
+        create_tone_map_bind_group(m_gpu.m_device, m_bind_group_layout, m_uniform_buffer, scene_color_view, bloom_view);
     if (m_bind_group != nullptr) {
         wgpuBindGroupRelease(m_bind_group);
     }
     m_bind_group = next_bind_group;
     m_bound_scene_color_view = scene_color_view;
+    m_bound_bloom_view = bloom_view;
     m_counters.m_bind_group_create_count += 1;
 }
 
-// Writes exposure and output encoding mode into the uniform buffer.
-void ToneMapPass::write_uniforms() const {
-    const std::array<float, 4> packed{m_exposure, encoding_flag(m_encoding), 0.0f, 0.0f};
+// Writes exposure, output encoding, and bloom composite data into the uniform buffer.
+void ToneMapPass::write_uniforms(ToneMapBloomInput bloom_input) const {
+    const std::array<float, 8> packed{m_exposure,
+        encoding_flag(m_encoding),
+        bloom_input.m_intensity,
+        static_cast<float>(bloom_input.m_width),
+        static_cast<float>(bloom_input.m_height),
+        bloom_input.m_tint.x,
+        bloom_input.m_tint.y,
+        bloom_input.m_tint.z};
     wgpuQueueWriteBuffer(m_gpu.m_queue, m_uniform_buffer, 0, packed.data(), sizeof(float) * packed.size());
 }
 
@@ -340,6 +444,14 @@ void ToneMapPass::release_gpu_state() noexcept {
     if (m_uniform_buffer != nullptr) {
         wgpuBufferRelease(m_uniform_buffer);
         m_uniform_buffer = nullptr;
+    }
+    if (m_fallback_bloom_view != nullptr) {
+        wgpuTextureViewRelease(m_fallback_bloom_view);
+        m_fallback_bloom_view = nullptr;
+    }
+    if (m_fallback_bloom_texture != nullptr) {
+        wgpuTextureRelease(m_fallback_bloom_texture);
+        m_fallback_bloom_texture = nullptr;
     }
     if (m_pipeline != nullptr) {
         wgpuRenderPipelineRelease(m_pipeline);
@@ -358,6 +470,7 @@ void ToneMapPass::release_gpu_state() noexcept {
         m_shader_module = nullptr;
     }
     m_bound_scene_color_view = nullptr;
+    m_bound_bloom_view = nullptr;
 }
 
 } // namespace ofg

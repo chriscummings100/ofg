@@ -330,8 +330,18 @@ TEST_CASE("Game prepares and renders through the static facade") {
     CHECK(ofg::Game::status().m_camera_mode == "debug");
     CHECK(ofg::Game::status().m_surface_configure_count == 1);
     CHECK(ofg::Game::status().m_buffer_create_count >= 1);
+    CHECK(ofg::Game::status().m_bloom_active_level_count > 0);
+    CHECK(ofg::Game::status().m_bloom_encoded_pass_count > 0);
+    CHECK(ofg::Game::status().m_bloom_draw_count == ofg::Game::status().m_bloom_encoded_pass_count);
+    CHECK(ofg::Game::status().m_bloom_estimated_read_bytes > 0);
+    CHECK(ofg::Game::status().m_bloom_estimated_write_bytes > 0);
+    CHECK(ofg::Game::status().m_bloom_skipped == false);
+    CHECK(ofg::Game::status().m_temp_buffer_peak_bytes > 0);
+    CHECK(ofg::Game::status().m_temp_buffer_created_count > 0);
+    CHECK(ofg::Game::status().m_temp_buffer_reusable_count > 0);
     CHECK(ofg::Game::debug_status_json().find("\"lifecycleState\":\"ready\"") != std::string::npos);
     CHECK(ofg::Game::debug_status_json().find("\"cameraMode\":\"debug\"") != std::string::npos);
+    CHECK(ofg::Game::debug_status_json().find("\"bloomActiveLevelCount\":") != std::string::npos);
 }
 
 // Verifies one-frame camera mode cycle input is consumed after one update.

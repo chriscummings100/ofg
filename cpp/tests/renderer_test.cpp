@@ -346,6 +346,8 @@ TEST_CASE("renderer static lifecycle prepares pass resources") {
     CHECK(std::string(ofg::renderer_lifecycle_state_name(ofg::RendererLifecycleState::Failed)) == "failed");
     CHECK(std::string(ofg::renderer_lifecycle_state_name(static_cast<ofg::RendererLifecycleState>(99))) == "unknown");
     CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Uninitialized);
+    CHECK(ofg::Renderer::bloom_diagnostics().m_active_level_count == 0);
+    CHECK(ofg::Renderer::temp_buffer_stats().m_peak_bytes == 0);
 
     ofg::Renderer::create(gpu.borrowed_context(), _test_format);
     CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Created);
@@ -354,12 +356,12 @@ TEST_CASE("renderer static lifecycle prepares pass resources") {
 
     REQUIRE(ofg::Renderer::prepare());
     CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Ready);
-    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 2);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 4);
-    CHECK(ofg::Renderer::counters().m_shader_module_create_count == 2);
+    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 5);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 5);
+    CHECK(ofg::Renderer::counters().m_shader_module_create_count == 4);
 
     REQUIRE(ofg::Renderer::prepare());
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 4);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 5);
     CHECK(ofg::Renderer::release());
     CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Released);
     CHECK(ofg::Renderer::release());
@@ -406,6 +408,18 @@ TEST_CASE("renderer rejects invalid lifecycle and render inputs") {
     ScopedTexture texture;
     ScopedTextureView view = make_render_target_view(gpu.borrowed_context(), texture);
     ScopedCommandEncoder encoder = make_encoder(gpu.borrowed_context());
+    CHECK_THROWS_WITH_AS(([&]() {
+        ofg::Renderer::render(
+            encoder.m_value, ofg::RenderTarget{view.m_value, WGPUTextureFormat_BGRA8Unorm, 32, 32}, render_scene);
+    }()),
+        doctest::Contains("does not match renderer format"),
+        ofg::EngineError);
+    CHECK_THROWS_WITH_AS(([&]() {
+        ofg::Renderer::render(encoder.m_value, ofg::RenderTarget{view.m_value, _test_format, 0, 32}, render_scene);
+    }()),
+        doctest::Contains("dimensions must be nonzero"),
+        ofg::EngineError);
+
     ofg::Scene invalid_scene;
     add_scene_camera(invalid_scene);
     ofg::Entity* invalid_entity = invalid_scene.create_entity(invalid_scene.get_root());
@@ -502,10 +516,10 @@ TEST_CASE("renderer skips invisible scene mesh renderers") {
     CHECK_NOTHROW(
         ofg::Renderer::render(encoder.m_value, ofg::RenderTarget{view.m_value, _test_format, 32, 32}, render_scene));
 
-    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 2);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 4);
-    CHECK(ofg::Renderer::counters().m_texture_create_count == 2);
-    CHECK(ofg::Renderer::counters().m_texture_view_create_count == 2);
+    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 5);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 5);
+    CHECK(ofg::Renderer::counters().m_texture_create_count == 10);
+    CHECK(ofg::Renderer::counters().m_texture_view_create_count == 10);
 }
 
 // Verifies scene mesh renderers record into a null-backend render target and finish cleanly.
@@ -531,11 +545,20 @@ TEST_CASE("renderer records scene mesh renderers into render targets without ste
     REQUIRE(command.m_value != nullptr);
     wgpuQueueSubmit(gpu.borrowed_context().m_queue, 1, &command.m_value);
 
-    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 3);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 5);
-    CHECK(ofg::Renderer::counters().m_texture_create_count == 2);
-    CHECK(ofg::Renderer::counters().m_texture_view_create_count == 2);
-    CHECK(ofg::Renderer::counters().m_bind_group_create_count == 5);
+    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 6);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 6);
+    CHECK(ofg::Renderer::counters().m_texture_create_count == 10);
+    CHECK(ofg::Renderer::counters().m_texture_view_create_count == 10);
+    CHECK(ofg::Renderer::counters().m_bind_group_create_count == 12);
+    CHECK(ofg::Renderer::bloom_diagnostics().m_active_level_count > 0);
+    CHECK(ofg::Renderer::bloom_diagnostics().m_encoded_pass_count > 0);
+    CHECK(ofg::Renderer::bloom_diagnostics().m_draw_count == ofg::Renderer::bloom_diagnostics().m_encoded_pass_count);
+    CHECK(ofg::Renderer::bloom_diagnostics().m_estimated_read_bytes > 0);
+    CHECK(ofg::Renderer::bloom_diagnostics().m_estimated_write_bytes > 0);
+    CHECK(ofg::Renderer::bloom_diagnostics().m_skipped == false);
+    CHECK(ofg::Renderer::temp_buffer_stats().m_peak_bytes > 0);
+    CHECK(ofg::Renderer::temp_buffer_stats().m_created_count > 0);
+    CHECK(ofg::Renderer::temp_buffer_stats().m_reusable_count > 0);
 
     ScopedTexture second_texture;
     ScopedTextureView second_view = make_render_target_view(gpu.borrowed_context(), second_texture);
@@ -544,10 +567,10 @@ TEST_CASE("renderer records scene mesh renderers into render targets without ste
     CHECK_NOTHROW(ofg::Renderer::render(
         second_encoder.m_value, ofg::RenderTarget{second_view.m_value, _test_format, 32, 32}, one_command_scene));
 
-    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 3);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 5);
-    CHECK(ofg::Renderer::counters().m_texture_create_count == 2);
-    CHECK(ofg::Renderer::counters().m_texture_view_create_count == 2);
-    CHECK(ofg::Renderer::counters().m_bind_group_create_count == 5);
+    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 6);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 6);
+    CHECK(ofg::Renderer::counters().m_texture_create_count == 10);
+    CHECK(ofg::Renderer::counters().m_texture_view_create_count == 10);
+    CHECK(ofg::Renderer::counters().m_bind_group_create_count == 12);
     CHECK_NOTHROW(ofg::Renderer::resize(0, 0));
 }

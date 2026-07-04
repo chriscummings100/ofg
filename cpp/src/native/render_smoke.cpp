@@ -38,6 +38,7 @@ namespace {
 
 constexpr std::uint32_t _bytes_per_pixel = 4;
 constexpr std::uint64_t _wait_timeout_ns = 15'000'000'000ULL;
+constexpr std::uint64_t _max_default_temp_buffer_bytes = 16ULL * 1024ULL * 1024ULL;
 constexpr WGPUTextureFormat _render_format = WGPUTextureFormat_RGBA8Unorm;
 
 struct PixelReport {
@@ -55,6 +56,11 @@ struct PixelReport {
     double m_lower_half_scene_ratio{0.0};
     std::uint32_t m_non_background_color_buckets{0};
     std::string m_failure_reason;
+};
+
+struct RenderReadback {
+    std::vector<std::uint8_t> m_pixels;
+    ofg::RuntimeDebugStatus m_status;
 };
 
 // Owns Dawn handles in release order for the native smoke lifetime.
@@ -512,6 +518,29 @@ void validate_contract(const SmokeContract& contract) {
     }
 }
 
+// Validates renderer diagnostics that screenshot pixels cannot prove directly.
+void validate_render_diagnostics(const ofg::RuntimeDebugStatus& status) {
+    if (status.m_bloom_skipped) {
+        throw std::runtime_error("Native render smoke expected bloom to run, but debug status reported skipped.");
+    }
+    if (status.m_bloom_active_level_count == 0 || status.m_bloom_encoded_pass_count == 0 ||
+        status.m_bloom_draw_count == 0) {
+        throw std::runtime_error("Native render smoke did not record active bloom passes.");
+    }
+    if (status.m_bloom_encoded_pass_count > 11) {
+        throw std::runtime_error("Native render smoke exceeded the default bloom pass budget.");
+    }
+    if (status.m_bloom_estimated_read_bytes == 0 || status.m_bloom_estimated_write_bytes == 0) {
+        throw std::runtime_error("Native render smoke did not record bloom byte estimates.");
+    }
+    if (status.m_temp_buffer_peak_bytes == 0 || status.m_temp_buffer_reusable_count == 0) {
+        throw std::runtime_error("Native render smoke did not record temp-buffer reuse diagnostics.");
+    }
+    if (status.m_temp_buffer_peak_bytes > _max_default_temp_buffer_bytes) {
+        throw std::runtime_error("Native render smoke exceeded the default temp-buffer memory budget.");
+    }
+}
+
 // Creates the native Dawn instance, Vulkan adapter, device, and queue.
 [[nodiscard]] GpuContext create_gpu_context() {
     GpuContext context;
@@ -592,8 +621,8 @@ void validate_contract(const SmokeContract& contract) {
     return context;
 }
 
-// Renders the demo scene offscreen and returns tightly packed RGBA pixels.
-[[nodiscard]] std::vector<std::uint8_t> render_and_readback(GpuContext& context, const SmokeContract& contract) {
+// Renders the demo scene offscreen and returns tightly packed RGBA pixels plus debug status.
+[[nodiscard]] RenderReadback render_and_readback(GpuContext& context, const SmokeContract& contract) {
     wgpuDevicePushErrorScope(context.m_device, WGPUErrorFilter_Validation);
 
     // Build the same device-bound Game singleton used by the browser path.
@@ -647,6 +676,7 @@ void validate_contract(const SmokeContract& contract) {
 
     ofg::Game::render(
         encoder.m_value, ofg::RenderTarget{view.m_value, _render_format, contract.m_width, contract.m_height});
+    const ofg::RuntimeDebugStatus debug_status = ofg::Game::status();
 
     WGPUTexelCopyTextureInfo source = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
     source.texture = texture.m_value;
@@ -718,7 +748,7 @@ void validate_contract(const SmokeContract& contract) {
     }
     wgpuBufferUnmap(readback.m_value);
 
-    return pixels;
+    return RenderReadback{std::move(pixels), debug_status};
 }
 
 // Writes the JSON report expected by the native render-smoke contract.
@@ -726,6 +756,7 @@ void write_report(const std::filesystem::path& png_path,
     const std::filesystem::path& report_path,
     const SmokeContract& contract,
     const GpuContext& context,
+    const ofg::RuntimeDebugStatus& status,
     const PixelReport& pixels) {
     const bool passed = pixels.m_failure_reason.empty();
     std::ofstream report(report_path);
@@ -741,6 +772,7 @@ void write_report(const std::filesystem::path& png_path,
            << "  \"textureFormat\": \"" << gpu::texture_format_name(_render_format) << "\",\n"
            << "  \"adapterName\": \"" << json_escape(context.m_adapter_name) << "\",\n"
            << "  \"backend\": \"" << json_escape(context.m_backend) << "\",\n"
+           << "  \"debugStatus\": " << status.to_json() << ",\n"
            << "  \"backgroundReferenceRgba8\": [\n"
            << "    " << static_cast<int>(contract.m_background_reference_rgba8[0]) << ",\n"
            << "    " << static_cast<int>(contract.m_background_reference_rgba8[1]) << ",\n"
@@ -865,10 +897,11 @@ void run_render_smoke(const RenderSmokeOptions& options) {
     const std::filesystem::path report_path = options.m_out_dir / "report.json";
 
     GpuContext context = create_gpu_context();
-    const std::vector<std::uint8_t> pixels = render_and_readback(context, options.m_contract);
-    write_rgba_png(png_path, pixels, options.m_contract.m_width, options.m_contract.m_height);
-    const PixelReport pixel_report = inspect_pixels(pixels, options.m_contract);
-    write_report(png_path, report_path, options.m_contract, context, pixel_report);
+    RenderReadback readback = render_and_readback(context, options.m_contract);
+    validate_render_diagnostics(readback.m_status);
+    write_rgba_png(png_path, readback.m_pixels, options.m_contract.m_width, options.m_contract.m_height);
+    const PixelReport pixel_report = inspect_pixels(readback.m_pixels, options.m_contract);
+    write_report(png_path, report_path, options.m_contract, context, readback.m_status, pixel_report);
 
     std::cout << "Native C++ render smoke PNG: " << png_path << "\n";
     std::cout << "Native C++ render smoke report: " << report_path << "\n";

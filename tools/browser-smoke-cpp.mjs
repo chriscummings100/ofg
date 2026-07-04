@@ -19,6 +19,7 @@ const width = 640;
 const height = 360;
 const resizeWidth = 320;
 const resizeHeight = 180;
+const maxDefaultTempBufferBytes = 16 * 1024 * 1024;
 
 mkdirSync(artifactsDir, { recursive: true });
 
@@ -94,6 +95,7 @@ try {
   });
   const initialStatus = await readCppStatus(page);
   assertRendererCounters(initialStatus);
+  assertBloomDiagnostics(initialStatus);
 
   await page.evaluate(({ width: canvasWidth, height: canvasHeight }) => {
     globalThis.__ofgCppGame.resize(canvasWidth, canvasHeight, 1);
@@ -107,6 +109,7 @@ try {
   });
   const resizedStatus = await readCppStatus(page);
   assertRendererCounters(resizedStatus);
+  assertBloomDiagnostics(resizedStatus);
 
   await page.evaluate(() => {
     globalThis.__ofgCppGame.resize(0, 180, 1);
@@ -133,6 +136,7 @@ try {
   });
   const recoveredStatus = await readCppStatus(page);
   assertRendererCounters(recoveredStatus);
+  assertBloomDiagnostics(recoveredStatus);
   await page.evaluate(() => new Promise((resolveFrame) => {
     requestAnimationFrame((timeMs) => {
       globalThis.__ofgCppGame.frame(timeMs);
@@ -312,6 +316,28 @@ function assertRendererCounters(status) {
     throw new Error(
       `Expected initialized durable renderer resources; got ${JSON.stringify(status)}.`
     );
+  }
+}
+
+// Verifies the C++ renderer fixture exercised bloom and temp-buffer reuse.
+function assertBloomDiagnostics(status) {
+  if (status.bloomSkipped) {
+    throw new Error(`Bloom unexpectedly skipped: ${JSON.stringify(status)}.`);
+  }
+  if (status.bloomActiveLevelCount < 1 || status.bloomEncodedPassCount < 1) {
+    throw new Error(`Expected bloom passes to run; got ${JSON.stringify(status)}.`);
+  }
+  if (status.bloomEncodedPassCount > 11) {
+    throw new Error(`Bloom pass budget exceeded: ${JSON.stringify(status)}.`);
+  }
+  if (status.bloomEstimatedReadBytes < 1 || status.bloomEstimatedWriteBytes < 1) {
+    throw new Error(`Expected bloom byte estimates; got ${JSON.stringify(status)}.`);
+  }
+  if (status.tempBufferPeakBytes < 1 || status.tempBufferReusableCount < 1) {
+    throw new Error(`Expected temp-buffer reuse diagnostics; got ${JSON.stringify(status)}.`);
+  }
+  if (status.tempBufferPeakBytes > maxDefaultTempBufferBytes) {
+    throw new Error(`Temp-buffer budget exceeded: ${JSON.stringify(status)}.`);
   }
 }
 

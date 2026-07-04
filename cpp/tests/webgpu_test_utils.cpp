@@ -72,7 +72,7 @@ std::string device_status_name(WGPURequestDeviceStatus status) {
 }
 
 // Waits for a Dawn future so asynchronous requests complete deterministically.
-bool wait_for_future(WGPUInstance instance, WGPUFuture future, const char* operation, std::string& error) {
+bool wait_for_future_impl(WGPUInstance instance, WGPUFuture future, const char* operation, std::string& error) {
     WGPUFutureWaitInfo wait_info = WGPU_FUTURE_WAIT_INFO_INIT;
     wait_info.future = future;
     const WGPUWaitStatus status = wgpuInstanceWaitAny(instance, 1, &wait_info, _wait_timeout_ns);
@@ -141,7 +141,7 @@ TestGpuContext::~TestGpuContext() {
 }
 
 // Creates a Dawn null-backend device for resource lifecycle tests.
-std::optional<TestGpuContext> TestGpuContext::create(std::string& error) {
+std::optional<TestGpuContext> TestGpuContext::create(std::string& error, WGPUBackendType backend_type) {
     const WGPUInstanceFeatureName instance_feature = WGPUInstanceFeatureName_TimedWaitAny;
     WGPUInstanceLimits instance_limits = WGPU_INSTANCE_LIMITS_INIT;
     instance_limits.timedWaitAnyMaxCount = 1;
@@ -157,14 +157,14 @@ std::optional<TestGpuContext> TestGpuContext::create(std::string& error) {
     }
 
     WGPURequestAdapterOptions adapter_options = WGPU_REQUEST_ADAPTER_OPTIONS_INIT;
-    adapter_options.backendType = WGPUBackendType_Null;
+    adapter_options.backendType = backend_type;
 
     AdapterRequest adapter_request;
     WGPURequestAdapterCallbackInfo adapter_callback = WGPU_REQUEST_ADAPTER_CALLBACK_INFO_INIT;
     adapter_callback.mode = WGPUCallbackMode_WaitAnyOnly;
     adapter_callback.callback = handle_adapter_request;
     adapter_callback.userdata1 = &adapter_request;
-    if (!wait_for_future(instance,
+    if (!wait_for_future_impl(instance,
             wgpuInstanceRequestAdapter(instance, &adapter_options, adapter_callback),
             "requestAdapter",
             error)) {
@@ -199,7 +199,7 @@ std::optional<TestGpuContext> TestGpuContext::create(std::string& error) {
     device_callback.mode = WGPUCallbackMode_WaitAnyOnly;
     device_callback.callback = handle_device_request;
     device_callback.userdata1 = &device_request;
-    if (!wait_for_future(instance,
+    if (!wait_for_future_impl(instance,
             wgpuAdapterRequestDevice(adapter_request.m_adapter, &device_descriptor, device_callback),
             "requestDevice",
             error)) {
@@ -231,6 +231,11 @@ std::optional<TestGpuContext> TestGpuContext::create(std::string& error) {
 // Returns borrowed handles suitable for OFG resource construction.
 GpuContext TestGpuContext::borrowed_context() const noexcept {
     return GpuContext{m_device, m_queue, m_adapter_name, m_backend};
+}
+
+// Waits for a Dawn future to complete with the helper's finite timeout.
+bool TestGpuContext::wait_for_future(WGPUFuture future, const char* operation, std::string& error) const {
+    return wait_for_future_impl(m_instance, future, operation, error);
 }
 
 // Releases owned Dawn handles in dependency order.

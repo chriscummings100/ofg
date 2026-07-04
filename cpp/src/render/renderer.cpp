@@ -89,8 +89,13 @@ const char* renderer_lifecycle_state_name(RendererLifecycleState state) noexcept
 // Stores borrowed platform WebGPU handles for pass creation.
 Renderer::Renderer(GpuContext gpu, WGPUTextureFormat color_format) : m_gpu(gpu), m_color_format(color_format) {}
 
-// Releases pass resources owned by members.
-Renderer::~Renderer() = default;
+// Releases pass resources and the renderer-owned temp-buffer singleton.
+Renderer::~Renderer() {
+    m_tone_map_pass.reset();
+    m_bloom_pass.reset();
+    (void)TempBuffer::release();
+    TempBuffer::destroy();
+}
 
 // Creates the renderer singleton for one WebGPU device and color target format.
 void Renderer::create(GpuContext gpu, WGPUTextureFormat color_format) {
@@ -104,7 +109,9 @@ void Renderer::create(GpuContext gpu, WGPUTextureFormat color_format) {
         throw EngineError("Renderer requires a defined color format.");
     }
 
-    s_renderer = std::unique_ptr<Renderer>(new Renderer(std::move(gpu), color_format));
+    std::unique_ptr<Renderer> renderer(new Renderer(std::move(gpu), color_format));
+    TempBuffer::create(renderer->m_gpu);
+    s_renderer = std::move(renderer);
     s_renderer->set_state(RendererLifecycleState::Created);
 }
 
@@ -162,10 +169,30 @@ RendererCounters Renderer::counters() noexcept {
     if (s_renderer->m_sky_pass != nullptr) {
         add_renderer_counters(total, s_renderer->m_sky_pass->counters());
     }
+    if (s_renderer->m_bloom_pass != nullptr) {
+        add_renderer_counters(total, s_renderer->m_bloom_pass->counters());
+    }
     if (s_renderer->m_tone_map_pass != nullptr) {
         add_renderer_counters(total, s_renderer->m_tone_map_pass->counters());
     }
+    add_renderer_counters(total, TempBuffer::counters());
     return total;
+}
+
+// Reports the most recent bloom pass diagnostics.
+BloomPassDiagnostics Renderer::bloom_diagnostics() noexcept {
+    if (s_renderer == nullptr || s_renderer->m_bloom_pass == nullptr) {
+        return BloomPassDiagnostics{};
+    }
+    return s_renderer->m_bloom_pass->diagnostics();
+}
+
+// Reports current temp-buffer memory and reuse diagnostics.
+TempBufferStats Renderer::temp_buffer_stats() noexcept {
+    if (s_renderer == nullptr) {
+        return TempBufferStats{};
+    }
+    return TempBuffer::stats();
 }
 
 // Advances the internal pass-list preparation state machine.
@@ -189,6 +216,9 @@ bool Renderer::prepare_impl() {
             }
             if (m_sky_pass == nullptr) {
                 m_sky_pass = SkyPass::create(m_gpu, SceneColorTarget::format(), DepthTarget::format());
+            }
+            if (m_bloom_pass == nullptr) {
+                m_bloom_pass = BloomPass::create(m_gpu, SceneColorTarget::format());
             }
             if (m_tone_map_pass == nullptr) {
                 m_tone_map_pass =
@@ -229,7 +259,7 @@ void Renderer::render_impl(WGPUCommandEncoder encoder, RenderTarget target, cons
         throw EngineError("Renderer::render requires Renderer::prepare to complete first.");
     }
     if (m_scene_color_target == nullptr || m_depth_target == nullptr || m_opaque_pass == nullptr ||
-        m_sky_pass == nullptr || m_tone_map_pass == nullptr) {
+        m_sky_pass == nullptr || m_bloom_pass == nullptr || m_tone_map_pass == nullptr) {
         throw EngineError("Renderer has no prepared passes.");
     }
     if (encoder == nullptr || target.m_view == nullptr) {
@@ -289,7 +319,27 @@ void Renderer::render_impl(WGPUCommandEncoder encoder, RenderTarget target, cons
     wgpuRenderPassEncoderEnd(scene_pass);
     wgpuRenderPassEncoderRelease(scene_pass);
 
-    m_tone_map_pass->render(encoder, m_scene_color_target->view(), target);
+    bool temp_frame_active = false;
+    BloomResult bloom_result;
+    try {
+        TempBuffer::begin_frame();
+        temp_frame_active = true;
+        bloom_result = m_bloom_pass->render(encoder,
+            m_scene_color_target->view(),
+            m_scene_color_target->width(),
+            m_scene_color_target->height(),
+            m_bloom_settings);
+        m_tone_map_pass->render(encoder, m_scene_color_target->view(), bloom_result.tone_map_input(), target);
+        TempBuffer::release(bloom_result.m_buffer);
+        TempBuffer::end_frame();
+        temp_frame_active = false;
+    } catch (...) {
+        TempBuffer::release(bloom_result.m_buffer);
+        if (temp_frame_active) {
+            TempBuffer::end_frame();
+        }
+        throw;
+    }
 }
 
 // Advances the pass-resource release state machine.
@@ -306,6 +356,9 @@ bool Renderer::release_impl() {
     case RendererLifecycleState::Releasing:
         m_draw_list.clear();
         m_tone_map_pass.reset();
+        m_bloom_pass.reset();
+        (void)TempBuffer::release();
+        TempBuffer::destroy();
         m_sky_pass.reset();
         m_opaque_pass.reset();
         m_depth_target.reset();

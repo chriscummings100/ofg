@@ -202,7 +202,7 @@ SkyPassUniforms build_sky_pass_uniforms(
     const math::Vec3 sun_direction = normalize_required(environment.sun_direction(), "Environment sun direction");
     const math::Vec3 moon_direction = normalize_required(environment.moon_direction(), "Environment moon direction");
 
-    math::Vec3 sun_color{1.0f, 0.96f, 0.88f};
+    math::Vec3 sun_color{1.0f, 0.90f, 0.72f};
     float sun_intensity = _default_sun_intensity * environment.day_factor();
     if (const LightProperties* light = first_directional_light(lights); light != nullptr) {
         sun_color = light->m_color;

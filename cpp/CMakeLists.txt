@@ -113,6 +113,8 @@ add_library(ofg_cpp
   src/math/quat.cpp
   src/math/transform.cpp
   src/render/bootstrap_scene.cpp
+  src/render/bloom_pass.cpp
+  src/render/bloom_settings.cpp
   src/render/camera_properties.cpp
   src/render/demo_scene.cpp
   src/render/depth_target.cpp
@@ -125,6 +127,7 @@ add_library(ofg_cpp
   src/render/renderer.cpp
   src/render/scene_color_target.cpp
   src/render/sky_pass.cpp
+  src/render/temp_buffer.cpp
   src/render/tone_map_pass.cpp
   src/resources/material.cpp
   src/resources/mesh.cpp
@@ -204,6 +207,8 @@ if(OFG_BUILD_TESTS AND NOT EMSCRIPTEN)
 
   add_executable(ofg_cpp_tests
     tests/animation_blending_test.cpp
+    tests/bloom_pass_test.cpp
+    tests/bloom_settings_test.cpp
     tests/bootstrap_scene_test.cpp
     tests/camera_control_test.cpp
     tests/camera_properties_test.cpp
@@ -234,6 +239,7 @@ if(OFG_BUILD_TESTS AND NOT EMSCRIPTEN)
     tests/scene_animation_test.cpp
     tests/scene_test.cpp
     tests/sky_pass_test.cpp
+    tests/temp_buffer_test.cpp
     tests/test_main.cpp
     tests/texture_resource_test.cpp
     tests/webgpu_test_utils.cpp

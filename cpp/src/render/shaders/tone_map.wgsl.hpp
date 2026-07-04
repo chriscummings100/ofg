@@ -7,12 +7,17 @@ constexpr char tone_map_wgsl[] = R"wgsl(
 struct ToneMapUniforms {
     exposure: f32,
     output_encoding: f32,
-    unused0: f32,
-    unused1: f32,
+    bloom_intensity: f32,
+    bloom_width: f32,
+    bloom_height: f32,
+    bloom_tint_r: f32,
+    bloom_tint_g: f32,
+    bloom_tint_b: f32,
 };
 
 @group(0) @binding(0) var<uniform> tone_map: ToneMapUniforms;
 @group(0) @binding(1) var scene_color: texture_2d<f32>;
+@group(0) @binding(2) var bloom_texture: texture_2d<f32>;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -55,10 +60,27 @@ fn linear_to_srgb(color: vec3<f32>) -> vec3<f32> {
     );
 }
 
+fn sample_bloom(pixel: vec2<i32>, output_size: vec2<u32>) -> vec3<f32> {
+    if (tone_map.bloom_intensity <= 0.0 || tone_map.bloom_width < 1.0 || tone_map.bloom_height < 1.0) {
+        return vec3<f32>(0.0);
+    }
+
+    let bloom_size = vec2<u32>(u32(tone_map.bloom_width), u32(tone_map.bloom_height));
+    let clamped_pixel = max(pixel, vec2<i32>(0));
+    let safe_pixel = vec2<u32>(u32(clamped_pixel.x), u32(clamped_pixel.y));
+    let output_extent = max(output_size, vec2<u32>(1));
+    let bloom_pixel_u = min((safe_pixel * bloom_size) / output_extent, bloom_size - vec2<u32>(1));
+    let bloom_pixel = vec2<i32>(i32(bloom_pixel_u.x), i32(bloom_pixel_u.y));
+    let bloom = max(textureLoad(bloom_texture, bloom_pixel, 0).rgb, vec3<f32>(0.0));
+    let tint = vec3<f32>(tone_map.bloom_tint_r, tone_map.bloom_tint_g, tone_map.bloom_tint_b);
+    return bloom * tone_map.bloom_intensity * tint;
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let pixel = vec2<i32>(floor(input.position.xy));
-    let hdr_color = max(textureLoad(scene_color, pixel, 0).rgb, vec3<f32>(0.0));
+    let scene_size = textureDimensions(scene_color, 0);
+    let hdr_color = max(textureLoad(scene_color, pixel, 0).rgb, vec3<f32>(0.0)) + sample_bloom(pixel, scene_size);
     let mapped = aces_fitted(hdr_color * tone_map.exposure);
     var output_color = mapped;
     if (tone_map.output_encoding > 0.5) {

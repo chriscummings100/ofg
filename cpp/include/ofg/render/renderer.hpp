@@ -8,11 +8,14 @@
 
 #include "ofg/game/gpu_context.hpp"
 #include "ofg/game/render_target.hpp"
+#include "ofg/render/bloom_pass.hpp"
+#include "ofg/render/bloom_settings.hpp"
 #include "ofg/render/depth_target.hpp"
 #include "ofg/render/draw_list.hpp"
 #include "ofg/render/opaque_pass.hpp"
 #include "ofg/render/scene_color_target.hpp"
 #include "ofg/render/sky_pass.hpp"
+#include "ofg/render/temp_buffer.hpp"
 #include "ofg/render/tone_map_pass.hpp"
 #include "ofg/scene/scene.hpp"
 
@@ -59,6 +62,10 @@ public:
     [[nodiscard]] static RendererLifecycleState state() noexcept;
     // Reports durable resource creation counters.
     [[nodiscard]] static RendererCounters counters() noexcept;
+    // Reports the most recent bloom pass diagnostics.
+    [[nodiscard]] static BloomPassDiagnostics bloom_diagnostics() noexcept;
+    // Reports current temp-buffer memory and reuse diagnostics.
+    [[nodiscard]] static TempBufferStats temp_buffer_stats() noexcept;
 
 private:
     // Stores borrowed platform WebGPU handles for pass creation.
@@ -87,6 +94,8 @@ private:
     std::unique_ptr<DepthTarget> m_depth_target;
     std::unique_ptr<OpaquePass> m_opaque_pass;
     std::unique_ptr<SkyPass> m_sky_pass;
+    std::unique_ptr<BloomPass> m_bloom_pass;
+    BloomSettings m_bloom_settings;
     std::unique_ptr<ToneMapPass> m_tone_map_pass;
 };
 

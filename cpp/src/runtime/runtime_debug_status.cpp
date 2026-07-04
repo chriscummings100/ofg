@@ -83,6 +83,22 @@ std::string RuntimeDebugStatus::to_json() const {
     out << ",\"pipelineCreateCount\":" << m_pipeline_create_count;
     out << ",\"bufferCreateCount\":" << m_buffer_create_count;
     out << ",\"surfaceConfigureCount\":" << m_surface_configure_count;
+    out << ",\"bloomActiveLevelCount\":" << m_bloom_active_level_count;
+    out << ",\"bloomEncodedPassCount\":" << m_bloom_encoded_pass_count;
+    out << ",\"bloomDrawCount\":" << m_bloom_draw_count;
+    out << ",\"bloomEstimatedReadBytes\":" << m_bloom_estimated_read_bytes;
+    out << ",\"bloomEstimatedWriteBytes\":" << m_bloom_estimated_write_bytes;
+    out << ",\"bloomSkipped\":" << m_bloom_skipped;
+    out << ",\"tempBufferActiveBytes\":" << m_temp_buffer_active_bytes;
+    out << ",\"tempBufferReusableBytes\":" << m_temp_buffer_reusable_bytes;
+    out << ",\"tempBufferPeakBytes\":" << m_temp_buffer_peak_bytes;
+    out << ",\"tempBufferCreatedCount\":" << m_temp_buffer_created_count;
+    out << ",\"tempBufferReusedCount\":" << m_temp_buffer_reused_count;
+    out << ",\"tempBufferDiscardedCount\":" << m_temp_buffer_discarded_count;
+    out << ",\"tempBufferActiveCount\":" << m_temp_buffer_active_count;
+    out << ",\"tempBufferReusableCount\":" << m_temp_buffer_reusable_count;
+    out << ",\"tempBufferEarlyReleaseCount\":" << m_temp_buffer_early_release_count;
+    out << ",\"tempBufferEndFrameReturnCount\":" << m_temp_buffer_end_frame_return_count;
     out << ",\"lastError\":";
     if (m_last_error.has_value()) {
         write_json_string(out, *m_last_error);

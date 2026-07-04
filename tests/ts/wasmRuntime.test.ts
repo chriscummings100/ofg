@@ -24,6 +24,9 @@ describe("wasm runtime wrapper", () => {
     assert.equal(status.modelLoadingState, "loaded");
     assert.equal(status.playerModelLoaded, true);
     assert.equal(status.pipelineCreateCount, 1);
+    assert.equal(status.bloomActiveLevelCount, 4);
+    assert.equal(status.bloomSkipped, false);
+    assert.equal(status.tempBufferPeakBytes, 4096);
   });
 
   // Verifies missing fields fail with useful parser errors.
@@ -321,6 +324,22 @@ function validStatusPayload(): Record<string, unknown> {
     pipelineCreateCount: 1,
     bufferCreateCount: 1,
     surfaceConfigureCount: 1,
+    bloomActiveLevelCount: 4,
+    bloomEncodedPassCount: 7,
+    bloomDrawCount: 7,
+    bloomEstimatedReadBytes: 2048,
+    bloomEstimatedWriteBytes: 1024,
+    bloomSkipped: false,
+    tempBufferActiveBytes: 0,
+    tempBufferReusableBytes: 512,
+    tempBufferPeakBytes: 4096,
+    tempBufferCreatedCount: 3,
+    tempBufferReusedCount: 5,
+    tempBufferDiscardedCount: 1,
+    tempBufferActiveCount: 0,
+    tempBufferReusableCount: 3,
+    tempBufferEarlyReleaseCount: 4,
+    tempBufferEndFrameReturnCount: 1,
     lastError: null
   };
 }

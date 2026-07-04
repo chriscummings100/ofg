@@ -418,6 +418,7 @@ void Game::render_impl(WGPUCommandEncoder encoder, RenderTarget target) {
     Renderer::render(encoder, target, *m_current_scene);
     const RendererCounters counters = Renderer::counters();
     mark_renderer_counters(counters.m_pipeline_create_count, counters.m_buffer_create_count);
+    mark_renderer_diagnostics(Renderer::bloom_diagnostics(), Renderer::temp_buffer_stats());
 }
 
 // Advances the renderer/resource release state machine.
@@ -552,6 +553,33 @@ void Game::mark_renderer_counters(std::uint32_t pipeline_create_count, std::uint
 
     m_status.m_pipeline_create_count = pipeline_create_count;
     m_status.m_buffer_create_count = buffer_create_count;
+    m_status.clear_transient_error();
+}
+
+// Records the most recent bloom and temp-buffer diagnostics.
+void Game::mark_renderer_diagnostics(const BloomPassDiagnostics& bloom, const TempBufferStats& temp_buffers) {
+    if (m_disposed) {
+        const std::string message = "Game runtime has been disposed.";
+        fail_runtime(message);
+        throw EngineError(message);
+    }
+
+    m_status.m_bloom_active_level_count = bloom.m_active_level_count;
+    m_status.m_bloom_encoded_pass_count = bloom.m_encoded_pass_count;
+    m_status.m_bloom_draw_count = bloom.m_draw_count;
+    m_status.m_bloom_estimated_read_bytes = bloom.m_estimated_read_bytes;
+    m_status.m_bloom_estimated_write_bytes = bloom.m_estimated_write_bytes;
+    m_status.m_bloom_skipped = bloom.m_skipped;
+    m_status.m_temp_buffer_active_bytes = temp_buffers.m_active_bytes;
+    m_status.m_temp_buffer_reusable_bytes = temp_buffers.m_reusable_bytes;
+    m_status.m_temp_buffer_peak_bytes = temp_buffers.m_peak_bytes;
+    m_status.m_temp_buffer_created_count = temp_buffers.m_created_count;
+    m_status.m_temp_buffer_reused_count = temp_buffers.m_reused_count;
+    m_status.m_temp_buffer_discarded_count = temp_buffers.m_discarded_count;
+    m_status.m_temp_buffer_active_count = temp_buffers.m_active_count;
+    m_status.m_temp_buffer_reusable_count = temp_buffers.m_reusable_count;
+    m_status.m_temp_buffer_early_release_count = temp_buffers.m_early_release_count;
+    m_status.m_temp_buffer_end_frame_return_count = temp_buffers.m_end_frame_return_count;
     m_status.clear_transient_error();
 }
 

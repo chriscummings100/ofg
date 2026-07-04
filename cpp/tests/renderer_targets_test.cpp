@@ -250,6 +250,8 @@ TEST_CASE("tone map pass creates validates and renders") {
     CHECK(pass->counters().m_bind_group_layout_create_count == 1);
     CHECK(pass->counters().m_pipeline_create_count == 1);
     CHECK(pass->counters().m_buffer_create_count == 1);
+    CHECK(pass->counters().m_texture_create_count == 1);
+    CHECK(pass->counters().m_texture_view_create_count == 1);
     CHECK(pass->counters().m_bind_group_create_count == 0);
 
     pass->set_exposure(1.25f);
@@ -297,6 +299,33 @@ TEST_CASE("tone map pass creates validates and renders") {
     CHECK(pass->counters().m_bind_group_create_count == 1);
     pass->render(encoder.m_value, scene_color.view(), output_target);
     CHECK(pass->counters().m_bind_group_create_count == 1);
+    CHECK_THROWS_WITH_AS(([&]() {
+        pass->render(encoder.m_value,
+            scene_color.view(),
+            ofg::ToneMapBloomInput{scene_color.view(), 4, 4, -0.1f, ofg::math::vec3(1.0f, 1.0f, 1.0f)},
+            output_target);
+    }()),
+        doctest::Contains("intensity"),
+        ofg::EngineError);
+    CHECK_THROWS_WITH_AS(([&]() {
+        pass->render(encoder.m_value,
+            scene_color.view(),
+            ofg::ToneMapBloomInput{
+                scene_color.view(), 4, 4, 0.1f, ofg::math::vec3(1.0f, std::numeric_limits<float>::quiet_NaN(), 1.0f)},
+            output_target);
+    }()),
+        doctest::Contains("tint"),
+        ofg::EngineError);
+    pass->render(encoder.m_value,
+        scene_color.view(),
+        ofg::ToneMapBloomInput{scene_color.view(), 4, 4, 0.2f, ofg::math::vec3(0.8f, 0.9f, 1.0f)},
+        output_target);
+    CHECK(pass->counters().m_bind_group_create_count == 2);
+    pass->render(encoder.m_value,
+        scene_color.view(),
+        ofg::ToneMapBloomInput{scene_color.view(), 4, 4, 0.2f, ofg::math::vec3(0.8f, 0.9f, 1.0f)},
+        output_target);
+    CHECK(pass->counters().m_bind_group_create_count == 2);
 
     WGPUCommandBuffer command = wgpuCommandEncoderFinish(encoder.m_value, nullptr);
     encoder.m_value = nullptr;

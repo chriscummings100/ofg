@@ -4,7 +4,7 @@
   "resizeProbeWidth": 640,
   "resizeProbeHeight": 360,
   "clearColorRgba8": [27, 37, 50, 255],
-  "backgroundReferenceRgba8": [198, 216, 236, 255],
+  "backgroundReferenceRgba8": [223, 234, 246, 255],
   "sampleStep": 3,
   "colorDistanceTolerance": 26,
   "bucketDivisor": 64,

@@ -319,7 +319,7 @@ void Environment::update_sun_light() {
 
     const float storm_dimming = mix(1.0f, 0.45f, m_weather.m_storm_intensity);
     const float direct_intensity = 3.2f * m_day_factor * storm_dimming;
-    const math::Vec3 direct_color = mix(math::vec3(1.0f, 0.72f, 0.48f), math::vec3(1.0f, 0.96f, 0.88f), m_day_factor);
+    const math::Vec3 direct_color = mix(math::vec3(1.0f, 0.72f, 0.48f), math::vec3(1.0f, 0.90f, 0.72f), m_day_factor);
     light->set_color_intensity(direct_color, direct_intensity);
 }
 

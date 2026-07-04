@@ -24,6 +24,22 @@ TEST_CASE("RuntimeDebugStatus emits the browser debug contract") {
     status.m_pipeline_create_count = 1;
     status.m_buffer_create_count = 1;
     status.m_surface_configure_count = 1;
+    status.m_bloom_active_level_count = 4;
+    status.m_bloom_encoded_pass_count = 7;
+    status.m_bloom_draw_count = 7;
+    status.m_bloom_estimated_read_bytes = 2048;
+    status.m_bloom_estimated_write_bytes = 1024;
+    status.m_bloom_skipped = false;
+    status.m_temp_buffer_active_bytes = 0;
+    status.m_temp_buffer_reusable_bytes = 512;
+    status.m_temp_buffer_peak_bytes = 4096;
+    status.m_temp_buffer_created_count = 3;
+    status.m_temp_buffer_reused_count = 5;
+    status.m_temp_buffer_discarded_count = 1;
+    status.m_temp_buffer_active_count = 0;
+    status.m_temp_buffer_reusable_count = 3;
+    status.m_temp_buffer_early_release_count = 4;
+    status.m_temp_buffer_end_frame_return_count = 1;
 
     CHECK(status.to_json() == "{\"initialized\":true,\"lifecycleState\":\"ready\",\"frameCount\":2,"
                               "\"canvasWidth\":800,\"canvasHeight\":450,"
@@ -31,7 +47,15 @@ TEST_CASE("RuntimeDebugStatus emits the browser debug contract") {
                               "\"adapterName\":\"test adapter\",\"backend\":\"BrowserWebGpu\","
                               "\"cameraMode\":\"third_person\",\"modelLoadingState\":\"loaded\","
                               "\"playerModelLoaded\":true,\"pipelineCreateCount\":1,\"bufferCreateCount\":1,"
-                              "\"surfaceConfigureCount\":1,\"lastError\":null}");
+                              "\"surfaceConfigureCount\":1,\"bloomActiveLevelCount\":4,"
+                              "\"bloomEncodedPassCount\":7,\"bloomDrawCount\":7,"
+                              "\"bloomEstimatedReadBytes\":2048,\"bloomEstimatedWriteBytes\":1024,"
+                              "\"bloomSkipped\":false,\"tempBufferActiveBytes\":0,"
+                              "\"tempBufferReusableBytes\":512,\"tempBufferPeakBytes\":4096,"
+                              "\"tempBufferCreatedCount\":3,\"tempBufferReusedCount\":5,"
+                              "\"tempBufferDiscardedCount\":1,\"tempBufferActiveCount\":0,"
+                              "\"tempBufferReusableCount\":3,\"tempBufferEarlyReleaseCount\":4,"
+                              "\"tempBufferEndFrameReturnCount\":1,\"lastError\":null}");
 }
 
 // Verifies control characters and quotes are escaped for valid JSON output.

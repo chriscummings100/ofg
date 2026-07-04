@@ -354,7 +354,7 @@ void setup_demo_scene(DemoScene& demo_scene, Scene& scene) {
         throw EngineError("Demo scene failed to create a directional sun Light component.");
     }
     Light* sun_light = sun_entity->light();
-    sun_light->set_color_intensity(math::vec3(1.0f, 0.96f, 0.88f), 3.2f);
+    sun_light->set_color_intensity(math::vec3(1.0f, 0.90f, 0.72f), 3.2f);
     scene.environment().set_main_directional_light(sun_light);
     scene.environment().set_ambient_light(AmbientLight{math::vec3(0.46f, 0.52f, 0.62f), 0.22f});
 

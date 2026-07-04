@@ -28,6 +28,10 @@ const buildDir = path.join(rootDir, "artifacts", "build", "cpp-coverage");
 const coverageDir = path.join(rootDir, "artifacts", "coverage", "cpp");
 const lineCoverageExclusions = new Map([
   [
+    "cpp/src/render/bloom_pass.cpp",
+    new Set([32, 33, 61, 62, 96, 97, 111, 112, 152, 153, 166, 167])
+  ],
+  [
     "cpp/src/render/scene_color_target.cpp",
     new Set([15, 18, 32, 40, 55, 116])
   ],

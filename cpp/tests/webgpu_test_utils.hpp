@@ -22,10 +22,13 @@ public:
     TestGpuContext& operator=(TestGpuContext&& other) noexcept;
     ~TestGpuContext();
 
-    // Creates a Dawn null-backend device for resource lifecycle tests.
-    [[nodiscard]] static std::optional<TestGpuContext> create(std::string& error);
+    // Creates a Dawn device for resource lifecycle tests; null remains the default backend.
+    [[nodiscard]] static std::optional<TestGpuContext> create(
+        std::string& error, WGPUBackendType backend_type = WGPUBackendType_Null);
     // Returns borrowed handles suitable for OFG resource construction.
     [[nodiscard]] GpuContext borrowed_context() const noexcept;
+    // Waits for a Dawn future to complete with the helper's finite timeout.
+    [[nodiscard]] bool wait_for_future(WGPUFuture future, const char* operation, std::string& error) const;
 
 private:
     // Stores already-created Dawn handles; use create() for validation.

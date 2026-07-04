@@ -146,11 +146,13 @@ fn clouded_radiance(ray: vec3<f32>, base_color: vec3<f32>) -> vec3<f32> {
 fn sun_radiance(ray: vec3<f32>, sun_dir: vec3<f32>) -> vec3<f32> {
     let day = saturate(sky.sky_factors.x);
     let sun_alignment = dot(ray, sun_dir);
-    let disc = smoothstep(0.99988, 0.99996, sun_alignment);
-    let halo = exp((sun_alignment - 1.0) * 34.0) * saturate(sun_alignment);
+    let disc = smoothstep(0.99976, 0.99994, sun_alignment);
+    let core = smoothstep(0.99990, 0.999985, sun_alignment);
+    let halo = exp((sun_alignment - 1.0) * 150.0) * saturate(sun_alignment);
     let horizon_warmth = saturate(1.0 - abs(sun_dir.y));
-    let warm_sun = mix(sky.sun_color.rgb, vec3<f32>(1.0, 0.58, 0.30), horizon_warmth * 0.55);
-    return warm_sun * sky.sun_color.a * day * (disc * 16.0 + halo * 0.28);
+    let warm_sun = mix(sky.sun_color.rgb, vec3<f32>(1.0, 0.62, 0.32), horizon_warmth * 0.45);
+    let core_sun = mix(warm_sun, vec3<f32>(1.0, 0.82, 0.52), 0.22 + horizon_warmth * 0.20);
+    return core_sun * sky.sun_color.a * day * (disc * 18.0 + core * 10.0 + halo * 0.08);
 }
 
 fn moon_radiance(ray: vec3<f32>) -> vec3<f32> {

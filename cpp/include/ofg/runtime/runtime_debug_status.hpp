@@ -27,6 +27,22 @@ struct RuntimeDebugStatus {
     std::uint32_t m_pipeline_create_count{0};
     std::uint32_t m_buffer_create_count{0};
     std::uint32_t m_surface_configure_count{0};
+    std::uint32_t m_bloom_active_level_count{0};
+    std::uint32_t m_bloom_encoded_pass_count{0};
+    std::uint32_t m_bloom_draw_count{0};
+    std::uint64_t m_bloom_estimated_read_bytes{0};
+    std::uint64_t m_bloom_estimated_write_bytes{0};
+    bool m_bloom_skipped{false};
+    std::uint64_t m_temp_buffer_active_bytes{0};
+    std::uint64_t m_temp_buffer_reusable_bytes{0};
+    std::uint64_t m_temp_buffer_peak_bytes{0};
+    std::uint64_t m_temp_buffer_created_count{0};
+    std::uint64_t m_temp_buffer_reused_count{0};
+    std::uint64_t m_temp_buffer_discarded_count{0};
+    std::uint64_t m_temp_buffer_active_count{0};
+    std::uint64_t m_temp_buffer_reusable_count{0};
+    std::uint64_t m_temp_buffer_early_release_count{0};
+    std::uint64_t m_temp_buffer_end_frame_return_count{0};
     std::optional<std::string> m_last_error;
 
     // Clears recoverable runtime errors while preserving durable subsystem failures.

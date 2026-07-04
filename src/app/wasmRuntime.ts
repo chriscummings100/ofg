@@ -20,6 +20,22 @@ export interface RuntimeDebugStatus {
   readonly pipelineCreateCount: number;
   readonly bufferCreateCount: number;
   readonly surfaceConfigureCount: number;
+  readonly bloomActiveLevelCount: number;
+  readonly bloomEncodedPassCount: number;
+  readonly bloomDrawCount: number;
+  readonly bloomEstimatedReadBytes: number;
+  readonly bloomEstimatedWriteBytes: number;
+  readonly bloomSkipped: boolean;
+  readonly tempBufferActiveBytes: number;
+  readonly tempBufferReusableBytes: number;
+  readonly tempBufferPeakBytes: number;
+  readonly tempBufferCreatedCount: number;
+  readonly tempBufferReusedCount: number;
+  readonly tempBufferDiscardedCount: number;
+  readonly tempBufferActiveCount: number;
+  readonly tempBufferReusableCount: number;
+  readonly tempBufferEarlyReleaseCount: number;
+  readonly tempBufferEndFrameReturnCount: number;
   readonly lastError: string | null;
 }
 
@@ -357,6 +373,22 @@ export function parseRuntimeDebugStatus(json: string): RuntimeDebugStatus {
     pipelineCreateCount: requireNonNegativeInteger(record, "pipelineCreateCount"),
     bufferCreateCount: requireNonNegativeInteger(record, "bufferCreateCount"),
     surfaceConfigureCount: requireNonNegativeInteger(record, "surfaceConfigureCount"),
+    bloomActiveLevelCount: requireNonNegativeInteger(record, "bloomActiveLevelCount"),
+    bloomEncodedPassCount: requireNonNegativeInteger(record, "bloomEncodedPassCount"),
+    bloomDrawCount: requireNonNegativeInteger(record, "bloomDrawCount"),
+    bloomEstimatedReadBytes: requireNonNegativeInteger(record, "bloomEstimatedReadBytes"),
+    bloomEstimatedWriteBytes: requireNonNegativeInteger(record, "bloomEstimatedWriteBytes"),
+    bloomSkipped: requireBoolean(record, "bloomSkipped"),
+    tempBufferActiveBytes: requireNonNegativeInteger(record, "tempBufferActiveBytes"),
+    tempBufferReusableBytes: requireNonNegativeInteger(record, "tempBufferReusableBytes"),
+    tempBufferPeakBytes: requireNonNegativeInteger(record, "tempBufferPeakBytes"),
+    tempBufferCreatedCount: requireNonNegativeInteger(record, "tempBufferCreatedCount"),
+    tempBufferReusedCount: requireNonNegativeInteger(record, "tempBufferReusedCount"),
+    tempBufferDiscardedCount: requireNonNegativeInteger(record, "tempBufferDiscardedCount"),
+    tempBufferActiveCount: requireNonNegativeInteger(record, "tempBufferActiveCount"),
+    tempBufferReusableCount: requireNonNegativeInteger(record, "tempBufferReusableCount"),
+    tempBufferEarlyReleaseCount: requireNonNegativeInteger(record, "tempBufferEarlyReleaseCount"),
+    tempBufferEndFrameReturnCount: requireNonNegativeInteger(record, "tempBufferEndFrameReturnCount"),
     lastError: requireNullableString(record, "lastError")
   };
 }

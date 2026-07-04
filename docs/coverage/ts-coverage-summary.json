@@ -1,16 +1,16 @@
 {
   "total": {
     "lines": {
-      "total": 881,
-      "covered": 759,
+      "total": 913,
+      "covered": 791,
       "skipped": 0,
-      "pct": 86.15
+      "pct": 86.63
     },
     "statements": {
-      "total": 881,
-      "covered": 759,
+      "total": 913,
+      "covered": 791,
       "skipped": 0,
-      "pct": 86.15
+      "pct": 86.63
     },
     "functions": {
       "total": 56,
@@ -111,10 +111,10 @@
   },
   "C:\\dev\\ofg\\src\\app\\wasmRuntime.ts": {
     "lines": {
-      "total": 429,
-      "covered": 402,
+      "total": 461,
+      "covered": 434,
       "skipped": 0,
-      "pct": 93.7
+      "pct": 94.14
     },
     "functions": {
       "total": 29,
@@ -123,10 +123,10 @@
       "pct": 93.1
     },
     "statements": {
-      "total": 429,
-      "covered": 402,
+      "total": 461,
+      "covered": 434,
       "skipped": 0,
-      "pct": 93.7
+      "pct": 94.14
     },
     "branches": {
       "total": 61,

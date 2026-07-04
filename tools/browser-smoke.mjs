@@ -18,6 +18,7 @@ const debugModeScreenshotPath = resolve(artifactsDir, "player-box-debug.png");
 const firstPersonScreenshotPath = resolve(artifactsDir, "first-person-mode.png");
 const thirdPersonScreenshotPath = resolve(artifactsDir, "third-person-mode.png");
 const reportPath = resolve(artifactsDir, "report.json");
+const maxDefaultTempBufferBytes = 16 * 1024 * 1024;
 
 mkdirSync(artifactsDir, { recursive: true });
 
@@ -136,12 +137,20 @@ try {
     return {
       pipelineCreateCount: status.pipelineCreateCount,
       bufferCreateCount: status.bufferCreateCount,
-      cameraMode: status.cameraMode
+      cameraMode: status.cameraMode,
+      bloomActiveLevelCount: status.bloomActiveLevelCount,
+      bloomEncodedPassCount: status.bloomEncodedPassCount,
+      bloomEstimatedReadBytes: status.bloomEstimatedReadBytes,
+      bloomEstimatedWriteBytes: status.bloomEstimatedWriteBytes,
+      bloomSkipped: status.bloomSkipped,
+      tempBufferPeakBytes: status.tempBufferPeakBytes,
+      tempBufferReusableCount: status.tempBufferReusableCount
     };
   });
   if (warmCounters.cameraMode !== "debug") {
     throw new Error(`Expected debug camera mode after warmup, got ${warmCounters.cameraMode}.`);
   }
+  assertBloomDiagnostics(warmCounters);
   await canvas.screenshot({ path: debugModeScreenshotPath });
   await dispatchKeyCode(page, "Backquote", "`");
   await waitForCameraMode(page, "first_person");
@@ -273,6 +282,29 @@ function assertStableRendererCounters(before, after) {
     throw new Error(
       `Buffer count changed after mode exercise: ${before.bufferCreateCount} -> ${after.bufferCreateCount}.`
     );
+  }
+  assertBloomDiagnostics(after);
+}
+
+// Verifies the integrated bloom path and temp-buffer pool were exercised.
+function assertBloomDiagnostics(status) {
+  if (status.bloomSkipped) {
+    throw new Error(`Bloom unexpectedly skipped: ${JSON.stringify(status)}.`);
+  }
+  if (status.bloomActiveLevelCount < 1 || status.bloomEncodedPassCount < 1) {
+    throw new Error(`Expected bloom passes to run; got ${JSON.stringify(status)}.`);
+  }
+  if (status.bloomEncodedPassCount > 11) {
+    throw new Error(`Bloom pass budget exceeded: ${JSON.stringify(status)}.`);
+  }
+  if (status.bloomEstimatedReadBytes < 1 || status.bloomEstimatedWriteBytes < 1) {
+    throw new Error(`Expected bloom byte estimates; got ${JSON.stringify(status)}.`);
+  }
+  if (status.tempBufferPeakBytes < 1 || status.tempBufferReusableCount < 1) {
+    throw new Error(`Expected temp-buffer reuse diagnostics; got ${JSON.stringify(status)}.`);
+  }
+  if (status.tempBufferPeakBytes > maxDefaultTempBufferBytes) {
+    throw new Error(`Temp-buffer budget exceeded: ${JSON.stringify(status)}.`);
   }
 }
 
