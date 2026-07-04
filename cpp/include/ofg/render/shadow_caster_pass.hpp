@@ -13,6 +13,7 @@
 #include "ofg/render/shadow_map_target.hpp"
 #include "ofg/render/shadow_settings.hpp"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -48,11 +49,11 @@ private:
     ShadowCasterPass(GpuContext gpu,
         WGPUShaderModule shader_module,
         WGPUBindGroupLayout frame_layout,
-        WGPUBuffer frame_buffer,
-        WGPUBindGroup frame_bind_group,
+        std::array<WGPUBuffer, shadow_cascade_count()> frame_buffers,
+        std::array<WGPUBindGroup, shadow_cascade_count()> frame_bind_groups,
         WGPUBindGroupLayout draw_layout,
-        WGPUBuffer draw_buffer,
-        WGPUBindGroup draw_bind_group,
+        std::array<WGPUBuffer, shadow_cascade_count()> draw_buffers,
+        std::array<WGPUBindGroup, shadow_cascade_count()> draw_bind_groups,
         WGPUPipelineLayout pipeline_layout,
         WGPURenderPipeline pipeline,
         std::uint32_t draw_capacity);
@@ -65,11 +66,11 @@ private:
     GpuContext m_gpu;
     WGPUShaderModule m_shader_module{nullptr};
     WGPUBindGroupLayout m_frame_layout{nullptr};
-    WGPUBuffer m_frame_buffer{nullptr};
-    WGPUBindGroup m_frame_bind_group{nullptr};
+    std::array<WGPUBuffer, shadow_cascade_count()> m_frame_buffers{};
+    std::array<WGPUBindGroup, shadow_cascade_count()> m_frame_bind_groups{};
     WGPUBindGroupLayout m_draw_layout{nullptr};
-    WGPUBuffer m_draw_buffer{nullptr};
-    WGPUBindGroup m_draw_bind_group{nullptr};
+    std::array<WGPUBuffer, shadow_cascade_count()> m_draw_buffers{};
+    std::array<WGPUBindGroup, shadow_cascade_count()> m_draw_bind_groups{};
     WGPUPipelineLayout m_pipeline_layout{nullptr};
     WGPURenderPipeline m_pipeline{nullptr};
     std::uint32_t m_draw_capacity{0};

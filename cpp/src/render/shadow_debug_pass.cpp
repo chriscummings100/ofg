@@ -8,6 +8,7 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
 #include <utility>
 
 namespace ofg {
@@ -219,7 +220,10 @@ std::unique_ptr<ShadowDebugPass> ShadowDebugPass::create(GpuContext gpu, WGPUTex
 }
 
 // Encodes an overlay of the three shadow-map cascade layers.
-void ShadowDebugPass::render(WGPUCommandEncoder encoder, WGPUTextureView shadow_map_view, RenderTarget output_target) {
+void ShadowDebugPass::render(WGPUCommandEncoder encoder,
+    WGPUTextureView shadow_map_view,
+    const ShadowCascadeSet& cascades,
+    RenderTarget output_target) {
     if (encoder == nullptr || shadow_map_view == nullptr || output_target.m_view == nullptr) {
         throw EngineError("ShadowDebugPass render requires an encoder, shadow map view, and output texture view.");
     }
@@ -232,7 +236,7 @@ void ShadowDebugPass::render(WGPUCommandEncoder encoder, WGPUTextureView shadow_
     }
 
     ensure_bind_group(shadow_map_view);
-    write_uniforms(output_target);
+    write_uniforms(cascades, output_target);
 
     WGPURenderPassColorAttachment color_attachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
     color_attachment.view = output_target.m_view;
@@ -278,9 +282,11 @@ void ShadowDebugPass::ensure_bind_group(WGPUTextureView shadow_map_view) {
 }
 
 // Writes output-size data consumed by the overlay shader.
-void ShadowDebugPass::write_uniforms(RenderTarget output_target) const {
-    const std::array<float, 4> packed{
-        static_cast<float>(output_target.m_width), static_cast<float>(output_target.m_height), 0.0f, 0.0f};
+void ShadowDebugPass::write_uniforms(const ShadowCascadeSet& cascades, RenderTarget output_target) const {
+    (void)cascades;
+    std::array<float, 4> packed{};
+    packed[0] = static_cast<float>(output_target.m_width);
+    packed[1] = static_cast<float>(output_target.m_height);
     wgpuQueueWriteBuffer(m_gpu.m_queue, m_uniform_buffer, 0, packed.data(), sizeof(float) * packed.size());
 }
 

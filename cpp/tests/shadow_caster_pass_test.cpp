@@ -189,7 +189,8 @@ TEST_CASE("shadow caster pass renders cascades with pass-specific culling") {
     wgpuQueueSubmit(gpu.borrowed_context().m_queue, 1, &commands.m_value);
 
     CHECK(pass->counters().m_pipeline_create_count == 1U);
-    CHECK(pass->counters().m_buffer_create_count >= 2U);
+    CHECK(pass->counters().m_buffer_create_count >= static_cast<std::uint32_t>(ofg::shadow_cascade_count()) * 2U);
+    CHECK(pass->counters().m_bind_group_create_count >= static_cast<std::uint32_t>(ofg::shadow_cascade_count()) * 2U);
     CHECK(pass->counters().m_shader_module_create_count == 1U);
 }
 

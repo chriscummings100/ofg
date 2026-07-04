@@ -88,6 +88,26 @@ void write_mat4(WGPUQueue queue, WGPUBuffer buffer, std::uint64_t offset, const 
     wgpuQueueWriteBuffer(queue, buffer, offset, packed.data(), sizeof(float) * packed.size());
 }
 
+// Releases any created uniform buffers in a fixed-size cascade array.
+void release_uniform_buffers(std::array<WGPUBuffer, shadow_cascade_count()>& buffers) noexcept {
+    for (WGPUBuffer& buffer : buffers) {
+        if (buffer != nullptr) {
+            wgpuBufferRelease(buffer);
+            buffer = nullptr;
+        }
+    }
+}
+
+// Releases any created bind groups in a fixed-size cascade array.
+void release_uniform_bind_groups(std::array<WGPUBindGroup, shadow_cascade_count()>& bind_groups) noexcept {
+    for (WGPUBindGroup& bind_group : bind_groups) {
+        if (bind_group != nullptr) {
+            wgpuBindGroupRelease(bind_group);
+            bind_group = nullptr;
+        }
+    }
+}
+
 // Creates the depth-only shadow caster shader module.
 WGPUShaderModule create_shadow_caster_shader_module(WGPUDevice device) {
     WGPUShaderSourceWGSL shader_source = WGPU_SHADER_SOURCE_WGSL_INIT;
@@ -213,17 +233,17 @@ void add_cascade_totals(ShadowPassDiagnostics& diagnostics, const ShadowCascadeD
 ShadowCasterPass::ShadowCasterPass(GpuContext gpu,
     WGPUShaderModule shader_module,
     WGPUBindGroupLayout frame_layout,
-    WGPUBuffer frame_buffer,
-    WGPUBindGroup frame_bind_group,
+    std::array<WGPUBuffer, shadow_cascade_count()> frame_buffers,
+    std::array<WGPUBindGroup, shadow_cascade_count()> frame_bind_groups,
     WGPUBindGroupLayout draw_layout,
-    WGPUBuffer draw_buffer,
-    WGPUBindGroup draw_bind_group,
+    std::array<WGPUBuffer, shadow_cascade_count()> draw_buffers,
+    std::array<WGPUBindGroup, shadow_cascade_count()> draw_bind_groups,
     WGPUPipelineLayout pipeline_layout,
     WGPURenderPipeline pipeline,
     std::uint32_t draw_capacity)
-    : m_gpu(gpu), m_shader_module(shader_module), m_frame_layout(frame_layout), m_frame_buffer(frame_buffer),
-      m_frame_bind_group(frame_bind_group), m_draw_layout(draw_layout), m_draw_buffer(draw_buffer),
-      m_draw_bind_group(draw_bind_group), m_pipeline_layout(pipeline_layout), m_pipeline(pipeline),
+    : m_gpu(gpu), m_shader_module(shader_module), m_frame_layout(frame_layout), m_frame_buffers(frame_buffers),
+      m_frame_bind_groups(frame_bind_groups), m_draw_layout(draw_layout), m_draw_buffers(draw_buffers),
+      m_draw_bind_groups(draw_bind_groups), m_pipeline_layout(pipeline_layout), m_pipeline(pipeline),
       m_draw_capacity(draw_capacity) {}
 
 // Releases pass-owned GPU handles.
@@ -242,25 +262,38 @@ std::unique_ptr<ShadowCasterPass> ShadowCasterPass::create(GpuContext gpu, WGPUT
 
     WGPUShaderModule shader_module = nullptr;
     WGPUBindGroupLayout frame_layout = nullptr;
-    WGPUBuffer frame_buffer = nullptr;
-    WGPUBindGroup frame_bind_group = nullptr;
+    std::array<WGPUBuffer, shadow_cascade_count()> frame_buffers{};
+    std::array<WGPUBindGroup, shadow_cascade_count()> frame_bind_groups{};
     WGPUBindGroupLayout draw_layout = nullptr;
-    WGPUBuffer draw_buffer = nullptr;
-    WGPUBindGroup draw_bind_group = nullptr;
+    std::array<WGPUBuffer, shadow_cascade_count()> draw_buffers{};
+    std::array<WGPUBindGroup, shadow_cascade_count()> draw_bind_groups{};
     WGPUPipelineLayout pipeline_layout = nullptr;
     WGPURenderPipeline pipeline = nullptr;
     try {
         shader_module = create_shadow_caster_shader_module(gpu.m_device);
         frame_layout = create_uniform_layout(
             gpu.m_device, "OFG shadow frame layout", _frame_uniform_bytes, WGPUShaderStage_Vertex, false);
-        frame_buffer = create_uniform_buffer(gpu.m_device, "OFG shadow frame uniforms", _frame_uniform_bytes);
-        frame_bind_group = create_uniform_bind_group(
-            gpu.m_device, "OFG shadow frame bind group", frame_layout, frame_buffer, _frame_uniform_bytes);
+        for (std::uint32_t cascade_index = 0; cascade_index < shadow_cascade_count(); ++cascade_index) {
+            const std::string buffer_label = "OFG shadow frame uniforms cascade " + std::to_string(cascade_index);
+            frame_buffers[cascade_index] =
+                create_uniform_buffer(gpu.m_device, buffer_label.c_str(), _frame_uniform_bytes);
+            const std::string bind_group_label = "OFG shadow frame bind group cascade " + std::to_string(cascade_index);
+            frame_bind_groups[cascade_index] = create_uniform_bind_group(gpu.m_device,
+                bind_group_label.c_str(),
+                frame_layout,
+                frame_buffers[cascade_index],
+                _frame_uniform_bytes);
+        }
         draw_layout = create_uniform_layout(
             gpu.m_device, "OFG shadow draw layout", _draw_uniform_bytes, WGPUShaderStage_Vertex, true);
-        draw_buffer = create_uniform_buffer(gpu.m_device, "OFG shadow draw uniforms", _draw_uniform_stride);
-        draw_bind_group = create_uniform_bind_group(
-            gpu.m_device, "OFG shadow draw bind group", draw_layout, draw_buffer, _draw_uniform_bytes);
+        for (std::uint32_t cascade_index = 0; cascade_index < shadow_cascade_count(); ++cascade_index) {
+            const std::string buffer_label = "OFG shadow draw uniforms cascade " + std::to_string(cascade_index);
+            draw_buffers[cascade_index] =
+                create_uniform_buffer(gpu.m_device, buffer_label.c_str(), _draw_uniform_stride);
+            const std::string bind_group_label = "OFG shadow draw bind group cascade " + std::to_string(cascade_index);
+            draw_bind_groups[cascade_index] = create_uniform_bind_group(
+                gpu.m_device, bind_group_label.c_str(), draw_layout, draw_buffers[cascade_index], _draw_uniform_bytes);
+        }
         pipeline_layout = create_shadow_pipeline_layout(gpu.m_device, frame_layout, draw_layout);
         pipeline = create_shadow_pipeline(gpu.m_device, pipeline_layout, shader_module, depth_format);
     } catch (...) {
@@ -270,21 +303,13 @@ std::unique_ptr<ShadowCasterPass> ShadowCasterPass::create(GpuContext gpu, WGPUT
         if (pipeline_layout != nullptr) {
             wgpuPipelineLayoutRelease(pipeline_layout);
         }
-        if (draw_bind_group != nullptr) {
-            wgpuBindGroupRelease(draw_bind_group);
-        }
-        if (draw_buffer != nullptr) {
-            wgpuBufferRelease(draw_buffer);
-        }
+        release_uniform_bind_groups(draw_bind_groups);
+        release_uniform_buffers(draw_buffers);
         if (draw_layout != nullptr) {
             wgpuBindGroupLayoutRelease(draw_layout);
         }
-        if (frame_bind_group != nullptr) {
-            wgpuBindGroupRelease(frame_bind_group);
-        }
-        if (frame_buffer != nullptr) {
-            wgpuBufferRelease(frame_buffer);
-        }
+        release_uniform_bind_groups(frame_bind_groups);
+        release_uniform_buffers(frame_buffers);
         if (frame_layout != nullptr) {
             wgpuBindGroupLayoutRelease(frame_layout);
         }
@@ -297,16 +322,16 @@ std::unique_ptr<ShadowCasterPass> ShadowCasterPass::create(GpuContext gpu, WGPUT
     std::unique_ptr<ShadowCasterPass> pass(new ShadowCasterPass(gpu,
         shader_module,
         frame_layout,
-        frame_buffer,
-        frame_bind_group,
+        frame_buffers,
+        frame_bind_groups,
         draw_layout,
-        draw_buffer,
-        draw_bind_group,
+        draw_buffers,
+        draw_bind_groups,
         pipeline_layout,
         pipeline,
         _initial_draw_capacity));
-    pass->m_buffer_create_count = 2U;
-    pass->m_bind_group_create_count = 2U;
+    pass->m_buffer_create_count = static_cast<std::uint32_t>(shadow_cascade_count()) * 2U;
+    pass->m_bind_group_create_count = static_cast<std::uint32_t>(shadow_cascade_count()) * 2U;
     return pass;
 }
 
@@ -347,10 +372,10 @@ void ShadowCasterPass::render(WGPUCommandEncoder encoder,
         }
 
         ensure_draw_capacity(static_cast<std::uint32_t>(m_culled_casters.size()));
-        write_mat4(m_gpu.m_queue, m_frame_buffer, 0, cascade.m_clip_from_world);
+        write_mat4(m_gpu.m_queue, m_frame_buffers[cascade_index], 0, cascade.m_clip_from_world);
         for (std::uint32_t draw_index = 0; draw_index < m_culled_casters.size(); ++draw_index) {
             write_mat4(m_gpu.m_queue,
-                m_draw_buffer,
+                m_draw_buffers[cascade_index],
                 static_cast<std::uint64_t>(draw_index) * _draw_uniform_stride,
                 m_culled_casters[draw_index]->m_model);
         }
@@ -372,11 +397,11 @@ void ShadowCasterPass::render(WGPUCommandEncoder encoder,
             throw EngineError("wgpuCommandEncoderBeginRenderPass returned null for shadow caster pass.");
         }
         wgpuRenderPassEncoderSetPipeline(pass, m_pipeline);
-        wgpuRenderPassEncoderSetBindGroup(pass, 0, m_frame_bind_group, 0, nullptr);
+        wgpuRenderPassEncoderSetBindGroup(pass, 0, m_frame_bind_groups[cascade_index], 0, nullptr);
         for (std::uint32_t draw_index = 0; draw_index < m_culled_casters.size(); ++draw_index) {
             const RenderObject& caster = *m_culled_casters[draw_index];
             const std::uint32_t dynamic_offset = draw_index * static_cast<std::uint32_t>(_draw_uniform_stride);
-            wgpuRenderPassEncoderSetBindGroup(pass, 1, m_draw_bind_group, 1, &dynamic_offset);
+            wgpuRenderPassEncoderSetBindGroup(pass, 1, m_draw_bind_groups[cascade_index], 1, &dynamic_offset);
             wgpuRenderPassEncoderSetVertexBuffer(pass, 0, caster.m_mesh->vertex_buffer(), 0, WGPU_WHOLE_SIZE);
             wgpuRenderPassEncoderSetIndexBuffer(
                 pass, caster.m_mesh->index_buffer(), WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
@@ -425,28 +450,33 @@ void ShadowCasterPass::ensure_draw_capacity(std::uint32_t draw_count) {
         next_capacity *= 2U;
     }
 
-    WGPUBuffer next_buffer = create_uniform_buffer(
-        m_gpu.m_device, "OFG shadow draw uniforms", static_cast<std::uint64_t>(next_capacity) * _draw_uniform_stride);
-    m_buffer_create_count += 1U;
-    WGPUBindGroup next_bind_group = nullptr;
+    std::array<WGPUBuffer, shadow_cascade_count()> next_buffers{};
+    std::array<WGPUBindGroup, shadow_cascade_count()> next_bind_groups{};
     try {
-        next_bind_group = create_uniform_bind_group(
-            m_gpu.m_device, "OFG shadow draw bind group", m_draw_layout, next_buffer, _draw_uniform_bytes);
+        for (std::uint32_t cascade_index = 0; cascade_index < shadow_cascade_count(); ++cascade_index) {
+            const std::string buffer_label = "OFG shadow draw uniforms cascade " + std::to_string(cascade_index);
+            next_buffers[cascade_index] = create_uniform_buffer(
+                m_gpu.m_device, buffer_label.c_str(), static_cast<std::uint64_t>(next_capacity) * _draw_uniform_stride);
+            const std::string bind_group_label = "OFG shadow draw bind group cascade " + std::to_string(cascade_index);
+            next_bind_groups[cascade_index] = create_uniform_bind_group(m_gpu.m_device,
+                bind_group_label.c_str(),
+                m_draw_layout,
+                next_buffers[cascade_index],
+                _draw_uniform_bytes);
+        }
     } catch (...) {
-        wgpuBufferRelease(next_buffer);
+        release_uniform_bind_groups(next_bind_groups);
+        release_uniform_buffers(next_buffers);
         throw;
     }
 
-    if (m_draw_bind_group != nullptr) {
-        wgpuBindGroupRelease(m_draw_bind_group);
-    }
-    if (m_draw_buffer != nullptr) {
-        wgpuBufferRelease(m_draw_buffer);
-    }
-    m_draw_buffer = next_buffer;
-    m_draw_bind_group = next_bind_group;
+    release_uniform_bind_groups(m_draw_bind_groups);
+    release_uniform_buffers(m_draw_buffers);
+    m_draw_buffers = next_buffers;
+    m_draw_bind_groups = next_bind_groups;
     m_draw_capacity = next_capacity;
-    m_bind_group_create_count += 1U;
+    m_buffer_create_count += static_cast<std::uint32_t>(shadow_cascade_count());
+    m_bind_group_create_count += static_cast<std::uint32_t>(shadow_cascade_count());
 }
 
 // Releases pass-owned GPU handles.
@@ -459,25 +489,13 @@ void ShadowCasterPass::release_gpu_state() noexcept {
         wgpuPipelineLayoutRelease(m_pipeline_layout);
         m_pipeline_layout = nullptr;
     }
-    if (m_draw_bind_group != nullptr) {
-        wgpuBindGroupRelease(m_draw_bind_group);
-        m_draw_bind_group = nullptr;
-    }
-    if (m_draw_buffer != nullptr) {
-        wgpuBufferRelease(m_draw_buffer);
-        m_draw_buffer = nullptr;
-    }
+    release_uniform_bind_groups(m_draw_bind_groups);
+    release_uniform_bind_groups(m_frame_bind_groups);
+    release_uniform_buffers(m_draw_buffers);
+    release_uniform_buffers(m_frame_buffers);
     if (m_draw_layout != nullptr) {
         wgpuBindGroupLayoutRelease(m_draw_layout);
         m_draw_layout = nullptr;
-    }
-    if (m_frame_bind_group != nullptr) {
-        wgpuBindGroupRelease(m_frame_bind_group);
-        m_frame_bind_group = nullptr;
-    }
-    if (m_frame_buffer != nullptr) {
-        wgpuBufferRelease(m_frame_buffer);
-        m_frame_buffer = nullptr;
     }
     if (m_frame_layout != nullptr) {
         wgpuBindGroupLayoutRelease(m_frame_layout);

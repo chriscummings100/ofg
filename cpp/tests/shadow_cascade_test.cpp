@@ -78,6 +78,21 @@ std::array<ofg::math::Vec3, 8> camera_interval_corners(
     return world_space;
 }
 
+// Builds finite bounds from eight independently reconstructed points.
+ofg::Bounds3 test_bounds_from_points(const std::array<ofg::math::Vec3, 8>& points) {
+    ofg::math::Vec3 minimum = points.front();
+    ofg::math::Vec3 maximum = points.front();
+    for (std::size_t index = 1; index < points.size(); ++index) {
+        minimum = ofg::math::vec3(std::min(minimum.x, points[index].x),
+            std::min(minimum.y, points[index].y),
+            std::min(minimum.z, points[index].z));
+        maximum = ofg::math::vec3(std::max(maximum.x, points[index].x),
+            std::max(maximum.y, points[index].y),
+            std::max(maximum.z, points[index].z));
+    }
+    return ofg::Bounds3{minimum, maximum};
+}
+
 // Checks that a point lies inside WebGPU clip-space bounds after perspective divide.
 void check_point_inside_clip(ofg::math::Mat4 clip_from_world, ofg::math::Vec3 point) {
     const ofg::math::Vec4 clip = ofg::math::mul(clip_from_world, ofg::math::vec4(point.x, point.y, point.z, 1.0f));
@@ -184,9 +199,13 @@ TEST_CASE("shadow cascades build stable finite culling volumes from camera and s
     CHECK(cascades.m_effective_intensity == doctest::Approx(settings.m_intensity));
     CHECK_FALSE(cascades.m_low_sun_clamped);
 
-    float expected_near = camera.near_z;
     for (std::size_t index = 0; index < ofg::shadow_cascade_count(); ++index) {
         const ofg::ShadowCascade& cascade = cascades.m_cascades[index];
+        const float expected_near =
+            index == 0U
+                ? camera.near_z
+                : std::max(camera.near_z,
+                      settings.m_cascade_end_distances[index - 1U] - settings.m_cascade_blend_widths[index - 1U]);
         CHECK(cascade.m_index == index);
         CHECK(cascade.m_near_distance == doctest::Approx(expected_near));
         CHECK(cascade.m_far_distance == doctest::Approx(settings.m_cascade_end_distances[index]));
@@ -202,20 +221,39 @@ TEST_CASE("shadow cascades build stable finite culling volumes from camera and s
             (cascade.m_light_space_bounds.m_min.x + cascade.m_light_space_bounds.m_max.x) * 0.5f;
         const float snapped_center_y =
             (cascade.m_light_space_bounds.m_min.y + cascade.m_light_space_bounds.m_max.y) * 0.5f;
-        CHECK(snapped_center_x / cascade.m_texel_world_size ==
-              doctest::Approx(std::round(snapped_center_x / cascade.m_texel_world_size)).epsilon(0.0001));
-        CHECK(snapped_center_y / cascade.m_texel_world_size ==
-              doctest::Approx(std::round(snapped_center_y / cascade.m_texel_world_size)).epsilon(0.0001));
+        const float texel_width = (cascade.m_light_space_bounds.m_max.x - cascade.m_light_space_bounds.m_min.x) /
+                                  static_cast<float>(settings.m_map_size);
+        const float texel_height = (cascade.m_light_space_bounds.m_max.y - cascade.m_light_space_bounds.m_min.y) /
+                                   static_cast<float>(settings.m_map_size);
+        CHECK(snapped_center_x / texel_width ==
+              doctest::Approx(std::round(snapped_center_x / texel_width)).epsilon(0.0001));
+        CHECK(snapped_center_y / texel_height ==
+              doctest::Approx(std::round(snapped_center_y / texel_height)).epsilon(0.0001));
 
         const std::array<ofg::math::Vec3, 8> corners =
             camera_interval_corners(camera, cascade.m_near_distance, cascade.m_far_distance);
+        std::array<ofg::math::Vec3, 8> light_corners{};
+        for (std::size_t corner_index = 0; corner_index < corners.size(); ++corner_index) {
+            light_corners[corner_index] = ofg::math::transform_point(cascade.m_light_from_world, corners[corner_index]);
+        }
+        const ofg::Bounds3 tight_light_bounds = test_bounds_from_points(light_corners);
+        const float tight_width = tight_light_bounds.m_max.x - tight_light_bounds.m_min.x;
+        const float tight_height = tight_light_bounds.m_max.y - tight_light_bounds.m_min.y;
+        const float cascade_width = cascade.m_light_space_bounds.m_max.x - cascade.m_light_space_bounds.m_min.x;
+        const float cascade_height = cascade.m_light_space_bounds.m_max.y - cascade.m_light_space_bounds.m_min.y;
+        CHECK(cascade_width >= tight_width);
+        CHECK(cascade_height >= tight_height);
+        CHECK(cascade_width < tight_width * 1.02f);
+        CHECK(cascade_height < tight_height * 1.02f);
+        CHECK(cascade.m_light_space_bounds.m_min.z <=
+              doctest::Approx(tight_light_bounds.m_min.z - settings.m_caster_depth_padding).epsilon(0.001f));
+        CHECK(cascade.m_light_space_bounds.m_max.z >= tight_light_bounds.m_max.z);
         for (ofg::math::Vec3 corner : corners) {
             check_point_inside_clip(cascade.m_clip_from_world, corner);
         }
         CHECK(ofg::intersects_culling_planes(cascade.m_receiver_world_bounds, cascade.plane_set()));
         CHECK_FALSE(ofg::intersects_culling_planes(
             small_bounds_at(ofg::math::vec3(10000.0f, 10000.0f, 10000.0f)), cascade.plane_set()));
-        expected_near = settings.m_cascade_end_distances[index];
     }
 }
 

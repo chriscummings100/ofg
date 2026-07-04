@@ -5,10 +5,7 @@ namespace ofg::render::shaders {
 
 constexpr char shadow_debug_wgsl[] = R"wgsl(
 struct ShadowDebugUniforms {
-    output_width: f32,
-    output_height: f32,
-    _pad0: f32,
-    _pad1: f32,
+    output_size: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> debug: ShadowDebugUniforms;
@@ -41,9 +38,14 @@ fn cascade_tint(index: u32) -> vec3<f32> {
     return vec3<f32>(0.24, 0.42, 1.0);
 }
 
+fn load_shadow_depth(layer: u32, texel: vec2<i32>, max_texel: vec2<i32>) -> f32 {
+    let clamped_texel = clamp(texel, vec2<i32>(0), max_texel);
+    return clamp(textureLoad(shadow_map, clamped_texel, i32(layer), 0), 0.0, 1.0);
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    let output_size = max(vec2<f32>(debug.output_width, debug.output_height), vec2<f32>(1.0));
+    let output_size = max(debug.output_size.xy, vec2<f32>(1.0));
     let margin = 8.0;
     let gap = 8.0;
     let available_width = max(output_size.x - margin * 2.0 - gap * 2.0, 1.0);
@@ -64,8 +66,15 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
             let uv = clamp(local / vec2<f32>(panel_size), vec2<f32>(0.0), vec2<f32>(0.99999));
             let texel = min(vec2<i32>(uv * vec2<f32>(shadow_size)), max_texel);
-            let depth = clamp(textureLoad(shadow_map, texel, i32(cascade_index), 0), 0.0, 1.0);
-            let shaded = mix(vec3<f32>(depth), tint, 0.12);
+            let depth = load_shadow_depth(cascade_index, texel, max_texel);
+            let left = load_shadow_depth(cascade_index, texel + vec2<i32>(-1, 0), max_texel);
+            let right = load_shadow_depth(cascade_index, texel + vec2<i32>(1, 0), max_texel);
+            let up = load_shadow_depth(cascade_index, texel + vec2<i32>(0, -1), max_texel);
+            let down = load_shadow_depth(cascade_index, texel + vec2<i32>(0, 1), max_texel);
+            let edge = clamp(max(max(abs(depth - left), abs(depth - right)), max(abs(depth - up), abs(depth - down))) * 96.0, 0.0, 1.0);
+            let occupancy = clamp((1.0 - depth) * 16.0, 0.0, 1.0);
+            let raw_depth = vec3<f32>(pow(depth, 0.75));
+            let shaded = min(mix(raw_depth, tint, 0.10) + vec3<f32>(edge) + tint * occupancy * 0.25, vec3<f32>(1.0));
             return vec4<f32>(shaded, 1.0);
         }
     }

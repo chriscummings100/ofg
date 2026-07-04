@@ -348,11 +348,15 @@ void Renderer::render_impl(WGPUCommandEncoder encoder, RenderTarget target, cons
     }
     const std::span<const LightProperties> lights(light_storage.data(), light_count);
     ShadowFrameState shadow_frame_state = make_disabled_shadow_frame_state(m_shadow_settings);
+    ShadowCascadeSet shadow_cascades;
+    bool has_shadow_cascades = false;
     const LightProperties* shadow_light = first_directional_light(lights);
     if (shadow_light != nullptr) {
         m_shadow_map_target->resize(m_shadow_settings.m_map_size);
         const ShadowCascadeSet cascades =
             build_shadow_cascades(camera_properties, shadow_light->m_direction, m_shadow_settings);
+        shadow_cascades = cascades;
+        has_shadow_cascades = true;
         m_shadow_caster_pass->render(encoder, *m_shadow_map_target, cascades, m_shadow_settings, m_render_objects);
         m_shadow_diagnostics = m_shadow_caster_pass->diagnostics();
         shadow_frame_state = make_shadow_frame_state(cascades,
@@ -421,9 +425,9 @@ void Renderer::render_impl(WGPUCommandEncoder encoder, RenderTarget target, cons
             m_scene_color_target->height(),
             m_bloom_settings);
         m_tone_map_pass->render(encoder, m_scene_color_target->view(), bloom_result.tone_map_input(), target);
-        if (m_shadow_debug_overlay_enabled && m_shadow_map_target->sampling_view() != nullptr &&
+        if (m_shadow_debug_overlay_enabled && has_shadow_cascades && m_shadow_map_target->sampling_view() != nullptr &&
             m_shadow_map_target->size() > 0U) {
-            m_shadow_debug_pass->render(encoder, m_shadow_map_target->sampling_view(), target);
+            m_shadow_debug_pass->render(encoder, m_shadow_map_target->sampling_view(), shadow_cascades, target);
         }
         TempBuffer::release(bloom_result.m_buffer);
         TempBuffer::end_frame();

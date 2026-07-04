@@ -385,11 +385,11 @@ TEST_CASE("renderer static lifecycle prepares pass resources") {
     REQUIRE(ofg::Renderer::prepare());
     CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Ready);
     CHECK(ofg::Renderer::counters().m_pipeline_create_count == 7);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 9);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 13);
     CHECK(ofg::Renderer::counters().m_shader_module_create_count == 6);
 
     REQUIRE(ofg::Renderer::prepare());
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 9);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 13);
     CHECK(ofg::Renderer::release());
     CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Released);
     CHECK(ofg::Renderer::release());
@@ -534,8 +534,6 @@ TEST_CASE("renderer skips invisible scene mesh renderers") {
     }
 
     init_prepared_renderer(gpu.borrowed_context());
-    ofg::Renderer::set_shadow_debug_overlay_enabled(true);
-    ofg::Renderer::set_overhead_sun_debug_enabled(true);
     ofg::Renderer::resize(32, 32);
 
     ScopedTexture texture;
@@ -547,7 +545,7 @@ TEST_CASE("renderer skips invisible scene mesh renderers") {
         ofg::Renderer::render(encoder.m_value, ofg::RenderTarget{view.m_value, _test_format, 32, 32}, render_scene));
 
     CHECK(ofg::Renderer::counters().m_pipeline_create_count == 7);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 9);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 13);
     CHECK(ofg::Renderer::counters().m_texture_create_count == 11);
     CHECK(ofg::Renderer::counters().m_texture_view_create_count == 11);
 }
@@ -563,8 +561,6 @@ TEST_CASE("renderer culls scene mesh renderers against the camera frustum") {
     scene.m_scene.get_mesh_renderer(1)->entity()->local_transform().m_position = ofg::math::vec3(100.0f, 0.0f, 4.0f);
 
     init_prepared_renderer(gpu.borrowed_context());
-    ofg::Renderer::set_shadow_debug_overlay_enabled(true);
-    ofg::Renderer::set_overhead_sun_debug_enabled(true);
     ofg::Renderer::resize(32, 32);
 
     ScopedTexture texture;
@@ -589,6 +585,8 @@ TEST_CASE("renderer encodes shadow caster passes for the current sun") {
     add_scene_sun(scene.m_scene);
 
     init_prepared_renderer(gpu.borrowed_context());
+    ofg::Renderer::set_shadow_debug_overlay_enabled(true);
+    ofg::Renderer::set_overhead_sun_debug_enabled(true);
     ofg::Renderer::resize(32, 32);
 
     ScopedTexture texture;
@@ -645,10 +643,10 @@ TEST_CASE("renderer records scene mesh renderers into render targets without ste
     wgpuQueueSubmit(gpu.borrowed_context().m_queue, 1, &command.m_value);
 
     CHECK(ofg::Renderer::counters().m_pipeline_create_count == 8);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 10);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 14);
     CHECK(ofg::Renderer::counters().m_texture_create_count == 11);
     CHECK(ofg::Renderer::counters().m_texture_view_create_count == 11);
-    CHECK(ofg::Renderer::counters().m_bind_group_create_count == 15);
+    CHECK(ofg::Renderer::counters().m_bind_group_create_count == 19);
     CHECK(ofg::Renderer::bloom_diagnostics().m_active_level_count > 0);
     CHECK(ofg::Renderer::bloom_diagnostics().m_encoded_pass_count > 0);
     CHECK(ofg::Renderer::bloom_diagnostics().m_draw_count == ofg::Renderer::bloom_diagnostics().m_encoded_pass_count);
@@ -667,9 +665,9 @@ TEST_CASE("renderer records scene mesh renderers into render targets without ste
         second_encoder.m_value, ofg::RenderTarget{second_view.m_value, _test_format, 32, 32}, one_command_scene));
 
     CHECK(ofg::Renderer::counters().m_pipeline_create_count == 8);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 10);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 14);
     CHECK(ofg::Renderer::counters().m_texture_create_count == 11);
     CHECK(ofg::Renderer::counters().m_texture_view_create_count == 11);
-    CHECK(ofg::Renderer::counters().m_bind_group_create_count == 15);
+    CHECK(ofg::Renderer::counters().m_bind_group_create_count == 19);
     CHECK_NOTHROW(ofg::Renderer::resize(0, 0));
 }

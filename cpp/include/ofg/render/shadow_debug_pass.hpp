@@ -9,6 +9,7 @@
 #include "ofg/game/gpu_context.hpp"
 #include "ofg/game/render_target.hpp"
 #include "ofg/render/renderer_counters.hpp"
+#include "ofg/render/shadow_cascade.hpp"
 
 #include <memory>
 
@@ -27,7 +28,10 @@ public:
     // Creates shader, layout, pipeline, and uniforms for depth-layer overlays.
     [[nodiscard]] static std::unique_ptr<ShadowDebugPass> create(GpuContext gpu, WGPUTextureFormat output_format);
     // Encodes an overlay of the three shadow-map cascade layers.
-    void render(WGPUCommandEncoder encoder, WGPUTextureView shadow_map_view, RenderTarget output_target);
+    void render(WGPUCommandEncoder encoder,
+        WGPUTextureView shadow_map_view,
+        const ShadowCascadeSet& cascades,
+        RenderTarget output_target);
     // Reports durable resource creation counters.
     [[nodiscard]] RendererCounters counters() const noexcept;
 
@@ -44,7 +48,7 @@ private:
     // Recreates the bind group when the sampled shadow-map view changes.
     void ensure_bind_group(WGPUTextureView shadow_map_view);
     // Writes output-size data consumed by the overlay shader.
-    void write_uniforms(RenderTarget output_target) const;
+    void write_uniforms(const ShadowCascadeSet& cascades, RenderTarget output_target) const;
     // Releases all WebGPU handles owned by this pass.
     void release_gpu_state() noexcept;
 

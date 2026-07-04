@@ -359,19 +359,22 @@ TEST_CASE("shadow debug pass creates validates and renders") {
 
     ofg::ShadowMapTarget shadow_target(gpu.borrowed_context());
     shadow_target.resize(32);
+    const ofg::ShadowCascadeSet cascades{};
     ScopedTexture output_texture = create_output_texture(gpu.borrowed_context().m_device, 32, 32);
     ScopedTextureView output_view = create_output_view(output_texture.m_value);
     const ofg::RenderTarget output_target{output_view.m_value, WGPUTextureFormat_RGBA8Unorm, 32, 32};
     ScopedCommandEncoder encoder = create_encoder(gpu.borrowed_context().m_device);
 
-    CHECK_THROWS_WITH_AS(pass->render(nullptr, shadow_target.sampling_view(), output_target),
+    CHECK_THROWS_WITH_AS(pass->render(nullptr, shadow_target.sampling_view(), cascades, output_target),
         doctest::Contains("requires"),
         ofg::EngineError);
-    CHECK_THROWS_WITH_AS(
-        pass->render(encoder.m_value, nullptr, output_target), doctest::Contains("requires"), ofg::EngineError);
+    CHECK_THROWS_WITH_AS(pass->render(encoder.m_value, nullptr, cascades, output_target),
+        doctest::Contains("requires"),
+        ofg::EngineError);
     CHECK_THROWS_WITH_AS(([&]() {
         pass->render(encoder.m_value,
             shadow_target.sampling_view(),
+            cascades,
             ofg::RenderTarget{nullptr, WGPUTextureFormat_RGBA8Unorm, 32, 32});
     }()),
         doctest::Contains("requires"),
@@ -379,6 +382,7 @@ TEST_CASE("shadow debug pass creates validates and renders") {
     CHECK_THROWS_WITH_AS(([&]() {
         pass->render(encoder.m_value,
             shadow_target.sampling_view(),
+            cascades,
             ofg::RenderTarget{output_view.m_value, WGPUTextureFormat_RGBA8Unorm, 0, 32});
     }()),
         doctest::Contains("nonzero"),
@@ -386,14 +390,15 @@ TEST_CASE("shadow debug pass creates validates and renders") {
     CHECK_THROWS_WITH_AS(([&]() {
         pass->render(encoder.m_value,
             shadow_target.sampling_view(),
+            cascades,
             ofg::RenderTarget{output_view.m_value, WGPUTextureFormat_BGRA8Unorm, 32, 32});
     }()),
         doctest::Contains("does not match"),
         ofg::EngineError);
 
-    pass->render(encoder.m_value, shadow_target.sampling_view(), output_target);
+    pass->render(encoder.m_value, shadow_target.sampling_view(), cascades, output_target);
     CHECK(pass->counters().m_bind_group_create_count == 1);
-    pass->render(encoder.m_value, shadow_target.sampling_view(), output_target);
+    pass->render(encoder.m_value, shadow_target.sampling_view(), cascades, output_target);
     CHECK(pass->counters().m_bind_group_create_count == 1);
 
     WGPUCommandBuffer command = wgpuCommandEncoderFinish(encoder.m_value, nullptr);

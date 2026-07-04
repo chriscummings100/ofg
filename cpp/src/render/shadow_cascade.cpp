@@ -95,15 +95,6 @@ math::Vec3 average_point(const std::array<math::Vec3, 8>& points) noexcept {
     return math::mul(total, 1.0f / static_cast<float>(points.size()));
 }
 
-// Returns a conservative sphere radius around the supplied center.
-float radius_around(math::Vec3 center, const std::array<math::Vec3, 8>& points) noexcept {
-    float radius = 0.0f;
-    for (math::Vec3 point : points) {
-        radius = std::max(radius, math::length(math::sub(point, center)));
-    }
-    return std::max(radius, _minimum_extent);
-}
-
 // Chooses an up vector that is not parallel to the light direction.
 math::Vec3 light_up_for(math::Vec3 light_direction) noexcept {
     const math::Vec3 world_up = math::vec3(0.0f, 1.0f, 0.0f);
@@ -132,6 +123,17 @@ std::array<CullingPlane, 6> copy_frustum_planes(const ViewFrustum& frustum) {
     return planes;
 }
 
+// Returns the cascade near distance including overlap needed by the previous cascade's blend band.
+float cascade_receiver_near_distance(
+    const CameraProperties& camera, const ShadowSettings& settings, std::size_t index) {
+    if (index == 0U) {
+        return camera.near_z;
+    }
+    const float previous_end = settings.m_cascade_end_distances[index - 1U];
+    const float previous_blend = settings.m_cascade_blend_widths[index - 1U];
+    return std::max(camera.near_z, previous_end - previous_blend);
+}
+
 // Validates camera data needed by cascade construction.
 void validate_camera_for_shadows(const CameraProperties& camera, const ShadowSettings& settings) {
     if (!std::isfinite(camera.vertical_fov_radians) || !std::isfinite(camera.aspect) || !std::isfinite(camera.near_z) ||
@@ -153,9 +155,6 @@ ShadowCascade build_one_cascade(const CameraProperties& camera,
     float far_distance) {
     const std::array<math::Vec3, 8> world_corners = camera_interval_corners_world(camera, near_distance, far_distance);
     const math::Vec3 world_center = average_point(world_corners);
-    const float radius = radius_around(world_center, world_corners);
-    const float extent = std::max(radius * 2.0f, _minimum_extent);
-    const float texel_size = extent / static_cast<float>(settings.m_map_size);
 
     const math::Mat4 light_from_world = light_from_world_for(world_center, effective_light_direction);
     std::string error;
@@ -169,16 +168,25 @@ ShadowCascade build_one_cascade(const CameraProperties& camera,
         light_corners[corner_index] = math::transform_point(light_from_world, world_corners[corner_index]);
     }
     const Bounds3 light_receiver_bounds = bounds_from_points(light_corners);
-    const math::Vec3 light_center = math::transform_point(light_from_world, world_center);
-    const float snapped_center_x = std::floor(light_center.x / texel_size) * texel_size;
-    const float snapped_center_y = std::floor(light_center.y / texel_size) * texel_size;
-    const float half_extent = extent * 0.5f;
-    const float left = snapped_center_x - half_extent;
-    const float right = snapped_center_x + half_extent;
-    const float bottom = snapped_center_y - half_extent;
-    const float top = snapped_center_y + half_extent;
+    const float raw_width = std::max(light_receiver_bounds.m_max.x - light_receiver_bounds.m_min.x, _minimum_extent);
+    const float raw_height = std::max(light_receiver_bounds.m_max.y - light_receiver_bounds.m_min.y, _minimum_extent);
+    const float raw_texel_width = raw_width / static_cast<float>(settings.m_map_size);
+    const float raw_texel_height = raw_height / static_cast<float>(settings.m_map_size);
+    const float margin_texels = std::ceil(settings.m_pcf_radius_texels) + 2.0f;
+    const float width = std::max(raw_width + raw_texel_width * margin_texels * 2.0f, _minimum_extent);
+    const float height = std::max(raw_height + raw_texel_height * margin_texels * 2.0f, _minimum_extent);
+    const float texel_width = width / static_cast<float>(settings.m_map_size);
+    const float texel_height = height / static_cast<float>(settings.m_map_size);
+    const float receiver_center_x = (light_receiver_bounds.m_min.x + light_receiver_bounds.m_max.x) * 0.5f;
+    const float receiver_center_y = (light_receiver_bounds.m_min.y + light_receiver_bounds.m_max.y) * 0.5f;
+    const float snapped_center_x = std::floor(receiver_center_x / texel_width) * texel_width;
+    const float snapped_center_y = std::floor(receiver_center_y / texel_height) * texel_height;
+    const float left = snapped_center_x - width * 0.5f;
+    const float right = snapped_center_x + width * 0.5f;
+    const float bottom = snapped_center_y - height * 0.5f;
+    const float top = snapped_center_y + height * 0.5f;
     const float near_z = light_receiver_bounds.m_min.z - settings.m_caster_depth_padding;
-    const float far_z = light_receiver_bounds.m_max.z + texel_size;
+    const float far_z = light_receiver_bounds.m_max.z + std::max(texel_width, texel_height);
 
     std::optional<math::Mat4> clip_from_light = math::orthographic_lh(left, right, bottom, top, near_z, far_z, error);
     if (!clip_from_light.has_value()) {
@@ -198,7 +206,7 @@ ShadowCascade build_one_cascade(const CameraProperties& camera,
     cascade.m_clip_from_light = *clip_from_light;
     cascade.m_clip_from_world = math::mul(*clip_from_light, light_from_world);
     cascade.m_culling_planes = copy_frustum_planes(view_frustum_from_clip_from_world(cascade.m_clip_from_world));
-    cascade.m_texel_world_size = texel_size;
+    cascade.m_texel_world_size = std::max(texel_width, texel_height);
     return cascade;
 }
 
@@ -280,6 +288,7 @@ ShadowCascadeSet build_shadow_cascades(
 
     float near_distance = camera.near_z;
     for (std::size_t index = 0; index < shadow_cascade_count(); ++index) {
+        near_distance = cascade_receiver_near_distance(camera, settings, index);
         const float far_distance = settings.m_cascade_end_distances[index];
         if (far_distance <= near_distance) {
             throw EngineError("Shadow cascade intervals must increase beyond the camera near plane.");
@@ -290,7 +299,6 @@ ShadowCascadeSet build_shadow_cascades(
             static_cast<std::uint32_t>(index),
             near_distance,
             far_distance);
-        near_distance = far_distance;
     }
     return result;
 }

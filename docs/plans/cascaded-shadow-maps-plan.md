@@ -63,6 +63,10 @@ rendering and shadow rendering can each generate a draw list from a pass-specifi
   current sun shadow maps with intensity, receiver/normal bias, hard/five-tap/nine-tap PCF modes, cascade blending,
   visible browser/native smoke screenshots, docs, coverage, and milestone review.
 - [ ] Implement Milestone 5: diagnostics, smoke/debug visuals, screenshots, docs, and coverage.
+- [x] (2026-07-04) Debugged cascade shadow-map generation: per-cascade shadow caster passes now use distinct
+  frame/model uniform bindings so command-buffer submission cannot observe the last cascade's matrix/model writes, and
+  cascade bounds now use tight light-space receiver side planes with bounded caster-depth padding instead of a
+  sphere-sized square fit.
 
 ## Surprises & Discoveries
 
@@ -151,6 +155,18 @@ rendering and shadow rendering can each generate a draw list from a pass-specifi
   Evidence: the first Milestone 4 native smoke failed WebGPU validation because `textureSampleCompare` must be called
   only from uniform control flow; switching opaque shadow lookups to `textureSampleCompareLevel` passed native and browser
   smoke with the same cascade selection branches.
+
+- Observation: Rewriting one shadow-caster frame uniform buffer inside the cascade loop can make every recorded shadow
+  pass observe the last cascade's matrix at submit time.
+  Evidence: the shadow-map debug overlay showed different per-cascade caster membership but identical object scale.
+  The fix gives each cascade distinct frame and draw uniform buffers/bind groups; `npm run test:cpp`,
+  `npm run smoke:render`, and `npm run smoke:browser` passed afterward.
+
+- Observation: The initial sphere-derived square cascade fit wasted a large amount of shadow-map area and admitted too
+  many behind/around-camera casters.
+  Evidence: after replacing the sphere fit with tight light-space X/Y receiver bounds plus bounded light-depth padding,
+  native smoke accepted casters dropped from near/mid/far `17/155/186` to `12/111/139`, and browser smoke reported
+  `24/113/112` for its final camera state while still passing.
 
 ## Decision Log
 
