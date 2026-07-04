@@ -7,6 +7,7 @@
 
 #include "ofg/resources/shader.hpp"
 #include "ofg/scene/scene.hpp"
+#include "ofg/terrain/terrain_scene.hpp"
 
 #include <array>
 #include <cstdint>
@@ -32,19 +33,15 @@ struct DemoSceneValidationStats {
 
 struct DemoScene {
     Shader* m_shader{nullptr};
-    Texture* m_checker_texture{nullptr};
     Texture* m_white_texture{nullptr};
     Texture* m_neutral_metallic_roughness_texture{nullptr};
     Texture* m_flat_normal_texture{nullptr};
-    Material* m_ground_material{nullptr};
     Material* m_player_material{nullptr};
     std::array<Material*, 4> m_cube_materials{};
-    Mesh* m_ground_mesh{nullptr};
     Mesh* m_cube_mesh{nullptr};
+    TerrainSceneResources m_terrain_resources;
     Scene* m_scene{nullptr};
     std::uint32_t m_scene_generation{0};
-    Entity* m_ground_entity{nullptr};
-    MeshRenderer* m_ground_renderer{nullptr};
     Entity* m_player_entity{nullptr};
     Entity* m_player_visual_entity{nullptr};
     MeshRenderer* m_player_renderer{nullptr};

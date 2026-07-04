@@ -15,6 +15,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
 #include <initializer_list>
 #include <memory>
 #include <optional>
@@ -60,6 +61,14 @@ std::unique_ptr<ofg::Texture> make_gpu_texture(ofg::GpuContext gpu) {
     auto texture = std::make_unique<ofg::Texture>(gpu, "gpu texture");
     texture->init_from_rgba8_pixels(
         1, 1, ofg::TextureColorSpace::Linear, rgba_bytes({255, 255, 255, 255}), ofg::MipMapPolicy::None);
+    return texture;
+}
+
+// Builds a GPU-ready R16Float texture used by terrain-style material tests.
+std::unique_ptr<ofg::Texture> make_gpu_r16_texture(ofg::GpuContext gpu) {
+    auto texture = std::make_unique<ofg::Texture>(gpu, "gpu r16 texture");
+    const std::array<float, 1> heights{1.0f};
+    texture->init_from_r16_float_pixels(1, 1, ofg::pack_r16_float_pixels(heights));
     return texture;
 }
 
@@ -153,6 +162,57 @@ TEST_CASE("gpu material resource creates uniform and texture bind groups") {
     } catch (const ofg::EngineError& error) {
         CHECK(std::string(error.what()).find("GPU-ready texture") != std::string::npos);
     }
+}
+
+// Verifies R16Float textures bind through non-filtering material layouts.
+TEST_CASE("gpu material resource binds R16Float textures without optional filtering features") {
+    ofg::tests::TestGpuContext gpu = make_test_gpu();
+    std::unique_ptr<ofg::Texture> texture = make_gpu_r16_texture(gpu.borrowed_context());
+
+    ofg::ShaderParameterLayout layout;
+    layout.m_parameters.push_back(
+        ofg::ShaderParameter{"height_texture", ofg::ShaderParameterType::Texture, ofg::ShaderParameterScope::Material});
+
+    ofg::Shader shader{gpu.borrowed_context(), "r16 material shader"};
+    shader.init_from_wgsl(_valid_wgsl_a, layout, {});
+
+    ofg::PropertyBag properties;
+    properties.set("height_texture", texture.get());
+    ofg::Material material{gpu.borrowed_context(), "gpu r16 material"};
+    material.init(shader, properties);
+
+    CHECK(texture->pixel_format() == ofg::TexturePixelFormat::R16Float);
+    CHECK(material.bind_group_layout() != nullptr);
+    CHECK(material.bind_group() != nullptr);
+}
+
+// Verifies structurally identical material schemas share a layout so pipeline caches stay small.
+TEST_CASE("gpu material resource shares compatible bind group layouts") {
+    ofg::tests::TestGpuContext gpu = make_test_gpu();
+    std::unique_ptr<ofg::Texture> texture = make_gpu_texture(gpu.borrowed_context());
+
+    ofg::ShaderParameterLayout layout;
+    layout.m_parameters.push_back(ofg::ShaderParameter{
+        "base_color_texture", ofg::ShaderParameterType::Texture, ofg::ShaderParameterScope::Material});
+
+    ofg::Shader shader{gpu.borrowed_context(), "shared material layout shader"};
+    shader.init_from_wgsl(_valid_wgsl_a, layout, {});
+
+    ofg::PropertyBag first_properties;
+    first_properties.set("base_color_texture", texture.get());
+    ofg::Material first{gpu.borrowed_context(), "first shared material"};
+    first.init(shader, first_properties);
+
+    ofg::PropertyBag second_properties;
+    second_properties.set("base_color_texture", texture.get());
+    ofg::Material second{gpu.borrowed_context(), "second shared material"};
+    second.init(shader, second_properties);
+
+    CHECK(first.bind_group_layout() != nullptr);
+    CHECK(first.bind_group_layout() == second.bind_group_layout());
+    CHECK(first.bind_group() != nullptr);
+    CHECK(second.bind_group() != nullptr);
+    CHECK(first.bind_group() != second.bind_group());
 }
 
 // Verifies GPU material preparation handles no-uniform and optional-texture schemas.

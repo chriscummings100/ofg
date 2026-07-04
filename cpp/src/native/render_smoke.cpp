@@ -426,11 +426,26 @@ void handle_error_scope(
 }
 
 // Reports whether a non-background pixel looks like neutral checker ground.
-[[nodiscard]] bool is_ground_like_pixel(const std::array<std::uint8_t, 4>& pixel) {
+[[nodiscard]] bool is_neutral_ground_pixel(const std::array<std::uint8_t, 4>& pixel) {
     const std::uint8_t max_channel = std::max({pixel[0], pixel[1], pixel[2]});
     const std::uint8_t min_channel = std::min({pixel[0], pixel[1], pixel[2]});
     const std::uint32_t brightness = static_cast<std::uint32_t>(pixel[0]) + pixel[1] + pixel[2];
     return max_channel - min_channel <= 30U && brightness >= 90U && brightness <= 690U;
+}
+
+// Reports whether a non-background pixel looks like terrain height debug output.
+[[nodiscard]] bool is_terrain_height_debug_pixel(const std::array<std::uint8_t, 4>& pixel) {
+    const std::uint32_t red = pixel[0];
+    const std::uint32_t green = pixel[1];
+    const std::uint32_t blue = pixel[2];
+    const bool red_surface = red >= 35U && red * 4U >= green * 5U && red >= blue * 2U;
+    const bool green_surface = green >= 35U && green * 4U >= red * 5U && green >= blue * 2U;
+    return red_surface || green_surface;
+}
+
+// Reports whether a non-background pixel looks like authored terrain or ground.
+[[nodiscard]] bool is_ground_like_pixel(const std::array<std::uint8_t, 4>& pixel) {
+    return is_neutral_ground_pixel(pixel) || is_terrain_height_debug_pixel(pixel);
 }
 
 // Keeps scene smoke metrics independent from the renderer-owned debug overlay.
@@ -501,7 +516,7 @@ void handle_error_scope(
     } else if (report.m_background_ratio < contract.m_min_background_ratio) {
         report.m_failure_reason = "Background coverage too low: " + std::to_string(report.m_background_ratio);
     } else if (report.m_ground_ratio < contract.m_min_ground_ratio) {
-        report.m_failure_reason = "Ground coverage too low: " + std::to_string(report.m_ground_ratio);
+        report.m_failure_reason = "Terrain surface coverage too low: " + std::to_string(report.m_ground_ratio);
     } else if (report.m_colored_ratio < contract.m_min_colored_ratio) {
         report.m_failure_reason = "Colored cube coverage too low: " + std::to_string(report.m_colored_ratio);
     } else if (report.m_lower_half_scene_ratio < contract.m_min_lower_half_scene_ratio) {

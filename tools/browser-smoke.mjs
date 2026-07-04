@@ -590,7 +590,7 @@ function inspectSceneScreenshot(path) {
     throw new Error(`Background coverage too low: ${backgroundRatio}`);
   }
   if (groundRatio < smokeContract.minGroundRatio) {
-    throw new Error(`Ground coverage too low: ${groundRatio}`);
+    throw new Error(`Terrain surface coverage too low: ${groundRatio}`);
   }
   if (coloredRatio < smokeContract.minColoredRatio) {
     throw new Error(`Colored cube coverage too low: ${coloredRatio}`);
@@ -629,11 +629,24 @@ function isDebugUiSampleExcluded(x, _y, png) {
 }
 
 // Reports whether a non-background pixel looks like neutral checker ground.
-function isGroundLikePixel(pixel) {
+function isNeutralGroundPixel(pixel) {
   const maxChannel = Math.max(pixel[0], pixel[1], pixel[2]);
   const minChannel = Math.min(pixel[0], pixel[1], pixel[2]);
   const brightness = pixel[0] + pixel[1] + pixel[2];
   return maxChannel - minChannel <= 30 && brightness >= 90 && brightness <= 690;
+}
+
+// Reports whether a non-background pixel looks like terrain height debug output.
+function isTerrainHeightDebugPixel(pixel) {
+  const [red, green, blue] = pixel;
+  const redSurface = red >= 35 && red * 4 >= green * 5 && red >= blue * 2;
+  const greenSurface = green >= 35 && green * 4 >= red * 5 && green >= blue * 2;
+  return redSurface || greenSurface;
+}
+
+// Reports whether a non-background pixel looks like authored terrain or ground.
+function isGroundLikePixel(pixel) {
+  return isNeutralGroundPixel(pixel) || isTerrainHeightDebugPixel(pixel);
 }
 
 // Computes RGB distance while ignoring alpha, matching native smoke behavior.

@@ -1,7 +1,8 @@
-// Mutable texture resource for generated or caller-provided RGBA8 pixels.
+// Mutable texture resource for generated or caller-provided pixels.
 //
-// Textures own CPU pixels plus deterministic mip chains, and they eagerly
-// prepare WebGPU texture/view/sampler state when created with a ready GpuContext.
+// Textures own CPU pixels plus deterministic mip chains where supported, and
+// they eagerly prepare WebGPU texture/view/sampler state when created with a
+// ready GpuContext. Terrain height debug textures use the narrow R16Float path.
 #pragma once
 
 #include "ofg/core/object.hpp"
@@ -25,6 +26,7 @@ enum class TextureColorSpace {
 enum class TexturePixelFormat {
     Rgba8,
     Rgba8Srgb,
+    R16Float,
 };
 
 enum class MipMapPolicy {
@@ -48,6 +50,8 @@ public:
         TextureColorSpace color_space,
         std::vector<std::byte> pixels,
         MipMapPolicy mip_map_policy);
+    // Initializes this texture from tightly packed little-endian R16Float pixels.
+    void init_from_r16_float_pixels(std::uint32_t width, std::uint32_t height, std::vector<std::byte> pixels);
 
     // Replaces level-zero pixels and regenerates CPU mips.
     void update_pixels(std::vector<std::byte> pixels);
@@ -97,6 +101,18 @@ private:
 
 // Converts a color-space request into the concrete RGBA8 texture format.
 [[nodiscard]] TexturePixelFormat texture_pixel_format_for_color_space(TextureColorSpace color_space) noexcept;
+
+// Returns the byte width of one texel in a supported texture format.
+[[nodiscard]] std::size_t texture_pixel_format_bytes_per_pixel(TexturePixelFormat pixel_format) noexcept;
+
+// Converts a finite or non-finite float into IEEE 754 binary16 bits for R16Float textures.
+[[nodiscard]] std::uint16_t float_to_r16_float_bits(float value) noexcept;
+
+// Converts IEEE 754 binary16 bits back to a float for tests and diagnostics.
+[[nodiscard]] float r16_float_bits_to_float(std::uint16_t bits) noexcept;
+
+// Packs float values into little-endian binary16 texel bytes.
+[[nodiscard]] std::vector<std::byte> pack_r16_float_pixels(std::span<const float> values);
 
 // Computes the number of mip levels needed by a full mip chain.
 [[nodiscard]] std::uint32_t full_mip_level_count(std::uint32_t width, std::uint32_t height) noexcept;

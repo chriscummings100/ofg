@@ -58,6 +58,7 @@ private:
     Ptr<Shader> m_shader;
     PropertyBag m_properties;
     WGPUBindGroupLayout m_bind_group_layout{nullptr};
+    std::string m_bind_group_layout_key;
     WGPUBuffer m_uniform_buffer{nullptr};
     WGPUBindGroup m_bind_group{nullptr};
     std::uint64_t m_revision{0};

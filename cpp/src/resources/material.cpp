@@ -2,12 +2,14 @@
 #include "ofg/resources/material.hpp"
 
 #include "ofg/core/engine_error.hpp"
+#include "ofg/gpu/common.hpp"
 #include "ofg/resources/property_bag.hpp"
 #include "ofg/resources/shader.hpp"
 #include "ofg/resources/texture.hpp"
-#include "ofg/gpu/common.hpp"
 
 #include <cstddef>
+#include <cstdint>
+#include <map>
 #include <string>
 #include <utility>
 #include <variant>
@@ -16,14 +18,85 @@
 namespace ofg {
 namespace {
 
+struct CachedMaterialBindGroupLayout {
+    WGPUBindGroupLayout m_layout{nullptr};
+    std::uint32_t m_ref_count{0};
+};
+
+// Returns the process-local cache of structurally identical material bind-group layouts.
+std::map<std::string, CachedMaterialBindGroupLayout>& material_bind_group_layout_cache() {
+    static std::map<std::string, CachedMaterialBindGroupLayout> _cache;
+    return _cache;
+}
+
+// Returns a compact token for the sample type required by one texture binding.
+[[nodiscard]] const char* texture_sample_type_key(TexturePixelFormat format) noexcept {
+    return format == TexturePixelFormat::R16Float ? "unfilterable-float" : "float";
+}
+
+// Returns a compact token for the sampler type required by one texture binding.
+[[nodiscard]] const char* sampler_binding_type_key(TexturePixelFormat format) noexcept {
+    return format == TexturePixelFormat::R16Float ? "non-filtering" : "filtering";
+}
+
+// Acquires a shared bind-group layout for one material layout signature.
+[[nodiscard]] WGPUBindGroupLayout acquire_cached_material_bind_group_layout(const GpuContext& context,
+    const std::string& label,
+    const std::string& key,
+    const std::vector<WGPUBindGroupLayoutEntry>& layout_entries) {
+    auto& cache = material_bind_group_layout_cache();
+    auto found = cache.find(key);
+    if (found != cache.end()) {
+        found->second.m_ref_count += 1U;
+        return found->second.m_layout;
+    }
+
+    WGPUBindGroupLayoutDescriptor layout_descriptor = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
+    layout_descriptor.label = gpu::string_view(label);
+    layout_descriptor.entryCount = layout_entries.size();
+    layout_descriptor.entries = layout_entries.empty() ? nullptr : layout_entries.data();
+    WGPUBindGroupLayout layout = wgpuDeviceCreateBindGroupLayout(context.m_device, &layout_descriptor);
+    if (layout == nullptr) {
+        throw EngineError("wgpuDeviceCreateBindGroupLayout returned null for material '" + label + "'.");
+    }
+
+    cache.emplace(key, CachedMaterialBindGroupLayout{layout, 1U});
+    return layout;
+}
+
+// Releases one reference to a shared material bind-group layout.
+void release_cached_material_bind_group_layout(const std::string& key, WGPUBindGroupLayout layout) noexcept {
+    if (layout == nullptr) {
+        return;
+    }
+
+    auto& cache = material_bind_group_layout_cache();
+    auto found = key.empty() ? cache.end() : cache.find(key);
+    if (found == cache.end() || found->second.m_layout != layout || found->second.m_ref_count == 0U) {
+        wgpuBindGroupLayoutRelease(layout);
+        return;
+    }
+
+    found->second.m_ref_count -= 1U;
+    if (found->second.m_ref_count == 0U) {
+        wgpuBindGroupLayoutRelease(found->second.m_layout);
+        cache.erase(found);
+    }
+}
+
 struct PreparedMaterialGpuState {
     WGPUBindGroupLayout m_bind_group_layout{nullptr};
+    std::string m_bind_group_layout_key;
     WGPUBuffer m_uniform_buffer{nullptr};
     WGPUBindGroup m_bind_group{nullptr};
 
     PreparedMaterialGpuState() = default;
-    PreparedMaterialGpuState(WGPUBindGroupLayout bind_group_layout, WGPUBuffer uniform_buffer, WGPUBindGroup bind_group)
-        : m_bind_group_layout(bind_group_layout), m_uniform_buffer(uniform_buffer), m_bind_group(bind_group) {}
+    PreparedMaterialGpuState(WGPUBindGroupLayout bind_group_layout,
+        std::string bind_group_layout_key,
+        WGPUBuffer uniform_buffer,
+        WGPUBindGroup bind_group)
+        : m_bind_group_layout(bind_group_layout), m_bind_group_layout_key(std::move(bind_group_layout_key)),
+          m_uniform_buffer(uniform_buffer), m_bind_group(bind_group) {}
 
     PreparedMaterialGpuState(const PreparedMaterialGpuState&) = delete;
     PreparedMaterialGpuState& operator=(const PreparedMaterialGpuState&) = delete;
@@ -51,8 +124,9 @@ struct PreparedMaterialGpuState {
             m_uniform_buffer = nullptr;
         }
         if (m_bind_group_layout != nullptr) {
-            wgpuBindGroupLayoutRelease(m_bind_group_layout);
+            release_cached_material_bind_group_layout(m_bind_group_layout_key, m_bind_group_layout);
             m_bind_group_layout = nullptr;
+            m_bind_group_layout_key.clear();
         }
     }
 
@@ -61,6 +135,11 @@ struct PreparedMaterialGpuState {
         WGPUBindGroupLayout handle = m_bind_group_layout;
         m_bind_group_layout = nullptr;
         return handle;
+    }
+
+    // Transfers the shared bind group layout cache key out to the owning material.
+    [[nodiscard]] std::string take_bind_group_layout_key() noexcept {
+        return std::move(m_bind_group_layout_key);
     }
 
     // Transfers the uniform buffer out to the owning material.
@@ -81,9 +160,11 @@ private:
     // Takes WebGPU handles from another bundle and leaves it empty.
     void take_from(PreparedMaterialGpuState& other) noexcept {
         m_bind_group_layout = other.m_bind_group_layout;
+        m_bind_group_layout_key = std::move(other.m_bind_group_layout_key);
         m_uniform_buffer = other.m_uniform_buffer;
         m_bind_group = other.m_bind_group;
         other.m_bind_group_layout = nullptr;
+        other.m_bind_group_layout_key.clear();
         other.m_uniform_buffer = nullptr;
         other.m_bind_group = nullptr;
     }
@@ -121,8 +202,11 @@ PreparedMaterialGpuState create_material_gpu_state(
 
     std::vector<WGPUBindGroupLayoutEntry> layout_entries;
     std::vector<WGPUBindGroupEntry> bind_entries;
+    std::string layout_key = "device:" + std::to_string(reinterpret_cast<std::uintptr_t>(context.m_device)) +
+                             ";shader:" + shader.label() + ":" + std::to_string(shader.revision()) + ";";
     std::uint32_t next_binding = 0;
     if (!uniform_bytes.empty()) {
+        layout_key += "uniform:" + std::to_string(next_binding) + ":" + std::to_string(uniform_bytes.size()) + ";";
         WGPUBindGroupLayoutEntry layout_entry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
         layout_entry.binding = next_binding;
         layout_entry.visibility = WGPUShaderStage_Fragment;
@@ -157,11 +241,15 @@ PreparedMaterialGpuState create_material_gpu_state(
             throw EngineError("Material texture property '" + parameter.m_name + "' requires a GPU-ready texture.");
         }
 
+        layout_key += "texture:" + parameter.m_name + ":" + std::to_string(next_binding) + ":" +
+                      texture_sample_type_key(texture->pixel_format()) + ";";
         WGPUBindGroupLayoutEntry texture_layout = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
         texture_layout.binding = next_binding;
         texture_layout.visibility = WGPUShaderStage_Fragment;
         texture_layout.texture = WGPU_TEXTURE_BINDING_LAYOUT_INIT;
-        texture_layout.texture.sampleType = WGPUTextureSampleType_Float;
+        texture_layout.texture.sampleType = texture->pixel_format() == TexturePixelFormat::R16Float
+                                                ? WGPUTextureSampleType_UnfilterableFloat
+                                                : WGPUTextureSampleType_Float;
         texture_layout.texture.viewDimension = WGPUTextureViewDimension_2D;
         layout_entries.push_back(texture_layout);
 
@@ -171,11 +259,15 @@ PreparedMaterialGpuState create_material_gpu_state(
         bind_entries.push_back(texture_entry);
         next_binding += 1;
 
+        layout_key += "sampler:" + parameter.m_name + ":" + std::to_string(next_binding) + ":" +
+                      sampler_binding_type_key(texture->pixel_format()) + ";";
         WGPUBindGroupLayoutEntry sampler_layout = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
         sampler_layout.binding = next_binding;
         sampler_layout.visibility = WGPUShaderStage_Fragment;
         sampler_layout.sampler = WGPU_SAMPLER_BINDING_LAYOUT_INIT;
-        sampler_layout.sampler.type = WGPUSamplerBindingType_Filtering;
+        sampler_layout.sampler.type = texture->pixel_format() == TexturePixelFormat::R16Float
+                                          ? WGPUSamplerBindingType_NonFiltering
+                                          : WGPUSamplerBindingType_Filtering;
         layout_entries.push_back(sampler_layout);
 
         WGPUBindGroupEntry sampler_entry = WGPU_BIND_GROUP_ENTRY_INIT;
@@ -185,14 +277,8 @@ PreparedMaterialGpuState create_material_gpu_state(
         next_binding += 1;
     }
 
-    WGPUBindGroupLayoutDescriptor layout_descriptor = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
-    layout_descriptor.label = gpu::string_view(label);
-    layout_descriptor.entryCount = layout_entries.size();
-    layout_descriptor.entries = layout_entries.empty() ? nullptr : layout_entries.data();
-    state.m_bind_group_layout = wgpuDeviceCreateBindGroupLayout(context.m_device, &layout_descriptor);
-    if (state.m_bind_group_layout == nullptr) {
-        throw EngineError("wgpuDeviceCreateBindGroupLayout returned null for material '" + label + "'.");
-    }
+    state.m_bind_group_layout = acquire_cached_material_bind_group_layout(context, label, layout_key, layout_entries);
+    state.m_bind_group_layout_key = std::move(layout_key);
 
     WGPUBindGroupDescriptor bind_group_descriptor = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
     bind_group_descriptor.label = gpu::string_view(label);
@@ -254,6 +340,7 @@ void Material::set_property(std::string name, PropertyValue value) {
 
     release_gpu_state();
     m_bind_group_layout = next_state.take_bind_group_layout();
+    m_bind_group_layout_key = next_state.take_bind_group_layout_key();
     m_uniform_buffer = next_state.take_uniform_buffer();
     m_bind_group = next_state.take_bind_group();
     m_properties = std::move(updated);
@@ -311,14 +398,17 @@ void Material::prepare_gpu_state() {
 
     release_gpu_state();
     m_bind_group_layout = next_state.take_bind_group_layout();
+    m_bind_group_layout_key = next_state.take_bind_group_layout_key();
     m_uniform_buffer = next_state.take_uniform_buffer();
     m_bind_group = next_state.take_bind_group();
 }
 
 // Releases all owned WebGPU material handles.
 void Material::release_gpu_state() noexcept {
-    PreparedMaterialGpuState state{m_bind_group_layout, m_uniform_buffer, m_bind_group};
+    PreparedMaterialGpuState state{
+        m_bind_group_layout, std::move(m_bind_group_layout_key), m_uniform_buffer, m_bind_group};
     m_bind_group_layout = nullptr;
+    m_bind_group_layout_key.clear();
     m_uniform_buffer = nullptr;
     m_bind_group = nullptr;
 }

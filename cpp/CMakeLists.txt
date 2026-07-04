@@ -185,6 +185,9 @@ add_library(ofg_cpp
   src/scene/mesh_renderer.cpp
   src/scene/player.cpp
   src/scene/scene.cpp
+  src/terrain/terrain.cpp
+  src/terrain/terrain_chunk.cpp
+  src/terrain/terrain_scene.cpp
 )
 
 target_include_directories(ofg_cpp
@@ -284,6 +287,8 @@ if(OFG_BUILD_TESTS AND NOT EMSCRIPTEN)
     tests/shadow_map_target_test.cpp
     tests/sky_pass_test.cpp
     tests/temp_buffer_test.cpp
+    tests/terrain_chunk_test.cpp
+    tests/terrain_test.cpp
     tests/test_main.cpp
     tests/texture_resource_test.cpp
     tests/webgpu_test_utils.cpp

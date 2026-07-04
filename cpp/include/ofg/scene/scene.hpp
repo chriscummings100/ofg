@@ -14,6 +14,7 @@
 #include "ofg/scene/light.hpp"
 #include "ofg/scene/mesh_renderer.hpp"
 #include "ofg/scene/player.hpp"
+#include "ofg/terrain/terrain.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -74,6 +75,10 @@ public:
     [[nodiscard]] Environment& environment() noexcept;
     // Returns scene-owned global environment state.
     [[nodiscard]] const Environment& environment() const noexcept;
+    // Returns scene-owned procedural terrain state.
+    [[nodiscard]] Terrain& terrain() noexcept;
+    // Returns scene-owned procedural terrain state.
+    [[nodiscard]] const Terrain& terrain() const noexcept;
     // Reports the number of player components in creation order.
     [[nodiscard]] std::size_t player_count() const noexcept;
     // Returns one player by creation-order index.
@@ -116,6 +121,7 @@ private:
     std::vector<std::unique_ptr<Light>> m_lights;
     Ptr<Camera> m_main_camera;
     Environment m_environment;
+    Terrain m_terrain;
     std::vector<math::Mat4> m_world_transform_cache;
     Entity* m_root{nullptr};
     EntityId m_next_entity_id{0};

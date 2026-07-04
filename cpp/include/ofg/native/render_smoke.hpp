@@ -30,7 +30,7 @@ struct SmokeContract {
     double m_min_scene_ratio{0.12};
     // Minimum sampled-pixel ratio that must look like cleared background.
     double m_min_background_ratio{0.25};
-    // Minimum sampled-pixel ratio that must look like neutral checker ground.
+    // Minimum sampled-pixel ratio that must look like authored terrain/ground surface.
     double m_min_ground_ratio{0.04};
     // Minimum sampled-pixel ratio that must look like saturated cube colors.
     double m_min_colored_ratio{0.01};

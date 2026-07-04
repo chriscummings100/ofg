@@ -13,6 +13,7 @@
 #include "ofg/scene/light.hpp"
 #include "ofg/scene/player.hpp"
 #include "ofg/scene/scene_update.hpp"
+#include "ofg/terrain/terrain.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -50,8 +51,8 @@ Scene::Scene(Scene&& other) noexcept
       m_cameras(std::move(other.m_cameras)), m_players(std::move(other.m_players)),
       m_animation_players(std::move(other.m_animation_players)), m_lights(std::move(other.m_lights)),
       m_main_camera(std::move(other.m_main_camera)), m_environment(std::move(other.m_environment)),
-      m_world_transform_cache(std::move(other.m_world_transform_cache)), m_root(other.m_root),
-      m_next_entity_id(other.m_next_entity_id), m_generation(other.m_generation) {
+      m_terrain(std::move(other.m_terrain)), m_world_transform_cache(std::move(other.m_world_transform_cache)),
+      m_root(other.m_root), m_next_entity_id(other.m_next_entity_id), m_generation(other.m_generation) {
     rebind_entities_after_move();
     other.m_main_camera = nullptr;
     other.m_root = nullptr;
@@ -71,6 +72,7 @@ Scene& Scene::operator=(Scene&& other) noexcept {
     m_lights = std::move(other.m_lights);
     m_main_camera = std::move(other.m_main_camera);
     m_environment = std::move(other.m_environment);
+    m_terrain = std::move(other.m_terrain);
     m_world_transform_cache = std::move(other.m_world_transform_cache);
     m_root = other.m_root;
     m_next_entity_id = other.m_next_entity_id;
@@ -224,6 +226,16 @@ const Environment& Scene::environment() const noexcept {
     return m_environment;
 }
 
+// Returns scene-owned procedural terrain state.
+Terrain& Scene::terrain() noexcept {
+    return m_terrain;
+}
+
+// Returns scene-owned procedural terrain state.
+const Terrain& Scene::terrain() const noexcept {
+    return m_terrain;
+}
+
 // Reports the number of player components in creation order.
 std::size_t Scene::player_count() const noexcept {
     return m_players.size();
@@ -276,6 +288,11 @@ void Scene::update(const SceneUpdateContext& context) {
     for (const std::unique_ptr<AnimationPlayer>& animation_player : m_animation_players) {
         animation_player->update(context);
     }
+    math::Vec3 terrain_origin{0.0f, 0.0f, 0.0f};
+    if (context.m_primary_player != nullptr && context.m_primary_player->entity() != nullptr) {
+        terrain_origin = context.m_primary_player->entity()->local_transform().m_position;
+    }
+    m_terrain.tick(TerrainTickContext{terrain_origin});
     m_world_transform_cache.resize(m_next_entity_id);
     if (m_root != nullptr) {
         write_world_transform_cache(*m_root, math::mat4_identity(), m_world_transform_cache);
@@ -297,6 +314,7 @@ std::uint32_t Scene::generation() const noexcept {
 void Scene::clear() {
     m_main_camera = nullptr;
     m_environment = Environment{};
+    m_terrain = Terrain{};
     m_cameras.clear();
     m_players.clear();
     m_animation_players.clear();

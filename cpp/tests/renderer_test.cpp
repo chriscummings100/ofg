@@ -305,7 +305,7 @@ RenderScene make_render_scene_with_modes(
     return scene;
 }
 
-// Builds GPU-ready resources and two commands that force draw-uniform growth.
+// Builds GPU-ready resources and two commands for culling/draw-list coverage.
 RenderScene make_render_scene(ofg::GpuContext gpu) {
     return make_render_scene_with_modes(gpu, gpu, gpu);
 }
@@ -650,10 +650,10 @@ TEST_CASE("renderer records scene mesh renderers into render targets without ste
     wgpuQueueSubmit(gpu.borrowed_context().m_queue, 1, &command.m_value);
 
     CHECK(ofg::Renderer::counters().m_pipeline_create_count == 8);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 14);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 13);
     CHECK(ofg::Renderer::counters().m_texture_create_count == 11);
     CHECK(ofg::Renderer::counters().m_texture_view_create_count == 11);
-    CHECK(ofg::Renderer::counters().m_bind_group_create_count == 19);
+    CHECK(ofg::Renderer::counters().m_bind_group_create_count == 18);
     CHECK(ofg::Renderer::bloom_diagnostics().m_active_level_count > 0);
     CHECK(ofg::Renderer::bloom_diagnostics().m_encoded_pass_count > 0);
     CHECK(ofg::Renderer::bloom_diagnostics().m_draw_count == ofg::Renderer::bloom_diagnostics().m_encoded_pass_count);
@@ -686,10 +686,10 @@ TEST_CASE("renderer records scene mesh renderers into render targets without ste
         second_encoder.m_value, ofg::RenderTarget{second_view.m_value, _test_format, 32, 32}, one_command_scene));
 
     CHECK(ofg::Renderer::counters().m_pipeline_create_count == 8);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 14);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 13);
     CHECK(ofg::Renderer::counters().m_texture_create_count == 11);
     CHECK(ofg::Renderer::counters().m_texture_view_create_count == 11);
-    CHECK(ofg::Renderer::counters().m_bind_group_create_count == 19);
+    CHECK(ofg::Renderer::counters().m_bind_group_create_count == 18);
     const ofg::DebugUiStatus second_debug_ui_status = ofg::Renderer::debug_ui_status();
     CHECK(second_debug_ui_status.m_overlay_pass_count == 2);
     CHECK(second_debug_ui_status.m_menu_tree_rebuild_count == first_debug_ui_status.m_menu_tree_rebuild_count);

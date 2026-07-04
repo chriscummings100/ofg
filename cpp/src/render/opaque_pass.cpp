@@ -25,7 +25,7 @@ namespace {
 constexpr std::uint64_t _frame_uniform_bytes = sizeof(float) * 48;
 constexpr std::uint64_t _draw_uniform_bytes = sizeof(float) * 32;
 constexpr std::uint64_t _draw_uniform_stride = 256;
-constexpr std::uint32_t _initial_draw_capacity = 1;
+constexpr std::uint32_t _initial_draw_capacity = 256;
 constexpr float _normal_matrix_min_determinant = 0.000001f;
 
 // Creates a uniform buffer with CopyDst writes enabled.
@@ -350,7 +350,9 @@ std::unique_ptr<OpaquePass> OpaquePass::create(GpuContext gpu, WGPUTextureFormat
     pass->m_draw_layout = create_uniform_layout(
         gpu.m_device, "OFG opaque draw layout", _draw_uniform_bytes, WGPUShaderStage_Vertex, true);
     pass->m_shadow_layout = create_shadow_layout(gpu.m_device);
-    pass->m_draw_buffer = create_uniform_buffer(gpu.m_device, "OFG opaque draw uniforms", _draw_uniform_stride);
+    pass->m_draw_buffer = create_uniform_buffer(gpu.m_device,
+        "OFG opaque draw uniforms",
+        static_cast<std::uint64_t>(pass->m_draw_capacity) * _draw_uniform_stride);
     pass->m_shadow_buffer =
         create_uniform_buffer(gpu.m_device, "OFG opaque shadow uniforms", shadow_frame_uniform_byte_size());
     pass->m_buffer_create_count = 3;

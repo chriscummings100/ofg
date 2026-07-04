@@ -17,6 +17,7 @@
 #include "ofg/scene/player.hpp"
 #include "ofg/scene/scene.hpp"
 #include "ofg/scene/scene_update.hpp"
+#include "ofg/terrain/terrain_scene.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -461,6 +462,7 @@ void Game::update_impl(double time_ms) {
     SceneUpdateContext context{
         scene_control_input, time_ms, delta_seconds, primary_player, main_camera, m_current_scene.get(), m_gpu};
     m_current_scene->update(context);
+    sync_terrain_debug_scene(m_demo_scene.m_terrain_resources, *m_current_scene, *m_current_scene->get_root());
     if (primary_player != nullptr) {
         primary_player->publish_default_model_debug_status(m_status, m_last_error);
     }

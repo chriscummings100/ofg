@@ -18,6 +18,7 @@
 #include "ofg/scene/light.hpp"
 #include "ofg/scene/player.hpp"
 #include "ofg/scene/scene.hpp"
+#include "ofg/terrain/terrain_scene.hpp"
 
 #include "shaders/opaque_uber.wgsl.hpp"
 
@@ -34,7 +35,6 @@
 namespace ofg {
 namespace {
 
-constexpr std::uint32_t _checker_size = 64;
 constexpr float _pi = 3.14159265358979323846f;
 constexpr float _demo_camera_vertical_fov_radians = 55.0f * _pi / 180.0f;
 constexpr float _demo_camera_near_z = 0.1f;
@@ -65,23 +65,6 @@ std::vector<std::byte> rgba_bytes(std::initializer_list<std::uint8_t> values) {
     return bytes;
 }
 
-// Creates a mipmapped gray checker texture for the ground plane.
-std::vector<std::byte> checker_pixels() {
-    std::vector<std::byte> pixels;
-    pixels.reserve(static_cast<std::size_t>(_checker_size) * _checker_size * 4U);
-    for (std::uint32_t y = 0; y < _checker_size; ++y) {
-        for (std::uint32_t x = 0; x < _checker_size; ++x) {
-            const bool bright = ((x / 8U) + (y / 8U)) % 2U == 0U;
-            const std::uint8_t value = bright ? 150U : 74U;
-            pixels.push_back(static_cast<std::byte>(value));
-            pixels.push_back(static_cast<std::byte>(value));
-            pixels.push_back(static_cast<std::byte>(value));
-            pixels.push_back(static_cast<std::byte>(255U));
-        }
-    }
-    return pixels;
-}
-
 // Creates and initializes a generated texture through Resources.
 Texture* add_texture(std::string label,
     std::uint32_t width,
@@ -110,16 +93,6 @@ Material* add_material(std::string label,
     Material& material = Resources::create_material(std::move(label));
     material.init(shader, std::move(properties));
     return &material;
-}
-
-// Builds the large XZ ground plane vertex data.
-std::vector<MeshVertex> ground_vertices() {
-    return {
-        MeshVertex{{-88.0f, 0.0f, -104.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
-        MeshVertex{{88.0f, 0.0f, -104.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {88.0f, 0.0f}},
-        MeshVertex{{88.0f, 0.0f, 40.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {88.0f, 72.0f}},
-        MeshVertex{{-88.0f, 0.0f, 40.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 72.0f}},
-    };
 }
 
 // Appends one cube face as four vertices plus two triangles.
@@ -338,9 +311,13 @@ void configure_demo_camera(Entity& entity) {
 
 // Validates resources that must exist before scene entity setup or update.
 void validate_demo_resources(const DemoScene& demo_scene) {
-    if (demo_scene.m_ground_mesh == nullptr || demo_scene.m_cube_mesh == nullptr ||
-        demo_scene.m_ground_material == nullptr || demo_scene.m_player_material == nullptr) {
+    if (demo_scene.m_cube_mesh == nullptr || demo_scene.m_player_material == nullptr) {
         throw EngineError("Demo scene resources are not initialized.");
+    }
+    if (demo_scene.m_terrain_resources.m_height_debug_shader == nullptr ||
+        demo_scene.m_terrain_resources.m_height_debug_default_material == nullptr ||
+        demo_scene.m_terrain_resources.m_debug_plane_mesh == nullptr) {
+        throw EngineError("Demo scene terrain debug resources are not initialized.");
     }
     for (Material* material : demo_scene.m_cube_materials) {
         if (material == nullptr) {
@@ -354,12 +331,23 @@ void validate_demo_bindings(const DemoScene& demo_scene, const Scene& scene) {
     if (demo_scene.m_scene != &scene || demo_scene.m_scene_generation != scene.generation()) {
         throw EngineError("Demo scene entity bindings are not initialized for this scene.");
     }
-    if (demo_scene.m_ground_entity == nullptr || demo_scene.m_ground_renderer == nullptr) {
-        throw EngineError("Demo scene ground entity binding is not initialized.");
-    }
     if (demo_scene.m_player_entity == nullptr || demo_scene.m_player_visual_entity == nullptr ||
         demo_scene.m_player_renderer == nullptr || demo_scene.m_player == nullptr) {
         throw EngineError("Demo scene player entity binding is not initialized.");
+    }
+    if (demo_scene.m_terrain_resources.m_debug_chunks.size() != scene.terrain().chunk_count() ||
+        demo_scene.m_terrain_resources.m_debug_chunks.size() <
+            static_cast<std::size_t>(terrain_initial_surface_radius_chunks * 2 + 1) *
+                static_cast<std::size_t>(terrain_initial_surface_radius_chunks * 2 + 1)) {
+        throw EngineError("Demo scene terrain debug bindings are not initialized.");
+    }
+    for (const TerrainDebugChunkBinding& binding : demo_scene.m_terrain_resources.m_debug_chunks) {
+        if (binding.m_entity == nullptr || binding.m_renderer == nullptr || binding.m_material == nullptr) {
+            throw EngineError("Demo scene terrain debug bindings are not initialized.");
+        }
+        if (scene.terrain().find_chunk(binding.m_chunk_id) == nullptr) {
+            throw EngineError("Demo scene terrain debug bindings are stale for the current streamed chunks.");
+        }
     }
     const std::size_t placement_count = cube_placements().size();
     if (demo_scene.m_cube_entities.size() != placement_count || demo_scene.m_cube_renderers.size() != placement_count) {
@@ -385,9 +373,8 @@ void build_demo_scene(DemoScene& scene) {
     scene.m_shader = &Resources::create_shader("OFG opaque demo shader");
     scene.m_shader->init_from_wgsl(
         render::shaders::opaque_uber_wgsl, opaque_demo_shader_layout(), {PipelineDefinition{"opaque demo"}});
+    build_terrain_debug_resources(scene.m_terrain_resources);
 
-    scene.m_checker_texture = add_texture(
-        "OFG generated checker texture", _checker_size, _checker_size, TextureColorSpace::Srgb, checker_pixels());
     scene.m_white_texture =
         add_texture("OFG generated white texture", 1, 1, TextureColorSpace::Srgb, rgba_bytes({255, 255, 255, 255}));
     scene.m_neutral_metallic_roughness_texture = add_texture("OFG generated neutral metallic-roughness texture",
@@ -399,12 +386,6 @@ void build_demo_scene(DemoScene& scene) {
         "OFG generated flat normal texture", 1, 1, TextureColorSpace::Linear, rgba_bytes({128, 128, 255, 255}));
 
     // Materials all share one shader layout: PBR factors plus the required texture slots.
-    scene.m_ground_material = add_material("OFG demo ground material",
-        *scene.m_shader,
-        math::vec4(1.0f, 1.0f, 1.0f, 1.0f),
-        *scene.m_checker_texture,
-        *scene.m_neutral_metallic_roughness_texture,
-        *scene.m_flat_normal_texture);
     scene.m_player_material = add_material("OFG demo player material",
         *scene.m_shader,
         math::vec4(0.15f, 0.86f, 0.92f, 1.0f),
@@ -428,10 +409,6 @@ void build_demo_scene(DemoScene& scene) {
     }
 
     // Meshes are added last so their submeshes can point at arena-owned materials.
-    std::vector<SubMesh> ground_submeshes{SubMesh{"ground", 0, 6, scene.m_ground_material}};
-    scene.m_ground_mesh = &Resources::create_mesh("OFG demo ground mesh");
-    scene.m_ground_mesh->init(ground_vertices(), {0, 1, 2, 0, 2, 3}, std::move(ground_submeshes));
-
     std::vector<MeshVertex> cube_vertices;
     std::vector<std::uint32_t> cube_indices;
     cube_geometry(cube_vertices, cube_indices);
@@ -479,10 +456,6 @@ void setup_demo_scene(DemoScene& demo_scene, Scene& scene) {
     Entity* camera_entity = scene.create_entity(root);
     configure_demo_camera(*camera_entity);
 
-    demo_scene.m_ground_entity = scene.create_entity(root);
-    demo_scene.m_ground_renderer = &create_mesh_renderer(*demo_scene.m_ground_entity);
-    demo_scene.m_ground_renderer->set_mesh(demo_scene.m_ground_mesh);
-
     demo_scene.m_player_entity = scene.create_entity(root);
     Component* player_component = demo_scene.m_player_entity->create_component(ComponentType::Player);
     if (player_component == nullptr || player_component->type() != ComponentType::Player ||
@@ -498,6 +471,9 @@ void setup_demo_scene(DemoScene& demo_scene, Scene& scene) {
     demo_scene.m_player_entity->local_transform().m_position = math::vec3(0.0f, 0.9f, 0.0f);
     demo_scene.m_player_entity->local_transform().m_scale = math::vec3(1.0f, 1.0f, 1.0f);
     demo_scene.m_player_visual_entity->local_transform().m_scale = math::vec3(0.6f, 1.8f, 0.35f);
+
+    setup_terrain_debug_scene(
+        demo_scene.m_terrain_resources, scene, *root, demo_scene.m_player_entity->local_transform().m_position);
 
     const std::vector<CubePlacement>& placements = cube_placements();
     demo_scene.m_cube_entities.assign(placements.size(), nullptr);
@@ -521,7 +497,6 @@ void update_demo_scene(const DemoScene& demo_scene, double time_ms, Scene& scene
         throw EngineError("Demo scene update requires finite time.");
     }
 
-    demo_scene.m_ground_entity->local_transform() = LocalTransform{};
     demo_scene.m_player_entity->local_transform().m_position.y = demo_scene.m_player->height() * 0.5f;
     demo_scene.m_player_entity->local_transform().m_scale = math::vec3(1.0f, 1.0f, 1.0f);
     demo_scene.m_player_visual_entity->local_transform().m_position = math::vec3(0.0f, 0.0f, 0.0f);
