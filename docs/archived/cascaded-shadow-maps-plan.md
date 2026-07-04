@@ -62,7 +62,9 @@ rendering and shadow rendering can each generate a draw list from a pass-specifi
 - [x] (2026-07-04 14:12 +01:00) Implemented Milestone 4: opaque PBR shadow sampling now uses the
   current sun shadow maps with intensity, receiver/normal bias, hard/five-tap/nine-tap PCF modes, cascade blending,
   visible browser/native smoke screenshots, docs, coverage, and milestone review.
-- [ ] Implement Milestone 5: diagnostics, smoke/debug visuals, screenshots, docs, and coverage.
+- [x] (2026-07-04 16:05 +01:00) Implemented Milestone 5: runtime/browser/native shadow diagnostics, shadow-map debug
+  overlay, overhead-sun debug lock, smoke contracts, 2048 nine-tap PCF default, tightened near cascade for first-person
+  contact-shadow quality, durable screenshots, docs, coverage, and user visual review.
 - [x] (2026-07-04) Debugged cascade shadow-map generation: per-cascade shadow caster passes now use distinct
   frame/model uniform bindings so command-buffer submission cannot observe the last cascade's matrix/model writes, and
   cascade bounds now use tight light-space receiver side planes with bounded caster-depth padding instead of a
@@ -168,6 +170,11 @@ rendering and shadow rendering can each generate a draw list from a pass-specifi
   native smoke accepted casters dropped from near/mid/far `17/155/186` to `12/111/139`, and browser smoke reported
   `24/113/112` for its final camera state while still passing.
 
+- Observation: The first-person downward view is a more important shadow-quality test than the default smoke camera.
+  Evidence: user screenshots showed stable but visibly blocky player-foot shadows even after 2048 maps and nine-tap PCF.
+  The accepted tuning keeps the default at nine taps, uses per-cascade PCF radii, and tightens the first cascade to 4
+  world units so immediate contact shadows get more texel density without brute-force 25-tap filtering.
+
 ## Decision Log
 
 - Decision: Implement CSM before any ray-traced shadow path.
@@ -265,6 +272,13 @@ rendering and shadow rendering can each generate a draw list from a pass-specifi
   one validated C++ settings type.
   Date/Author: 2026-07-04 / Codex.
 
+- Decision: Retune the final default shadow quality for first-person contact shadows.
+  Rationale: The player can naturally look down at their feet, and that close-up view exposed blocky but stable near
+  shadows. The final defaults use cascade ends of 4, 22, and 80 world units with blend widths of 0.75, 3, and 8 world
+  units, 2048 shadow maps, nine-tap PCF, and per-cascade PCF radii of 0.75, 1.25, and 1.75 texels. This increases near
+  cascade density and keeps the near filter crisp/anti-aliased without paying for a 25-tap blur everywhere.
+  Date/Author: 2026-07-04 / Codex, based on user visual review.
+
 - Decision: Treat `LightProperties::m_direction` as the light travel direction for all cascade helpers, and compute sun
   elevation from the negated surface-to-sun vector.
   Rationale: This matches the existing opaque shader convention and avoids creating a parallel sun direction convention
@@ -342,6 +356,15 @@ opaque WGSL shader samples the current sun depth array, applies receiver and nor
 comparison filtering, blends adjacent cascades inside transition bands, and only attenuates direct sun lighting by the
 effective shadow intensity. Browser and native smoke now show visible sun-cast shadows. Public runtime/browser shadow
 diagnostics and debug overlays remain Milestone 5 work.
+
+Milestone 5 is complete. `RuntimeDebugStatus` and the TypeScript runtime wrapper expose shadow diagnostics through the
+same public inspection path as render culling, bloom, and temp-buffer diagnostics. Browser and native smoke contracts now
+assert cascade/pass counts, map size, estimated depth bytes, PCF mode/sample count, effective intensity, and caster draw
+counts. The renderer has an on-screen shadow-map layer preview toggled by `M` and an overhead-sun debug lock toggled by
+`O`, which were used to diagnose identical cascade projections and then confirm distinct near/mid/far scale. The final
+quality defaults are 2048 maps, nine-tap PCF, cascade ends at 4/22/80 world units, blend widths of 0.75/3/8, and
+per-cascade PCF radii of 0.75/1.25/1.75 texels. User visual review accepted the first-person downward/feet shadow view
+after the near cascade was tightened.
 
 ## Contract and Quality Baseline
 
@@ -478,12 +501,13 @@ The first settings type should expose three cascade end distances in camera view
 defaults:
 
     cascade_count = 3
-    cascade_end_distances = [12.0, 32.0, 80.0]
+    cascade_end_distances = [4.0, 22.0, 80.0]
+    cascade_blend_widths = [0.75, 3.0, 8.0]
     max_shadow_distance = cascade_end_distances[2]
     split_lambda = 0.5
-    shadow_map_size = 1024
-    pcf_mode = hard shadows first, then 5-tap PCF, then 9-tap PCF only if budgets pass
-    shadow_intensity = 0.85
+    shadow_map_size = 2048
+    pcf_mode = hard shadows first, then 5-tap PCF, then 9-tap PCF if budgets pass
+    shadow_intensity = 0.75
     shadow_fade_start_sun_elevation_degrees = 12.0
     shadow_fade_end_sun_elevation_degrees = 3.0
     shadow_matrix_min_sun_elevation_degrees = 5.0
@@ -497,7 +521,7 @@ helper should also exist for tests and tuning:
     split_i = mix(uniform_i, logarithmic_i, split_lambda)
 
 Clamp the final shadow distance to `camera.far_z` until OFG supports receiving shadows beyond the camera far plane.
-When the current camera has `far_z = 80.0`, the default `[12, 32, 80]` maps cleanly to the existing render distance.
+When the current camera has `far_z = 80.0`, the default `[4, 22, 80]` maps cleanly to the existing render distance.
 Validation must force the final end distance to `shadow_far`, require strictly increasing cascade ends, and require each
 blend width to be smaller than the adjacent cascade interval it overlaps.
 
@@ -611,9 +635,9 @@ The first visible shadow milestone should implement hard shadows. Then add a mea
 promote nine-tap 3x3 PCF to the default if browser and native smoke budgets pass. Use a per-cascade texel radius so near
 shadows can be crisp and far shadows can be slightly softer:
 
-    near cascade radius: 1.0 texels
-    mid cascade radius: 1.5 texels
-    far cascade radius: 2.0 texels
+    near cascade radius: 0.75 texels
+    mid cascade radius: 1.25 texels
+    far cascade radius: 1.75 texels
 
 The shader must early-out before sampling shadows when shadows are disabled, when the pixel is beyond
 `max_shadow_distance`, when `n_dot_l <= 0`, or when projected shadow coordinates are outside valid UV/depth range.
@@ -862,7 +886,7 @@ Milestone 0 review, 2026-07-04 12:16 +01:00 / Codex:
 - Follow-ups recorded: none for Milestone 0. The remaining culling/shadow work is already tracked by Milestones 1-5.
 - Rejected findings: none.
 - Validation rerun: `npm run format:cpp`, `npm run test:cpp`, `npm run test:ts`, `npm run smoke:render`,
-  `npm run smoke:browser`, `npm run coverage`, `npm run format:cpp:check`, and
+  `npm run smoke:browser`, `npm test`, `npm run smoke`, `npm run coverage`, `npm run format:cpp:check`, and
   `git -c safe.directory=C:/dev/ofg diff --check`.
 - Remaining risk: the scene is intentionally still rendered without camera culling, so frame cost rises until Milestone 1
   adds bounded render extraction and frustum culling. Smoke images were inspected and remain readable.
@@ -942,6 +966,30 @@ Milestone 4 review, 2026-07-04 14:12 +01:00 / Codex:
 - Remaining risk: the default visual path exercises five-tap PCF and cascade blending, but there is not yet a dedicated
   hard-shadow screenshot or cascade-overlay debug view. Milestone 5 owns the public shadow diagnostics and debug/smoke
   visual surface.
+- Resolution: Milestone 5 added public runtime shadow diagnostics, browser/native smoke shadow contracts, the cascade
+  overlay debug view, and the overhead-sun debug lock. The default visual path now exercises 2048-map nine-tap PCF,
+  cascade blending, and the tuned 4m near cascade.
+
+Milestone 5 review, 2026-07-04 16:10 +01:00 / Codex:
+
+- Scope: public shadow diagnostics/status plumbing, browser/native smoke shadow contracts, shadow-map debug overlay,
+  overhead-sun lock, first-person contact-shadow quality tuning, focused tests, coverage exclusions for defensive
+  WebGPU allocation-failure paths, active docs, coverage summaries, and native/browser smoke reports/screenshots.
+- Reviewers: contract, code quality, legacy/docs, correctness, and validation passes were run locally. Sub-agent tools
+  were available but not used because the delegation tool policy requires explicit user authorization for sub-agent work.
+- Required findings fixed: `npm run coverage` initially failed `cpp\src\render\shadow_debug_pass.cpp` at 86.13%;
+  the fix added a normal-path test for replacing the debug overlay's sampled shadow-map view and recorded narrow
+  defensive allocation-failure exclusions in `tools\cpp-coverage.mjs`. The rerun reported
+  `cpp\src\render\shadow_debug_pass.cpp line coverage 97.18%`.
+- Follow-ups recorded: none. `docs\ARCHITECTURE.md` is still absent and was already recorded as a repository-docs gap in
+  this plan during the Milestone 1 review.
+- Rejected findings: none.
+- Validation rerun: `npm run format:cpp`, `npm run test:cpp`, `npm run test:ts`, `npm run smoke:render`,
+  `npm run smoke:browser`, `npm run coverage`, `npm run format:cpp:check`, and
+  `git -c safe.directory=C:/dev/ofg diff --check`.
+- Remaining risk: this is still a first CSM implementation. PCSS/contact-hardening, artist-facing debug UI controls,
+  terrain-scale shadow policy, and performance tuning across lower-end browser GPUs remain future work, not blockers for
+  this plan's requested 3-cascade current-sun shadows.
 
 ## Validation and Acceptance
 
@@ -1229,6 +1277,52 @@ Browser smoke evidence after visible opaque shadow sampling landed:
     coloredRatio = 0.2860923845193508
     nonBackgroundColorBuckets = 27
 
+Milestone 5 validation evidence, 2026-07-04 16:05 +01:00 / Codex:
+
+    npm run format:cpp
+    npm run test:cpp
+    npm run test:ts
+    npm run smoke:render
+    npm run smoke:browser
+    npm test
+    npm run smoke
+    npm run coverage
+
+All commands passed. Coverage reported `cpp\src\render\shadow_debug_pass.cpp line coverage 97.18%` with 25 defensive
+WebGPU allocation-failure lines excluded, `cpp\src\render\shadow_cascade.cpp line coverage 93.01%`,
+`cpp\src\render\shadow_caster_pass.cpp line coverage 97.00%`, `cpp\src\render\shadow_frame_state.cpp line coverage
+95.83%`, `cpp\src\render\shadow_map_target.cpp line coverage 94.82%`, and `cpp\src\render\shadow_settings.cpp line
+coverage 94.81%`. TypeScript coverage passed for checked files. Native smoke wrote
+`C:\dev\ofg\artifacts\render-smoke\opaque-demo.png` and `C:\dev\ofg\artifacts\render-smoke\report.json`; a durable
+shadow milestone copy is `C:\dev\ofg\artifacts\cascaded-shadows\m5-native-2048-nine-tap-4m-near.png`. Browser smoke
+wrote `C:\dev\ofg\artifacts\browser-smoke\opaque-demo.png` and `C:\dev\ofg\artifacts\browser-smoke\report.json`; a
+durable shadow milestone copy is
+`C:\dev\ofg\artifacts\cascaded-shadows\m5-browser-2048-nine-tap-4m-near.png`.
+
+Native smoke evidence after Milestone 5 tuning:
+
+    shadow.mapSize = 2048
+    shadow.estimatedDepthBytes = 50331648
+    shadow.pcfMode = "nine_tap"
+    shadow.pcfSampleCount = 9
+    shadow.effectiveIntensity = 0.75
+    shadow.cascades.acceptedCasterCount = [1, 71, 151]
+    shadow.totalAcceptedCasterCount = 223
+
+Browser smoke evidence after Milestone 5 tuning:
+
+    shadow.mapSize = 2048
+    shadow.estimatedDepthBytes = 50331648
+    shadow.pcfMode = "nine_tap"
+    shadow.pcfSampleCount = 9
+    shadow.effectiveIntensity = 0.75
+    shadow.cascades.acceptedCasterCount = [8, 80, 129]
+    shadow.totalAcceptedCasterCount = 217
+
+Human visual review evidence:
+
+    User reported the first-person downward/feet shadow view "looks good" after tightening the near cascade to 4m.
+
 Research conclusion on ray tracing:
 
 WebGL cannot use hardware ray tracing pipelines. Browser WebGPU cannot use standard hardware ray tracing pipelines today
@@ -1288,9 +1382,9 @@ Expected new or changed interfaces by the end:
   - `struct ShadowSettings`
   - `enum class ShadowPcfMode { Hard, FiveTap, NineTap }`
   - cascade count fixed to `3` for the first implementation
-  - default `map_size = 1024`
-  - cascade end distances, blend widths, map size, PCF radius, receiver depth bias, normal bias, intensity, low-sun fade
-    angles, shadow matrix minimum sun elevation, enabled flag, and validation helpers
+  - default `map_size = 2048`
+  - cascade end distances, blend widths, map size, per-cascade PCF radii, receiver depth bias, normal bias, intensity,
+    low-sun fade angles, shadow matrix minimum sun elevation, enabled flag, and validation helpers
   - static caster-pipeline bias defaults kept separate from per-frame receiver bias
   - `std::array<float, 3> practical_split_distances(float near_z, float far_z, float lambda)`
 
@@ -1342,8 +1436,8 @@ Expected new or changed interfaces by the end:
 - `C:\dev\ofg\cpp\include\ofg\runtime\runtime_debug_status.hpp`, `C:\dev\ofg\cpp\src\runtime\runtime_debug_status.cpp`,
   `C:\dev\ofg\cpp\include\ofg\game\game.hpp`, `C:\dev\ofg\cpp\src\game\game.cpp`,
   `C:\dev\ofg\cpp\src\web\browser_game.cpp`, and `C:\dev\ofg\src\app\wasmRuntime.ts`
-  - currently expose default demo-scene identity/count diagnostics and render-culling extracted/visible/culled counts
-  - later expose shadow diagnostics through the same status path used by existing renderer diagnostics
+  - expose default demo-scene identity/count diagnostics, render-culling extracted/visible/culled counts, and shadow
+    diagnostics through the same status path used by existing renderer diagnostics
 
 - `C:\dev\ofg\tools\browser-smoke.mjs`, `C:\dev\ofg\tools\browser-smoke-cpp.mjs`,
   `C:\dev\ofg\tools\smoke-render-cpp.mjs`, and `C:\dev\ofg\tools\smoke-contract.json`

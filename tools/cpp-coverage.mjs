@@ -69,6 +69,36 @@ const lineCoverageExclusions = new Map([
     ])
   ],
   [
+    "cpp/src/render/shadow_debug_pass.cpp",
+    new Set([
+      30,
+      31,
+      61,
+      62,
+      75,
+      76,
+      112,
+      113,
+      126,
+      127,
+      150,
+      151,
+      195,
+      196,
+      198,
+      199,
+      201,
+      202,
+      204,
+      205,
+      207,
+      208,
+      210,
+      253,
+      254
+    ])
+  ],
+  [
     "cpp/src/render/shadow_map_target.cpp",
     new Set([19, 22, 36, 55, 74, 97, 170, 171, 172, 175, 176, 178, 179])
   ],

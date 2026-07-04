@@ -400,6 +400,10 @@ TEST_CASE("shadow debug pass creates validates and renders") {
     CHECK(pass->counters().m_bind_group_create_count == 1);
     pass->render(encoder.m_value, shadow_target.sampling_view(), cascades, output_target);
     CHECK(pass->counters().m_bind_group_create_count == 1);
+    ofg::ShadowMapTarget replacement_shadow_target(gpu.borrowed_context());
+    replacement_shadow_target.resize(32);
+    pass->render(encoder.m_value, replacement_shadow_target.sampling_view(), cascades, output_target);
+    CHECK(pass->counters().m_bind_group_create_count == 2);
 
     WGPUCommandBuffer command = wgpuCommandEncoderFinish(encoder.m_value, nullptr);
     encoder.m_value = nullptr;
