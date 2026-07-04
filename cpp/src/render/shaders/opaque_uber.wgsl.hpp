@@ -181,24 +181,24 @@ fn sample_shadow_pcf(cascade_index: i32, uv: vec2<f32>, depth_reference: f32) ->
     let dx = vec2<f32>(texel_radius, 0.0);
     let dy = vec2<f32>(0.0, texel_radius);
     if (shadow.options2.x < 1.5) {
-        let sum = sample_shadow_once(cascade_index, uv, depth_reference)
+        let sum = sample_shadow_once(cascade_index, uv, depth_reference) * 2.0
             + sample_shadow_once(cascade_index, uv + dx, depth_reference)
             + sample_shadow_once(cascade_index, uv - dx, depth_reference)
             + sample_shadow_once(cascade_index, uv + dy, depth_reference)
             + sample_shadow_once(cascade_index, uv - dy, depth_reference);
-        return sum * 0.2;
+        return sum / 6.0;
     }
 
-    let sum = sample_shadow_once(cascade_index, uv, depth_reference)
-        + sample_shadow_once(cascade_index, uv + dx, depth_reference)
-        + sample_shadow_once(cascade_index, uv - dx, depth_reference)
-        + sample_shadow_once(cascade_index, uv + dy, depth_reference)
-        + sample_shadow_once(cascade_index, uv - dy, depth_reference)
+    let sum = sample_shadow_once(cascade_index, uv, depth_reference) * 4.0
+        + sample_shadow_once(cascade_index, uv + dx, depth_reference) * 2.0
+        + sample_shadow_once(cascade_index, uv - dx, depth_reference) * 2.0
+        + sample_shadow_once(cascade_index, uv + dy, depth_reference) * 2.0
+        + sample_shadow_once(cascade_index, uv - dy, depth_reference) * 2.0
         + sample_shadow_once(cascade_index, uv + dx + dy, depth_reference)
         + sample_shadow_once(cascade_index, uv + dx - dy, depth_reference)
         + sample_shadow_once(cascade_index, uv - dx + dy, depth_reference)
         + sample_shadow_once(cascade_index, uv - dx - dy, depth_reference);
-    return sum / 9.0;
+    return sum / 16.0;
 }
 
 fn sample_shadow_cascade(cascade_index: i32, world_position: vec3<f32>, normal: vec3<f32>) -> f32 {

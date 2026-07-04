@@ -16,10 +16,10 @@
   "minNonBackgroundColorBuckets": 4,
   "expectedShadowCascadeCount": 3,
   "expectedShadowEncodedPassCount": 3,
-  "expectedShadowMapSize": 1024,
-  "expectedShadowPcfMode": "five_tap",
-  "expectedShadowPcfSampleCount": 5,
+  "expectedShadowMapSize": 2048,
+  "expectedShadowPcfMode": "nine_tap",
+  "expectedShadowPcfSampleCount": 9,
   "minShadowEffectiveIntensity": 0.1,
-  "maxShadowEstimatedDepthBytes": 16777216,
+  "maxShadowEstimatedDepthBytes": 67108864,
   "minShadowAcceptedCasterCount": 1
 }

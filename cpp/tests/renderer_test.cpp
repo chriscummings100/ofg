@@ -603,8 +603,10 @@ TEST_CASE("renderer encodes shadow caster passes for the current sun") {
     CHECK(diagnostics.m_enabled);
     CHECK(diagnostics.m_cascade_count == 3U);
     CHECK(diagnostics.m_encoded_pass_count == 3U);
-    CHECK(diagnostics.m_map_size == 1024U);
-    CHECK(diagnostics.m_estimated_depth_bytes == 1024ULL * 1024ULL * 3ULL * 4ULL);
+    CHECK(diagnostics.m_map_size == 2048U);
+    CHECK(diagnostics.m_estimated_depth_bytes == 2048ULL * 2048ULL * 3ULL * 4ULL);
+    CHECK(diagnostics.m_pcf_mode == ofg::ShadowPcfMode::NineTap);
+    CHECK(diagnostics.m_pcf_sample_count == 9U);
     CHECK(diagnostics.m_sun_elevation_radians == doctest::Approx(_pi * 0.5f).epsilon(0.001));
     CHECK(diagnostics.m_effective_intensity > 0.0f);
     CHECK(diagnostics.m_total_tested_caster_count == 6U);
