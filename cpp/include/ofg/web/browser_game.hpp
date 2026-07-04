@@ -46,8 +46,11 @@ public:
         bool fast,
         bool slow,
         bool cycle_camera_mode,
-        bool toggle_shadow_debug_overlay,
         bool toggle_overhead_sun);
+#ifdef __EMSCRIPTEN__
+    // Accepts raw debug UI input from the TypeScript host.
+    void set_debug_input(emscripten::val input);
+#endif
     // Returns queued generic blob-load requests as browser-facing JSON.
     [[nodiscard]] std::string blob_loads_json();
     // Marks a generic blob-load request as being serviced by the browser host.
@@ -94,6 +97,8 @@ private:
     void tick_setup_status(double time_ms);
     // Stores or forwards the latest sanitized control input.
     void accept_control_input(ControlInput input);
+    // Stores or forwards the latest raw debug UI input.
+    void accept_debug_input(DebugUiInput input);
     // Records a setup-phase recoverable error.
     void record_setup_error(std::string message) noexcept;
     // Records a setup-phase GPU/device error.
@@ -135,10 +140,12 @@ private:
     std::uint32_t m_pending_height{0};
     double m_pending_device_pixel_ratio{1.0};
     ControlInput m_pending_control_input;
+    DebugUiInput m_pending_debug_input;
     std::uint32_t m_configured_width{0};
     std::uint32_t m_configured_height{0};
     bool m_has_pending_size{false};
     bool m_has_pending_control_input{false};
+    bool m_has_pending_debug_input{false};
     bool m_game_active{false};
     bool m_surface_configured{false};
     bool m_disposed{false};

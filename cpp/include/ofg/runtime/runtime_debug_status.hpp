@@ -61,6 +61,26 @@ struct RuntimeShadowStatus {
     std::uint32_t m_total_index_count{0};
 };
 
+struct RuntimeDebugUiStatus {
+    bool m_visible{false};
+    bool m_wants_capture_mouse{false};
+    bool m_wants_capture_keyboard{false};
+    std::uint64_t m_overlay_pass_count{0};
+    std::uint64_t m_menu_tree_generation{0};
+    std::uint64_t m_menu_tree_rebuild_count{0};
+    std::uint32_t m_draw_list_count{0};
+    std::uint32_t m_draw_command_count{0};
+    std::uint32_t m_vertex_count{0};
+    std::uint32_t m_index_count{0};
+    std::uint64_t m_uploaded_vertex_bytes{0};
+    std::uint64_t m_uploaded_index_bytes{0};
+    std::uint32_t m_vertex_buffer_capacity{0};
+    std::uint32_t m_index_buffer_capacity{0};
+    std::uint64_t m_vertex_buffer_resize_count{0};
+    std::uint64_t m_index_buffer_resize_count{0};
+    std::uint64_t m_font_texture_create_count{0};
+};
+
 struct RuntimeDebugStatus {
     bool m_initialized{false};
     std::string m_lifecycle_state{"uninitialized"};
@@ -77,6 +97,7 @@ struct RuntimeDebugStatus {
     RuntimeDemoSceneStatus m_demo_scene;
     RuntimeRenderCullingStatus m_render_culling;
     RuntimeShadowStatus m_shadow;
+    RuntimeDebugUiStatus m_debug_ui;
     std::uint32_t m_pipeline_create_count{0};
     std::uint32_t m_buffer_create_count{0};
     std::uint32_t m_surface_configure_count{0};

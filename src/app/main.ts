@@ -57,10 +57,14 @@ function renderFrame(
     if (size.changed) {
       runtime.resize(size.physicalWidth, size.physicalHeight, size.devicePixelRatio);
     }
+    runtime.setDebugInput(controlInput.consumeDebugSnapshot());
     runtime.setControlInput(controlInput.consumeSnapshot());
     runtime.frame(timeMs);
     runtime.pumpBlobLoads();
     const debugStatus = runtime.debugStatus();
+    controlInput.setDebugUiPointerLockBlocked(
+      debugStatus.debugUi.visible || debugStatus.debugUi.wantsCaptureMouse
+    );
     statusMessage(
       status,
       `C++/WASM WebGPU frame ${debugStatus.frameCount} - ${debugStatus.canvasWidth}x${debugStatus.canvasHeight} - ${debugStatus.surfaceFormat} - model ${debugStatus.modelLoadingState}`

@@ -12,6 +12,7 @@ EMSCRIPTEN_BINDINGS(ofg_cpp_module) {
         .function("resize", &ofg::BrowserGame::resize)
         .function("frame", &ofg::BrowserGame::frame)
         .function("set_control_input", &ofg::BrowserGame::set_control_input)
+        .function("set_debug_input", &ofg::BrowserGame::set_debug_input)
         .function("blob_loads_json", &ofg::BrowserGame::blob_loads_json)
         .function("mark_blob_loading", &ofg::BrowserGame::mark_blob_loading)
         .function("complete_blob_load", &ofg::BrowserGame::complete_blob_load)

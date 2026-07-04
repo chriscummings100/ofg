@@ -6,6 +6,7 @@
 // to Renderer for each frame.
 #pragma once
 
+#include "ofg/debug/debug_ui.hpp"
 #include "ofg/game/gpu_context.hpp"
 #include "ofg/game/render_target.hpp"
 #include "ofg/render/bloom_pass.hpp"
@@ -61,7 +62,10 @@ public:
     // Resizes pass-level render targets.
     static void resize(std::uint32_t width, std::uint32_t height);
     // Records all renderer passes into the caller-owned command encoder.
-    static void render(WGPUCommandEncoder encoder, RenderTarget target, const Scene& scene);
+    static void render(WGPUCommandEncoder encoder,
+        RenderTarget target,
+        const Scene& scene,
+        DebugUiFrameInfo debug_ui_frame_info = DebugUiFrameInfo{});
     // Advances renderer teardown work and reports whether resources are released.
     [[nodiscard]] static bool release();
     // Destroys the renderer singleton after release has completed.
@@ -78,10 +82,8 @@ public:
     [[nodiscard]] static BloomPassDiagnostics bloom_diagnostics() noexcept;
     // Reports current temp-buffer memory and reuse diagnostics.
     [[nodiscard]] static TempBufferStats temp_buffer_stats() noexcept;
-    // Enables or disables the on-screen shadow-map cascade preview overlay.
-    static void set_shadow_debug_overlay_enabled(bool enabled);
-    // Reports whether the on-screen shadow-map cascade preview overlay is active.
-    [[nodiscard]] static bool shadow_debug_overlay_enabled() noexcept;
+    // Reports the most recent renderer-owned debug UI diagnostics.
+    [[nodiscard]] static DebugUiStatus debug_ui_status() noexcept;
     // Enables or disables the debug sun lock with light travelling straight down.
     static void set_overhead_sun_debug_enabled(bool enabled);
     // Reports whether the debug overhead-sun lock is active.
@@ -96,7 +98,10 @@ private:
     // Resizes pass-level render targets.
     void resize_impl(std::uint32_t width, std::uint32_t height);
     // Records all prepared passes into the caller-owned command encoder.
-    void render_impl(WGPUCommandEncoder encoder, RenderTarget target, const Scene& scene);
+    void render_impl(WGPUCommandEncoder encoder,
+        RenderTarget target,
+        const Scene& scene,
+        const DebugUiFrameInfo& debug_ui_frame_info);
     // Advances the pass-resource release state machine.
     [[nodiscard]] bool release_impl();
     // Returns the live singleton or throws a clear lifecycle error.
@@ -124,7 +129,7 @@ private:
     std::unique_ptr<BloomPass> m_bloom_pass;
     BloomSettings m_bloom_settings;
     std::unique_ptr<ToneMapPass> m_tone_map_pass;
-    bool m_shadow_debug_overlay_enabled{false};
+    std::unique_ptr<DebugUi> m_debug_ui;
     bool m_overhead_sun_debug_enabled{false};
 };
 

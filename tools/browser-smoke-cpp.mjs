@@ -20,6 +20,9 @@ const height = 360;
 const resizeWidth = 320;
 const resizeHeight = 180;
 const maxDefaultTempBufferBytes = 16 * 1024 * 1024;
+const debugUiSampleExclusion = {
+  width: 320
+};
 
 mkdirSync(artifactsDir, { recursive: true });
 
@@ -96,6 +99,7 @@ try {
   const initialStatus = await readCppStatus(page);
   assertRendererCounters(initialStatus);
   assertBloomDiagnostics(initialStatus);
+  assertDebugUiDiagnostics(initialStatus.debugUi);
 
   await page.evaluate(({ width: canvasWidth, height: canvasHeight }) => {
     globalThis.__ofgCppGame.resize(canvasWidth, canvasHeight, 1);
@@ -110,6 +114,7 @@ try {
   const resizedStatus = await readCppStatus(page);
   assertRendererCounters(resizedStatus);
   assertBloomDiagnostics(resizedStatus);
+  assertDebugUiDiagnostics(resizedStatus.debugUi);
 
   await page.evaluate(() => {
     globalThis.__ofgCppGame.resize(0, 180, 1);
@@ -137,6 +142,7 @@ try {
   const recoveredStatus = await readCppStatus(page);
   assertRendererCounters(recoveredStatus);
   assertBloomDiagnostics(recoveredStatus);
+  assertDebugUiDiagnostics(recoveredStatus.debugUi);
   await page.evaluate(() => new Promise((resolveFrame) => {
     requestAnimationFrame((timeMs) => {
       globalThis.__ofgCppGame.frame(timeMs);
@@ -341,6 +347,34 @@ function assertBloomDiagnostics(status) {
   }
 }
 
+// Verifies the C++ renderer fixture exercised the ImGui debug overlay.
+function assertDebugUiDiagnostics(debugUi) {
+  if (debugUi === null || debugUi === undefined) {
+    throw new Error("C++ debug status is missing debug UI diagnostics.");
+  }
+  if (!debugUi.visible || debugUi.overlayPassCount < 1) {
+    throw new Error(`Expected a visible ImGui debug overlay pass: ${JSON.stringify(debugUi)}.`);
+  }
+  if (
+    debugUi.drawListCount < 1 ||
+    debugUi.drawCommandCount < 1 ||
+    debugUi.menuTreeGeneration < 2 ||
+    debugUi.vertexCount < 1 ||
+    debugUi.indexCount < 1
+  ) {
+    throw new Error(`Debug UI draw diagnostics are incomplete: ${JSON.stringify(debugUi)}.`);
+  }
+  if (
+    debugUi.uploadedVertexBytes < 1 ||
+    debugUi.uploadedIndexBytes < 1 ||
+    debugUi.vertexBufferCapacity < debugUi.vertexCount ||
+    debugUi.indexBufferCapacity < debugUi.indexCount ||
+    debugUi.fontTextureCreateCount < 1
+  ) {
+    throw new Error(`Debug UI upload diagnostics are incomplete: ${JSON.stringify(debugUi)}.`);
+  }
+}
+
 // Samples the screenshot and verifies it matches the shared scene contract.
 function inspectSceneScreenshot(path) {
   const png = PNG.sync.read(readFileSync(path));
@@ -356,6 +390,9 @@ function inspectSceneScreenshot(path) {
 
   for (let y = 0; y < png.height; y += smokeContract.sampleStep) {
     for (let x = 0; x < png.width; x += smokeContract.sampleStep) {
+      if (isDebugUiSampleExcluded(x, y, png)) {
+        continue;
+      }
       const index = (png.width * y + x) << 2;
       const pixel = [
         png.data[index],
@@ -389,6 +426,9 @@ function inspectSceneScreenshot(path) {
   }
 
   const sampledPixels = backgroundPixels + scenePixels;
+  if (sampledPixels === 0) {
+    throw new Error("No scene pixels were sampled after debug UI exclusion.");
+  }
   const sceneRatio = scenePixels / sampledPixels;
   const backgroundRatio = backgroundPixels / sampledPixels;
   const groundRatio = groundPixels / sampledPixels;
@@ -433,6 +473,11 @@ function inspectSceneScreenshot(path) {
     lowerHalfSceneRatio,
     nonBackgroundColorBuckets: buckets.size
   };
+}
+
+// Keeps scene smoke metrics independent from the renderer-owned debug overlay.
+function isDebugUiSampleExcluded(x, _y, png) {
+  return x < Math.min(debugUiSampleExclusion.width, png.width);
 }
 
 // Reports whether a non-background pixel looks like neutral checker ground.

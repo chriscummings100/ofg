@@ -89,7 +89,6 @@ std::optional<ControlInput> parse_control_input(double move_x,
     bool fast,
     bool slow,
     bool cycle_camera_mode,
-    bool toggle_shadow_debug_overlay,
     bool toggle_overhead_sun,
     std::string& error) {
     const std::optional<float> parsed_move_x = parse_control_input_float("Control input move_x", move_x, error);
@@ -125,9 +124,176 @@ std::optional<ControlInput> parse_control_input(double move_x,
         fast,
         slow,
         cycle_camera_mode,
-        toggle_shadow_debug_overlay,
         toggle_overhead_sun,
     };
+}
+
+// Reads and validates one required JavaScript object property.
+emscripten::val require_debug_input_property(emscripten::val input, const char* name, std::string& error) {
+    emscripten::val value = input[name];
+    if (value.isUndefined() || value.isNull()) {
+        error = std::string("Debug input field ") + name + " is required.";
+    }
+    return value;
+}
+
+std::optional<bool> parse_debug_input_bool(emscripten::val input, const char* name, std::string& error) {
+    emscripten::val value = require_debug_input_property(input, name, error);
+    if (!error.empty()) {
+        return std::nullopt;
+    }
+    if (value.typeOf().as<std::string>() != "boolean") {
+        error = std::string("Debug input field ") + name + " must be a boolean.";
+        return std::nullopt;
+    }
+    return value.as<bool>();
+}
+
+std::optional<float> parse_debug_input_float(emscripten::val input, const char* name, std::string& error) {
+    emscripten::val value = require_debug_input_property(input, name, error);
+    if (!error.empty()) {
+        return std::nullopt;
+    }
+    if (value.typeOf().as<std::string>() != "number") {
+        error = std::string("Debug input field ") + name + " must be a finite float.";
+        return std::nullopt;
+    }
+    return parse_control_input_float((std::string("Debug input ") + name).c_str(), value.as<double>(), error);
+}
+
+std::optional<std::uint32_t> parse_debug_input_mouse_buttons(
+    emscripten::val input, const char* name, std::string& error) {
+    emscripten::val value = require_debug_input_property(input, name, error);
+    if (!error.empty()) {
+        return std::nullopt;
+    }
+    if (value.typeOf().as<std::string>() != "number") {
+        error = std::string("Debug input field ") + name + " must be a non-negative integer.";
+        return std::nullopt;
+    }
+    const double numeric_value = value.as<double>();
+    if (!std::isfinite(numeric_value) || numeric_value < 0.0 || std::trunc(numeric_value) != numeric_value ||
+        numeric_value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+        error = std::string("Debug input field ") + name + " must be a non-negative integer.";
+        return std::nullopt;
+    }
+    return static_cast<std::uint32_t>(numeric_value);
+}
+
+std::optional<std::vector<std::string>> parse_debug_input_code_array(
+    emscripten::val input, const char* name, std::string& error) {
+    emscripten::val value = require_debug_input_property(input, name, error);
+    if (!error.empty()) {
+        return std::nullopt;
+    }
+    if (!emscripten::val::global("Array").call<bool>("isArray", value)) {
+        error = std::string("Debug input field ") + name + " must be an array of strings.";
+        return std::nullopt;
+    }
+
+    const auto length = value["length"].as<unsigned>();
+    std::vector<std::string> codes;
+    codes.reserve(length);
+    for (unsigned index = 0; index < length; ++index) {
+        emscripten::val item = value[index];
+        if (item.typeOf().as<std::string>() != "string") {
+            error = std::string("Debug input field ") + name + " must be an array of strings.";
+            return std::nullopt;
+        }
+        codes.push_back(item.as<std::string>());
+    }
+    return codes;
+}
+
+std::optional<std::string> parse_debug_input_string(emscripten::val input, const char* name, std::string& error) {
+    emscripten::val value = require_debug_input_property(input, name, error);
+    if (!error.empty()) {
+        return std::nullopt;
+    }
+    if (value.typeOf().as<std::string>() != "string") {
+        error = std::string("Debug input field ") + name + " must be a string.";
+        return std::nullopt;
+    }
+    return value.as<std::string>();
+}
+
+std::optional<DebugUiInput> parse_debug_input(emscripten::val input, std::string& error) {
+    if (input.isNull() || input.isUndefined() || input.typeOf().as<std::string>() != "object") {
+        error = "Debug input must be an object.";
+        return std::nullopt;
+    }
+
+    DebugUiInput parsed;
+    const std::optional<bool> has_focus = parse_debug_input_bool(input, "hasFocus", error);
+    if (!has_focus.has_value()) {
+        return std::nullopt;
+    }
+    parsed.m_has_focus = *has_focus;
+    const std::optional<bool> pointer_locked = parse_debug_input_bool(input, "pointerLocked", error);
+    if (!pointer_locked.has_value()) {
+        return std::nullopt;
+    }
+    parsed.m_pointer_locked = *pointer_locked;
+    const std::optional<bool> mouse_position_valid = parse_debug_input_bool(input, "mousePositionValid", error);
+    if (!mouse_position_valid.has_value()) {
+        return std::nullopt;
+    }
+    parsed.m_mouse_position_valid = *mouse_position_valid;
+    const std::optional<float> mouse_x = parse_debug_input_float(input, "mouseX", error);
+    if (!mouse_x.has_value()) {
+        return std::nullopt;
+    }
+    parsed.m_mouse_x = *mouse_x;
+    const std::optional<float> mouse_y = parse_debug_input_float(input, "mouseY", error);
+    if (!mouse_y.has_value()) {
+        return std::nullopt;
+    }
+    parsed.m_mouse_y = *mouse_y;
+    const std::optional<std::uint32_t> mouse_buttons = parse_debug_input_mouse_buttons(input, "mouseButtons", error);
+    if (!mouse_buttons.has_value()) {
+        return std::nullopt;
+    }
+    for (std::size_t index = 0; index < parsed.m_mouse_down.size(); ++index) {
+        parsed.m_mouse_down[index] = ((*mouse_buttons & (1U << index)) != 0U);
+    }
+    const std::optional<float> wheel_x = parse_debug_input_float(input, "wheelX", error);
+    if (!wheel_x.has_value()) {
+        return std::nullopt;
+    }
+    parsed.m_wheel_x = *wheel_x;
+    const std::optional<float> wheel_y = parse_debug_input_float(input, "wheelY", error);
+    if (!wheel_y.has_value()) {
+        return std::nullopt;
+    }
+    parsed.m_wheel_y = *wheel_y;
+    const std::optional<bool> toggle_visibility = parse_debug_input_bool(input, "toggleVisibility", error);
+    if (!toggle_visibility.has_value()) {
+        return std::nullopt;
+    }
+    parsed.m_toggle_visibility = *toggle_visibility;
+    std::optional<std::vector<std::string>> key_down_codes = parse_debug_input_code_array(input, "keyDownCodes", error);
+    if (!key_down_codes.has_value()) {
+        return std::nullopt;
+    }
+    parsed.m_key_down_codes = std::move(*key_down_codes);
+    std::optional<std::vector<std::string>> key_pressed_codes =
+        parse_debug_input_code_array(input, "keyPressedCodes", error);
+    if (!key_pressed_codes.has_value()) {
+        return std::nullopt;
+    }
+    parsed.m_key_pressed_codes = std::move(*key_pressed_codes);
+    std::optional<std::vector<std::string>> key_released_codes =
+        parse_debug_input_code_array(input, "keyReleasedCodes", error);
+    if (!key_released_codes.has_value()) {
+        return std::nullopt;
+    }
+    parsed.m_key_released_codes = std::move(*key_released_codes);
+    std::optional<std::string> text_input = parse_debug_input_string(input, "textInput", error);
+    if (!text_input.has_value()) {
+        return std::nullopt;
+    }
+    parsed.m_text_input_utf8 = std::move(*text_input);
+    return parsed;
 }
 
 // Copies one JavaScript Uint8Array-like value into durable C++ bytes.
@@ -336,7 +502,6 @@ void BrowserGame::set_control_input(double move_x,
     bool fast,
     bool slow,
     bool cycle_camera_mode,
-    bool toggle_shadow_debug_overlay,
     bool toggle_overhead_sun) {
     try {
         if (m_disposed) {
@@ -354,7 +519,6 @@ void BrowserGame::set_control_input(double move_x,
             fast,
             slow,
             cycle_camera_mode,
-            toggle_shadow_debug_overlay,
             toggle_overhead_sun,
             error);
         if (!input.has_value()) {
@@ -366,6 +530,28 @@ void BrowserGame::set_control_input(double move_x,
         record_error(error.what());
     } catch (...) {
         record_error("BrowserGame::set_control_input failed with an unknown exception.");
+    }
+}
+
+// Accepts raw debug UI input from the TypeScript host.
+void BrowserGame::set_debug_input(emscripten::val input) {
+    try {
+        if (m_disposed) {
+            record_error("Browser game runtime has been disposed.");
+            return;
+        }
+
+        std::string error;
+        std::optional<DebugUiInput> parsed = parse_debug_input(input, error);
+        if (!parsed.has_value()) {
+            record_error(error);
+            return;
+        }
+        accept_debug_input(std::move(*parsed));
+    } catch (const std::exception& error) {
+        record_error(error.what());
+    } catch (...) {
+        record_error("BrowserGame::set_debug_input failed with an unknown exception.");
     }
 }
 
@@ -599,6 +785,9 @@ void BrowserGame::on_device_request(WGPURequestDeviceStatus status, WGPUDevice d
     if (m_has_pending_control_input) {
         Game::set_control_input(m_pending_control_input);
     }
+    if (m_has_pending_debug_input) {
+        Game::set_debug_ui_input(m_pending_debug_input);
+    }
 
     if (apply_pending_resize_to_game()) {
         configure_surface_if_ready();
@@ -820,6 +1009,15 @@ void BrowserGame::accept_control_input(ControlInput input) {
     m_has_pending_control_input = true;
     if (m_game_active) {
         Game::set_control_input(input);
+    }
+}
+
+// Stores or forwards the latest raw debug UI input.
+void BrowserGame::accept_debug_input(DebugUiInput input) {
+    m_pending_debug_input = std::move(input);
+    m_has_pending_debug_input = true;
+    if (m_game_active) {
+        Game::set_debug_ui_input(m_pending_debug_input);
     }
 }
 

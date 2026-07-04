@@ -93,6 +93,29 @@ void write_shadow_status(std::ostream& out, const RuntimeShadowStatus& shadow) {
     out << '}';
 }
 
+// Writes renderer-owned ImGui overlay diagnostics.
+void write_debug_ui_status(std::ostream& out, const RuntimeDebugUiStatus& debug_ui) {
+    out << '{';
+    out << "\"visible\":" << debug_ui.m_visible;
+    out << ",\"wantsCaptureMouse\":" << debug_ui.m_wants_capture_mouse;
+    out << ",\"wantsCaptureKeyboard\":" << debug_ui.m_wants_capture_keyboard;
+    out << ",\"overlayPassCount\":" << debug_ui.m_overlay_pass_count;
+    out << ",\"menuTreeGeneration\":" << debug_ui.m_menu_tree_generation;
+    out << ",\"menuTreeRebuildCount\":" << debug_ui.m_menu_tree_rebuild_count;
+    out << ",\"drawListCount\":" << debug_ui.m_draw_list_count;
+    out << ",\"drawCommandCount\":" << debug_ui.m_draw_command_count;
+    out << ",\"vertexCount\":" << debug_ui.m_vertex_count;
+    out << ",\"indexCount\":" << debug_ui.m_index_count;
+    out << ",\"uploadedVertexBytes\":" << debug_ui.m_uploaded_vertex_bytes;
+    out << ",\"uploadedIndexBytes\":" << debug_ui.m_uploaded_index_bytes;
+    out << ",\"vertexBufferCapacity\":" << debug_ui.m_vertex_buffer_capacity;
+    out << ",\"indexBufferCapacity\":" << debug_ui.m_index_buffer_capacity;
+    out << ",\"vertexBufferResizeCount\":" << debug_ui.m_vertex_buffer_resize_count;
+    out << ",\"indexBufferResizeCount\":" << debug_ui.m_index_buffer_resize_count;
+    out << ",\"fontTextureCreateCount\":" << debug_ui.m_font_texture_create_count;
+    out << '}';
+}
+
 } // namespace
 
 // Clears recoverable runtime errors while preserving durable subsystem failures.
@@ -143,6 +166,8 @@ std::string RuntimeDebugStatus::to_json() const {
     out << '}';
     out << ",\"shadow\":";
     write_shadow_status(out, m_shadow);
+    out << ",\"debugUi\":";
+    write_debug_ui_status(out, m_debug_ui);
     out << ",\"pipelineCreateCount\":" << m_pipeline_create_count;
     out << ",\"bufferCreateCount\":" << m_buffer_create_count;
     out << ",\"surfaceConfigureCount\":" << m_surface_configure_count;

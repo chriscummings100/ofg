@@ -19,6 +19,9 @@ const firstPersonScreenshotPath = resolve(artifactsDir, "first-person-mode.png")
 const thirdPersonScreenshotPath = resolve(artifactsDir, "third-person-mode.png");
 const reportPath = resolve(artifactsDir, "report.json");
 const maxDefaultTempBufferBytes = 16 * 1024 * 1024;
+const debugUiSampleExclusion = {
+  width: 320
+};
 
 mkdirSync(artifactsDir, { recursive: true });
 
@@ -143,6 +146,7 @@ try {
       bloomEstimatedReadBytes: status.bloomEstimatedReadBytes,
       bloomEstimatedWriteBytes: status.bloomEstimatedWriteBytes,
       bloomSkipped: status.bloomSkipped,
+      debugUi: status.debugUi,
       shadow: status.shadow,
       tempBufferPeakBytes: status.tempBufferPeakBytes,
       tempBufferReusableCount: status.tempBufferReusableCount
@@ -152,7 +156,31 @@ try {
     throw new Error(`Expected debug camera mode after warmup, got ${warmCounters.cameraMode}.`);
   }
   assertBloomDiagnostics(warmCounters);
+  assertDebugUiDiagnostics(warmCounters.debugUi);
   assertShadowDiagnostics(warmCounters.shadow);
+  await dispatchKeyCode(page, "F1", "F1");
+  await waitForAnimationFrames(page, 2);
+  const hiddenDebugUiStatus = await page.evaluate(() => window.__ofgDebugStatus?.() ?? null);
+  if (hiddenDebugUiStatus?.debugUi?.visible !== false) {
+    throw new Error(`Expected F1 to hide debug UI: ${JSON.stringify(hiddenDebugUiStatus?.debugUi)}.`);
+  }
+  await dispatchKeyCode(page, "F1", "F1");
+  await waitForAnimationFrames(page, 2);
+  const restoredDebugUiStatus = await page.evaluate(() => window.__ofgDebugStatus?.() ?? null);
+  assertDebugUiDiagnostics(restoredDebugUiStatus?.debugUi ?? null);
+  await page.mouse.move(40, 40);
+  await waitForAnimationFrames(page, 2);
+  const mouseCaptureDebugUiStatus = await page.evaluate(() => window.__ofgDebugStatus?.() ?? null);
+  if (mouseCaptureDebugUiStatus?.debugUi?.wantsCaptureMouse !== true) {
+    throw new Error(
+      `Expected ImGui to capture mouse over the debug window: ${JSON.stringify(mouseCaptureDebugUiStatus?.debugUi)}.`
+    );
+  }
+  await page.mouse.move(smokeContract.width - 20, 40);
+  await page.waitForFunction(
+    () => window.__ofgDebugStatus?.().debugUi.wantsCaptureMouse === false,
+    { timeout: 5000 }
+  );
   await canvas.screenshot({ path: debugModeScreenshotPath });
   await dispatchKeyCode(page, "Backquote", "`");
   await waitForCameraMode(page, "first_person");
@@ -176,6 +204,7 @@ try {
   const demoScene = debugStatus?.demoScene ?? null;
   assertDemoSceneDiagnostics(demoScene);
   assertRenderCullingDiagnostics(debugStatus?.renderCulling ?? null, demoScene);
+  assertDebugUiDiagnostics(debugStatus?.debugUi ?? null);
   assertShadowDiagnostics(debugStatus?.shadow ?? null);
   const report = {
     url,
@@ -185,6 +214,7 @@ try {
     smokeContract,
     demoScene,
     renderCulling: debugStatus.renderCulling,
+    debugUi: debugStatus.debugUi,
     shadow: debugStatus.shadow,
     resizeProbe: {
       initialDebugStatus,
@@ -199,6 +229,11 @@ try {
       debugModeScreenshotPath,
       firstPersonScreenshotPath,
       thirdPersonScreenshotPath
+    },
+    debugUiToggleProbe: {
+      hiddenDebugUiStatus,
+      restoredDebugUiStatus,
+      mouseCaptureDebugUiStatus
     },
     pixels: pixelReport
   };
@@ -331,6 +366,7 @@ function assertStableRendererCounters(before, after) {
     );
   }
   assertBloomDiagnostics(after);
+  assertDebugUiDiagnostics(after.debugUi ?? null);
   assertShadowDiagnostics(after.shadow ?? null);
 }
 
@@ -409,6 +445,34 @@ function assertShadowDiagnostics(shadow) {
   }
 }
 
+// Verifies renderer-owned ImGui diagnostics from the runtime status.
+function assertDebugUiDiagnostics(debugUi) {
+  if (debugUi === null || debugUi === undefined) {
+    throw new Error("Runtime debug status is missing debug UI diagnostics.");
+  }
+  if (!debugUi.visible || debugUi.overlayPassCount < 1) {
+    throw new Error(`Expected a visible ImGui debug overlay pass: ${JSON.stringify(debugUi)}.`);
+  }
+  if (
+    debugUi.drawListCount < 1 ||
+    debugUi.drawCommandCount < 1 ||
+    debugUi.menuTreeGeneration < 2 ||
+    debugUi.vertexCount < 1 ||
+    debugUi.indexCount < 1
+  ) {
+    throw new Error(`Debug UI draw diagnostics are incomplete: ${JSON.stringify(debugUi)}.`);
+  }
+  if (
+    debugUi.uploadedVertexBytes < 1 ||
+    debugUi.uploadedIndexBytes < 1 ||
+    debugUi.vertexBufferCapacity < debugUi.vertexCount ||
+    debugUi.indexBufferCapacity < debugUi.indexCount ||
+    debugUi.fontTextureCreateCount < 1
+  ) {
+    throw new Error(`Debug UI upload diagnostics are incomplete: ${JSON.stringify(debugUi)}.`);
+  }
+}
+
 // Waits for the local dev server to print its review URL.
 function waitForServerUrl(child) {
   return new Promise((resolveUrl, reject) => {
@@ -474,6 +538,9 @@ function inspectSceneScreenshot(path) {
 
   for (let y = 0; y < png.height; y += smokeContract.sampleStep) {
     for (let x = 0; x < png.width; x += smokeContract.sampleStep) {
+      if (isDebugUiSampleExcluded(x, y, png)) {
+        continue;
+      }
       const index = (png.width * y + x) << 2;
       const pixel = [
         png.data[index],
@@ -507,6 +574,9 @@ function inspectSceneScreenshot(path) {
   }
 
   const sampledPixels = backgroundPixels + scenePixels;
+  if (sampledPixels === 0) {
+    throw new Error("No scene pixels were sampled after debug UI exclusion.");
+  }
   const sceneRatio = scenePixels / sampledPixels;
   const backgroundRatio = backgroundPixels / sampledPixels;
   const groundRatio = groundPixels / sampledPixels;
@@ -551,6 +621,11 @@ function inspectSceneScreenshot(path) {
     lowerHalfSceneRatio,
     nonBackgroundColorBuckets: buckets.size
   };
+}
+
+// Keeps scene smoke metrics independent from the renderer-owned debug overlay.
+function isDebugUiSampleExcluded(x, _y, png) {
+  return x < Math.min(debugUiSampleExclusion.width, png.width);
 }
 
 // Reports whether a non-background pixel looks like neutral checker ground.

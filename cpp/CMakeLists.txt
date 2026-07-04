@@ -93,6 +93,32 @@ else()
 endif()
 target_compile_options(ofg_tinygltf PRIVATE ${OFG_WASM_EXCEPTION_OPTIONS})
 
+add_library(ofg_imgui
+  third_party/imgui/imgui.cpp
+  third_party/imgui/imgui_draw.cpp
+  third_party/imgui/imgui_tables.cpp
+  third_party/imgui/imgui_widgets.cpp
+  third_party/imgui/backends/imgui_impl_wgpu.cpp
+)
+target_include_directories(ofg_imgui
+  PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui/backends
+)
+target_compile_features(ofg_imgui PUBLIC cxx_std_20)
+target_compile_definitions(ofg_imgui PUBLIC IMGUI_IMPL_WEBGPU_BACKEND_DAWN)
+if(MSVC)
+  target_compile_options(ofg_imgui PRIVATE /W0)
+else()
+  target_compile_options(ofg_imgui PRIVATE -w)
+endif()
+
+if(EMSCRIPTEN)
+  target_compile_options(ofg_imgui PRIVATE --use-port=emdawnwebgpu ${OFG_WASM_EXCEPTION_OPTIONS})
+elseif(OFG_NEEDS_NATIVE_WEBGPU)
+  target_link_libraries(ofg_imgui PUBLIC webgpu_c)
+endif()
+
 add_library(ofg_cpp
   src/animation/animation_clip.cpp
   src/assets/gltf_document_accessors.cpp
@@ -104,6 +130,9 @@ add_library(ofg_cpp
   src/assets/gltf_importer_skinning.cpp
   src/assets/model_resource.cpp
   src/core/control_input.cpp
+  src/debug/debug_menu.cpp
+  src/debug/debug_scalars.cpp
+  src/debug/debug_ui.cpp
   src/core/frame_state.cpp
   src/core/object.cpp
   src/game/game.cpp
@@ -166,7 +195,7 @@ target_include_directories(ofg_cpp
 target_compile_features(ofg_cpp PUBLIC cxx_std_20)
 
 target_compile_options(ofg_cpp PRIVATE ${OFG_CXX_WARNING_OPTIONS})
-target_link_libraries(ofg_cpp PRIVATE ofg_tinygltf)
+target_link_libraries(ofg_cpp PRIVATE ofg_tinygltf ofg_imgui)
 
 if(EMSCRIPTEN)
   target_compile_options(ofg_cpp PRIVATE --use-port=emdawnwebgpu ${OFG_WASM_EXCEPTION_OPTIONS})
@@ -223,6 +252,7 @@ if(OFG_BUILD_TESTS AND NOT EMSCRIPTEN)
     tests/camera_properties_test.cpp
     tests/control_input_test.cpp
     tests/culling_test.cpp
+    tests/debug_menu_test.cpp
     tests/demo_scene_test.cpp
     tests/draw_list_test.cpp
     tests/frame_state_test.cpp

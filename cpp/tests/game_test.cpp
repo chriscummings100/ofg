@@ -340,8 +340,13 @@ TEST_CASE("Game prepares and renders through the static facade") {
     CHECK(ofg::Game::status().m_temp_buffer_peak_bytes > 0);
     CHECK(ofg::Game::status().m_temp_buffer_created_count > 0);
     CHECK(ofg::Game::status().m_temp_buffer_reusable_count > 0);
+    CHECK(ofg::Game::status().m_debug_ui.m_visible);
+    CHECK(ofg::Game::status().m_debug_ui.m_overlay_pass_count == 1);
+    CHECK(ofg::Game::status().m_debug_ui.m_draw_list_count > 0);
+    CHECK(ofg::Game::status().m_debug_ui.m_vertex_count > 0);
     CHECK(ofg::Game::debug_status_json().find("\"lifecycleState\":\"ready\"") != std::string::npos);
     CHECK(ofg::Game::debug_status_json().find("\"cameraMode\":\"debug\"") != std::string::npos);
+    CHECK(ofg::Game::debug_status_json().find("\"debugUi\":") != std::string::npos);
     CHECK(ofg::Game::debug_status_json().find("\"bloomActiveLevelCount\":") != std::string::npos);
 }
 
@@ -356,23 +361,18 @@ TEST_CASE("Game consumes one-frame control edges") {
 
     ofg::ControlInput input;
     input.m_cycle_camera_mode = true;
-    input.m_toggle_shadow_debug_overlay = true;
     input.m_toggle_overhead_sun = true;
     ofg::Game::set_control_input(input);
     ofg::Game::update(16.0);
     CHECK(ofg::Game::status().m_camera_mode == "first_person");
-    CHECK(ofg::Renderer::shadow_debug_overlay_enabled());
     CHECK(ofg::Renderer::overhead_sun_debug_enabled());
     ofg::Game::update(32.0);
     CHECK(ofg::Game::status().m_camera_mode == "first_person");
-    CHECK(ofg::Renderer::shadow_debug_overlay_enabled());
     CHECK(ofg::Renderer::overhead_sun_debug_enabled());
 
     ofg::ControlInput second_input;
-    second_input.m_toggle_shadow_debug_overlay = true;
     second_input.m_toggle_overhead_sun = true;
     ofg::Game::set_control_input(second_input);
     ofg::Game::update(48.0);
-    CHECK_FALSE(ofg::Renderer::shadow_debug_overlay_enabled());
     CHECK_FALSE(ofg::Renderer::overhead_sun_debug_enabled());
 }

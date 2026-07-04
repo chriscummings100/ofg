@@ -101,6 +101,29 @@ RuntimeShadowStatus runtime_shadow_status_from(const ShadowPassDiagnostics& diag
     return status;
 }
 
+// Converts renderer-owned ImGui diagnostics into the public runtime debug payload.
+RuntimeDebugUiStatus runtime_debug_ui_status_from(const DebugUiStatus& diagnostics) {
+    RuntimeDebugUiStatus status;
+    status.m_visible = diagnostics.m_visible;
+    status.m_wants_capture_mouse = diagnostics.m_wants_capture_mouse;
+    status.m_wants_capture_keyboard = diagnostics.m_wants_capture_keyboard;
+    status.m_overlay_pass_count = diagnostics.m_overlay_pass_count;
+    status.m_menu_tree_generation = diagnostics.m_menu_tree_generation;
+    status.m_menu_tree_rebuild_count = diagnostics.m_menu_tree_rebuild_count;
+    status.m_draw_list_count = diagnostics.m_draw_list_count;
+    status.m_draw_command_count = diagnostics.m_draw_command_count;
+    status.m_vertex_count = diagnostics.m_vertex_count;
+    status.m_index_count = diagnostics.m_index_count;
+    status.m_uploaded_vertex_bytes = diagnostics.m_uploaded_vertex_bytes;
+    status.m_uploaded_index_bytes = diagnostics.m_uploaded_index_bytes;
+    status.m_vertex_buffer_capacity = diagnostics.m_vertex_buffer_capacity;
+    status.m_index_buffer_capacity = diagnostics.m_index_buffer_capacity;
+    status.m_vertex_buffer_resize_count = diagnostics.m_vertex_buffer_resize_count;
+    status.m_index_buffer_resize_count = diagnostics.m_index_buffer_resize_count;
+    status.m_font_texture_create_count = diagnostics.m_font_texture_create_count;
+    return status;
+}
+
 constexpr float _max_delta_seconds = 0.1f;
 
 } // namespace
@@ -237,6 +260,23 @@ void Game::set_control_input(ControlInput input) {
     }
 }
 
+// Accepts the latest raw debug UI input snapshot.
+void Game::set_debug_ui_input(DebugUiInput input) {
+    try {
+        require_game("Game::set_debug_ui_input").set_debug_ui_input_impl(std::move(input));
+    } catch (const std::exception& error) {
+        if (s_game != nullptr) {
+            s_game->record_error_impl(error.what());
+        }
+        throw;
+    } catch (...) {
+        if (s_game != nullptr) {
+            s_game->record_error_impl("Game::set_debug_ui_input failed with an unknown exception.");
+        }
+        throw;
+    }
+}
+
 // Records render commands into the caller-owned command encoder.
 void Game::render(WGPUCommandEncoder encoder, RenderTarget target) {
     try {
@@ -359,6 +399,7 @@ bool Game::prepare_impl() {
         mark_gpu_ready(m_gpu.m_adapter_name, m_gpu.m_backend, gpu::texture_format_name(m_color_format));
         const RendererCounters counters = Renderer::counters();
         mark_renderer_counters(counters.m_pipeline_create_count, counters.m_buffer_create_count);
+        m_status.m_debug_ui = runtime_debug_ui_status_from(Renderer::debug_ui_status());
         set_state(GameLifecycleState::Ready);
         return true;
     }
@@ -400,21 +441,25 @@ void Game::update_impl(double time_ms) {
 
     tick_runtime(time_ms);
     const float delta_seconds = frame_delta_seconds(time_ms);
+    m_last_delta_seconds = delta_seconds > 0.0F ? delta_seconds : 1.0F / 60.0F;
     if (m_current_scene == nullptr) {
         throw EngineError("Game update requires a current scene.");
     }
     update_demo_scene(m_demo_scene, time_ms, *m_current_scene);
-    if (m_control_input.m_toggle_shadow_debug_overlay) {
-        Renderer::set_shadow_debug_overlay_enabled(!Renderer::shadow_debug_overlay_enabled());
-    }
     if (m_control_input.m_toggle_overhead_sun) {
         Renderer::set_overhead_sun_debug_enabled(!Renderer::overhead_sun_debug_enabled());
     }
     Resources::advance_loads();
     Player* primary_player = m_current_scene->player_count() == 0 ? nullptr : m_current_scene->get_player(0);
     Camera* main_camera = m_current_scene->main_camera();
+    ControlInput scene_control_input = m_control_input;
+    const DebugUiStatus debug_ui_status = Renderer::debug_ui_status();
+    if (debug_ui_status.m_visible &&
+        (debug_ui_status.m_wants_capture_mouse || debug_ui_status.m_wants_capture_keyboard)) {
+        scene_control_input = ControlInput{};
+    }
     SceneUpdateContext context{
-        m_control_input, time_ms, delta_seconds, primary_player, main_camera, m_current_scene.get(), m_gpu};
+        scene_control_input, time_ms, delta_seconds, primary_player, main_camera, m_current_scene.get(), m_gpu};
     m_current_scene->update(context);
     if (primary_player != nullptr) {
         primary_player->publish_default_model_debug_status(m_status, m_last_error);
@@ -438,6 +483,18 @@ void Game::set_control_input_impl(ControlInput input) {
     }
     validate_control_input(input);
     m_control_input = input;
+}
+
+// Stores a raw debug UI input snapshot for the next render.
+void Game::set_debug_ui_input_impl(DebugUiInput input) {
+    if (m_state == GameLifecycleState::Failed) {
+        throw EngineError("Game::set_debug_ui_input cannot run while Game is failed: " + m_last_error);
+    }
+    if (m_state == GameLifecycleState::Rel_Renderer || m_state == GameLifecycleState::Rel_Scene ||
+        m_state == GameLifecycleState::Rel_Resources || m_state == GameLifecycleState::Released) {
+        throw EngineError("Game::set_debug_ui_input cannot run after Game release has started.");
+    }
+    m_debug_ui_input = std::move(input);
 }
 
 // Records render commands into the caller-owned command encoder.
@@ -469,13 +526,19 @@ void Game::render_impl(WGPUCommandEncoder encoder, RenderTarget target) {
     }
 
     mark_surface_configured();
-    Renderer::render(encoder, target, *m_current_scene);
+    DebugUiFrameInfo debug_ui_frame_info;
+    debug_ui_frame_info.m_delta_seconds = m_last_delta_seconds;
+    debug_ui_frame_info.m_device_pixel_ratio = static_cast<float>(m_status.m_device_pixel_ratio);
+    debug_ui_frame_info.m_input = m_debug_ui_input;
+    Renderer::render(encoder, target, *m_current_scene, debug_ui_frame_info);
+    clear_debug_ui_input_transients(m_debug_ui_input);
     const RendererCounters counters = Renderer::counters();
     mark_renderer_counters(counters.m_pipeline_create_count, counters.m_buffer_create_count);
     mark_renderer_diagnostics(Renderer::culling_stats(),
         Renderer::shadow_diagnostics(),
         Renderer::bloom_diagnostics(),
-        Renderer::temp_buffer_stats());
+        Renderer::temp_buffer_stats(),
+        Renderer::debug_ui_status());
 }
 
 // Advances the renderer/resource release state machine.
@@ -502,8 +565,10 @@ bool Game::release_impl() {
     case GameLifecycleState::Rel_Scene:
         m_demo_scene = DemoScene{};
         m_control_input = ControlInput{};
+        m_debug_ui_input = DebugUiInput{};
         m_current_scene.reset();
         m_has_last_time = false;
+        m_last_delta_seconds = 1.0F / 60.0F;
         set_state(GameLifecycleState::Rel_Resources);
         [[fallthrough]];
     case GameLifecycleState::Rel_Resources:
@@ -582,7 +647,6 @@ float Game::frame_delta_seconds(double time_ms) noexcept {
 // Clears one-frame control edges after components consume them.
 void Game::clear_consumed_control_edges() noexcept {
     m_control_input.m_cycle_camera_mode = false;
-    m_control_input.m_toggle_shadow_debug_overlay = false;
     m_control_input.m_toggle_overhead_sun = false;
 }
 
@@ -619,7 +683,8 @@ void Game::mark_renderer_counters(std::uint32_t pipeline_create_count, std::uint
 void Game::mark_renderer_diagnostics(RendererCullingStats culling,
     const ShadowPassDiagnostics& shadow,
     const BloomPassDiagnostics& bloom,
-    const TempBufferStats& temp_buffers) {
+    const TempBufferStats& temp_buffers,
+    const DebugUiStatus& debug_ui) {
     if (m_disposed) {
         const std::string message = "Game runtime has been disposed.";
         fail_runtime(message);
@@ -629,6 +694,7 @@ void Game::mark_renderer_diagnostics(RendererCullingStats culling,
     m_status.m_render_culling = RuntimeRenderCullingStatus{
         culling.m_extracted_object_count, culling.m_camera_visible_object_count, culling.m_camera_culled_object_count};
     m_status.m_shadow = runtime_shadow_status_from(shadow);
+    m_status.m_debug_ui = runtime_debug_ui_status_from(debug_ui);
     m_status.m_bloom_active_level_count = bloom.m_active_level_count;
     m_status.m_bloom_encoded_pass_count = bloom.m_encoded_pass_count;
     m_status.m_bloom_draw_count = bloom.m_draw_count;

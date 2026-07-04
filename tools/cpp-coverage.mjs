@@ -1,11 +1,11 @@
 // Runs Clang source-based coverage for native-checkable C++ runtime code.
 //
 // Browser-only WebGPU code is validated by build and smoke gates; this script
-// focuses line coverage on portable C++ core/runtime/resource/render files that
+// focuses line coverage on portable C++ core/debug/runtime/resource/render files that
 // doctest can execute natively. It uses installed LLVM tools and does not mutate
 // the compiler installation.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -19,7 +19,6 @@ import {
   pathWithTools,
   resolveDawnSourceDir,
   run,
-  runCapture,
   validateDawnSource
 } from "./lib/toolchain.mjs";
 
@@ -111,6 +110,11 @@ const lineCoverageExclusions = new Map([
     new Set([29, 60, 74, 111, 125, 149, 157, 215, 216, 219, 222, 225, 228, 283])
   ]
 ]);
+const lineCoverageFileExceptions = new Set([
+  // Dear ImGui/WebGPU bridge code is exercised by browser/native smoke because
+  // its useful behavior depends on a live ImGui context and WebGPU command stream.
+  "cpp/src/debug/debug_ui.cpp"
+]);
 const dawnRevision = readTrimmed("dawn-version.txt");
 const dawnSourceDir = resolveDawnSourceDir({ rootDir });
 const cmake = findCmake(rootDir);
@@ -187,17 +191,21 @@ run(clangTools.llvmProfdata, ["merge", "-sparse", ...profrawFiles, "-o", profdat
   cwd: rootDir,
   env
 });
-const exportResult = runCapture(clangTools.llvmCov, [
-  "export",
-  testBinary,
-  `-instr-profile=${profdataPath}`,
-  "-format=text"
-], {
-  cwd: rootDir,
-  env,
-  maxBuffer: 64 * 1024 * 1024
-});
-await writeFile(summaryPath, exportResult.stdout);
+const summaryFile = await open(summaryPath, "w");
+try {
+  run(clangTools.llvmCov, [
+    "export",
+    testBinary,
+    `-instr-profile=${profdataPath}`,
+    "-format=text"
+  ], {
+    cwd: rootDir,
+    env,
+    stdio: ["ignore", summaryFile.fd, "inherit"]
+  });
+} finally {
+  await summaryFile.close();
+}
 
 const report = JSON.parse(await readFile(summaryPath, "utf8"));
 const checkedFiles = collectCheckedFiles(report);
@@ -239,18 +247,25 @@ function collectCheckedFiles(report) {
         excludedLineCount
       };
     })
-    .filter((file) =>
-      isUnder(file.path, path.join(rootDir, "cpp", "src", "animation")) ||
-      isUnder(file.path, path.join(rootDir, "cpp", "src", "core")) ||
-      isUnder(file.path, path.join(rootDir, "cpp", "src", "gpu")) ||
-      isUnder(file.path, path.join(rootDir, "cpp", "src", "math")) ||
-      isUnder(file.path, path.join(rootDir, "cpp", "src", "resources")) ||
-      isUnder(file.path, path.join(rootDir, "cpp", "src", "scene")) ||
-      file.path === path.join(rootDir, "cpp", "src", "game", "game_runtime.cpp") ||
-      file.path === path.join(rootDir, "cpp", "src", "game", "render_target.cpp") ||
-      file.path === path.join(rootDir, "cpp", "src", "runtime", "runtime_debug_status.cpp") ||
-      (file.path.endsWith(".cpp") && isUnder(file.path, path.join(rootDir, "cpp", "src", "render")))
-    );
+    .filter((file) => {
+      const relativePath = normalizePath(path.relative(rootDir, file.path));
+      if (lineCoverageFileExceptions.has(relativePath)) {
+        return false;
+      }
+      return (
+        isUnder(file.path, path.join(rootDir, "cpp", "src", "animation")) ||
+        isUnder(file.path, path.join(rootDir, "cpp", "src", "core")) ||
+        isUnder(file.path, path.join(rootDir, "cpp", "src", "debug")) ||
+        isUnder(file.path, path.join(rootDir, "cpp", "src", "gpu")) ||
+        isUnder(file.path, path.join(rootDir, "cpp", "src", "math")) ||
+        isUnder(file.path, path.join(rootDir, "cpp", "src", "resources")) ||
+        isUnder(file.path, path.join(rootDir, "cpp", "src", "scene")) ||
+        file.path === path.join(rootDir, "cpp", "src", "game", "game_runtime.cpp") ||
+        file.path === path.join(rootDir, "cpp", "src", "game", "render_target.cpp") ||
+        file.path === path.join(rootDir, "cpp", "src", "runtime", "runtime_debug_status.cpp") ||
+        (file.path.endsWith(".cpp") && isUnder(file.path, path.join(rootDir, "cpp", "src", "render")))
+      );
+    });
 }
 
 // Normalizes paths for stable exception keys across Windows and POSIX hosts.

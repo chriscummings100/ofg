@@ -42,6 +42,21 @@ TEST_CASE("RuntimeDebugStatus emits the browser debug contract") {
     status.m_shadow.m_total_draw_count = 207;
     status.m_shadow.m_total_submesh_count = 207;
     status.m_shadow.m_total_index_count = 7452;
+    status.m_debug_ui.m_visible = true;
+    status.m_debug_ui.m_overlay_pass_count = 2;
+    status.m_debug_ui.m_menu_tree_generation = 3;
+    status.m_debug_ui.m_menu_tree_rebuild_count = 1;
+    status.m_debug_ui.m_draw_list_count = 1;
+    status.m_debug_ui.m_draw_command_count = 6;
+    status.m_debug_ui.m_vertex_count = 400;
+    status.m_debug_ui.m_index_count = 900;
+    status.m_debug_ui.m_uploaded_vertex_bytes = 8000;
+    status.m_debug_ui.m_uploaded_index_bytes = 1800;
+    status.m_debug_ui.m_vertex_buffer_capacity = 5400;
+    status.m_debug_ui.m_index_buffer_capacity = 10900;
+    status.m_debug_ui.m_vertex_buffer_resize_count = 1;
+    status.m_debug_ui.m_index_buffer_resize_count = 1;
+    status.m_debug_ui.m_font_texture_create_count = 1;
     status.m_pipeline_create_count = 1;
     status.m_buffer_create_count = 1;
     status.m_surface_configure_count = 1;
@@ -90,6 +105,14 @@ TEST_CASE("RuntimeDebugStatus emits the browser debug contract") {
                               "\"totalTestedCasterCount\":558,\"totalAcceptedCasterCount\":207,"
                               "\"totalRejectedCasterCount\":351,\"totalDrawCount\":207,"
                               "\"totalSubmeshCount\":207,\"totalIndexCount\":7452},"
+                              "\"debugUi\":{\"visible\":true,\"wantsCaptureMouse\":false,"
+                              "\"wantsCaptureKeyboard\":false,\"overlayPassCount\":2,"
+                              "\"menuTreeGeneration\":3,\"menuTreeRebuildCount\":1,"
+                              "\"drawListCount\":1,\"drawCommandCount\":6,\"vertexCount\":400,"
+                              "\"indexCount\":900,\"uploadedVertexBytes\":8000,"
+                              "\"uploadedIndexBytes\":1800,\"vertexBufferCapacity\":5400,"
+                              "\"indexBufferCapacity\":10900,\"vertexBufferResizeCount\":1,"
+                              "\"indexBufferResizeCount\":1,\"fontTextureCreateCount\":1},"
                               "\"pipelineCreateCount\":1,\"bufferCreateCount\":1,"
                               "\"surfaceConfigureCount\":1,\"bloomActiveLevelCount\":4,"
                               "\"bloomEncodedPassCount\":7,\"bloomDrawCount\":7,"

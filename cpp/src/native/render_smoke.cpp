@@ -37,6 +37,7 @@ namespace ofg::native {
 namespace {
 
 constexpr std::uint32_t _bytes_per_pixel = 4;
+constexpr std::uint32_t _debug_ui_sample_exclusion_width = 320;
 constexpr std::uint64_t _wait_timeout_ns = 15'000'000'000ULL;
 constexpr std::uint64_t _max_default_temp_buffer_bytes = 16ULL * 1024ULL * 1024ULL;
 constexpr WGPUTextureFormat _render_format = WGPUTextureFormat_RGBA8Unorm;
@@ -432,6 +433,12 @@ void handle_error_scope(
     return max_channel - min_channel <= 30U && brightness >= 90U && brightness <= 690U;
 }
 
+// Keeps scene smoke metrics independent from the renderer-owned debug overlay.
+[[nodiscard]] bool is_debug_ui_sample_excluded(std::uint32_t x, std::uint32_t y, const SmokeContract& contract) {
+    (void)y;
+    return x < std::min(_debug_ui_sample_exclusion_width, contract.m_width);
+}
+
 // Samples the rendered pixels and checks them against the shared smoke thresholds.
 [[nodiscard]] PixelReport inspect_pixels(const std::vector<std::uint8_t>& pixels, const SmokeContract& contract) {
     const std::size_t expected_size = static_cast<std::size_t>(contract.m_width) * contract.m_height * _bytes_per_pixel;
@@ -445,6 +452,9 @@ void handle_error_scope(
     std::set<std::string> buckets;
     for (std::uint32_t y = 0; y < contract.m_height; y += contract.m_sample_step) {
         for (std::uint32_t x = 0; x < contract.m_width; x += contract.m_sample_step) {
+            if (is_debug_ui_sample_excluded(x, y, contract)) {
+                continue;
+            }
             const std::size_t index = (static_cast<std::size_t>(contract.m_width) * y + x) * _bytes_per_pixel;
             const std::array<std::uint8_t, 4> pixel{
                 pixels[index], pixels[index + 1U], pixels[index + 2U], pixels[index + 3U]};
@@ -472,6 +482,10 @@ void handle_error_scope(
 
     // Convert counts into ratios and make exactly one failure reason visible.
     report.m_sampled_pixels = report.m_background_pixels + report.m_scene_pixels;
+    if (report.m_sampled_pixels == 0) {
+        report.m_failure_reason = "No scene pixels were sampled after debug UI exclusion.";
+        return report;
+    }
     report.m_scene_ratio = static_cast<double>(report.m_scene_pixels) / report.m_sampled_pixels;
     report.m_background_ratio = static_cast<double>(report.m_background_pixels) / report.m_sampled_pixels;
     report.m_ground_ratio = static_cast<double>(report.m_ground_pixels) / report.m_sampled_pixels;
@@ -546,6 +560,22 @@ void validate_render_diagnostics(const ofg::RuntimeDebugStatus& status, const Sm
     }
     if (status.m_temp_buffer_peak_bytes > _max_default_temp_buffer_bytes) {
         throw std::runtime_error("Native render smoke exceeded the default temp-buffer memory budget.");
+    }
+    const ofg::RuntimeDebugUiStatus& debug_ui = status.m_debug_ui;
+    if (!debug_ui.m_visible || debug_ui.m_overlay_pass_count == 0) {
+        throw std::runtime_error("Native render smoke did not record a visible ImGui debug overlay pass.");
+    }
+    if (debug_ui.m_draw_list_count == 0 || debug_ui.m_draw_command_count == 0 || debug_ui.m_vertex_count == 0 ||
+        debug_ui.m_index_count == 0) {
+        throw std::runtime_error("Native render smoke did not record useful ImGui draw diagnostics.");
+    }
+    if (debug_ui.m_menu_tree_generation < 2) {
+        throw std::runtime_error("Native render smoke did not see the expected debug menu registrations.");
+    }
+    if (debug_ui.m_uploaded_vertex_bytes == 0 || debug_ui.m_uploaded_index_bytes == 0 ||
+        debug_ui.m_vertex_buffer_capacity < debug_ui.m_vertex_count ||
+        debug_ui.m_index_buffer_capacity < debug_ui.m_index_count || debug_ui.m_font_texture_create_count == 0) {
+        throw std::runtime_error("Native render smoke did not record useful ImGui upload diagnostics.");
     }
     const ofg::RuntimeShadowStatus& shadow = status.m_shadow;
     if (!shadow.m_enabled) {
@@ -834,6 +864,29 @@ void write_shadow_report(std::ostream& report, const ofg::RuntimeShadowStatus& s
            << "  },\n";
 }
 
+// Writes the renderer-owned ImGui diagnostics block in the native smoke report.
+void write_debug_ui_report(std::ostream& report, const ofg::RuntimeDebugUiStatus& debug_ui) {
+    report << "  \"debugUi\": {\n"
+           << "    \"visible\": " << (debug_ui.m_visible ? "true" : "false") << ",\n"
+           << "    \"wantsCaptureMouse\": " << (debug_ui.m_wants_capture_mouse ? "true" : "false") << ",\n"
+           << "    \"wantsCaptureKeyboard\": " << (debug_ui.m_wants_capture_keyboard ? "true" : "false") << ",\n"
+           << "    \"overlayPassCount\": " << debug_ui.m_overlay_pass_count << ",\n"
+           << "    \"menuTreeGeneration\": " << debug_ui.m_menu_tree_generation << ",\n"
+           << "    \"menuTreeRebuildCount\": " << debug_ui.m_menu_tree_rebuild_count << ",\n"
+           << "    \"drawListCount\": " << debug_ui.m_draw_list_count << ",\n"
+           << "    \"drawCommandCount\": " << debug_ui.m_draw_command_count << ",\n"
+           << "    \"vertexCount\": " << debug_ui.m_vertex_count << ",\n"
+           << "    \"indexCount\": " << debug_ui.m_index_count << ",\n"
+           << "    \"uploadedVertexBytes\": " << debug_ui.m_uploaded_vertex_bytes << ",\n"
+           << "    \"uploadedIndexBytes\": " << debug_ui.m_uploaded_index_bytes << ",\n"
+           << "    \"vertexBufferCapacity\": " << debug_ui.m_vertex_buffer_capacity << ",\n"
+           << "    \"indexBufferCapacity\": " << debug_ui.m_index_buffer_capacity << ",\n"
+           << "    \"vertexBufferResizeCount\": " << debug_ui.m_vertex_buffer_resize_count << ",\n"
+           << "    \"indexBufferResizeCount\": " << debug_ui.m_index_buffer_resize_count << ",\n"
+           << "    \"fontTextureCreateCount\": " << debug_ui.m_font_texture_create_count << "\n"
+           << "  },\n";
+}
+
 // Writes the JSON report expected by the native render-smoke contract.
 void write_report(const std::filesystem::path& png_path,
     const std::filesystem::path& report_path,
@@ -845,6 +898,7 @@ void write_report(const std::filesystem::path& png_path,
     const ofg::RuntimeDemoSceneStatus& scene_stats = status.m_demo_scene;
     const ofg::RuntimeRenderCullingStatus& culling_stats = status.m_render_culling;
     const ofg::RuntimeShadowStatus& shadow_status = status.m_shadow;
+    const ofg::RuntimeDebugUiStatus& debug_ui_status = status.m_debug_ui;
     std::ofstream report(report_path);
     if (!report) {
         throw std::runtime_error("Could not open native render-smoke report path: " + report_path.string());
@@ -875,6 +929,7 @@ void write_report(const std::filesystem::path& png_path,
            << "    \"cameraCulledObjectCount\": " << culling_stats.m_camera_culled_object_count << "\n"
            << "  },\n";
     write_shadow_report(report, shadow_status);
+    write_debug_ui_report(report, debug_ui_status);
     report << "  \"backgroundReferenceRgba8\": [\n"
            << "    " << static_cast<int>(contract.m_background_reference_rgba8[0]) << ",\n"
            << "    " << static_cast<int>(contract.m_background_reference_rgba8[1]) << ",\n"

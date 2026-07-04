@@ -40,6 +40,10 @@ describe("wasm runtime wrapper", () => {
     assert.equal(status.shadow.pcfSampleCount, 5);
     assert.equal(status.shadow.totalAcceptedCasterCount, 207);
     assert.equal(status.shadow.cascades[0]?.acceptedCasterCount, 42);
+    assert.equal(status.debugUi.visible, true);
+    assert.equal(status.debugUi.overlayPassCount, 2);
+    assert.equal(status.debugUi.menuTreeRebuildCount, 1);
+    assert.equal(status.debugUi.vertexBufferCapacity, 5400);
     assert.equal(status.pipelineCreateCount, 1);
     assert.equal(status.bloomActiveLevelCount, 4);
     assert.equal(status.bloomSkipped, false);
@@ -90,6 +94,26 @@ describe("wasm runtime wrapper", () => {
     );
   });
 
+  // Verifies nested ImGui overlay diagnostics are validated with precise errors.
+  it("rejects invalid debug UI diagnostics", () => {
+    const invalidDebugUi = validStatusPayload();
+    invalidDebugUi.debugUi = { ...(invalidDebugUi.debugUi as object), visible: "yes" };
+    assert.throws(
+      () => parseRuntimeDebugStatus(JSON.stringify(invalidDebugUi)),
+      /field debugUi.visible must be a boolean/
+    );
+
+    const invalidDebugUiCount = validStatusPayload();
+    invalidDebugUiCount.debugUi = {
+      ...(invalidDebugUiCount.debugUi as object),
+      vertexBufferResizeCount: -1
+    };
+    assert.throws(
+      () => parseRuntimeDebugStatus(JSON.stringify(invalidDebugUiCount)),
+      /field debugUi.vertexBufferResizeCount must be a non-negative integer/
+    );
+  });
+
   // Verifies wrapper calls delegate to the raw Embind runtime and delete once.
   it("delegates lifecycle calls to the raw Embind runtime", () => {
     const calls: string[] = [];
@@ -107,9 +131,9 @@ describe("wasm runtime wrapper", () => {
       fast: true,
       slow: false,
       cycleCameraMode: true,
-      toggleShadowDebugOverlay: true,
       toggleOverheadSun: false
     });
+    runtime.setDebugInput(validDebugInput());
     runtime.frame(16.5);
     assert.deepEqual(runtime.blobLoads(), [{ id: 7, uri: "assets/test.bin" }]);
     runtime.markBlobLoading(7);
@@ -121,7 +145,8 @@ describe("wasm runtime wrapper", () => {
 
     assert.deepEqual(calls, [
       "resize:800:450:1",
-      "controlInput:1:0:-1:2:3:true:true:false:true:true:false",
+      "controlInput:1:0:-1:2:3:true:true:false:true:false",
+      "debugInput:42:24:1:F1|KeyA",
       "frame:16.5",
       "blobLoads",
       "markBlob:7",
@@ -135,6 +160,18 @@ describe("wasm runtime wrapper", () => {
       () => runtime.frame(33),
       /Browser game runtime has been disposed/
     );
+  });
+
+  it("rejects invalid debug UI input", () => {
+    const calls: string[] = [];
+    const runtime = createBrowserGameRuntimeFromRaw(fakeRawBrowserGame(calls));
+    const input = { ...validDebugInput(), mouseX: Number.NaN };
+
+    assert.throws(
+      () => runtime.setDebugInput(input),
+      /Debug UI input field mouseX must be a finite number/
+    );
+    assert.deepEqual(calls, []);
   });
 
   // Verifies generic blob-load JSON parsing rejects invalid host payloads.
@@ -223,7 +260,6 @@ describe("wasm runtime wrapper", () => {
           fast: false,
           slow: false,
           cycleCameraMode: false,
-          toggleShadowDebugOverlay: false,
           toggleOverheadSun: false
         }),
       /field moveX must be a finite number/
@@ -307,11 +343,16 @@ function fakeRawBrowserGame(
       fast,
       slow,
       cycleCameraMode,
-      toggleShadowDebugOverlay,
       toggleOverheadSun
     ) {
       calls.push(
-        `controlInput:${moveX}:${moveY}:${moveZ}:${lookDeltaX}:${lookDeltaY}:${lookActive}:${fast}:${slow}:${cycleCameraMode}:${toggleShadowDebugOverlay}:${toggleOverheadSun}`
+        `controlInput:${moveX}:${moveY}:${moveZ}:${lookDeltaX}:${lookDeltaY}:${lookActive}:${fast}:${slow}:${cycleCameraMode}:${toggleOverheadSun}`
+      );
+    },
+    // Records debug UI input forwarding.
+    set_debug_input(input) {
+      calls.push(
+        `debugInput:${input.mouseX}:${input.mouseY}:${input.mouseButtons}:${input.keyDownCodes.join("|")}`
       );
     },
     // Records debug-status reads and returns a valid status payload.
@@ -431,6 +472,25 @@ function validStatusPayload(): Record<string, unknown> {
       totalSubmeshCount: 207,
       totalIndexCount: 7452
     },
+    debugUi: {
+      visible: true,
+      wantsCaptureMouse: false,
+      wantsCaptureKeyboard: false,
+      overlayPassCount: 2,
+      menuTreeGeneration: 3,
+      menuTreeRebuildCount: 1,
+      drawListCount: 1,
+      drawCommandCount: 6,
+      vertexCount: 400,
+      indexCount: 900,
+      uploadedVertexBytes: 8000,
+      uploadedIndexBytes: 1800,
+      vertexBufferCapacity: 5400,
+      indexBufferCapacity: 10900,
+      vertexBufferResizeCount: 1,
+      indexBufferResizeCount: 1,
+      fontTextureCreateCount: 1
+    },
     pipelineCreateCount: 1,
     bufferCreateCount: 1,
     surfaceConfigureCount: 1,
@@ -451,5 +511,23 @@ function validStatusPayload(): Record<string, unknown> {
     tempBufferEarlyReleaseCount: 4,
     tempBufferEndFrameReturnCount: 1,
     lastError: null
+  };
+}
+
+function validDebugInput() {
+  return {
+    hasFocus: true,
+    pointerLocked: false,
+    mousePositionValid: true,
+    mouseX: 42,
+    mouseY: 24,
+    mouseButtons: 1,
+    wheelX: 0,
+    wheelY: 0,
+    toggleVisibility: true,
+    keyDownCodes: ["F1", "KeyA"],
+    keyPressedCodes: ["F1"],
+    keyReleasedCodes: [],
+    textInput: "a"
   };
 }

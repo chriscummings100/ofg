@@ -2,6 +2,7 @@
 #include "ofg/render/renderer.hpp"
 
 #include "ofg/core/engine_error.hpp"
+#include "ofg/debug/debug_menu.hpp"
 #include "ofg/gpu/common.hpp"
 #include "ofg/math/transform.hpp"
 #include "ofg/math/vec.hpp"
@@ -24,6 +25,8 @@
 
 namespace ofg {
 namespace {
+
+DEBUG_BOOL("render/shadows/show_debug_overlay", g_show_shadow_debug_overlay, false);
 
 // Converts the shared renderer clear color into WebGPU descriptor form.
 WGPUColor webgpu_clear_color() noexcept {
@@ -86,6 +89,7 @@ Renderer::Renderer(GpuContext gpu, WGPUTextureFormat color_format) : m_gpu(gpu),
 
 // Releases pass resources and the renderer-owned temp-buffer singleton.
 Renderer::~Renderer() {
+    m_debug_ui.reset();
     m_tone_map_pass.reset();
     m_bloom_pass.reset();
     (void)TempBuffer::release();
@@ -121,8 +125,9 @@ void Renderer::resize(std::uint32_t width, std::uint32_t height) {
 }
 
 // Records all renderer passes into the caller-owned command encoder.
-void Renderer::render(WGPUCommandEncoder encoder, RenderTarget target, const Scene& scene) {
-    require_renderer("Renderer::render").render_impl(encoder, target, scene);
+void Renderer::render(
+    WGPUCommandEncoder encoder, RenderTarget target, const Scene& scene, DebugUiFrameInfo debug_ui_frame_info) {
+    require_renderer("Renderer::render").render_impl(encoder, target, scene, debug_ui_frame_info);
 }
 
 // Advances renderer teardown work and reports whether resources are released.
@@ -215,14 +220,12 @@ TempBufferStats Renderer::temp_buffer_stats() noexcept {
     return TempBuffer::stats();
 }
 
-// Enables or disables the on-screen shadow-map cascade preview overlay.
-void Renderer::set_shadow_debug_overlay_enabled(bool enabled) {
-    require_renderer("Renderer::set_shadow_debug_overlay_enabled").m_shadow_debug_overlay_enabled = enabled;
-}
-
-// Reports whether the on-screen shadow-map cascade preview overlay is active.
-bool Renderer::shadow_debug_overlay_enabled() noexcept {
-    return s_renderer != nullptr && s_renderer->m_shadow_debug_overlay_enabled;
+// Reports the most recent renderer-owned debug UI diagnostics.
+DebugUiStatus Renderer::debug_ui_status() noexcept {
+    if (s_renderer == nullptr || s_renderer->m_debug_ui == nullptr) {
+        return default_debug_ui_status();
+    }
+    return s_renderer->m_debug_ui->status();
 }
 
 // Enables or disables the debug sun lock with light travelling straight down.
@@ -273,6 +276,9 @@ bool Renderer::prepare_impl() {
                 m_tone_map_pass =
                     ToneMapPass::create(m_gpu, m_color_format, tone_map_output_encoding_for(m_color_format));
             }
+            if (m_debug_ui == nullptr) {
+                m_debug_ui = DebugUi::create(m_gpu, m_color_format);
+            }
             set_state(RendererLifecycleState::Ready);
             return true;
         } catch (...) {
@@ -303,7 +309,8 @@ void Renderer::resize_impl(std::uint32_t width, std::uint32_t height) {
 }
 
 // Records all prepared passes into the caller-owned command encoder.
-void Renderer::render_impl(WGPUCommandEncoder encoder, RenderTarget target, const Scene& scene) {
+void Renderer::render_impl(
+    WGPUCommandEncoder encoder, RenderTarget target, const Scene& scene, const DebugUiFrameInfo& debug_ui_frame_info) {
     if (m_state != RendererLifecycleState::Ready) {
         throw EngineError("Renderer::render requires Renderer::prepare to complete first.");
     }
@@ -425,9 +432,12 @@ void Renderer::render_impl(WGPUCommandEncoder encoder, RenderTarget target, cons
             m_scene_color_target->height(),
             m_bloom_settings);
         m_tone_map_pass->render(encoder, m_scene_color_target->view(), bloom_result.tone_map_input(), target);
-        if (m_shadow_debug_overlay_enabled && has_shadow_cascades && m_shadow_map_target->sampling_view() != nullptr &&
+        if (g_show_shadow_debug_overlay && has_shadow_cascades && m_shadow_map_target->sampling_view() != nullptr &&
             m_shadow_map_target->size() > 0U) {
             m_shadow_debug_pass->render(encoder, m_shadow_map_target->sampling_view(), shadow_cascades, target);
+        }
+        if (m_debug_ui != nullptr) {
+            m_debug_ui->render(encoder, target, debug_ui_frame_info);
         }
         TempBuffer::release(bloom_result.m_buffer);
         TempBuffer::end_frame();
@@ -457,6 +467,7 @@ bool Renderer::release_impl() {
         m_render_objects.clear();
         m_culling_stats = RendererCullingStats{};
         m_shadow_diagnostics = ShadowPassDiagnostics{};
+        m_debug_ui.reset();
         m_tone_map_pass.reset();
         m_bloom_pass.reset();
         (void)TempBuffer::release();

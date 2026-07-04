@@ -3,6 +3,7 @@
 #include "webgpu_test_utils.hpp"
 
 #include "ofg/core/engine_error.hpp"
+#include "ofg/debug/debug_menu.hpp"
 #include "ofg/game/render_target.hpp"
 #include "ofg/math/mat.hpp"
 #include "ofg/math/quat.hpp"
@@ -387,6 +388,8 @@ TEST_CASE("renderer static lifecycle prepares pass resources") {
     CHECK(ofg::Renderer::counters().m_pipeline_create_count == 7);
     CHECK(ofg::Renderer::counters().m_buffer_create_count == 13);
     CHECK(ofg::Renderer::counters().m_shader_module_create_count == 6);
+    CHECK(ofg::Renderer::debug_ui_status().m_visible);
+    CHECK(ofg::Renderer::debug_ui_status().m_overlay_pass_count == 0);
 
     REQUIRE(ofg::Renderer::prepare());
     CHECK(ofg::Renderer::counters().m_buffer_create_count == 13);
@@ -585,7 +588,7 @@ TEST_CASE("renderer encodes shadow caster passes for the current sun") {
     add_scene_sun(scene.m_scene);
 
     init_prepared_renderer(gpu.borrowed_context());
-    ofg::Renderer::set_shadow_debug_overlay_enabled(true);
+    REQUIRE(ofg::DebugMenu::instance().set_bool("render/shadows/show_debug_overlay", true));
     ofg::Renderer::set_overhead_sun_debug_enabled(true);
     ofg::Renderer::resize(32, 32);
 
@@ -598,7 +601,7 @@ TEST_CASE("renderer encodes shadow caster passes for the current sun") {
         ofg::Renderer::render(encoder.m_value, ofg::RenderTarget{view.m_value, _test_format, 32, 32}, render_scene));
 
     const ofg::ShadowPassDiagnostics diagnostics = ofg::Renderer::shadow_diagnostics();
-    CHECK(ofg::Renderer::shadow_debug_overlay_enabled());
+    CHECK(ofg::DebugMenu::instance().get_bool("render/shadows/show_debug_overlay").value_or(false));
     CHECK(ofg::Renderer::overhead_sun_debug_enabled());
     CHECK(diagnostics.m_enabled);
     CHECK(diagnostics.m_cascade_count == 3U);
@@ -619,6 +622,7 @@ TEST_CASE("renderer encodes shadow caster passes for the current sun") {
     encoder.m_value = nullptr;
     REQUIRE(command.m_value != nullptr);
     wgpuQueueSubmit(gpu.borrowed_context().m_queue, 1, &command.m_value);
+    CHECK(ofg::DebugMenu::instance().set_bool("render/shadows/show_debug_overlay", false));
 }
 
 // Verifies scene mesh renderers record into a null-backend render target and finish cleanly.
@@ -626,6 +630,7 @@ TEST_CASE("renderer records scene mesh renderers into render targets without ste
     RendererGuard guard;
     ofg::tests::TestGpuContext gpu = make_test_gpu();
     RenderScene scene = make_render_scene(gpu.borrowed_context());
+    ofg::DebugBool overlay_probe("render/test_overlay_probe", false);
 
     init_prepared_renderer(gpu.borrowed_context());
     ofg::Renderer::resize(32, 32);
@@ -659,6 +664,20 @@ TEST_CASE("renderer records scene mesh renderers into render targets without ste
     CHECK(ofg::Renderer::temp_buffer_stats().m_created_count > 0);
     CHECK(ofg::Renderer::temp_buffer_stats().m_reusable_count > 0);
 
+    const ofg::DebugUiStatus first_debug_ui_status = ofg::Renderer::debug_ui_status();
+    CHECK(first_debug_ui_status.m_visible);
+    CHECK(first_debug_ui_status.m_overlay_pass_count == 1);
+    CHECK(first_debug_ui_status.m_menu_tree_rebuild_count >= 1);
+    CHECK(first_debug_ui_status.m_draw_list_count > 0);
+    CHECK(first_debug_ui_status.m_draw_command_count > 0);
+    CHECK(first_debug_ui_status.m_vertex_count > 0);
+    CHECK(first_debug_ui_status.m_index_count > 0);
+    CHECK(first_debug_ui_status.m_uploaded_vertex_bytes > 0);
+    CHECK(first_debug_ui_status.m_uploaded_index_bytes > 0);
+    CHECK(first_debug_ui_status.m_vertex_buffer_capacity >= first_debug_ui_status.m_vertex_count);
+    CHECK(first_debug_ui_status.m_index_buffer_capacity >= first_debug_ui_status.m_index_count);
+    CHECK(first_debug_ui_status.m_font_texture_create_count == 1);
+
     ScopedTexture second_texture;
     ScopedTextureView second_view = make_render_target_view(gpu.borrowed_context(), second_texture);
     ScopedCommandEncoder second_encoder = make_encoder(gpu.borrowed_context());
@@ -671,5 +690,8 @@ TEST_CASE("renderer records scene mesh renderers into render targets without ste
     CHECK(ofg::Renderer::counters().m_texture_create_count == 11);
     CHECK(ofg::Renderer::counters().m_texture_view_create_count == 11);
     CHECK(ofg::Renderer::counters().m_bind_group_create_count == 19);
+    const ofg::DebugUiStatus second_debug_ui_status = ofg::Renderer::debug_ui_status();
+    CHECK(second_debug_ui_status.m_overlay_pass_count == 2);
+    CHECK(second_debug_ui_status.m_menu_tree_rebuild_count == first_debug_ui_status.m_menu_tree_rebuild_count);
     CHECK_NOTHROW(ofg::Renderer::resize(0, 0));
 }

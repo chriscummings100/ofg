@@ -20,6 +20,7 @@ export interface RuntimeDebugStatus {
   readonly demoScene: RuntimeDemoSceneStatus;
   readonly renderCulling: RuntimeRenderCullingStatus;
   readonly shadow: RuntimeShadowStatus;
+  readonly debugUi: RuntimeDebugUiStatus;
   readonly pipelineCreateCount: number;
   readonly bufferCreateCount: number;
   readonly surfaceConfigureCount: number;
@@ -89,6 +90,26 @@ export interface RuntimeShadowStatus {
   readonly totalIndexCount: number;
 }
 
+export interface RuntimeDebugUiStatus {
+  readonly visible: boolean;
+  readonly wantsCaptureMouse: boolean;
+  readonly wantsCaptureKeyboard: boolean;
+  readonly overlayPassCount: number;
+  readonly menuTreeGeneration: number;
+  readonly menuTreeRebuildCount: number;
+  readonly drawListCount: number;
+  readonly drawCommandCount: number;
+  readonly vertexCount: number;
+  readonly indexCount: number;
+  readonly uploadedVertexBytes: number;
+  readonly uploadedIndexBytes: number;
+  readonly vertexBufferCapacity: number;
+  readonly indexBufferCapacity: number;
+  readonly vertexBufferResizeCount: number;
+  readonly indexBufferResizeCount: number;
+  readonly fontTextureCreateCount: number;
+}
+
 export interface ControlInput {
   readonly moveX: number;
   readonly moveY: number;
@@ -99,8 +120,23 @@ export interface ControlInput {
   readonly fast: boolean;
   readonly slow: boolean;
   readonly cycleCameraMode: boolean;
-  readonly toggleShadowDebugOverlay: boolean;
   readonly toggleOverheadSun: boolean;
+}
+
+export interface DebugUiInput {
+  readonly hasFocus: boolean;
+  readonly pointerLocked: boolean;
+  readonly mousePositionValid: boolean;
+  readonly mouseX: number;
+  readonly mouseY: number;
+  readonly mouseButtons: number;
+  readonly wheelX: number;
+  readonly wheelY: number;
+  readonly toggleVisibility: boolean;
+  readonly keyDownCodes: readonly string[];
+  readonly keyPressedCodes: readonly string[];
+  readonly keyReleasedCodes: readonly string[];
+  readonly textInput: string;
 }
 
 export interface BlobLoadRequest {
@@ -117,6 +153,8 @@ export interface BrowserGameRuntime {
   frame(timeMs: number): void;
   // Forwards one raw control input snapshot.
   setControlInput(input: ControlInput): void;
+  // Forwards one raw debug UI input snapshot.
+  setDebugInput(input: DebugUiInput): void;
   // Returns queued generic blob-load requests from the C++ runtime.
   blobLoads(): readonly BlobLoadRequest[];
   // Marks a generic blob request as actively loading in the browser host.
@@ -149,9 +187,10 @@ export interface RawBrowserGame {
     fast: boolean,
     slow: boolean,
     cycleCameraMode: boolean,
-    toggleShadowDebugOverlay: boolean,
     toggleOverheadSun: boolean
   ): void;
+  // Forwards raw debug UI input to the C++ runtime.
+  set_debug_input(input: DebugUiInput): void;
   // Returns generic blob-load requests as a JSON array.
   blob_loads_json(): string;
   // Marks a generic blob-load request as in-flight.
@@ -192,6 +231,8 @@ type RuntimeRenderCullingStatusRecord = Record<keyof RuntimeRenderCullingStatus,
 type RuntimeShadowCascadeStatusRecord = Record<keyof RuntimeShadowCascadeStatus, unknown>;
 
 type RuntimeShadowStatusRecord = Record<keyof RuntimeShadowStatus, unknown>;
+
+type RuntimeDebugUiStatusRecord = Record<keyof RuntimeDebugUiStatus, unknown>;
 
 type BlobLoadRequestRecord = Record<keyof BlobLoadRequest, unknown>;
 
@@ -261,9 +302,15 @@ class CppBrowserGameRuntime implements BrowserGameRuntime {
       input.fast,
       input.slow,
       input.cycleCameraMode,
-      input.toggleShadowDebugOverlay,
       input.toggleOverheadSun
     );
+  }
+
+  // Validates and forwards raw debug UI input only while the wrapper is live.
+  setDebugInput(input: DebugUiInput): void {
+    this.#assertLive();
+    validateDebugUiInput(input);
+    this.#game.set_debug_input(input);
   }
 
   // Parses queued generic blob requests from the C++ runtime.
@@ -364,8 +411,28 @@ function validateControlInput(input: ControlInput): void {
   requireBooleanControlField(input.fast, "fast");
   requireBooleanControlField(input.slow, "slow");
   requireBooleanControlField(input.cycleCameraMode, "cycleCameraMode");
-  requireBooleanControlField(input.toggleShadowDebugOverlay, "toggleShadowDebugOverlay");
   requireBooleanControlField(input.toggleOverheadSun, "toggleOverheadSun");
+}
+
+// Validates debug UI input before crossing the Embind boundary.
+function validateDebugUiInput(input: DebugUiInput): void {
+  requireBooleanDebugUiField(input.hasFocus, "hasFocus");
+  requireBooleanDebugUiField(input.pointerLocked, "pointerLocked");
+  requireBooleanDebugUiField(input.mousePositionValid, "mousePositionValid");
+  requireFiniteDebugUiNumber(input.mouseX, "mouseX");
+  requireFiniteDebugUiNumber(input.mouseY, "mouseY");
+  if (!Number.isSafeInteger(input.mouseButtons) || input.mouseButtons < 0) {
+    throw new Error("Debug UI input field mouseButtons must be a non-negative safe integer.");
+  }
+  requireFiniteDebugUiNumber(input.wheelX, "wheelX");
+  requireFiniteDebugUiNumber(input.wheelY, "wheelY");
+  requireBooleanDebugUiField(input.toggleVisibility, "toggleVisibility");
+  requireDebugUiCodeArray(input.keyDownCodes, "keyDownCodes");
+  requireDebugUiCodeArray(input.keyPressedCodes, "keyPressedCodes");
+  requireDebugUiCodeArray(input.keyReleasedCodes, "keyReleasedCodes");
+  if (typeof input.textInput !== "string") {
+    throw new Error("Debug UI input field textInput must be a string.");
+  }
 }
 
 // Requires a control input number to be finite.
@@ -375,10 +442,34 @@ function requireFiniteControlNumber(value: number, key: keyof ControlInput): voi
   }
 }
 
+// Requires a debug UI input number to be finite.
+function requireFiniteDebugUiNumber(value: number, key: keyof DebugUiInput): void {
+  if (!Number.isFinite(value)) {
+    throw new Error(`Debug UI input field ${key} must be a finite number.`);
+  }
+}
+
 // Requires a control input boolean before crossing the Embind boundary.
 function requireBooleanControlField(value: boolean, key: keyof ControlInput): void {
   if (typeof value !== "boolean") {
     throw new Error(`Control input field ${key} must be a boolean.`);
+  }
+}
+
+// Requires a debug UI input boolean before crossing the Embind boundary.
+function requireBooleanDebugUiField(value: boolean, key: keyof DebugUiInput): void {
+  if (typeof value !== "boolean") {
+    throw new Error(`Debug UI input field ${key} must be a boolean.`);
+  }
+}
+
+// Requires one debug UI DOM-code list.
+function requireDebugUiCodeArray(
+  value: readonly string[],
+  key: keyof DebugUiInput
+): void {
+  if (!Array.isArray(value) || value.some((code) => typeof code !== "string")) {
+    throw new Error(`Debug UI input field ${key} must be an array of strings.`);
   }
 }
 
@@ -450,6 +541,7 @@ export function parseRuntimeDebugStatus(json: string): RuntimeDebugStatus {
     demoScene: requireDemoSceneStatus(record, "demoScene"),
     renderCulling: requireRenderCullingStatus(record, "renderCulling"),
     shadow: requireShadowStatus(record, "shadow"),
+    debugUi: requireDebugUiStatus(record, "debugUi"),
     pipelineCreateCount: requireNonNegativeInteger(record, "pipelineCreateCount"),
     bufferCreateCount: requireNonNegativeInteger(record, "bufferCreateCount"),
     surfaceConfigureCount: requireNonNegativeInteger(record, "surfaceConfigureCount"),
@@ -752,6 +844,84 @@ function requireShadowCascadeNonNegativeInteger(
   if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
     throw new Error(
       `Runtime debug status field shadow.cascades[${index}].${key} must be a non-negative integer.`
+    );
+  }
+  return value;
+}
+
+// Requires the nested debug UI diagnostics object.
+function requireDebugUiStatus(
+  record: Partial<RuntimeDebugStatusRecord>,
+  key: keyof RuntimeDebugStatus
+): RuntimeDebugUiStatus {
+  const value = record[key];
+  if (!isRecord(value)) {
+    throw new Error(`Runtime debug status field ${key} must be an object.`);
+  }
+  const debugUiRecord = value as Partial<RuntimeDebugUiStatusRecord>;
+  return {
+    visible: requireDebugUiBoolean(debugUiRecord, "visible"),
+    wantsCaptureMouse: requireDebugUiBoolean(debugUiRecord, "wantsCaptureMouse"),
+    wantsCaptureKeyboard: requireDebugUiBoolean(debugUiRecord, "wantsCaptureKeyboard"),
+    overlayPassCount: requireDebugUiNonNegativeInteger(debugUiRecord, "overlayPassCount"),
+    menuTreeGeneration: requireDebugUiNonNegativeInteger(debugUiRecord, "menuTreeGeneration"),
+    menuTreeRebuildCount: requireDebugUiNonNegativeInteger(
+      debugUiRecord,
+      "menuTreeRebuildCount"
+    ),
+    drawListCount: requireDebugUiNonNegativeInteger(debugUiRecord, "drawListCount"),
+    drawCommandCount: requireDebugUiNonNegativeInteger(debugUiRecord, "drawCommandCount"),
+    vertexCount: requireDebugUiNonNegativeInteger(debugUiRecord, "vertexCount"),
+    indexCount: requireDebugUiNonNegativeInteger(debugUiRecord, "indexCount"),
+    uploadedVertexBytes: requireDebugUiNonNegativeInteger(
+      debugUiRecord,
+      "uploadedVertexBytes"
+    ),
+    uploadedIndexBytes: requireDebugUiNonNegativeInteger(debugUiRecord, "uploadedIndexBytes"),
+    vertexBufferCapacity: requireDebugUiNonNegativeInteger(
+      debugUiRecord,
+      "vertexBufferCapacity"
+    ),
+    indexBufferCapacity: requireDebugUiNonNegativeInteger(
+      debugUiRecord,
+      "indexBufferCapacity"
+    ),
+    vertexBufferResizeCount: requireDebugUiNonNegativeInteger(
+      debugUiRecord,
+      "vertexBufferResizeCount"
+    ),
+    indexBufferResizeCount: requireDebugUiNonNegativeInteger(
+      debugUiRecord,
+      "indexBufferResizeCount"
+    ),
+    fontTextureCreateCount: requireDebugUiNonNegativeInteger(
+      debugUiRecord,
+      "fontTextureCreateCount"
+    )
+  };
+}
+
+// Requires one debug UI diagnostic boolean.
+function requireDebugUiBoolean(
+  record: Partial<RuntimeDebugUiStatusRecord>,
+  key: keyof RuntimeDebugUiStatus
+): boolean {
+  const value = record[key];
+  if (typeof value !== "boolean") {
+    throw new Error(`Runtime debug status field debugUi.${key} must be a boolean.`);
+  }
+  return value;
+}
+
+// Requires one debug UI diagnostic count.
+function requireDebugUiNonNegativeInteger(
+  record: Partial<RuntimeDebugUiStatusRecord>,
+  key: keyof RuntimeDebugUiStatus
+): number {
+  const value = record[key];
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+    throw new Error(
+      `Runtime debug status field debugUi.${key} must be a non-negative integer.`
     );
   }
   return value;

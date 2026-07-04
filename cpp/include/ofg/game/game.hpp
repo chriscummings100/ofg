@@ -8,6 +8,7 @@
 
 #include "ofg/core/control_input.hpp"
 #include "ofg/core/frame_state.hpp"
+#include "ofg/debug/debug_ui_input.hpp"
 #include "ofg/game/gpu_context.hpp"
 #include "ofg/game/render_target.hpp"
 #include "ofg/render/demo_scene.hpp"
@@ -23,6 +24,7 @@
 namespace ofg {
 
 struct BloomPassDiagnostics;
+struct DebugUiStatus;
 struct RendererCullingStats;
 struct ShadowPassDiagnostics;
 struct TempBufferStats;
@@ -62,6 +64,8 @@ public:
     static void update(double time_ms);
     // Accepts the latest raw control input snapshot.
     static void set_control_input(ControlInput input);
+    // Accepts the latest raw debug UI input snapshot.
+    static void set_debug_ui_input(DebugUiInput input);
     // Records render commands into the caller-owned command encoder.
     static void render(WGPUCommandEncoder encoder, RenderTarget target);
     // Advances teardown work and reports whether Game has released resources.
@@ -93,6 +97,8 @@ private:
     void update_impl(double time_ms);
     // Stores a validated raw control input snapshot.
     void set_control_input_impl(ControlInput input);
+    // Stores a raw debug UI input snapshot for the next render.
+    void set_debug_ui_input_impl(DebugUiInput input);
     // Records render commands into the caller-owned command encoder.
     void render_impl(WGPUCommandEncoder encoder, RenderTarget target);
     // Advances the renderer/resource release state machine.
@@ -115,7 +121,8 @@ private:
     void mark_renderer_diagnostics(RendererCullingStats culling,
         const ShadowPassDiagnostics& shadow,
         const BloomPassDiagnostics& bloom,
-        const TempBufferStats& temp_buffers);
+        const TempBufferStats& temp_buffers,
+        const DebugUiStatus& debug_ui);
     // Marks the platform target/surface as configured for the current nonzero size.
     void mark_surface_configured();
     // Records a recoverable runtime/render error while preserving ready resources.
@@ -144,8 +151,10 @@ private:
     std::string m_last_error;
     DemoScene m_demo_scene;
     ControlInput m_control_input;
+    DebugUiInput m_debug_ui_input;
     std::unique_ptr<Scene> m_current_scene;
     double m_last_time_ms{0.0};
+    float m_last_delta_seconds{1.0F / 60.0F};
     bool m_has_last_time{false};
     bool m_disposed{false};
     bool m_gpu_ready{false};
