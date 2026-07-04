@@ -45,7 +45,9 @@ public:
         bool look_active,
         bool fast,
         bool slow,
-        bool cycle_camera_mode);
+        bool cycle_camera_mode,
+        bool toggle_shadow_debug_overlay,
+        bool toggle_overhead_sun);
     // Returns queued generic blob-load requests as browser-facing JSON.
     [[nodiscard]] std::string blob_loads_json();
     // Marks a generic blob-load request as being serviced by the browser host.

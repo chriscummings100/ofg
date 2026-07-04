@@ -143,6 +143,7 @@ try {
       bloomEstimatedReadBytes: status.bloomEstimatedReadBytes,
       bloomEstimatedWriteBytes: status.bloomEstimatedWriteBytes,
       bloomSkipped: status.bloomSkipped,
+      shadow: status.shadow,
       tempBufferPeakBytes: status.tempBufferPeakBytes,
       tempBufferReusableCount: status.tempBufferReusableCount
     };
@@ -151,6 +152,7 @@ try {
     throw new Error(`Expected debug camera mode after warmup, got ${warmCounters.cameraMode}.`);
   }
   assertBloomDiagnostics(warmCounters);
+  assertShadowDiagnostics(warmCounters.shadow);
   await canvas.screenshot({ path: debugModeScreenshotPath });
   await dispatchKeyCode(page, "Backquote", "`");
   await waitForCameraMode(page, "first_person");
@@ -171,12 +173,19 @@ try {
   await canvas.screenshot({ path: screenshotPath });
   const pixelReport = inspectSceneScreenshot(screenshotPath);
   const debugStatus = await page.evaluate(() => window.__ofgDebugStatus?.() ?? null);
+  const demoScene = debugStatus?.demoScene ?? null;
+  assertDemoSceneDiagnostics(demoScene);
+  assertRenderCullingDiagnostics(debugStatus?.renderCulling ?? null, demoScene);
+  assertShadowDiagnostics(debugStatus?.shadow ?? null);
   const report = {
     url,
     screenshotPath,
     headers,
     browserSignals,
     smokeContract,
+    demoScene,
+    renderCulling: debugStatus.renderCulling,
+    shadow: debugStatus.shadow,
     resizeProbe: {
       initialDebugStatus,
       resizedDebugStatus
@@ -268,6 +277,44 @@ async function waitForAnimationFrames(page, frameCount) {
   );
 }
 
+// Verifies renderer culling ran against the large default scene.
+function assertRenderCullingDiagnostics(culling, demoScene) {
+  if (culling === null) {
+    throw new Error("Runtime debug status is missing render-culling diagnostics.");
+  }
+  if (culling.extractedObjectCount < demoScene.boxCount) {
+    throw new Error(`Expected extracted render objects to cover the demo boxes: ${JSON.stringify(culling)}.`);
+  }
+  if (culling.cameraVisibleObjectCount + culling.cameraCulledObjectCount !== culling.extractedObjectCount) {
+    throw new Error(`Culling counts do not balance: ${JSON.stringify(culling)}.`);
+  }
+  if (culling.cameraVisibleObjectCount < 1 || culling.cameraCulledObjectCount < 1) {
+    throw new Error(`Expected visible and culled render objects: ${JSON.stringify(culling)}.`);
+  }
+}
+
+// Verifies the default large renderer validation scene is active.
+function assertDemoSceneDiagnostics(scene) {
+  if (scene === null) {
+    throw new Error("Runtime debug status is missing demo-scene diagnostics.");
+  }
+  if (scene.name !== "large-default-culling-shadow-validation") {
+    throw new Error(`Unexpected demo scene name: ${scene.name}.`);
+  }
+  if (scene.boxCount < 150) {
+    throw new Error(`Expected at least 150 validation boxes; got ${scene.boxCount}.`);
+  }
+  if (scene.nearBoxCount < 20 || scene.midBoxCount < 50 || scene.farBoxCount < 50) {
+    throw new Error(`Validation box distribution is too sparse: ${JSON.stringify(scene)}.`);
+  }
+  if (scene.partlyBelowGroundCount < 12 || scene.overlapClusterBoxCount < 20) {
+    throw new Error(`Validation scene lacks intersection coverage: ${JSON.stringify(scene)}.`);
+  }
+  if (scene.offCameraCandidateCount < 12) {
+    throw new Error(`Validation scene lacks off-camera candidates: ${JSON.stringify(scene)}.`);
+  }
+}
+
 // Verifies mode cycling and movement did not create steady-state renderer resources.
 function assertStableRendererCounters(before, after) {
   if (after === null) {
@@ -284,6 +331,7 @@ function assertStableRendererCounters(before, after) {
     );
   }
   assertBloomDiagnostics(after);
+  assertShadowDiagnostics(after.shadow ?? null);
 }
 
 // Verifies the integrated bloom path and temp-buffer pool were exercised.
@@ -305,6 +353,59 @@ function assertBloomDiagnostics(status) {
   }
   if (status.tempBufferPeakBytes > maxDefaultTempBufferBytes) {
     throw new Error(`Temp-buffer budget exceeded: ${JSON.stringify(status)}.`);
+  }
+}
+
+// Verifies current-sun cascaded shadow diagnostics from the runtime status.
+function assertShadowDiagnostics(shadow) {
+  if (shadow === null || shadow === undefined) {
+    throw new Error("Runtime debug status is missing shadow diagnostics.");
+  }
+  if (!shadow.enabled) {
+    throw new Error(`Expected current-sun shadows to be enabled: ${JSON.stringify(shadow)}.`);
+  }
+  if (
+    shadow.cascadeCount !== smokeContract.expectedShadowCascadeCount ||
+    shadow.encodedPassCount !== smokeContract.expectedShadowEncodedPassCount
+  ) {
+    throw new Error(`Shadow cascade/pass counts do not match contract: ${JSON.stringify(shadow)}.`);
+  }
+  if (shadow.mapSize !== smokeContract.expectedShadowMapSize) {
+    throw new Error(`Shadow map size does not match contract: ${JSON.stringify(shadow)}.`);
+  }
+  if (
+    shadow.pcfMode !== smokeContract.expectedShadowPcfMode ||
+    shadow.pcfSampleCount !== smokeContract.expectedShadowPcfSampleCount
+  ) {
+    throw new Error(`Shadow PCF mode does not match contract: ${JSON.stringify(shadow)}.`);
+  }
+  if (
+    shadow.estimatedDepthBytes < 1 ||
+    shadow.estimatedDepthBytes > smokeContract.maxShadowEstimatedDepthBytes
+  ) {
+    throw new Error(`Shadow depth byte estimate is outside budget: ${JSON.stringify(shadow)}.`);
+  }
+  if (shadow.effectiveIntensity < smokeContract.minShadowEffectiveIntensity) {
+    throw new Error(`Shadow effective intensity is too low: ${JSON.stringify(shadow)}.`);
+  }
+  if (
+    shadow.totalAcceptedCasterCount < smokeContract.minShadowAcceptedCasterCount ||
+    shadow.totalDrawCount !== shadow.totalAcceptedCasterCount ||
+    shadow.totalSubmeshCount < 1 ||
+    shadow.totalIndexCount < 1
+  ) {
+    throw new Error(`Shadow caster draw diagnostics are incomplete: ${JSON.stringify(shadow)}.`);
+  }
+  if (!Array.isArray(shadow.cascades) || shadow.cascades.length !== shadow.cascadeCount) {
+    throw new Error(`Shadow cascade diagnostics are incomplete: ${JSON.stringify(shadow)}.`);
+  }
+  for (const cascade of shadow.cascades) {
+    if (
+      cascade.testedCasterCount < 1 ||
+      cascade.acceptedCasterCount + cascade.rejectedCasterCount !== cascade.testedCasterCount
+    ) {
+      throw new Error(`Shadow cascade caster counts do not balance: ${JSON.stringify(shadow)}.`);
+    }
   }
 }
 

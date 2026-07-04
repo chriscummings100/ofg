@@ -16,6 +16,7 @@ struct PipelineKey {
     WGPUTextureFormat m_color_format{WGPUTextureFormat_Undefined};
     WGPUTextureFormat m_depth_format{WGPUTextureFormat_Undefined};
     WGPUBindGroupLayout m_material_layout{nullptr};
+    WGPUBindGroupLayout m_shadow_layout{nullptr};
     std::uint64_t m_shader_revision{0};
 };
 

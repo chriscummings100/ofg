@@ -20,6 +20,12 @@ struct RendererCounters {
     std::uint32_t m_shader_module_create_count{0};
 };
 
+struct RendererCullingStats {
+    std::uint32_t m_extracted_object_count{0};
+    std::uint32_t m_camera_visible_object_count{0};
+    std::uint32_t m_camera_culled_object_count{0};
+};
+
 // Adds one pass or target counter set into an aggregate renderer counter set.
 void add_renderer_counters(RendererCounters& total, RendererCounters next) noexcept;
 

@@ -7,48 +7,23 @@
 #include "ofg/math/vec.hpp"
 #include "ofg/render/bootstrap_scene.hpp"
 #include "ofg/render/camera_properties.hpp"
+#include "ofg/render/frustum.hpp"
 #include "ofg/render/lighting.hpp"
+#include "ofg/render/render_object.hpp"
 #include "ofg/render/renderer_counters.hpp"
+#include "ofg/render/shadow_cascade.hpp"
+#include "ofg/render/shadow_frame_state.hpp"
 #include "ofg/scene/camera.hpp"
 #include "ofg/scene/scene.hpp"
 
-#include <cstdint>
 #include <array>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <string>
-#include <utility>
-#include <vector>
 
 namespace ofg {
 namespace {
-
-// Builds the transient draw queue consumed by the current opaque pass.
-void build_draw_list_from_scene(const Scene& scene, DrawList& draw_list) {
-    draw_list.clear();
-    for (std::size_t index = 0; index < scene.mesh_renderer_count(); ++index) {
-        const MeshRenderer* mesh_renderer = scene.get_mesh_renderer(index);
-        if (mesh_renderer == nullptr || mesh_renderer->entity() == nullptr) {
-            throw EngineError("Scene mesh renderer must have an owning entity.");
-        }
-        if (!mesh_renderer->visible()) {
-            continue;
-        }
-
-        const math::Mat4 world_from_renderer = world_from_local(*mesh_renderer->entity());
-        const std::vector<MaterialOverride>& material_overrides = mesh_renderer->material_overrides();
-        DrawCommand command;
-        command.m_mesh = mesh_renderer->mesh();
-        command.m_model = world_from_renderer;
-        command.m_properties = &mesh_renderer->properties();
-        command.m_material_overrides =
-            std::span<const MaterialOverride>(material_overrides.data(), material_overrides.size());
-        command.m_sort_origin = math::transform_point(world_from_renderer, mesh_renderer->sort_origin_offset());
-        draw_list.add(std::move(command));
-    }
-
-    draw_list.validate();
-}
 
 // Converts the shared renderer clear color into WebGPU descriptor form.
 WGPUColor webgpu_clear_color() noexcept {
@@ -59,6 +34,26 @@ WGPUColor webgpu_clear_color() noexcept {
     color.b = clear.m_b;
     color.a = clear.m_a;
     return color;
+}
+
+// Returns the first renderer-facing directional light, if one is live.
+const LightProperties* first_directional_light(std::span<const LightProperties> lights) noexcept {
+    for (const LightProperties& light : lights) {
+        if (light.m_type == LightPropertiesType::Directional) {
+            return &light;
+        }
+    }
+    return nullptr;
+}
+
+// Replaces the first directional light direction with a straight-down debug sun.
+void apply_overhead_sun_debug(std::span<LightProperties> lights) noexcept {
+    for (LightProperties& light : lights) {
+        if (light.m_type == LightPropertiesType::Directional) {
+            light.m_direction = math::vec3(0.0f, -1.0f, 0.0f);
+            return;
+        }
+    }
 }
 
 } // namespace
@@ -163,6 +158,15 @@ RendererCounters Renderer::counters() noexcept {
     if (s_renderer->m_depth_target != nullptr) {
         add_renderer_counters(total, s_renderer->m_depth_target->counters());
     }
+    if (s_renderer->m_shadow_map_target != nullptr) {
+        add_renderer_counters(total, s_renderer->m_shadow_map_target->counters());
+    }
+    if (s_renderer->m_shadow_caster_pass != nullptr) {
+        add_renderer_counters(total, s_renderer->m_shadow_caster_pass->counters());
+    }
+    if (s_renderer->m_shadow_debug_pass != nullptr) {
+        add_renderer_counters(total, s_renderer->m_shadow_debug_pass->counters());
+    }
     if (s_renderer->m_opaque_pass != nullptr) {
         add_renderer_counters(total, s_renderer->m_opaque_pass->counters());
     }
@@ -177,6 +181,22 @@ RendererCounters Renderer::counters() noexcept {
     }
     add_renderer_counters(total, TempBuffer::counters());
     return total;
+}
+
+// Reports the most recent render-object culling stats.
+RendererCullingStats Renderer::culling_stats() noexcept {
+    if (s_renderer == nullptr) {
+        return RendererCullingStats{};
+    }
+    return s_renderer->m_culling_stats;
+}
+
+// Reports the most recent shadow pass diagnostics.
+ShadowPassDiagnostics Renderer::shadow_diagnostics() noexcept {
+    if (s_renderer == nullptr) {
+        return ShadowPassDiagnostics{};
+    }
+    return s_renderer->m_shadow_diagnostics;
 }
 
 // Reports the most recent bloom pass diagnostics.
@@ -195,6 +215,26 @@ TempBufferStats Renderer::temp_buffer_stats() noexcept {
     return TempBuffer::stats();
 }
 
+// Enables or disables the on-screen shadow-map cascade preview overlay.
+void Renderer::set_shadow_debug_overlay_enabled(bool enabled) {
+    require_renderer("Renderer::set_shadow_debug_overlay_enabled").m_shadow_debug_overlay_enabled = enabled;
+}
+
+// Reports whether the on-screen shadow-map cascade preview overlay is active.
+bool Renderer::shadow_debug_overlay_enabled() noexcept {
+    return s_renderer != nullptr && s_renderer->m_shadow_debug_overlay_enabled;
+}
+
+// Enables or disables the debug sun lock with light travelling straight down.
+void Renderer::set_overhead_sun_debug_enabled(bool enabled) {
+    require_renderer("Renderer::set_overhead_sun_debug_enabled").m_overhead_sun_debug_enabled = enabled;
+}
+
+// Reports whether the debug overhead-sun lock is active.
+bool Renderer::overhead_sun_debug_enabled() noexcept {
+    return s_renderer != nullptr && s_renderer->m_overhead_sun_debug_enabled;
+}
+
 // Advances the internal pass-list preparation state machine.
 bool Renderer::prepare_impl() {
     switch (m_state) {
@@ -210,6 +250,15 @@ bool Renderer::prepare_impl() {
             }
             if (m_depth_target == nullptr) {
                 m_depth_target = std::make_unique<DepthTarget>(m_gpu);
+            }
+            if (m_shadow_map_target == nullptr) {
+                m_shadow_map_target = std::make_unique<ShadowMapTarget>(m_gpu);
+            }
+            if (m_shadow_caster_pass == nullptr) {
+                m_shadow_caster_pass = ShadowCasterPass::create(m_gpu, ShadowMapTarget::format());
+            }
+            if (m_shadow_debug_pass == nullptr) {
+                m_shadow_debug_pass = ShadowDebugPass::create(m_gpu, m_color_format);
             }
             if (m_opaque_pass == nullptr) {
                 m_opaque_pass = OpaquePass::create(m_gpu, SceneColorTarget::format());
@@ -258,7 +307,8 @@ void Renderer::render_impl(WGPUCommandEncoder encoder, RenderTarget target, cons
     if (m_state != RendererLifecycleState::Ready) {
         throw EngineError("Renderer::render requires Renderer::prepare to complete first.");
     }
-    if (m_scene_color_target == nullptr || m_depth_target == nullptr || m_opaque_pass == nullptr ||
+    if (m_scene_color_target == nullptr || m_depth_target == nullptr || m_shadow_map_target == nullptr ||
+        m_shadow_caster_pass == nullptr || m_shadow_debug_pass == nullptr || m_opaque_pass == nullptr ||
         m_sky_pass == nullptr || m_bloom_pass == nullptr || m_tone_map_pass == nullptr) {
         throw EngineError("Renderer has no prepared passes.");
     }
@@ -279,10 +329,46 @@ void Renderer::render_impl(WGPUCommandEncoder encoder, RenderTarget target, cons
     const float aspect = static_cast<float>(target.m_width) / static_cast<float>(target.m_height);
     const CameraProperties camera_properties = camera->camera_properties(aspect);
 
-    build_draw_list_from_scene(scene, m_draw_list);
+    RenderObjectExtractionStats extraction_stats;
+    extract_render_objects(scene, m_render_objects, extraction_stats);
+    const ViewFrustum camera_frustum = view_frustum_from_camera(camera_properties);
+    CullingStats camera_culling_stats;
+    m_draw_list.clear();
+    append_culled_draws(m_render_objects, camera_frustum.plane_set(), m_draw_list, camera_culling_stats);
+    m_draw_list.validate();
+    m_culling_stats = RendererCullingStats{extraction_stats.m_extracted_object_count,
+        camera_culling_stats.m_accepted_object_count,
+        camera_culling_stats.m_rejected_object_count};
+
     std::array<LightProperties, 1> light_storage{};
     const std::size_t light_count = build_light_properties(scene, std::span<LightProperties>(light_storage));
+    std::span<LightProperties> mutable_lights(light_storage.data(), light_count);
+    if (m_overhead_sun_debug_enabled) {
+        apply_overhead_sun_debug(mutable_lights);
+    }
     const std::span<const LightProperties> lights(light_storage.data(), light_count);
+    ShadowFrameState shadow_frame_state = make_disabled_shadow_frame_state(m_shadow_settings);
+    const LightProperties* shadow_light = first_directional_light(lights);
+    if (shadow_light != nullptr) {
+        m_shadow_map_target->resize(m_shadow_settings.m_map_size);
+        const ShadowCascadeSet cascades =
+            build_shadow_cascades(camera_properties, shadow_light->m_direction, m_shadow_settings);
+        m_shadow_caster_pass->render(encoder, *m_shadow_map_target, cascades, m_shadow_settings, m_render_objects);
+        m_shadow_diagnostics = m_shadow_caster_pass->diagnostics();
+        shadow_frame_state = make_shadow_frame_state(cascades,
+            m_shadow_settings,
+            m_shadow_map_target->sampling_view(),
+            m_shadow_map_target->sampler(),
+            m_shadow_map_target->size(),
+            m_shadow_map_target->view_generation());
+    } else {
+        m_shadow_diagnostics = ShadowPassDiagnostics{};
+        m_shadow_diagnostics.m_cascade_count = ShadowMapTarget::cascade_count();
+        m_shadow_diagnostics.m_map_size = m_shadow_map_target->size();
+        m_shadow_diagnostics.m_estimated_depth_bytes = m_shadow_map_target->estimated_depth_bytes();
+        m_shadow_diagnostics.m_pcf_mode = m_shadow_settings.m_pcf_mode;
+        m_shadow_diagnostics.m_pcf_sample_count = shadow_pcf_sample_count(m_shadow_settings.m_pcf_mode);
+    }
     m_scene_color_target->resize(target.m_width, target.m_height);
     m_depth_target->resize(target.m_width, target.m_height);
 
@@ -309,7 +395,12 @@ void Renderer::render_impl(WGPUCommandEncoder encoder, RenderTarget target, cons
         throw EngineError("wgpuCommandEncoderBeginRenderPass returned null for scene color pass.");
     }
     try {
-        m_opaque_pass->draw(scene_pass, camera_properties, lights, scene.environment().ambient_light(), m_draw_list);
+        m_opaque_pass->draw(scene_pass,
+            camera_properties,
+            lights,
+            scene.environment().ambient_light(),
+            shadow_frame_state,
+            m_draw_list);
         m_sky_pass->draw(scene_pass, camera_properties, scene.environment(), lights);
     } catch (...) {
         wgpuRenderPassEncoderEnd(scene_pass);
@@ -330,6 +421,10 @@ void Renderer::render_impl(WGPUCommandEncoder encoder, RenderTarget target, cons
             m_scene_color_target->height(),
             m_bloom_settings);
         m_tone_map_pass->render(encoder, m_scene_color_target->view(), bloom_result.tone_map_input(), target);
+        if (m_shadow_debug_overlay_enabled && m_shadow_map_target->sampling_view() != nullptr &&
+            m_shadow_map_target->size() > 0U) {
+            m_shadow_debug_pass->render(encoder, m_shadow_map_target->sampling_view(), target);
+        }
         TempBuffer::release(bloom_result.m_buffer);
         TempBuffer::end_frame();
         temp_frame_active = false;
@@ -355,12 +450,18 @@ bool Renderer::release_impl() {
         [[fallthrough]];
     case RendererLifecycleState::Releasing:
         m_draw_list.clear();
+        m_render_objects.clear();
+        m_culling_stats = RendererCullingStats{};
+        m_shadow_diagnostics = ShadowPassDiagnostics{};
         m_tone_map_pass.reset();
         m_bloom_pass.reset();
         (void)TempBuffer::release();
         TempBuffer::destroy();
         m_sky_pass.reset();
         m_opaque_pass.reset();
+        m_shadow_debug_pass.reset();
+        m_shadow_caster_pass.reset();
+        m_shadow_map_target.reset();
         m_depth_target.reset();
         m_scene_color_target.reset();
         m_gpu = GpuContext{};

@@ -5,11 +5,61 @@
 // src/app/wasmRuntime.ts while the implementation evolves in C++.
 #pragma once
 
+#include "ofg/render/shadow_settings.hpp"
+
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
 
 namespace ofg {
+
+struct RuntimeDemoSceneStatus {
+    std::string m_name{"unavailable"};
+    std::uint32_t m_box_count{0};
+    std::uint32_t m_near_box_count{0};
+    std::uint32_t m_mid_box_count{0};
+    std::uint32_t m_far_box_count{0};
+    std::uint32_t m_partly_below_ground_count{0};
+    std::uint32_t m_overlap_cluster_box_count{0};
+    std::uint32_t m_off_camera_candidate_count{0};
+};
+
+struct RuntimeRenderCullingStatus {
+    std::uint32_t m_extracted_object_count{0};
+    std::uint32_t m_camera_visible_object_count{0};
+    std::uint32_t m_camera_culled_object_count{0};
+};
+
+struct RuntimeShadowCascadeStatus {
+    std::uint32_t m_index{0};
+    std::uint32_t m_tested_caster_count{0};
+    std::uint32_t m_accepted_caster_count{0};
+    std::uint32_t m_rejected_caster_count{0};
+    std::uint32_t m_draw_count{0};
+    std::uint32_t m_submesh_count{0};
+    std::uint32_t m_index_count{0};
+};
+
+struct RuntimeShadowStatus {
+    bool m_enabled{false};
+    std::uint32_t m_cascade_count{0};
+    std::uint32_t m_encoded_pass_count{0};
+    std::uint32_t m_map_size{0};
+    std::uint64_t m_estimated_depth_bytes{0};
+    std::string m_pcf_mode{"hard"};
+    std::uint32_t m_pcf_sample_count{1};
+    float m_sun_elevation_radians{0.0f};
+    float m_effective_intensity{0.0f};
+    bool m_low_sun_clamped{false};
+    std::array<RuntimeShadowCascadeStatus, shadow_cascade_count()> m_cascades{};
+    std::uint32_t m_total_tested_caster_count{0};
+    std::uint32_t m_total_accepted_caster_count{0};
+    std::uint32_t m_total_rejected_caster_count{0};
+    std::uint32_t m_total_draw_count{0};
+    std::uint32_t m_total_submesh_count{0};
+    std::uint32_t m_total_index_count{0};
+};
 
 struct RuntimeDebugStatus {
     bool m_initialized{false};
@@ -24,6 +74,9 @@ struct RuntimeDebugStatus {
     std::string m_camera_mode{"debug"};
     std::string m_model_loading_state{"not_requested"};
     bool m_player_model_loaded{false};
+    RuntimeDemoSceneStatus m_demo_scene;
+    RuntimeRenderCullingStatus m_render_culling;
+    RuntimeShadowStatus m_shadow;
     std::uint32_t m_pipeline_create_count{0};
     std::uint32_t m_buffer_create_count{0};
     std::uint32_t m_surface_configure_count{0};

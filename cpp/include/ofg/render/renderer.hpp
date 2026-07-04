@@ -13,13 +13,21 @@
 #include "ofg/render/depth_target.hpp"
 #include "ofg/render/draw_list.hpp"
 #include "ofg/render/opaque_pass.hpp"
+#include "ofg/render/render_object.hpp"
+#include "ofg/render/renderer_counters.hpp"
 #include "ofg/render/scene_color_target.hpp"
+#include "ofg/render/shadow_caster_pass.hpp"
+#include "ofg/render/shadow_debug_pass.hpp"
+#include "ofg/render/shadow_diagnostics.hpp"
+#include "ofg/render/shadow_map_target.hpp"
+#include "ofg/render/shadow_settings.hpp"
 #include "ofg/render/sky_pass.hpp"
 #include "ofg/render/temp_buffer.hpp"
 #include "ofg/render/tone_map_pass.hpp"
 #include "ofg/scene/scene.hpp"
 
 #include <memory>
+#include <vector>
 
 #include <webgpu/webgpu.h>
 
@@ -62,10 +70,22 @@ public:
     [[nodiscard]] static RendererLifecycleState state() noexcept;
     // Reports durable resource creation counters.
     [[nodiscard]] static RendererCounters counters() noexcept;
+    // Reports the most recent render-object culling stats.
+    [[nodiscard]] static RendererCullingStats culling_stats() noexcept;
+    // Reports the most recent shadow pass diagnostics.
+    [[nodiscard]] static ShadowPassDiagnostics shadow_diagnostics() noexcept;
     // Reports the most recent bloom pass diagnostics.
     [[nodiscard]] static BloomPassDiagnostics bloom_diagnostics() noexcept;
     // Reports current temp-buffer memory and reuse diagnostics.
     [[nodiscard]] static TempBufferStats temp_buffer_stats() noexcept;
+    // Enables or disables the on-screen shadow-map cascade preview overlay.
+    static void set_shadow_debug_overlay_enabled(bool enabled);
+    // Reports whether the on-screen shadow-map cascade preview overlay is active.
+    [[nodiscard]] static bool shadow_debug_overlay_enabled() noexcept;
+    // Enables or disables the debug sun lock with light travelling straight down.
+    static void set_overhead_sun_debug_enabled(bool enabled);
+    // Reports whether the debug overhead-sun lock is active.
+    [[nodiscard]] static bool overhead_sun_debug_enabled() noexcept;
 
 private:
     // Stores borrowed platform WebGPU handles for pass creation.
@@ -90,13 +110,22 @@ private:
     WGPUTextureFormat m_color_format{WGPUTextureFormat_Undefined};
     RendererLifecycleState m_state{RendererLifecycleState::Uninitialized};
     DrawList m_draw_list;
+    std::vector<RenderObject> m_render_objects;
+    RendererCullingStats m_culling_stats;
     std::unique_ptr<SceneColorTarget> m_scene_color_target;
     std::unique_ptr<DepthTarget> m_depth_target;
+    std::unique_ptr<ShadowMapTarget> m_shadow_map_target;
+    std::unique_ptr<ShadowCasterPass> m_shadow_caster_pass;
+    std::unique_ptr<ShadowDebugPass> m_shadow_debug_pass;
+    ShadowSettings m_shadow_settings;
+    ShadowPassDiagnostics m_shadow_diagnostics;
     std::unique_ptr<OpaquePass> m_opaque_pass;
     std::unique_ptr<SkyPass> m_sky_pass;
     std::unique_ptr<BloomPass> m_bloom_pass;
     BloomSettings m_bloom_settings;
     std::unique_ptr<ToneMapPass> m_tone_map_pass;
+    bool m_shadow_debug_overlay_enabled{false};
+    bool m_overhead_sun_debug_enabled{false};
 };
 
 } // namespace ofg

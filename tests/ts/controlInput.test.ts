@@ -26,7 +26,9 @@ describe("control input collector", () => {
       lookActive: false,
       fast: true,
       slow: true,
-      cycleCameraMode: false
+      cycleCameraMode: false,
+      toggleShadowDebugOverlay: false,
+      toggleOverheadSun: false
     });
 
     window.dispatchEvent(keyboardEvent(window, "keyup", "KeyD"));
@@ -43,22 +45,45 @@ describe("control input collector", () => {
     assert.equal(snapshot.fast, false);
     assert.equal(snapshot.slow, false);
     assert.equal(snapshot.cycleCameraMode, false);
+    assert.equal(snapshot.toggleShadowDebugOverlay, false);
+    assert.equal(snapshot.toggleOverheadSun, false);
   });
 
-  it("reports backquote as a one-frame camera-mode cycle edge", () => {
+  it("reports debug keys as one-frame action edges", () => {
     const { window, canvas } = createHarness();
     const collector = createControlInputCollector(canvas, { document: canvas.ownerDocument, window });
 
     window.dispatchEvent(keyboardEvent(window, "keydown", "Backquote"));
-    assert.equal(collector.consumeSnapshot().cycleCameraMode, true);
-    assert.equal(collector.consumeSnapshot().cycleCameraMode, false);
+    window.dispatchEvent(keyboardEvent(window, "keydown", "KeyM"));
+    window.dispatchEvent(keyboardEvent(window, "keydown", "KeyO"));
+    const snapshot = collector.consumeSnapshot();
+    assert.equal(snapshot.cycleCameraMode, true);
+    assert.equal(snapshot.toggleShadowDebugOverlay, true);
+    assert.equal(snapshot.toggleOverheadSun, true);
+
+    const cleared = collector.consumeSnapshot();
+    assert.equal(cleared.cycleCameraMode, false);
+    assert.equal(cleared.toggleShadowDebugOverlay, false);
+    assert.equal(cleared.toggleOverheadSun, false);
 
     window.dispatchEvent(keyboardEvent(window, "keydown", "Backquote"));
-    assert.equal(collector.consumeSnapshot().cycleCameraMode, false);
+    window.dispatchEvent(keyboardEvent(window, "keydown", "KeyM"));
+    window.dispatchEvent(keyboardEvent(window, "keydown", "KeyO"));
+    const repeated = collector.consumeSnapshot();
+    assert.equal(repeated.cycleCameraMode, false);
+    assert.equal(repeated.toggleShadowDebugOverlay, false);
+    assert.equal(repeated.toggleOverheadSun, false);
 
     window.dispatchEvent(keyboardEvent(window, "keyup", "Backquote"));
+    window.dispatchEvent(keyboardEvent(window, "keyup", "KeyM"));
+    window.dispatchEvent(keyboardEvent(window, "keyup", "KeyO"));
     window.dispatchEvent(keyboardEvent(window, "keydown", "Backquote"));
-    assert.equal(collector.consumeSnapshot().cycleCameraMode, true);
+    window.dispatchEvent(keyboardEvent(window, "keydown", "KeyM"));
+    window.dispatchEvent(keyboardEvent(window, "keydown", "KeyO"));
+    const repressed = collector.consumeSnapshot();
+    assert.equal(repressed.cycleCameraMode, true);
+    assert.equal(repressed.toggleShadowDebugOverlay, true);
+    assert.equal(repressed.toggleOverheadSun, true);
   });
 
   it("requests pointer lock and accumulates mouse movement until consumed", () => {
@@ -107,6 +132,8 @@ describe("control input collector", () => {
     assert.equal(snapshot.lookDeltaX, 0);
     assert.equal(snapshot.lookDeltaY, 0);
     assert.equal(snapshot.cycleCameraMode, false);
+    assert.equal(snapshot.toggleShadowDebugOverlay, false);
+    assert.equal(snapshot.toggleOverheadSun, false);
   });
 
   it("removes listeners on dispose", () => {

@@ -17,6 +17,9 @@ export interface RuntimeDebugStatus {
   readonly cameraMode: string;
   readonly modelLoadingState: string;
   readonly playerModelLoaded: boolean;
+  readonly demoScene: RuntimeDemoSceneStatus;
+  readonly renderCulling: RuntimeRenderCullingStatus;
+  readonly shadow: RuntimeShadowStatus;
   readonly pipelineCreateCount: number;
   readonly bufferCreateCount: number;
   readonly surfaceConfigureCount: number;
@@ -39,6 +42,53 @@ export interface RuntimeDebugStatus {
   readonly lastError: string | null;
 }
 
+export interface RuntimeDemoSceneStatus {
+  readonly name: string;
+  readonly boxCount: number;
+  readonly nearBoxCount: number;
+  readonly midBoxCount: number;
+  readonly farBoxCount: number;
+  readonly partlyBelowGroundCount: number;
+  readonly overlapClusterBoxCount: number;
+  readonly offCameraCandidateCount: number;
+}
+
+export interface RuntimeRenderCullingStatus {
+  readonly extractedObjectCount: number;
+  readonly cameraVisibleObjectCount: number;
+  readonly cameraCulledObjectCount: number;
+}
+
+export interface RuntimeShadowCascadeStatus {
+  readonly index: number;
+  readonly testedCasterCount: number;
+  readonly acceptedCasterCount: number;
+  readonly rejectedCasterCount: number;
+  readonly drawCount: number;
+  readonly submeshCount: number;
+  readonly indexCount: number;
+}
+
+export interface RuntimeShadowStatus {
+  readonly enabled: boolean;
+  readonly cascadeCount: number;
+  readonly encodedPassCount: number;
+  readonly mapSize: number;
+  readonly estimatedDepthBytes: number;
+  readonly pcfMode: string;
+  readonly pcfSampleCount: number;
+  readonly sunElevationRadians: number;
+  readonly effectiveIntensity: number;
+  readonly lowSunClamped: boolean;
+  readonly cascades: readonly RuntimeShadowCascadeStatus[];
+  readonly totalTestedCasterCount: number;
+  readonly totalAcceptedCasterCount: number;
+  readonly totalRejectedCasterCount: number;
+  readonly totalDrawCount: number;
+  readonly totalSubmeshCount: number;
+  readonly totalIndexCount: number;
+}
+
 export interface ControlInput {
   readonly moveX: number;
   readonly moveY: number;
@@ -49,6 +99,8 @@ export interface ControlInput {
   readonly fast: boolean;
   readonly slow: boolean;
   readonly cycleCameraMode: boolean;
+  readonly toggleShadowDebugOverlay: boolean;
+  readonly toggleOverheadSun: boolean;
 }
 
 export interface BlobLoadRequest {
@@ -96,7 +148,9 @@ export interface RawBrowserGame {
     lookActive: boolean,
     fast: boolean,
     slow: boolean,
-    cycleCameraMode: boolean
+    cycleCameraMode: boolean,
+    toggleShadowDebugOverlay: boolean,
+    toggleOverheadSun: boolean
   ): void;
   // Returns generic blob-load requests as a JSON array.
   blob_loads_json(): string;
@@ -130,6 +184,14 @@ interface GeneratedWasmFactory {
 }
 
 type RuntimeDebugStatusRecord = Record<keyof RuntimeDebugStatus, unknown>;
+
+type RuntimeDemoSceneStatusRecord = Record<keyof RuntimeDemoSceneStatus, unknown>;
+
+type RuntimeRenderCullingStatusRecord = Record<keyof RuntimeRenderCullingStatus, unknown>;
+
+type RuntimeShadowCascadeStatusRecord = Record<keyof RuntimeShadowCascadeStatus, unknown>;
+
+type RuntimeShadowStatusRecord = Record<keyof RuntimeShadowStatus, unknown>;
 
 type BlobLoadRequestRecord = Record<keyof BlobLoadRequest, unknown>;
 
@@ -198,7 +260,9 @@ class CppBrowserGameRuntime implements BrowserGameRuntime {
       input.lookActive,
       input.fast,
       input.slow,
-      input.cycleCameraMode
+      input.cycleCameraMode,
+      input.toggleShadowDebugOverlay,
+      input.toggleOverheadSun
     );
   }
 
@@ -296,12 +360,25 @@ function validateControlInput(input: ControlInput): void {
   requireFiniteControlNumber(input.moveZ, "moveZ");
   requireFiniteControlNumber(input.lookDeltaX, "lookDeltaX");
   requireFiniteControlNumber(input.lookDeltaY, "lookDeltaY");
+  requireBooleanControlField(input.lookActive, "lookActive");
+  requireBooleanControlField(input.fast, "fast");
+  requireBooleanControlField(input.slow, "slow");
+  requireBooleanControlField(input.cycleCameraMode, "cycleCameraMode");
+  requireBooleanControlField(input.toggleShadowDebugOverlay, "toggleShadowDebugOverlay");
+  requireBooleanControlField(input.toggleOverheadSun, "toggleOverheadSun");
 }
 
 // Requires a control input number to be finite.
 function requireFiniteControlNumber(value: number, key: keyof ControlInput): void {
   if (!Number.isFinite(value)) {
     throw new Error(`Control input field ${key} must be a finite number.`);
+  }
+}
+
+// Requires a control input boolean before crossing the Embind boundary.
+function requireBooleanControlField(value: boolean, key: keyof ControlInput): void {
+  if (typeof value !== "boolean") {
+    throw new Error(`Control input field ${key} must be a boolean.`);
   }
 }
 
@@ -370,6 +447,9 @@ export function parseRuntimeDebugStatus(json: string): RuntimeDebugStatus {
     cameraMode: requireString(record, "cameraMode"),
     modelLoadingState: requireString(record, "modelLoadingState"),
     playerModelLoaded: requireBoolean(record, "playerModelLoaded"),
+    demoScene: requireDemoSceneStatus(record, "demoScene"),
+    renderCulling: requireRenderCullingStatus(record, "renderCulling"),
+    shadow: requireShadowStatus(record, "shadow"),
     pipelineCreateCount: requireNonNegativeInteger(record, "pipelineCreateCount"),
     bufferCreateCount: requireNonNegativeInteger(record, "bufferCreateCount"),
     surfaceConfigureCount: requireNonNegativeInteger(record, "surfaceConfigureCount"),
@@ -432,6 +512,249 @@ function requireNullableString(
     return value;
   }
   throw new Error(`Runtime debug status field ${key} must be a string or null.`);
+}
+
+// Requires the nested demo-scene diagnostics object.
+function requireDemoSceneStatus(
+  record: Partial<RuntimeDebugStatusRecord>,
+  key: keyof RuntimeDebugStatus
+): RuntimeDemoSceneStatus {
+  const value = record[key];
+  if (!isRecord(value)) {
+    throw new Error(`Runtime debug status field ${key} must be an object.`);
+  }
+  const demoRecord = value as Partial<RuntimeDemoSceneStatusRecord>;
+  return {
+    name: requireDemoSceneString(demoRecord, "name"),
+    boxCount: requireDemoSceneNonNegativeInteger(demoRecord, "boxCount"),
+    nearBoxCount: requireDemoSceneNonNegativeInteger(demoRecord, "nearBoxCount"),
+    midBoxCount: requireDemoSceneNonNegativeInteger(demoRecord, "midBoxCount"),
+    farBoxCount: requireDemoSceneNonNegativeInteger(demoRecord, "farBoxCount"),
+    partlyBelowGroundCount: requireDemoSceneNonNegativeInteger(
+      demoRecord,
+      "partlyBelowGroundCount"
+    ),
+    overlapClusterBoxCount: requireDemoSceneNonNegativeInteger(
+      demoRecord,
+      "overlapClusterBoxCount"
+    ),
+    offCameraCandidateCount: requireDemoSceneNonNegativeInteger(
+      demoRecord,
+      "offCameraCandidateCount"
+    )
+  };
+}
+
+// Requires one demo-scene diagnostic string.
+function requireDemoSceneString(
+  record: Partial<RuntimeDemoSceneStatusRecord>,
+  key: keyof RuntimeDemoSceneStatus
+): string {
+  const value = record[key];
+  if (typeof value !== "string") {
+    throw new Error(`Runtime debug status field demoScene.${key} must be a string.`);
+  }
+  return value;
+}
+
+// Requires one demo-scene diagnostic count.
+function requireDemoSceneNonNegativeInteger(
+  record: Partial<RuntimeDemoSceneStatusRecord>,
+  key: keyof RuntimeDemoSceneStatus
+): number {
+  const value = record[key];
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+    throw new Error(
+      `Runtime debug status field demoScene.${key} must be a non-negative integer.`
+    );
+  }
+  return value;
+}
+
+// Requires the nested render-culling diagnostics object.
+function requireRenderCullingStatus(
+  record: Partial<RuntimeDebugStatusRecord>,
+  key: keyof RuntimeDebugStatus
+): RuntimeRenderCullingStatus {
+  const value = record[key];
+  if (!isRecord(value)) {
+    throw new Error(`Runtime debug status field ${key} must be an object.`);
+  }
+  const cullingRecord = value as Partial<RuntimeRenderCullingStatusRecord>;
+  return {
+    extractedObjectCount: requireRenderCullingNonNegativeInteger(
+      cullingRecord,
+      "extractedObjectCount"
+    ),
+    cameraVisibleObjectCount: requireRenderCullingNonNegativeInteger(
+      cullingRecord,
+      "cameraVisibleObjectCount"
+    ),
+    cameraCulledObjectCount: requireRenderCullingNonNegativeInteger(
+      cullingRecord,
+      "cameraCulledObjectCount"
+    )
+  };
+}
+
+// Requires one render-culling diagnostic count.
+function requireRenderCullingNonNegativeInteger(
+  record: Partial<RuntimeRenderCullingStatusRecord>,
+  key: keyof RuntimeRenderCullingStatus
+): number {
+  const value = record[key];
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+    throw new Error(
+      `Runtime debug status field renderCulling.${key} must be a non-negative integer.`
+    );
+  }
+  return value;
+}
+
+// Requires the nested shadow diagnostics object.
+function requireShadowStatus(
+  record: Partial<RuntimeDebugStatusRecord>,
+  key: keyof RuntimeDebugStatus
+): RuntimeShadowStatus {
+  const value = record[key];
+  if (!isRecord(value)) {
+    throw new Error(`Runtime debug status field ${key} must be an object.`);
+  }
+  const shadowRecord = value as Partial<RuntimeShadowStatusRecord>;
+  const cascades = shadowRecord.cascades;
+  if (!Array.isArray(cascades)) {
+    throw new Error("Runtime debug status field shadow.cascades must be an array.");
+  }
+  if (cascades.length !== 3) {
+    throw new Error(
+      `Runtime debug status field shadow.cascades must contain 3 cascades, got ${cascades.length}.`
+    );
+  }
+  return {
+    enabled: requireShadowBoolean(shadowRecord, "enabled"),
+    cascadeCount: requireShadowNonNegativeInteger(shadowRecord, "cascadeCount"),
+    encodedPassCount: requireShadowNonNegativeInteger(shadowRecord, "encodedPassCount"),
+    mapSize: requireShadowNonNegativeInteger(shadowRecord, "mapSize"),
+    estimatedDepthBytes: requireShadowNonNegativeInteger(shadowRecord, "estimatedDepthBytes"),
+    pcfMode: requireShadowString(shadowRecord, "pcfMode"),
+    pcfSampleCount: requireShadowNonNegativeInteger(shadowRecord, "pcfSampleCount"),
+    sunElevationRadians: requireShadowFiniteNumber(shadowRecord, "sunElevationRadians"),
+    effectiveIntensity: requireShadowFiniteNumber(shadowRecord, "effectiveIntensity"),
+    lowSunClamped: requireShadowBoolean(shadowRecord, "lowSunClamped"),
+    cascades: cascades.map((cascade, index) => parseShadowCascadeStatus(cascade, index)),
+    totalTestedCasterCount: requireShadowNonNegativeInteger(
+      shadowRecord,
+      "totalTestedCasterCount"
+    ),
+    totalAcceptedCasterCount: requireShadowNonNegativeInteger(
+      shadowRecord,
+      "totalAcceptedCasterCount"
+    ),
+    totalRejectedCasterCount: requireShadowNonNegativeInteger(
+      shadowRecord,
+      "totalRejectedCasterCount"
+    ),
+    totalDrawCount: requireShadowNonNegativeInteger(shadowRecord, "totalDrawCount"),
+    totalSubmeshCount: requireShadowNonNegativeInteger(shadowRecord, "totalSubmeshCount"),
+    totalIndexCount: requireShadowNonNegativeInteger(shadowRecord, "totalIndexCount")
+  };
+}
+
+// Parses one shadow-cascade diagnostics record.
+function parseShadowCascadeStatus(
+  value: unknown,
+  index: number
+): RuntimeShadowCascadeStatus {
+  if (!isRecord(value)) {
+    throw new Error(`Runtime debug status field shadow.cascades[${index}] must be an object.`);
+  }
+  const cascadeRecord = value as Partial<RuntimeShadowCascadeStatusRecord>;
+  return {
+    index: requireShadowCascadeNonNegativeInteger(cascadeRecord, "index", index),
+    testedCasterCount: requireShadowCascadeNonNegativeInteger(
+      cascadeRecord,
+      "testedCasterCount",
+      index
+    ),
+    acceptedCasterCount: requireShadowCascadeNonNegativeInteger(
+      cascadeRecord,
+      "acceptedCasterCount",
+      index
+    ),
+    rejectedCasterCount: requireShadowCascadeNonNegativeInteger(
+      cascadeRecord,
+      "rejectedCasterCount",
+      index
+    ),
+    drawCount: requireShadowCascadeNonNegativeInteger(cascadeRecord, "drawCount", index),
+    submeshCount: requireShadowCascadeNonNegativeInteger(cascadeRecord, "submeshCount", index),
+    indexCount: requireShadowCascadeNonNegativeInteger(cascadeRecord, "indexCount", index)
+  };
+}
+
+// Requires one shadow diagnostic boolean.
+function requireShadowBoolean(
+  record: Partial<RuntimeShadowStatusRecord>,
+  key: keyof RuntimeShadowStatus
+): boolean {
+  const value = record[key];
+  if (typeof value !== "boolean") {
+    throw new Error(`Runtime debug status field shadow.${key} must be a boolean.`);
+  }
+  return value;
+}
+
+// Requires one shadow diagnostic string.
+function requireShadowString(
+  record: Partial<RuntimeShadowStatusRecord>,
+  key: keyof RuntimeShadowStatus
+): string {
+  const value = record[key];
+  if (typeof value !== "string") {
+    throw new Error(`Runtime debug status field shadow.${key} must be a string.`);
+  }
+  return value;
+}
+
+// Requires one finite shadow diagnostic scalar.
+function requireShadowFiniteNumber(
+  record: Partial<RuntimeShadowStatusRecord>,
+  key: keyof RuntimeShadowStatus
+): number {
+  const value = record[key];
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`Runtime debug status field shadow.${key} must be a finite number.`);
+  }
+  return value;
+}
+
+// Requires one shadow diagnostic count.
+function requireShadowNonNegativeInteger(
+  record: Partial<RuntimeShadowStatusRecord>,
+  key: keyof RuntimeShadowStatus
+): number {
+  const value = requireShadowFiniteNumber(record, key);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(
+      `Runtime debug status field shadow.${key} must be a non-negative integer.`
+    );
+  }
+  return value;
+}
+
+// Requires one shadow cascade diagnostic count.
+function requireShadowCascadeNonNegativeInteger(
+  record: Partial<RuntimeShadowCascadeStatusRecord>,
+  key: keyof RuntimeShadowCascadeStatus,
+  index: number
+): number {
+  const value = record[key];
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+    throw new Error(
+      `Runtime debug status field shadow.cascades[${index}].${key} must be a non-negative integer.`
+    );
+  }
+  return value;
 }
 
 // Requires a debug-status field to be a finite number.

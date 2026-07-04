@@ -23,6 +23,23 @@ describe("wasm runtime wrapper", () => {
     assert.equal(status.canvasWidth, 800);
     assert.equal(status.modelLoadingState, "loaded");
     assert.equal(status.playerModelLoaded, true);
+    assert.equal(status.demoScene.name, "large-default-culling-shadow-validation");
+    assert.equal(status.demoScene.boxCount, 184);
+    assert.equal(status.demoScene.nearBoxCount, 22);
+    assert.equal(status.demoScene.midBoxCount, 79);
+    assert.equal(status.demoScene.farBoxCount, 83);
+    assert.equal(status.renderCulling.extractedObjectCount, 186);
+    assert.equal(status.renderCulling.cameraVisibleObjectCount, 160);
+    assert.equal(status.renderCulling.cameraCulledObjectCount, 26);
+    assert.equal(status.shadow.enabled, true);
+    assert.equal(status.shadow.cascadeCount, 3);
+    assert.equal(status.shadow.encodedPassCount, 3);
+    assert.equal(status.shadow.mapSize, 1024);
+    assert.equal(status.shadow.estimatedDepthBytes, 1024 * 1024 * 3 * 4);
+    assert.equal(status.shadow.pcfMode, "five_tap");
+    assert.equal(status.shadow.pcfSampleCount, 5);
+    assert.equal(status.shadow.totalAcceptedCasterCount, 207);
+    assert.equal(status.shadow.cascades[0]?.acceptedCasterCount, 42);
     assert.equal(status.pipelineCreateCount, 1);
     assert.equal(status.bloomActiveLevelCount, 4);
     assert.equal(status.bloomSkipped, false);
@@ -48,6 +65,31 @@ describe("wasm runtime wrapper", () => {
     );
   });
 
+  // Verifies nested shadow diagnostics are validated with precise errors.
+  it("rejects invalid shadow diagnostics", () => {
+    const invalidShadow = validStatusPayload();
+    invalidShadow.shadow = { ...(invalidShadow.shadow as object), enabled: "yes" };
+    assert.throws(
+      () => parseRuntimeDebugStatus(JSON.stringify(invalidShadow)),
+      /field shadow.enabled must be a boolean/
+    );
+
+    const invalidCascades = validStatusPayload();
+    invalidCascades.shadow = { ...(invalidCascades.shadow as object), cascades: [] };
+    assert.throws(
+      () => parseRuntimeDebugStatus(JSON.stringify(invalidCascades)),
+      /field shadow.cascades must contain 3 cascades/
+    );
+
+    const invalidCascadeCount = validStatusPayload();
+    const shadow = invalidCascadeCount.shadow as { cascades: Array<Record<string, unknown>> };
+    shadow.cascades[0]!.acceptedCasterCount = -1;
+    assert.throws(
+      () => parseRuntimeDebugStatus(JSON.stringify(invalidCascadeCount)),
+      /field shadow.cascades\[0\].acceptedCasterCount must be a non-negative integer/
+    );
+  });
+
   // Verifies wrapper calls delegate to the raw Embind runtime and delete once.
   it("delegates lifecycle calls to the raw Embind runtime", () => {
     const calls: string[] = [];
@@ -64,7 +106,9 @@ describe("wasm runtime wrapper", () => {
       lookActive: true,
       fast: true,
       slow: false,
-      cycleCameraMode: true
+      cycleCameraMode: true,
+      toggleShadowDebugOverlay: true,
+      toggleOverheadSun: false
     });
     runtime.frame(16.5);
     assert.deepEqual(runtime.blobLoads(), [{ id: 7, uri: "assets/test.bin" }]);
@@ -77,7 +121,7 @@ describe("wasm runtime wrapper", () => {
 
     assert.deepEqual(calls, [
       "resize:800:450:1",
-      "controlInput:1:0:-1:2:3:true:true:false:true",
+      "controlInput:1:0:-1:2:3:true:true:false:true:true:false",
       "frame:16.5",
       "blobLoads",
       "markBlob:7",
@@ -178,7 +222,9 @@ describe("wasm runtime wrapper", () => {
           lookActive: false,
           fast: false,
           slow: false,
-          cycleCameraMode: false
+          cycleCameraMode: false,
+          toggleShadowDebugOverlay: false,
+          toggleOverheadSun: false
         }),
       /field moveX must be a finite number/
     );
@@ -260,10 +306,12 @@ function fakeRawBrowserGame(
       lookActive,
       fast,
       slow,
-      cycleCameraMode
+      cycleCameraMode,
+      toggleShadowDebugOverlay,
+      toggleOverheadSun
     ) {
       calls.push(
-        `controlInput:${moveX}:${moveY}:${moveZ}:${lookDeltaX}:${lookDeltaY}:${lookActive}:${fast}:${slow}:${cycleCameraMode}`
+        `controlInput:${moveX}:${moveY}:${moveZ}:${lookDeltaX}:${lookDeltaY}:${lookActive}:${fast}:${slow}:${cycleCameraMode}:${toggleShadowDebugOverlay}:${toggleOverheadSun}`
       );
     },
     // Records debug-status reads and returns a valid status payload.
@@ -321,6 +369,68 @@ function validStatusPayload(): Record<string, unknown> {
     cameraMode: "debug",
     modelLoadingState: "loaded",
     playerModelLoaded: true,
+    demoScene: {
+      name: "large-default-culling-shadow-validation",
+      boxCount: 184,
+      nearBoxCount: 22,
+      midBoxCount: 79,
+      farBoxCount: 83,
+      partlyBelowGroundCount: 24,
+      overlapClusterBoxCount: 24,
+      offCameraCandidateCount: 16
+    },
+    renderCulling: {
+      extractedObjectCount: 186,
+      cameraVisibleObjectCount: 160,
+      cameraCulledObjectCount: 26
+    },
+    shadow: {
+      enabled: true,
+      cascadeCount: 3,
+      encodedPassCount: 3,
+      mapSize: 1024,
+      estimatedDepthBytes: 1024 * 1024 * 3 * 4,
+      pcfMode: "five_tap",
+      pcfSampleCount: 5,
+      sunElevationRadians: 0.75,
+      effectiveIntensity: 0.75,
+      lowSunClamped: false,
+      cascades: [
+        {
+          index: 0,
+          testedCasterCount: 186,
+          acceptedCasterCount: 42,
+          rejectedCasterCount: 144,
+          drawCount: 42,
+          submeshCount: 42,
+          indexCount: 1512
+        },
+        {
+          index: 1,
+          testedCasterCount: 186,
+          acceptedCasterCount: 75,
+          rejectedCasterCount: 111,
+          drawCount: 75,
+          submeshCount: 75,
+          indexCount: 2700
+        },
+        {
+          index: 2,
+          testedCasterCount: 186,
+          acceptedCasterCount: 90,
+          rejectedCasterCount: 96,
+          drawCount: 90,
+          submeshCount: 90,
+          indexCount: 3240
+        }
+      ],
+      totalTestedCasterCount: 558,
+      totalAcceptedCasterCount: 207,
+      totalRejectedCasterCount: 351,
+      totalDrawCount: 207,
+      totalSubmeshCount: 207,
+      totalIndexCount: 7452
+    },
     pipelineCreateCount: 1,
     bufferCreateCount: 1,
     surfaceConfigureCount: 1,

@@ -124,6 +124,32 @@ TEST_CASE("math camera helpers validate projection and view matrices") {
     CHECK(error.find("Look-at") != std::string::npos);
 }
 
+// Verifies orthographic projection maps an arbitrary light-space box to WebGPU clip space.
+TEST_CASE("math orthographic projection maps to webgpu clip depth") {
+    std::string error;
+    const std::optional<ofg::math::Mat4> projection =
+        ofg::math::orthographic_lh(-2.0f, 6.0f, -4.0f, 8.0f, -10.0f, 30.0f, error);
+    REQUIRE(projection.has_value());
+
+    const ofg::math::Vec4 left_bottom_near = ofg::math::mul(*projection, ofg::math::vec4(-2.0f, -4.0f, -10.0f, 1.0f));
+    CHECK(left_bottom_near.x == doctest::Approx(-1.0f));
+    CHECK(left_bottom_near.y == doctest::Approx(-1.0f));
+    CHECK(left_bottom_near.z == doctest::Approx(0.0f));
+    CHECK(left_bottom_near.w == doctest::Approx(1.0f));
+
+    const ofg::math::Vec4 right_top_far = ofg::math::mul(*projection, ofg::math::vec4(6.0f, 8.0f, 30.0f, 1.0f));
+    CHECK(right_top_far.x == doctest::Approx(1.0f));
+    CHECK(right_top_far.y == doctest::Approx(1.0f));
+    CHECK(right_top_far.z == doctest::Approx(1.0f));
+    CHECK(right_top_far.w == doctest::Approx(1.0f));
+
+    CHECK(ofg::math::orthographic_lh(1.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f, error).has_value() == false);
+    CHECK(error.find("increasing") != std::string::npos);
+    CHECK(ofg::math::orthographic_lh(-1.0f, 1.0f, -1.0f, 1.0f, 0.0f, std::numeric_limits<float>::infinity(), error)
+              .has_value() == false);
+    CHECK(error.find("finite") != std::string::npos);
+}
+
 // Verifies const indexing, raw data, and rotation helpers.
 TEST_CASE("math exposes shader-like const access and rotation") {
     const ofg::math::Mat4 identity = ofg::math::mat4_identity();

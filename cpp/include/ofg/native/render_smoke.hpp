@@ -1,8 +1,8 @@
 // Native Dawn render-smoke contract and entry point.
 //
 // The smoke command builds a Clang-native executable that renders the shared
-// plane-and-cubes demo scene through Dawn/WebGPU outside the browser. The caller
-// passes the shared smoke contract from tools/smoke-contract.json so this
+// large default validation scene through Dawn/WebGPU outside the browser. The
+// caller passes the shared smoke contract from tools/smoke-contract.json so this
 // executable can produce the same PNG and pixel report shape as browser smoke.
 #pragma once
 
@@ -38,6 +38,22 @@ struct SmokeContract {
     double m_min_lower_half_scene_ratio{0.08};
     // Minimum number of non-background color buckets expected from texture/filtering.
     std::uint32_t m_min_non_background_color_buckets{4};
+    // Expected CSM cascade count in renderer diagnostics.
+    std::uint32_t m_expected_shadow_cascade_count{3};
+    // Expected encoded shadow pass count for the default current sun.
+    std::uint32_t m_expected_shadow_encoded_pass_count{3};
+    // Expected default square shadow-map size.
+    std::uint32_t m_expected_shadow_map_size{1024};
+    // Expected stable PCF mode string.
+    std::string m_expected_shadow_pcf_mode{"five_tap"};
+    // Expected comparison sample count for the PCF mode.
+    std::uint32_t m_expected_shadow_pcf_sample_count{5};
+    // Minimum effective shadow intensity for the default sun.
+    double m_min_shadow_effective_intensity{0.1};
+    // Maximum estimated depth texture bytes for the default cascades.
+    std::uint64_t m_max_shadow_estimated_depth_bytes{16ULL * 1024ULL * 1024ULL};
+    // Minimum accepted caster count across all cascades.
+    std::uint32_t m_min_shadow_accepted_caster_count{1};
 };
 
 struct RenderSmokeOptions {

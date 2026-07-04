@@ -22,6 +22,8 @@ TEST_CASE("ControlInput defaults to an inert valid snapshot") {
     CHECK(input.m_fast == false);
     CHECK(input.m_slow == false);
     CHECK(input.m_cycle_camera_mode == false);
+    CHECK(input.m_toggle_shadow_debug_overlay == false);
+    CHECK(input.m_toggle_overhead_sun == false);
     CHECK_NOTHROW(ofg::validate_control_input(input));
 }
 

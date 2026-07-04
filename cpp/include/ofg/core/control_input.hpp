@@ -17,6 +17,8 @@ struct ControlInput {
     bool m_fast{false};
     bool m_slow{false};
     bool m_cycle_camera_mode{false};
+    bool m_toggle_shadow_debug_overlay{false};
+    bool m_toggle_overhead_sun{false};
 };
 
 // Validates that numeric controls are finite before storage or use.

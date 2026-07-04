@@ -5,6 +5,7 @@
 #include "ofg/gpu/common.hpp"
 #include "ofg/math/mat.hpp"
 #include "ofg/render/lighting.hpp"
+#include "ofg/render/shadow_map_target.hpp"
 #include "ofg/resources/material.hpp"
 #include "ofg/resources/mesh.hpp"
 #include "ofg/resources/shader.hpp"
@@ -21,7 +22,7 @@
 namespace ofg {
 namespace {
 
-constexpr std::uint64_t _frame_uniform_bytes = sizeof(float) * 32;
+constexpr std::uint64_t _frame_uniform_bytes = sizeof(float) * 48;
 constexpr std::uint64_t _draw_uniform_bytes = sizeof(float) * 32;
 constexpr std::uint64_t _draw_uniform_stride = 256;
 constexpr std::uint32_t _initial_draw_capacity = 1;
@@ -64,6 +65,40 @@ WGPUBindGroupLayout create_uniform_layout(
     return layout;
 }
 
+// Creates the shadow texture/sampler layout used by the opaque fragment shader.
+WGPUBindGroupLayout create_shadow_layout(WGPUDevice device) {
+    std::array<WGPUBindGroupLayoutEntry, 3> entries{
+        WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT, WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT, WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT};
+
+    entries[0].binding = 0;
+    entries[0].visibility = WGPUShaderStage_Fragment;
+    entries[0].buffer = WGPU_BUFFER_BINDING_LAYOUT_INIT;
+    entries[0].buffer.type = WGPUBufferBindingType_Uniform;
+    entries[0].buffer.minBindingSize = shadow_frame_uniform_byte_size();
+
+    entries[1].binding = 1;
+    entries[1].visibility = WGPUShaderStage_Fragment;
+    entries[1].texture = WGPU_TEXTURE_BINDING_LAYOUT_INIT;
+    entries[1].texture.sampleType = WGPUTextureSampleType_Depth;
+    entries[1].texture.viewDimension = WGPUTextureViewDimension_2DArray;
+
+    entries[2].binding = 2;
+    entries[2].visibility = WGPUShaderStage_Fragment;
+    entries[2].sampler = WGPU_SAMPLER_BINDING_LAYOUT_INIT;
+    entries[2].sampler.type = WGPUSamplerBindingType_Comparison;
+
+    WGPUBindGroupLayoutDescriptor descriptor = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
+    descriptor.label = gpu::cstring_view("OFG opaque shadow layout");
+    descriptor.entryCount = entries.size();
+    descriptor.entries = entries.data();
+
+    WGPUBindGroupLayout layout = wgpuDeviceCreateBindGroupLayout(device, &descriptor);
+    if (layout == nullptr) {
+        throw EngineError("wgpuDeviceCreateBindGroupLayout returned null for opaque shadow layout.");
+    }
+    return layout;
+}
+
 // Creates a bind group for one matrix uniform buffer binding.
 WGPUBindGroup create_uniform_bind_group(
     WGPUDevice device, const char* label, WGPUBindGroupLayout layout, WGPUBuffer buffer, std::uint64_t byte_size) {
@@ -82,6 +117,89 @@ WGPUBindGroup create_uniform_bind_group(
     WGPUBindGroup bind_group = wgpuDeviceCreateBindGroup(device, &descriptor);
     if (bind_group == nullptr) {
         throw EngineError(std::string("wgpuDeviceCreateBindGroup returned null for ") + label + ".");
+    }
+    return bind_group;
+}
+
+// Creates a tiny depth texture array used whenever live sun shadows are unavailable.
+WGPUTexture create_fallback_shadow_texture(WGPUDevice device) {
+    WGPUTextureDescriptor descriptor = WGPU_TEXTURE_DESCRIPTOR_INIT;
+    descriptor.label = gpu::cstring_view("OFG opaque fallback shadow texture");
+    descriptor.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_RenderAttachment;
+    descriptor.dimension = WGPUTextureDimension_2D;
+    descriptor.size = WGPUExtent3D{1, 1, ShadowMapTarget::cascade_count()};
+    descriptor.format = ShadowMapTarget::format();
+    descriptor.mipLevelCount = 1;
+    descriptor.sampleCount = 1;
+
+    WGPUTexture texture = wgpuDeviceCreateTexture(device, &descriptor);
+    if (texture == nullptr) {
+        throw EngineError("wgpuDeviceCreateTexture returned null for opaque fallback shadow texture.");
+    }
+    return texture;
+}
+
+// Creates the texture-array view for the neutral fallback shadow texture.
+WGPUTextureView create_fallback_shadow_view(WGPUTexture texture) {
+    WGPUTextureViewDescriptor descriptor = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+    descriptor.label = gpu::cstring_view("OFG opaque fallback shadow view");
+    descriptor.format = ShadowMapTarget::format();
+    descriptor.dimension = WGPUTextureViewDimension_2DArray;
+    descriptor.baseMipLevel = 0;
+    descriptor.mipLevelCount = 1;
+    descriptor.baseArrayLayer = 0;
+    descriptor.arrayLayerCount = ShadowMapTarget::cascade_count();
+    descriptor.aspect = WGPUTextureAspect_All;
+
+    WGPUTextureView view = wgpuTextureCreateView(texture, &descriptor);
+    if (view == nullptr) {
+        throw EngineError("wgpuTextureCreateView returned null for opaque fallback shadow view.");
+    }
+    return view;
+}
+
+// Creates the comparison sampler paired with the fallback shadow view.
+WGPUSampler create_fallback_shadow_sampler(WGPUDevice device) {
+    WGPUSamplerDescriptor descriptor = WGPU_SAMPLER_DESCRIPTOR_INIT;
+    descriptor.label = gpu::cstring_view("OFG opaque fallback shadow sampler");
+    descriptor.addressModeU = WGPUAddressMode_ClampToEdge;
+    descriptor.addressModeV = WGPUAddressMode_ClampToEdge;
+    descriptor.addressModeW = WGPUAddressMode_ClampToEdge;
+    descriptor.magFilter = WGPUFilterMode_Linear;
+    descriptor.minFilter = WGPUFilterMode_Linear;
+    descriptor.mipmapFilter = WGPUMipmapFilterMode_Nearest;
+    descriptor.compare = WGPUCompareFunction_LessEqual;
+
+    WGPUSampler sampler = wgpuDeviceCreateSampler(device, &descriptor);
+    if (sampler == nullptr) {
+        throw EngineError("wgpuDeviceCreateSampler returned null for opaque fallback shadow sampler.");
+    }
+    return sampler;
+}
+
+// Creates the opaque shadow bind group for either live or fallback shadow resources.
+WGPUBindGroup create_shadow_bind_group(
+    WGPUDevice device, WGPUBindGroupLayout layout, WGPUBuffer buffer, WGPUTextureView view, WGPUSampler sampler) {
+    std::array<WGPUBindGroupEntry, 3> entries{
+        WGPU_BIND_GROUP_ENTRY_INIT, WGPU_BIND_GROUP_ENTRY_INIT, WGPU_BIND_GROUP_ENTRY_INIT};
+    entries[0].binding = 0;
+    entries[0].buffer = buffer;
+    entries[0].offset = 0;
+    entries[0].size = shadow_frame_uniform_byte_size();
+    entries[1].binding = 1;
+    entries[1].textureView = view;
+    entries[2].binding = 2;
+    entries[2].sampler = sampler;
+
+    WGPUBindGroupDescriptor descriptor = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+    descriptor.label = gpu::cstring_view("OFG opaque shadow bind group");
+    descriptor.layout = layout;
+    descriptor.entryCount = entries.size();
+    descriptor.entries = entries.data();
+
+    WGPUBindGroup bind_group = wgpuDeviceCreateBindGroup(device, &descriptor);
+    if (bind_group == nullptr) {
+        throw EngineError("wgpuDeviceCreateBindGroup returned null for opaque shadow bind group.");
     }
     return bind_group;
 }
@@ -134,9 +252,11 @@ void write_frame_uniforms(WGPUQueue queue,
     const CameraProperties& camera,
     std::span<const LightProperties> lights,
     AmbientLight ambient_light) {
-    std::array<float, 32> packed{};
+    std::array<float, 48> packed{};
     const std::array<float, 16> view_projection = math::pack_mat4(camera.clip_from_world);
     std::copy(view_projection.begin(), view_projection.end(), packed.begin());
+    const std::array<float, 16> view_from_world = math::pack_mat4(camera.camera_from_world);
+    std::copy(view_from_world.begin(), view_from_world.end(), packed.begin() + 16);
 
     math::Vec3 main_light_direction{0.0f, -1.0f, 0.0f};
     math::Vec3 main_light_color{0.0f, 0.0f, 0.0f};
@@ -148,30 +268,39 @@ void write_frame_uniforms(WGPUQueue queue,
         }
     }
 
-    packed[16] = main_light_direction.x;
-    packed[17] = main_light_direction.y;
-    packed[18] = main_light_direction.z;
-    packed[19] = 0.0f;
-    packed[20] = main_light_color.x;
-    packed[21] = main_light_color.y;
-    packed[22] = main_light_color.z;
-    packed[23] = 0.0f;
-    packed[24] = ambient_light.m_color.x * ambient_light.m_intensity;
-    packed[25] = ambient_light.m_color.y * ambient_light.m_intensity;
-    packed[26] = ambient_light.m_color.z * ambient_light.m_intensity;
-    packed[27] = 0.0f;
-    packed[28] = camera.world_from_camera[3].x;
-    packed[29] = camera.world_from_camera[3].y;
-    packed[30] = camera.world_from_camera[3].z;
-    packed[31] = 1.0f;
+    packed[32] = main_light_direction.x;
+    packed[33] = main_light_direction.y;
+    packed[34] = main_light_direction.z;
+    packed[35] = 0.0f;
+    packed[36] = main_light_color.x;
+    packed[37] = main_light_color.y;
+    packed[38] = main_light_color.z;
+    packed[39] = 0.0f;
+    packed[40] = ambient_light.m_color.x * ambient_light.m_intensity;
+    packed[41] = ambient_light.m_color.y * ambient_light.m_intensity;
+    packed[42] = ambient_light.m_color.z * ambient_light.m_intensity;
+    packed[43] = 0.0f;
+    packed[44] = camera.world_from_camera[3].x;
+    packed[45] = camera.world_from_camera[3].y;
+    packed[46] = camera.world_from_camera[3].z;
+    packed[47] = 1.0f;
 
     wgpuQueueWriteBuffer(queue, buffer, 0, packed.data(), sizeof(float) * packed.size());
 }
 
+// Writes the packed shadow state consumed by the opaque fragment shader.
+void write_shadow_uniforms(WGPUQueue queue, WGPUBuffer buffer, const ShadowFrameState& state) {
+    const ShadowFrameUniforms packed = pack_shadow_frame_uniforms(state);
+    wgpuQueueWriteBuffer(queue, buffer, 0, packed.m_values.data(), sizeof(float) * packed.m_values.size());
+}
+
 // Returns the pipeline key for a resolved material.
-PipelineKey pipeline_key_for(
-    const Material& material, WGPUTextureFormat color_format, WGPUTextureFormat depth_format) noexcept {
-    return PipelineKey{color_format, depth_format, material.bind_group_layout(), material.shader().revision()};
+PipelineKey pipeline_key_for(const Material& material,
+    WGPUTextureFormat color_format,
+    WGPUTextureFormat depth_format,
+    WGPUBindGroupLayout shadow_layout) noexcept {
+    return PipelineKey{
+        color_format, depth_format, material.bind_group_layout(), shadow_layout, material.shader().revision()};
 }
 
 // Validates GPU resource handles needed by a draw-list material.
@@ -193,19 +322,9 @@ void validate_mesh_gpu_state(const Mesh& mesh) {
 
 } // namespace
 
-// Stores already-created pass GPU state.
-OpaquePass::OpaquePass(GpuContext gpu,
-    WGPUTextureFormat color_format,
-    WGPUBindGroupLayout frame_layout,
-    WGPUBuffer frame_buffer,
-    WGPUBindGroup frame_bind_group,
-    WGPUBindGroupLayout draw_layout,
-    WGPUBuffer draw_buffer,
-    WGPUBindGroup draw_bind_group,
-    std::uint32_t draw_capacity)
-    : m_gpu(gpu), m_color_format(color_format), m_frame_layout(frame_layout), m_frame_buffer(frame_buffer),
-      m_frame_bind_group(frame_bind_group), m_draw_layout(draw_layout), m_draw_buffer(draw_buffer),
-      m_draw_bind_group(draw_bind_group), m_draw_capacity(draw_capacity) {}
+// Stores the creating context and initial draw-uniform capacity.
+OpaquePass::OpaquePass(GpuContext gpu, WGPUTextureFormat color_format, std::uint32_t draw_capacity)
+    : m_gpu(gpu), m_color_format(color_format), m_draw_capacity(draw_capacity) {}
 
 // Releases pass-owned GPU handles.
 OpaquePass::~OpaquePass() {
@@ -221,8 +340,7 @@ std::unique_ptr<OpaquePass> OpaquePass::create(GpuContext gpu, WGPUTextureFormat
         throw EngineError("OpaquePass requires a defined color format.");
     }
 
-    std::unique_ptr<OpaquePass> pass(new OpaquePass(
-        gpu, color_format, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, _initial_draw_capacity));
+    std::unique_ptr<OpaquePass> pass(new OpaquePass(gpu, color_format, _initial_draw_capacity));
     pass->m_frame_layout = create_uniform_layout(gpu.m_device,
         "OFG opaque frame layout",
         _frame_uniform_bytes,
@@ -231,14 +349,37 @@ std::unique_ptr<OpaquePass> OpaquePass::create(GpuContext gpu, WGPUTextureFormat
     pass->m_frame_buffer = create_uniform_buffer(gpu.m_device, "OFG opaque frame uniforms", _frame_uniform_bytes);
     pass->m_draw_layout = create_uniform_layout(
         gpu.m_device, "OFG opaque draw layout", _draw_uniform_bytes, WGPUShaderStage_Vertex, true);
+    pass->m_shadow_layout = create_shadow_layout(gpu.m_device);
     pass->m_draw_buffer = create_uniform_buffer(gpu.m_device, "OFG opaque draw uniforms", _draw_uniform_stride);
-    pass->m_buffer_create_count = 2;
+    pass->m_shadow_buffer =
+        create_uniform_buffer(gpu.m_device, "OFG opaque shadow uniforms", shadow_frame_uniform_byte_size());
+    pass->m_buffer_create_count = 3;
+
+    pass->m_fallback_shadow_texture = create_fallback_shadow_texture(gpu.m_device);
+    pass->m_texture_create_count = 1;
+    try {
+        pass->m_fallback_shadow_view = create_fallback_shadow_view(pass->m_fallback_shadow_texture);
+        pass->m_texture_view_create_count = 1;
+        pass->m_fallback_shadow_sampler = create_fallback_shadow_sampler(gpu.m_device);
+    } catch (...) {
+        pass->release_gpu_state();
+        throw;
+    }
 
     pass->m_frame_bind_group = create_uniform_bind_group(
         gpu.m_device, "OFG opaque frame bind group", pass->m_frame_layout, pass->m_frame_buffer, _frame_uniform_bytes);
     pass->m_draw_bind_group = create_uniform_bind_group(
         gpu.m_device, "OFG opaque draw bind group", pass->m_draw_layout, pass->m_draw_buffer, _draw_uniform_bytes);
-    pass->m_bind_group_create_count = 2;
+    pass->m_shadow_bind_group = create_shadow_bind_group(gpu.m_device,
+        pass->m_shadow_layout,
+        pass->m_shadow_buffer,
+        pass->m_fallback_shadow_view,
+        pass->m_fallback_shadow_sampler);
+    pass->m_bound_shadow_view = pass->m_fallback_shadow_view;
+    pass->m_bound_shadow_sampler = pass->m_fallback_shadow_sampler;
+    pass->m_bound_shadow_generation = 0;
+    pass->m_bound_shadow_live = false;
+    pass->m_bind_group_create_count = 3;
 
     return pass;
 }
@@ -253,7 +394,7 @@ void OpaquePass::prepare(const DrawList& draw_list) {
         for (std::uint32_t submesh_index = 0; submesh_index < submeshes.size(); ++submesh_index) {
             Material& material = resolve_material(command, submesh_index);
             validate_material_gpu_state(material);
-            const PipelineKey key = pipeline_key_for(material, m_color_format, m_depth_format);
+            const PipelineKey key = pipeline_key_for(material, m_color_format, m_depth_format, m_shadow_layout);
             (void)m_pipeline_cache.get_or_create(
                 m_gpu.m_device, key, m_frame_layout, m_draw_layout, material.shader().module());
         }
@@ -265,14 +406,17 @@ void OpaquePass::draw(WGPURenderPassEncoder pass,
     const CameraProperties& camera,
     std::span<const LightProperties> lights,
     AmbientLight ambient_light,
+    const ShadowFrameState& shadow_state,
     const DrawList& draw_list) {
     if (pass == nullptr) {
         throw EngineError("OpaquePass draw requires an open render pass.");
     }
     prepare(draw_list);
     ensure_draw_capacity(static_cast<std::uint32_t>(draw_list.size()));
+    ensure_shadow_bind_group(shadow_state);
 
     write_frame_uniforms(m_gpu.m_queue, m_frame_buffer, camera, lights, ambient_light);
+    write_shadow_uniforms(m_gpu.m_queue, m_shadow_buffer, shadow_state);
     std::uint32_t draw_index = 0;
     for (const DrawCommand& command : draw_list.commands()) {
         write_draw_uniforms(m_gpu.m_queue,
@@ -283,6 +427,7 @@ void OpaquePass::draw(WGPURenderPassEncoder pass,
     }
 
     wgpuRenderPassEncoderSetBindGroup(pass, 0, m_frame_bind_group, 0, nullptr);
+    wgpuRenderPassEncoderSetBindGroup(pass, 3, m_shadow_bind_group, 0, nullptr);
     draw_index = 0;
     for (const DrawCommand& command : draw_list.commands()) {
         const std::uint32_t dynamic_offset = draw_index * static_cast<std::uint32_t>(_draw_uniform_stride);
@@ -294,7 +439,7 @@ void OpaquePass::draw(WGPURenderPassEncoder pass,
         const std::span<const SubMesh> submeshes = command.m_mesh->submeshes();
         for (std::uint32_t submesh_index = 0; submesh_index < submeshes.size(); ++submesh_index) {
             Material& material = resolve_material(command, submesh_index);
-            const PipelineKey key = pipeline_key_for(material, m_color_format, m_depth_format);
+            const PipelineKey key = pipeline_key_for(material, m_color_format, m_depth_format, m_shadow_layout);
             WGPURenderPipeline pipeline = m_pipeline_cache.get_or_create(
                 m_gpu.m_device, key, m_frame_layout, m_draw_layout, material.shader().module());
             const SubMesh& submesh = submeshes[submesh_index];
@@ -312,7 +457,9 @@ RendererCounters OpaquePass::counters() const noexcept {
     RendererCounters counters;
     counters.m_pipeline_create_count = pipeline_counters.m_pipeline_create_count;
     counters.m_buffer_create_count = m_buffer_create_count;
-    counters.m_bind_group_layout_create_count = 2;
+    counters.m_texture_create_count = m_texture_create_count;
+    counters.m_texture_view_create_count = m_texture_view_create_count;
+    counters.m_bind_group_layout_create_count = 3;
     counters.m_bind_group_create_count = m_bind_group_create_count;
     return counters;
 }
@@ -352,8 +499,63 @@ void OpaquePass::ensure_draw_capacity(std::uint32_t draw_count) {
     m_bind_group_create_count += 1;
 }
 
+// Recreates the shadow bind group when the sampled shadow view changes.
+void OpaquePass::ensure_shadow_bind_group(const ShadowFrameState& shadow_state) {
+    const bool live_sampling = shadow_frame_state_has_live_sampling(shadow_state);
+    WGPUTextureView next_view = live_sampling ? shadow_state.m_sampling_view : m_fallback_shadow_view;
+    WGPUSampler next_sampler = live_sampling ? shadow_state.m_sampler : m_fallback_shadow_sampler;
+    const std::uint64_t next_generation = live_sampling ? shadow_state.m_view_generation : 0U;
+    if (next_view == nullptr || next_sampler == nullptr) {
+        throw EngineError("Opaque shadow bind group requires valid live or fallback shadow resources.");
+    }
+    if (m_shadow_bind_group != nullptr && m_bound_shadow_view == next_view && m_bound_shadow_sampler == next_sampler &&
+        m_bound_shadow_generation == next_generation && m_bound_shadow_live == live_sampling) {
+        return;
+    }
+
+    WGPUBindGroup next_bind_group =
+        create_shadow_bind_group(m_gpu.m_device, m_shadow_layout, m_shadow_buffer, next_view, next_sampler);
+    if (m_shadow_bind_group != nullptr) {
+        wgpuBindGroupRelease(m_shadow_bind_group);
+    }
+    m_shadow_bind_group = next_bind_group;
+    m_bound_shadow_view = next_view;
+    m_bound_shadow_sampler = next_sampler;
+    m_bound_shadow_generation = next_generation;
+    m_bound_shadow_live = live_sampling;
+    m_bind_group_create_count += 1;
+}
+
 // Releases pass-level layouts, buffers, and bind groups.
 void OpaquePass::release_gpu_state() noexcept {
+    if (m_shadow_bind_group != nullptr) {
+        wgpuBindGroupRelease(m_shadow_bind_group);
+        m_shadow_bind_group = nullptr;
+    }
+    m_bound_shadow_view = nullptr;
+    m_bound_shadow_sampler = nullptr;
+    m_bound_shadow_generation = 0;
+    m_bound_shadow_live = false;
+    if (m_fallback_shadow_sampler != nullptr) {
+        wgpuSamplerRelease(m_fallback_shadow_sampler);
+        m_fallback_shadow_sampler = nullptr;
+    }
+    if (m_fallback_shadow_view != nullptr) {
+        wgpuTextureViewRelease(m_fallback_shadow_view);
+        m_fallback_shadow_view = nullptr;
+    }
+    if (m_fallback_shadow_texture != nullptr) {
+        wgpuTextureRelease(m_fallback_shadow_texture);
+        m_fallback_shadow_texture = nullptr;
+    }
+    if (m_shadow_buffer != nullptr) {
+        wgpuBufferRelease(m_shadow_buffer);
+        m_shadow_buffer = nullptr;
+    }
+    if (m_shadow_layout != nullptr) {
+        wgpuBindGroupLayoutRelease(m_shadow_layout);
+        m_shadow_layout = nullptr;
+    }
     if (m_draw_bind_group != nullptr) {
         wgpuBindGroupRelease(m_draw_bind_group);
         m_draw_bind_group = nullptr;

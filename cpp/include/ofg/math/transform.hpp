@@ -34,6 +34,10 @@ namespace ofg::math {
 [[nodiscard]] std::optional<Mat4> perspective_lh(
     float fovy_radians, float aspect, float near_z, float far_z, std::string& error);
 
+// Builds a left-handed orthographic matrix with WebGPU depth range [0, 1].
+[[nodiscard]] std::optional<Mat4> orthographic_lh(
+    float left, float right, float bottom, float top, float near_z, float far_z, std::string& error);
+
 // Builds a left-handed view matrix that treats camera-local +Z as forward.
 [[nodiscard]] std::optional<Mat4> look_at_lh(Vec3 eye, Vec3 target, Vec3 up, std::string& error);
 

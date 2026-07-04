@@ -10,6 +10,8 @@
 #include "ofg/gpu/common.hpp"
 #include "ofg/render/demo_scene.hpp"
 #include "ofg/render/renderer.hpp"
+#include "ofg/render/shadow_diagnostics.hpp"
+#include "ofg/render/shadow_settings.hpp"
 #include "ofg/resources/resources.hpp"
 #include "ofg/scene/camera.hpp"
 #include "ofg/scene/player.hpp"
@@ -18,6 +20,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <memory>
@@ -52,6 +55,50 @@ std::string device_pixel_ratio_message(double value) {
     std::ostringstream out;
     out << "Device pixel ratio must be a positive finite number, got " << value << ".";
     return out.str();
+}
+
+// Converts demo-scene validation stats into the public runtime debug payload.
+RuntimeDemoSceneStatus runtime_demo_scene_status_from(DemoSceneValidationStats stats) {
+    return RuntimeDemoSceneStatus{"large-default-culling-shadow-validation",
+        stats.m_box_count,
+        stats.m_near_box_count,
+        stats.m_mid_box_count,
+        stats.m_far_box_count,
+        stats.m_partly_below_ground_count,
+        stats.m_overlap_cluster_box_count,
+        stats.m_off_camera_candidate_count};
+}
+
+// Converts renderer shadow diagnostics into the public runtime debug payload.
+RuntimeShadowStatus runtime_shadow_status_from(const ShadowPassDiagnostics& diagnostics) {
+    RuntimeShadowStatus status;
+    status.m_enabled = diagnostics.m_enabled;
+    status.m_cascade_count = diagnostics.m_cascade_count;
+    status.m_encoded_pass_count = diagnostics.m_encoded_pass_count;
+    status.m_map_size = diagnostics.m_map_size;
+    status.m_estimated_depth_bytes = diagnostics.m_estimated_depth_bytes;
+    status.m_pcf_mode = shadow_pcf_mode_name(diagnostics.m_pcf_mode);
+    status.m_pcf_sample_count = diagnostics.m_pcf_sample_count;
+    status.m_sun_elevation_radians = diagnostics.m_sun_elevation_radians;
+    status.m_effective_intensity = diagnostics.m_effective_intensity;
+    status.m_low_sun_clamped = diagnostics.m_low_sun_clamped;
+    for (std::size_t index = 0; index < diagnostics.m_cascades.size(); ++index) {
+        const ShadowCascadeDiagnostics& cascade = diagnostics.m_cascades[index];
+        status.m_cascades[index] = RuntimeShadowCascadeStatus{cascade.m_index,
+            cascade.m_tested_caster_count,
+            cascade.m_accepted_caster_count,
+            cascade.m_rejected_caster_count,
+            cascade.m_draw_count,
+            cascade.m_submesh_count,
+            cascade.m_index_count};
+    }
+    status.m_total_tested_caster_count = diagnostics.m_total_tested_caster_count;
+    status.m_total_accepted_caster_count = diagnostics.m_total_accepted_caster_count;
+    status.m_total_rejected_caster_count = diagnostics.m_total_rejected_caster_count;
+    status.m_total_draw_count = diagnostics.m_total_draw_count;
+    status.m_total_submesh_count = diagnostics.m_total_submesh_count;
+    status.m_total_index_count = diagnostics.m_total_index_count;
+    return status;
 }
 
 constexpr float _max_delta_seconds = 0.1f;
@@ -298,6 +345,7 @@ bool Game::prepare_impl() {
         build_demo_scene(m_demo_scene);
         setup_demo_scene(m_demo_scene, *m_current_scene);
         update_demo_scene(m_demo_scene, m_last_time_ms, *m_current_scene);
+        m_status.m_demo_scene = runtime_demo_scene_status_from(demo_scene_validation_stats());
         set_state(GameLifecycleState::Prep_Renderer);
     }
         [[fallthrough]];
@@ -356,6 +404,12 @@ void Game::update_impl(double time_ms) {
         throw EngineError("Game update requires a current scene.");
     }
     update_demo_scene(m_demo_scene, time_ms, *m_current_scene);
+    if (m_control_input.m_toggle_shadow_debug_overlay) {
+        Renderer::set_shadow_debug_overlay_enabled(!Renderer::shadow_debug_overlay_enabled());
+    }
+    if (m_control_input.m_toggle_overhead_sun) {
+        Renderer::set_overhead_sun_debug_enabled(!Renderer::overhead_sun_debug_enabled());
+    }
     Resources::advance_loads();
     Player* primary_player = m_current_scene->player_count() == 0 ? nullptr : m_current_scene->get_player(0);
     Camera* main_camera = m_current_scene->main_camera();
@@ -418,7 +472,10 @@ void Game::render_impl(WGPUCommandEncoder encoder, RenderTarget target) {
     Renderer::render(encoder, target, *m_current_scene);
     const RendererCounters counters = Renderer::counters();
     mark_renderer_counters(counters.m_pipeline_create_count, counters.m_buffer_create_count);
-    mark_renderer_diagnostics(Renderer::bloom_diagnostics(), Renderer::temp_buffer_stats());
+    mark_renderer_diagnostics(Renderer::culling_stats(),
+        Renderer::shadow_diagnostics(),
+        Renderer::bloom_diagnostics(),
+        Renderer::temp_buffer_stats());
 }
 
 // Advances the renderer/resource release state machine.
@@ -525,6 +582,8 @@ float Game::frame_delta_seconds(double time_ms) noexcept {
 // Clears one-frame control edges after components consume them.
 void Game::clear_consumed_control_edges() noexcept {
     m_control_input.m_cycle_camera_mode = false;
+    m_control_input.m_toggle_shadow_debug_overlay = false;
+    m_control_input.m_toggle_overhead_sun = false;
 }
 
 // Marks the shared GPU renderer path as ready.
@@ -556,14 +615,20 @@ void Game::mark_renderer_counters(std::uint32_t pipeline_create_count, std::uint
     m_status.clear_transient_error();
 }
 
-// Records the most recent bloom and temp-buffer diagnostics.
-void Game::mark_renderer_diagnostics(const BloomPassDiagnostics& bloom, const TempBufferStats& temp_buffers) {
+// Records the most recent culling, shadow, bloom, and temp-buffer diagnostics.
+void Game::mark_renderer_diagnostics(RendererCullingStats culling,
+    const ShadowPassDiagnostics& shadow,
+    const BloomPassDiagnostics& bloom,
+    const TempBufferStats& temp_buffers) {
     if (m_disposed) {
         const std::string message = "Game runtime has been disposed.";
         fail_runtime(message);
         throw EngineError(message);
     }
 
+    m_status.m_render_culling = RuntimeRenderCullingStatus{
+        culling.m_extracted_object_count, culling.m_camera_visible_object_count, culling.m_camera_culled_object_count};
+    m_status.m_shadow = runtime_shadow_status_from(shadow);
     m_status.m_bloom_active_level_count = bloom.m_active_level_count;
     m_status.m_bloom_encoded_pass_count = bloom.m_encoded_pass_count;
     m_status.m_bloom_draw_count = bloom.m_draw_count;

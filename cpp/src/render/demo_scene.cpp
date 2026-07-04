@@ -1,4 +1,4 @@
-// Small animated renderer demo scene for smoke tests and early renderer work.
+// Large deterministic renderer demo scene for smoke tests and renderer work.
 #include "ofg/render/demo_scene.hpp"
 
 #include "ofg/core/engine_error.hpp"
@@ -39,13 +39,21 @@ constexpr float _pi = 3.14159265358979323846f;
 constexpr float _demo_camera_vertical_fov_radians = 55.0f * _pi / 180.0f;
 constexpr float _demo_camera_near_z = 0.1f;
 constexpr float _demo_camera_far_z = 80.0f;
+constexpr float _demo_scene_near_validation_distance = 28.0f;
+constexpr float _demo_scene_mid_validation_distance = 50.0f;
 
 struct CubePlacement {
     math::Vec3 m_position;
-    float m_scale{1.0f};
+    math::Vec3 m_scale{1.0f, 1.0f, 1.0f};
+    std::uint32_t m_material_index{0};
     float m_phase{0.0f};
     float m_turn_rate{1.0f};
+    float m_bob_amplitude{0.0f};
+    bool m_overlap_cluster{false};
+    bool m_off_camera_candidate{false};
 };
+
+math::Vec3 demo_camera_eye() noexcept;
 
 // Builds a byte vector from RGBA8 channels.
 std::vector<std::byte> rgba_bytes(std::initializer_list<std::uint8_t> values) {
@@ -107,10 +115,10 @@ Material* add_material(std::string label,
 // Builds the large XZ ground plane vertex data.
 std::vector<MeshVertex> ground_vertices() {
     return {
-        MeshVertex{{-8.0f, 0.0f, -8.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
-        MeshVertex{{8.0f, 0.0f, -8.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {8.0f, 0.0f}},
-        MeshVertex{{8.0f, 0.0f, 8.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {8.0f, 8.0f}},
-        MeshVertex{{-8.0f, 0.0f, 8.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 8.0f}},
+        MeshVertex{{-88.0f, 0.0f, -104.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+        MeshVertex{{88.0f, 0.0f, -104.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {88.0f, 0.0f}},
+        MeshVertex{{88.0f, 0.0f, 40.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {88.0f, 72.0f}},
+        MeshVertex{{-88.0f, 0.0f, 40.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 72.0f}},
     };
 }
 
@@ -169,14 +177,104 @@ void cube_geometry(std::vector<MeshVertex>& vertices, std::vector<std::uint32_t>
     append_cube_face(vertices, indices, {nnn, pnn, pnp, nnp});
 }
 
+// Returns whether a scaled cube crosses below the ground plane.
+bool placement_is_partly_below_ground(const CubePlacement& placement) noexcept {
+    return placement.m_position.y - placement.m_scale.y * 0.5f < -0.001f;
+}
+
+// Returns camera distance used for broad near/mid/far validation buckets.
+float placement_camera_distance(const CubePlacement& placement) noexcept {
+    return math::length(math::sub(placement.m_position, demo_camera_eye()));
+}
+
+// Builds the deterministic box field used by the default scene.
+std::vector<CubePlacement> build_cube_placements() {
+    std::vector<CubePlacement> placements;
+    placements.reserve(184);
+
+    for (std::uint32_t row = 0; row < 12U; ++row) {
+        const float z = -6.0f - static_cast<float>(row) * 5.0f;
+        for (std::uint32_t column = 0; column < 12U; ++column) {
+            const float row_offset = row % 2U == 0U ? 0.0f : 1.35f;
+            const float x = -30.0f + static_cast<float>(column) * 5.5f + row_offset;
+            const float sx = 0.75f + static_cast<float>((column * 7U + row * 3U) % 5U) * 0.25f;
+            const float sy = 0.55f + static_cast<float>((column * 5U + row * 11U) % 7U) * 0.30f;
+            const float sz = 0.70f + static_cast<float>((column * 13U + row * 2U) % 6U) * 0.22f;
+            const bool sunk = ((row + column) % 17U == 0U) || (row % 5U == 0U && column % 6U == 1U);
+            const float sink = sunk ? sy * (0.18f + static_cast<float>((row + column) % 3U) * 0.06f) : 0.0f;
+            const float bob = (row < 2U && column % 4U == 0U) ? 0.08f : 0.0f;
+
+            placements.push_back(CubePlacement{math::vec3(x, sy * 0.5f - sink, z),
+                math::vec3(sx, sy, sz),
+                (row + column * 2U) % 4U,
+                static_cast<float>(row) * 0.43f + static_cast<float>(column) * 0.31f,
+                0.20f + static_cast<float>((row + column) % 5U) * 0.10f,
+                bob,
+                false,
+                false});
+        }
+    }
+
+    const std::array<math::Vec3, 4> cluster_centers{
+        math::vec3(-12.0f, 0.0f, -16.0f),
+        math::vec3(8.0f, 0.0f, -24.0f),
+        math::vec3(22.0f, 0.0f, -39.0f),
+        math::vec3(-22.0f, 0.0f, -52.0f),
+    };
+    const std::array<math::Vec3, 6> cluster_offsets{
+        math::vec3(0.0f, 0.0f, 0.0f),
+        math::vec3(0.45f, 0.0f, 0.20f),
+        math::vec3(-0.35f, 0.0f, -0.30f),
+        math::vec3(0.25f, 0.0f, -0.45f),
+        math::vec3(-0.55f, 0.0f, 0.35f),
+        math::vec3(0.10f, 0.0f, 0.55f),
+    };
+    for (std::size_t cluster_index = 0; cluster_index < cluster_centers.size(); ++cluster_index) {
+        for (std::size_t offset_index = 0; offset_index < cluster_offsets.size(); ++offset_index) {
+            const math::Vec3 scale = math::vec3(1.25f + static_cast<float>(offset_index % 3U) * 0.45f,
+                0.95f + static_cast<float>((cluster_index + offset_index) % 4U) * 0.55f,
+                1.15f + static_cast<float>((cluster_index * 2U + offset_index) % 3U) * 0.40f);
+            const float sink = offset_index % 3U == 0U ? scale.y * 0.22f : 0.0f;
+            placements.push_back(
+                CubePlacement{math::vec3(cluster_centers[cluster_index].x + cluster_offsets[offset_index].x,
+                                  scale.y * 0.5f - sink,
+                                  cluster_centers[cluster_index].z + cluster_offsets[offset_index].z),
+                    scale,
+                    static_cast<std::uint32_t>((cluster_index + offset_index) % 4U),
+                    static_cast<float>(cluster_index) * 1.3f + static_cast<float>(offset_index) * 0.37f,
+                    0.12f + static_cast<float>(offset_index % 4U) * 0.06f,
+                    0.0f,
+                    true,
+                    false});
+        }
+    }
+
+    for (std::uint32_t index = 0; index < 16U; ++index) {
+        const bool left_side = index % 2U == 0U;
+        const float x =
+            left_side ? -58.0f - static_cast<float>(index % 4U) * 3.5f : 58.0f + static_cast<float>(index % 4U) * 3.5f;
+        const float z = -8.0f - static_cast<float>(index / 2U) * 7.0f;
+        const math::Vec3 scale = math::vec3(1.2f + static_cast<float>(index % 3U) * 0.45f,
+            0.8f + static_cast<float>(index % 5U) * 0.35f,
+            1.0f + static_cast<float>((index + 2U) % 4U) * 0.30f);
+        const float sink = index % 5U == 0U ? scale.y * 0.25f : 0.0f;
+        placements.push_back(CubePlacement{math::vec3(x, scale.y * 0.5f - sink, z),
+            scale,
+            index % 4U,
+            static_cast<float>(index) * 0.41f,
+            0.16f + static_cast<float>(index % 4U) * 0.05f,
+            0.0f,
+            false,
+            true});
+    }
+
+    return placements;
+}
+
 // Returns the deterministic cube placements used by the demo.
-std::array<CubePlacement, 4> cube_placements() noexcept {
-    return {{
-        CubePlacement{math::vec3(-2.35f, 0.0f, -0.8f), 1.15f, 0.0f, 0.75f},
-        CubePlacement{math::vec3(0.25f, 0.0f, -2.45f), 0.9f, 1.7f, -0.95f},
-        CubePlacement{math::vec3(2.25f, 0.0f, 0.35f), 1.0f, 3.0f, 0.6f},
-        CubePlacement{math::vec3(-0.75f, 0.0f, 2.15f), 0.72f, 4.2f, -1.15f},
-    }};
+const std::vector<CubePlacement>& cube_placements() {
+    static const std::vector<CubePlacement> _placements = build_cube_placements();
+    return _placements;
 }
 
 // Returns the default camera eye used by the browser and native smoke views.
@@ -186,7 +284,7 @@ math::Vec3 demo_camera_eye() noexcept {
 
 // Returns the default camera target used by the browser and native smoke views.
 math::Vec3 demo_camera_target() noexcept {
-    return math::vec3(0.0f, 0.55f, 0.0f);
+    return math::vec3(0.0f, 1.9f, 0.0f);
 }
 
 // Returns the default camera up direction used by the browser and native smoke views.
@@ -262,6 +360,10 @@ void validate_demo_bindings(const DemoScene& demo_scene, const Scene& scene) {
     if (demo_scene.m_player_entity == nullptr || demo_scene.m_player_visual_entity == nullptr ||
         demo_scene.m_player_renderer == nullptr || demo_scene.m_player == nullptr) {
         throw EngineError("Demo scene player entity binding is not initialized.");
+    }
+    const std::size_t placement_count = cube_placements().size();
+    if (demo_scene.m_cube_entities.size() != placement_count || demo_scene.m_cube_renderers.size() != placement_count) {
+        throw EngineError("Demo scene cube entity binding count is not initialized.");
     }
     for (std::size_t index = 0; index < demo_scene.m_cube_entities.size(); ++index) {
         if (demo_scene.m_cube_entities[index] == nullptr || demo_scene.m_cube_renderers[index] == nullptr) {
@@ -339,7 +441,7 @@ void build_demo_scene(DemoScene& scene) {
     scene.m_cube_mesh->init(std::move(cube_vertices), std::move(cube_indices), std::move(cube_submeshes));
 }
 
-// Creates a stable camera, floor/cube entities, and mesh-renderer components.
+// Creates a stable camera, floor/box entities, and mesh-renderer components.
 void setup_demo_scene(DemoScene& demo_scene, Scene& scene) {
     validate_demo_resources(demo_scene);
 
@@ -397,12 +499,15 @@ void setup_demo_scene(DemoScene& demo_scene, Scene& scene) {
     demo_scene.m_player_entity->local_transform().m_scale = math::vec3(1.0f, 1.0f, 1.0f);
     demo_scene.m_player_visual_entity->local_transform().m_scale = math::vec3(0.6f, 1.8f, 0.35f);
 
-    const std::array<CubePlacement, 4> placements = cube_placements();
+    const std::vector<CubePlacement>& placements = cube_placements();
+    demo_scene.m_cube_entities.assign(placements.size(), nullptr);
+    demo_scene.m_cube_renderers.assign(placements.size(), nullptr);
     for (std::size_t index = 0; index < placements.size(); ++index) {
         Entity* entity = scene.create_entity(root);
         MeshRenderer& renderer = create_mesh_renderer(*entity);
         renderer.set_mesh(demo_scene.m_cube_mesh);
-        renderer.set_material_overrides({MaterialOverride{0, demo_scene.m_cube_materials[index]}});
+        renderer.set_material_overrides(
+            {MaterialOverride{0, demo_scene.m_cube_materials[placements[index].m_material_index]}});
         demo_scene.m_cube_entities[index] = entity;
         demo_scene.m_cube_renderers[index] = &renderer;
     }
@@ -425,14 +530,42 @@ void update_demo_scene(const DemoScene& demo_scene, double time_ms, Scene& scene
 
     // The animation updates only entity transforms; resource objects remain stable.
     const float seconds = static_cast<float>(time_ms * 0.001);
-    const std::array<CubePlacement, 4> placements = cube_placements();
+    const std::vector<CubePlacement>& placements = cube_placements();
     for (std::size_t index = 0; index < placements.size(); ++index) {
-        const float bob = 0.16f * std::sin(seconds * 1.7f + placements[index].m_phase);
+        const float bob = placements[index].m_bob_amplitude * std::sin(seconds * 1.7f + placements[index].m_phase);
         LocalTransform& transform = demo_scene.m_cube_entities[index]->local_transform();
-        transform.m_position = math::vec3(placements[index].m_position.x, 0.5f + bob, placements[index].m_position.z);
+        transform.m_position = math::vec3(
+            placements[index].m_position.x, placements[index].m_position.y + bob, placements[index].m_position.z);
         transform.m_rotation = cube_rotation(seconds * placements[index].m_turn_rate + placements[index].m_phase);
-        transform.m_scale = math::vec3(placements[index].m_scale, placements[index].m_scale, placements[index].m_scale);
+        transform.m_scale = placements[index].m_scale;
     }
+}
+
+// Returns the deterministic validation-scene distribution used by tests and smoke reports.
+DemoSceneValidationStats demo_scene_validation_stats() {
+    DemoSceneValidationStats stats;
+    const std::vector<CubePlacement>& placements = cube_placements();
+    stats.m_box_count = static_cast<std::uint32_t>(placements.size());
+    for (const CubePlacement& placement : placements) {
+        const float distance = placement_camera_distance(placement);
+        if (distance <= _demo_scene_near_validation_distance) {
+            stats.m_near_box_count += 1U;
+        } else if (distance <= _demo_scene_mid_validation_distance) {
+            stats.m_mid_box_count += 1U;
+        } else {
+            stats.m_far_box_count += 1U;
+        }
+        if (placement_is_partly_below_ground(placement)) {
+            stats.m_partly_below_ground_count += 1U;
+        }
+        if (placement.m_overlap_cluster) {
+            stats.m_overlap_cluster_box_count += 1U;
+        }
+        if (placement.m_off_camera_candidate) {
+            stats.m_off_camera_candidate_count += 1U;
+        }
+    }
+    return stats;
 }
 
 // Returns the stable timestamp used by browser-free native visual smoke.

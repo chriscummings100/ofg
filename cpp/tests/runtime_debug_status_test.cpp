@@ -21,6 +21,27 @@ TEST_CASE("RuntimeDebugStatus emits the browser debug contract") {
     status.m_camera_mode = "third_person";
     status.m_model_loading_state = "loaded";
     status.m_player_model_loaded = true;
+    status.m_demo_scene =
+        ofg::RuntimeDemoSceneStatus{"large-default-culling-shadow-validation", 184, 22, 79, 83, 24, 24, 16};
+    status.m_render_culling = ofg::RuntimeRenderCullingStatus{186, 160, 26};
+    status.m_shadow.m_enabled = true;
+    status.m_shadow.m_cascade_count = 3;
+    status.m_shadow.m_encoded_pass_count = 3;
+    status.m_shadow.m_map_size = 1024;
+    status.m_shadow.m_estimated_depth_bytes = 1024ULL * 1024ULL * 3ULL * 4ULL;
+    status.m_shadow.m_pcf_mode = "five_tap";
+    status.m_shadow.m_pcf_sample_count = 5;
+    status.m_shadow.m_sun_elevation_radians = 0.75f;
+    status.m_shadow.m_effective_intensity = 0.75f;
+    status.m_shadow.m_cascades[0] = ofg::RuntimeShadowCascadeStatus{0, 186, 42, 144, 42, 42, 1512};
+    status.m_shadow.m_cascades[1] = ofg::RuntimeShadowCascadeStatus{1, 186, 75, 111, 75, 75, 2700};
+    status.m_shadow.m_cascades[2] = ofg::RuntimeShadowCascadeStatus{2, 186, 90, 96, 90, 90, 3240};
+    status.m_shadow.m_total_tested_caster_count = 558;
+    status.m_shadow.m_total_accepted_caster_count = 207;
+    status.m_shadow.m_total_rejected_caster_count = 351;
+    status.m_shadow.m_total_draw_count = 207;
+    status.m_shadow.m_total_submesh_count = 207;
+    status.m_shadow.m_total_index_count = 7452;
     status.m_pipeline_create_count = 1;
     status.m_buffer_create_count = 1;
     status.m_surface_configure_count = 1;
@@ -46,7 +67,30 @@ TEST_CASE("RuntimeDebugStatus emits the browser debug contract") {
                               "\"devicePixelRatio\":1.25,\"surfaceFormat\":\"Bgra8UnormSrgb\","
                               "\"adapterName\":\"test adapter\",\"backend\":\"BrowserWebGpu\","
                               "\"cameraMode\":\"third_person\",\"modelLoadingState\":\"loaded\","
-                              "\"playerModelLoaded\":true,\"pipelineCreateCount\":1,\"bufferCreateCount\":1,"
+                              "\"playerModelLoaded\":true,"
+                              "\"demoScene\":{\"name\":\"large-default-culling-shadow-validation\","
+                              "\"boxCount\":184,\"nearBoxCount\":22,\"midBoxCount\":79,\"farBoxCount\":83,"
+                              "\"partlyBelowGroundCount\":24,\"overlapClusterBoxCount\":24,"
+                              "\"offCameraCandidateCount\":16},"
+                              "\"renderCulling\":{\"extractedObjectCount\":186,"
+                              "\"cameraVisibleObjectCount\":160,\"cameraCulledObjectCount\":26},"
+                              "\"shadow\":{\"enabled\":true,\"cascadeCount\":3,\"encodedPassCount\":3,"
+                              "\"mapSize\":1024,\"estimatedDepthBytes\":12582912,\"pcfMode\":\"five_tap\","
+                              "\"pcfSampleCount\":5,\"sunElevationRadians\":0.75,\"effectiveIntensity\":0.75,"
+                              "\"lowSunClamped\":false,\"cascades\":["
+                              "{\"index\":0,\"testedCasterCount\":186,\"acceptedCasterCount\":42,"
+                              "\"rejectedCasterCount\":144,\"drawCount\":42,\"submeshCount\":42,"
+                              "\"indexCount\":1512},"
+                              "{\"index\":1,\"testedCasterCount\":186,\"acceptedCasterCount\":75,"
+                              "\"rejectedCasterCount\":111,\"drawCount\":75,\"submeshCount\":75,"
+                              "\"indexCount\":2700},"
+                              "{\"index\":2,\"testedCasterCount\":186,\"acceptedCasterCount\":90,"
+                              "\"rejectedCasterCount\":96,\"drawCount\":90,\"submeshCount\":90,"
+                              "\"indexCount\":3240}],"
+                              "\"totalTestedCasterCount\":558,\"totalAcceptedCasterCount\":207,"
+                              "\"totalRejectedCasterCount\":351,\"totalDrawCount\":207,"
+                              "\"totalSubmeshCount\":207,\"totalIndexCount\":7452},"
+                              "\"pipelineCreateCount\":1,\"bufferCreateCount\":1,"
                               "\"surfaceConfigureCount\":1,\"bloomActiveLevelCount\":4,"
                               "\"bloomEncodedPassCount\":7,\"bloomDrawCount\":7,"
                               "\"bloomEstimatedReadBytes\":2048,\"bloomEstimatedWriteBytes\":1024,"

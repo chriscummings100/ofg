@@ -110,7 +110,23 @@ run(executable, [
   "--min-lower-half-scene-ratio",
   String(smokeContract.minLowerHalfSceneRatio),
   "--min-non-background-color-buckets",
-  String(smokeContract.minNonBackgroundColorBuckets)
+  String(smokeContract.minNonBackgroundColorBuckets),
+  "--expected-shadow-cascade-count",
+  String(smokeContract.expectedShadowCascadeCount),
+  "--expected-shadow-encoded-pass-count",
+  String(smokeContract.expectedShadowEncodedPassCount),
+  "--expected-shadow-map-size",
+  String(smokeContract.expectedShadowMapSize),
+  "--expected-shadow-pcf-mode",
+  smokeContract.expectedShadowPcfMode,
+  "--expected-shadow-pcf-sample-count",
+  String(smokeContract.expectedShadowPcfSampleCount),
+  "--min-shadow-effective-intensity",
+  String(smokeContract.minShadowEffectiveIntensity),
+  "--max-shadow-estimated-depth-bytes",
+  String(smokeContract.maxShadowEstimatedDepthBytes),
+  "--min-shadow-accepted-caster-count",
+  String(smokeContract.minShadowAcceptedCasterCount)
 ], { cwd: rootDir, env });
 
 // Reads a source-controlled tool pin.

@@ -29,7 +29,9 @@ const HANDLED_CODES = new Set([
   "ShiftRight",
   "ControlLeft",
   "ControlRight",
-  "Backquote"
+  "Backquote",
+  "KeyM",
+  "KeyO"
 ]);
 
 // Creates a DOM-backed control input collector for one canvas.
@@ -50,6 +52,8 @@ class BrowserControlInputCollector implements ControlInputCollector {
   #lookDeltaX = 0;
   #lookDeltaY = 0;
   #cycleCameraMode = false;
+  #toggleShadowDebugOverlay = false;
+  #toggleOverheadSun = false;
   #disposed = false;
 
   // Registers DOM listeners for one canvas/runtime pair.
@@ -79,11 +83,15 @@ class BrowserControlInputCollector implements ControlInputCollector {
       slow:
         this.#pressedCodes.has("ControlLeft") ||
         this.#pressedCodes.has("ControlRight"),
-      cycleCameraMode: this.#cycleCameraMode
+      cycleCameraMode: this.#cycleCameraMode,
+      toggleShadowDebugOverlay: this.#toggleShadowDebugOverlay,
+      toggleOverheadSun: this.#toggleOverheadSun
     };
     this.#lookDeltaX = 0;
     this.#lookDeltaY = 0;
     this.#cycleCameraMode = false;
+    this.#toggleShadowDebugOverlay = false;
+    this.#toggleOverheadSun = false;
     return snapshot;
   }
 
@@ -102,6 +110,8 @@ class BrowserControlInputCollector implements ControlInputCollector {
     this.#lookDeltaX = 0;
     this.#lookDeltaY = 0;
     this.#cycleCameraMode = false;
+    this.#toggleShadowDebugOverlay = false;
+    this.#toggleOverheadSun = false;
     this.#disposed = true;
   }
 
@@ -134,6 +144,12 @@ class BrowserControlInputCollector implements ControlInputCollector {
     if (event.code === "Backquote" && !this.#pressedCodes.has("Backquote")) {
       this.#cycleCameraMode = true;
     }
+    if (event.code === "KeyM" && !this.#pressedCodes.has("KeyM")) {
+      this.#toggleShadowDebugOverlay = true;
+    }
+    if (event.code === "KeyO" && !this.#pressedCodes.has("KeyO")) {
+      this.#toggleOverheadSun = true;
+    }
     this.#pressedCodes.add(event.code);
     event.preventDefault();
   };
@@ -151,6 +167,8 @@ class BrowserControlInputCollector implements ControlInputCollector {
     this.#lookDeltaX = 0;
     this.#lookDeltaY = 0;
     this.#cycleCameraMode = false;
+    this.#toggleShadowDebugOverlay = false;
+    this.#toggleOverheadSun = false;
   };
 
   // Throws the stable disposed-collector error used by tests.

@@ -199,14 +199,15 @@ SkyPassUniforms build_sky_pass_uniforms(
     const math::Vec3 camera_up = normalize_required(matrix_column_xyz(camera.world_from_camera, 1), "Camera up");
     const math::Vec3 camera_forward =
         normalize_required(matrix_column_xyz(camera.world_from_camera, 2), "Camera forward");
-    const math::Vec3 sun_direction = normalize_required(environment.sun_direction(), "Environment sun direction");
+    math::Vec3 sun_direction = normalize_required(environment.sun_direction(), "Environment sun direction");
     const math::Vec3 moon_direction = normalize_required(environment.moon_direction(), "Environment moon direction");
 
     math::Vec3 sun_color{1.0f, 0.90f, 0.72f};
     float sun_intensity = _default_sun_intensity * environment.day_factor();
-    if (const LightProperties* light = first_directional_light(lights); light != nullptr) {
-        sun_color = light->m_color;
-        sun_intensity = light->m_intensity;
+    if (const LightProperties* sun_light = first_directional_light(lights); sun_light != nullptr) {
+        sun_direction = normalize_required(math::mul(sun_light->m_direction, -1.0f), "Directional light sun direction");
+        sun_color = sun_light->m_color;
+        sun_intensity = sun_light->m_intensity;
     }
 
     const SkyWeather& weather = environment.weather();

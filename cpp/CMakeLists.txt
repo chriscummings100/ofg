@@ -113,19 +113,28 @@ add_library(ofg_cpp
   src/math/quat.cpp
   src/math/transform.cpp
   src/render/bootstrap_scene.cpp
+  src/render/bounds.cpp
   src/render/bloom_pass.cpp
   src/render/bloom_settings.cpp
   src/render/camera_properties.cpp
   src/render/demo_scene.cpp
   src/render/depth_target.cpp
   src/render/draw_list.cpp
+  src/render/frustum.cpp
   src/render/lighting.cpp
   src/render/opaque_pass.cpp
   src/render/opaque_pbr_shader.cpp
   src/render/pipeline_cache.cpp
   src/render/renderer_counters.cpp
   src/render/renderer.cpp
+  src/render/render_object.cpp
   src/render/scene_color_target.cpp
+  src/render/shadow_cascade.cpp
+  src/render/shadow_caster_pass.cpp
+  src/render/shadow_debug_pass.cpp
+  src/render/shadow_frame_state.cpp
+  src/render/shadow_map_target.cpp
+  src/render/shadow_settings.cpp
   src/render/sky_pass.cpp
   src/render/temp_buffer.cpp
   src/render/tone_map_pass.cpp
@@ -213,6 +222,7 @@ if(OFG_BUILD_TESTS AND NOT EMSCRIPTEN)
     tests/camera_control_test.cpp
     tests/camera_properties_test.cpp
     tests/control_input_test.cpp
+    tests/culling_test.cpp
     tests/demo_scene_test.cpp
     tests/draw_list_test.cpp
     tests/frame_state_test.cpp
@@ -238,6 +248,10 @@ if(OFG_BUILD_TESTS AND NOT EMSCRIPTEN)
     tests/runtime_debug_status_test.cpp
     tests/scene_animation_test.cpp
     tests/scene_test.cpp
+    tests/shadow_caster_pass_test.cpp
+    tests/shadow_cascade_test.cpp
+    tests/shadow_frame_state_test.cpp
+    tests/shadow_map_target_test.cpp
     tests/sky_pass_test.cpp
     tests/temp_buffer_test.cpp
     tests/test_main.cpp

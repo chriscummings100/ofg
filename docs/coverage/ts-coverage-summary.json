@@ -1,28 +1,28 @@
 {
   "total": {
     "lines": {
-      "total": 913,
-      "covered": 791,
+      "total": 1217,
+      "covered": 1067,
       "skipped": 0,
-      "pct": 86.63
+      "pct": 87.67
     },
     "statements": {
-      "total": 913,
-      "covered": 791,
+      "total": 1217,
+      "covered": 1067,
       "skipped": 0,
-      "pct": 86.63
+      "pct": 87.67
     },
     "functions": {
-      "total": 56,
-      "covered": 52,
+      "total": 68,
+      "covered": 64,
       "skipped": 0,
-      "pct": 92.85
+      "pct": 94.11
     },
     "branches": {
-      "total": 127,
-      "covered": 109,
+      "total": 157,
+      "covered": 128,
       "skipped": 0,
-      "pct": 85.82
+      "pct": 81.52
     },
     "branchesTrue": {
       "total": 0,
@@ -111,28 +111,28 @@
   },
   "C:\\dev\\ofg\\src\\app\\wasmRuntime.ts": {
     "lines": {
-      "total": 461,
-      "covered": 434,
+      "total": 765,
+      "covered": 710,
       "skipped": 0,
-      "pct": 94.14
+      "pct": 92.81
     },
     "functions": {
-      "total": 29,
-      "covered": 27,
+      "total": 41,
+      "covered": 39,
       "skipped": 0,
-      "pct": 93.1
+      "pct": 95.12
     },
     "statements": {
-      "total": 461,
-      "covered": 434,
+      "total": 765,
+      "covered": 710,
       "skipped": 0,
-      "pct": 94.14
+      "pct": 92.81
     },
     "branches": {
-      "total": 61,
-      "covered": 56,
+      "total": 91,
+      "covered": 75,
       "skipped": 0,
-      "pct": 91.8
+      "pct": 82.41
     }
   }
 }

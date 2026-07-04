@@ -2,7 +2,7 @@
 //
 // This file owns the browser-free renderer validation path for the C++/WASM
 // migration. It creates a native Dawn instance/device, renders OFG's shared
-// plane-and-cubes demo through the Game render path, reads the offscreen texture
+// large default validation scene through the Game render path, reads the offscreen texture
 // back into CPU memory, writes a PNG, and records the same threshold diagnostics
 // as the browser smoke. The native backend is intentionally constrained to
 // Vulkan for this Windows migration path so it cannot quietly pass through
@@ -516,10 +516,18 @@ void validate_contract(const SmokeContract& contract) {
     if (contract.m_bucket_divisor == 0) {
         throw std::runtime_error("Smoke contract bucket divisor must be non-zero.");
     }
+    if (contract.m_expected_shadow_cascade_count == 0 || contract.m_expected_shadow_encoded_pass_count == 0 ||
+        contract.m_expected_shadow_map_size == 0 || contract.m_expected_shadow_pcf_sample_count == 0 ||
+        contract.m_expected_shadow_pcf_mode.empty()) {
+        throw std::runtime_error("Smoke contract shadow expectations must be non-zero and named.");
+    }
+    if (!std::isfinite(contract.m_min_shadow_effective_intensity) || contract.m_min_shadow_effective_intensity < 0.0) {
+        throw std::runtime_error("Smoke contract minimum shadow intensity must be finite and non-negative.");
+    }
 }
 
 // Validates renderer diagnostics that screenshot pixels cannot prove directly.
-void validate_render_diagnostics(const ofg::RuntimeDebugStatus& status) {
+void validate_render_diagnostics(const ofg::RuntimeDebugStatus& status, const SmokeContract& contract) {
     if (status.m_bloom_skipped) {
         throw std::runtime_error("Native render smoke expected bloom to run, but debug status reported skipped.");
     }
@@ -538,6 +546,45 @@ void validate_render_diagnostics(const ofg::RuntimeDebugStatus& status) {
     }
     if (status.m_temp_buffer_peak_bytes > _max_default_temp_buffer_bytes) {
         throw std::runtime_error("Native render smoke exceeded the default temp-buffer memory budget.");
+    }
+    const ofg::RuntimeShadowStatus& shadow = status.m_shadow;
+    if (!shadow.m_enabled) {
+        throw std::runtime_error("Native render smoke expected current-sun shadows to be enabled.");
+    }
+    if (shadow.m_cascade_count != contract.m_expected_shadow_cascade_count ||
+        shadow.m_encoded_pass_count != contract.m_expected_shadow_encoded_pass_count) {
+        throw std::runtime_error("Native render smoke shadow cascade/pass counts did not match the smoke contract.");
+    }
+    if (shadow.m_map_size != contract.m_expected_shadow_map_size) {
+        throw std::runtime_error("Native render smoke shadow map size did not match the smoke contract.");
+    }
+    if (shadow.m_estimated_depth_bytes == 0 ||
+        shadow.m_estimated_depth_bytes > contract.m_max_shadow_estimated_depth_bytes) {
+        throw std::runtime_error("Native render smoke shadow depth byte estimate exceeded the smoke contract.");
+    }
+    if (shadow.m_pcf_mode != contract.m_expected_shadow_pcf_mode ||
+        shadow.m_pcf_sample_count != contract.m_expected_shadow_pcf_sample_count) {
+        throw std::runtime_error("Native render smoke shadow PCF mode did not match the smoke contract.");
+    }
+    if (!std::isfinite(shadow.m_effective_intensity) ||
+        shadow.m_effective_intensity < contract.m_min_shadow_effective_intensity) {
+        throw std::runtime_error("Native render smoke shadow effective intensity is below the smoke contract.");
+    }
+    if (shadow.m_total_accepted_caster_count < contract.m_min_shadow_accepted_caster_count ||
+        shadow.m_total_draw_count != shadow.m_total_accepted_caster_count || shadow.m_total_submesh_count == 0 ||
+        shadow.m_total_index_count == 0) {
+        throw std::runtime_error("Native render smoke did not record useful shadow caster draw diagnostics.");
+    }
+    if (shadow.m_cascades.size() < shadow.m_cascade_count) {
+        throw std::runtime_error(
+            "Native render smoke shadow cascade array is shorter than the reported cascade count.");
+    }
+    for (std::uint32_t index = 0; index < shadow.m_cascade_count; ++index) {
+        const ofg::RuntimeShadowCascadeStatus& cascade = shadow.m_cascades[index];
+        if (cascade.m_tested_caster_count == 0 ||
+            cascade.m_accepted_caster_count + cascade.m_rejected_caster_count != cascade.m_tested_caster_count) {
+            throw std::runtime_error("Native render smoke shadow cascade caster counts do not balance.");
+        }
     }
 }
 
@@ -751,6 +798,42 @@ void validate_render_diagnostics(const ofg::RuntimeDebugStatus& status) {
     return RenderReadback{std::move(pixels), debug_status};
 }
 
+// Writes the top-level shadow diagnostics block in the native smoke report.
+void write_shadow_report(std::ostream& report, const ofg::RuntimeShadowStatus& shadow) {
+    report << "  \"shadow\": {\n"
+           << "    \"enabled\": " << (shadow.m_enabled ? "true" : "false") << ",\n"
+           << "    \"cascadeCount\": " << shadow.m_cascade_count << ",\n"
+           << "    \"encodedPassCount\": " << shadow.m_encoded_pass_count << ",\n"
+           << "    \"mapSize\": " << shadow.m_map_size << ",\n"
+           << "    \"estimatedDepthBytes\": " << shadow.m_estimated_depth_bytes << ",\n"
+           << "    \"pcfMode\": \"" << json_escape(shadow.m_pcf_mode) << "\",\n"
+           << "    \"pcfSampleCount\": " << shadow.m_pcf_sample_count << ",\n"
+           << "    \"sunElevationRadians\": " << shadow.m_sun_elevation_radians << ",\n"
+           << "    \"effectiveIntensity\": " << shadow.m_effective_intensity << ",\n"
+           << "    \"lowSunClamped\": " << (shadow.m_low_sun_clamped ? "true" : "false") << ",\n"
+           << "    \"totalTestedCasterCount\": " << shadow.m_total_tested_caster_count << ",\n"
+           << "    \"totalAcceptedCasterCount\": " << shadow.m_total_accepted_caster_count << ",\n"
+           << "    \"totalRejectedCasterCount\": " << shadow.m_total_rejected_caster_count << ",\n"
+           << "    \"totalDrawCount\": " << shadow.m_total_draw_count << ",\n"
+           << "    \"totalSubmeshCount\": " << shadow.m_total_submesh_count << ",\n"
+           << "    \"totalIndexCount\": " << shadow.m_total_index_count << ",\n"
+           << "    \"cascades\": [\n";
+    for (std::size_t index = 0; index < shadow.m_cascades.size(); ++index) {
+        const ofg::RuntimeShadowCascadeStatus& cascade = shadow.m_cascades[index];
+        report << "      {\n"
+               << "        \"index\": " << cascade.m_index << ",\n"
+               << "        \"testedCasterCount\": " << cascade.m_tested_caster_count << ",\n"
+               << "        \"acceptedCasterCount\": " << cascade.m_accepted_caster_count << ",\n"
+               << "        \"rejectedCasterCount\": " << cascade.m_rejected_caster_count << ",\n"
+               << "        \"drawCount\": " << cascade.m_draw_count << ",\n"
+               << "        \"submeshCount\": " << cascade.m_submesh_count << ",\n"
+               << "        \"indexCount\": " << cascade.m_index_count << "\n"
+               << "      }" << (index + 1U == shadow.m_cascades.size() ? "\n" : ",\n");
+    }
+    report << "    ]\n"
+           << "  },\n";
+}
+
 // Writes the JSON report expected by the native render-smoke contract.
 void write_report(const std::filesystem::path& png_path,
     const std::filesystem::path& report_path,
@@ -759,6 +842,9 @@ void write_report(const std::filesystem::path& png_path,
     const ofg::RuntimeDebugStatus& status,
     const PixelReport& pixels) {
     const bool passed = pixels.m_failure_reason.empty();
+    const ofg::RuntimeDemoSceneStatus& scene_stats = status.m_demo_scene;
+    const ofg::RuntimeRenderCullingStatus& culling_stats = status.m_render_culling;
+    const ofg::RuntimeShadowStatus& shadow_status = status.m_shadow;
     std::ofstream report(report_path);
     if (!report) {
         throw std::runtime_error("Could not open native render-smoke report path: " + report_path.string());
@@ -773,7 +859,23 @@ void write_report(const std::filesystem::path& png_path,
            << "  \"adapterName\": \"" << json_escape(context.m_adapter_name) << "\",\n"
            << "  \"backend\": \"" << json_escape(context.m_backend) << "\",\n"
            << "  \"debugStatus\": " << status.to_json() << ",\n"
-           << "  \"backgroundReferenceRgba8\": [\n"
+           << "  \"demoScene\": {\n"
+           << "    \"name\": \"" << json_escape(scene_stats.m_name) << "\",\n"
+           << "    \"boxCount\": " << scene_stats.m_box_count << ",\n"
+           << "    \"nearBoxCount\": " << scene_stats.m_near_box_count << ",\n"
+           << "    \"midBoxCount\": " << scene_stats.m_mid_box_count << ",\n"
+           << "    \"farBoxCount\": " << scene_stats.m_far_box_count << ",\n"
+           << "    \"partlyBelowGroundCount\": " << scene_stats.m_partly_below_ground_count << ",\n"
+           << "    \"overlapClusterBoxCount\": " << scene_stats.m_overlap_cluster_box_count << ",\n"
+           << "    \"offCameraCandidateCount\": " << scene_stats.m_off_camera_candidate_count << "\n"
+           << "  },\n"
+           << "  \"renderCulling\": {\n"
+           << "    \"extractedObjectCount\": " << culling_stats.m_extracted_object_count << ",\n"
+           << "    \"cameraVisibleObjectCount\": " << culling_stats.m_camera_visible_object_count << ",\n"
+           << "    \"cameraCulledObjectCount\": " << culling_stats.m_camera_culled_object_count << "\n"
+           << "  },\n";
+    write_shadow_report(report, shadow_status);
+    report << "  \"backgroundReferenceRgba8\": [\n"
            << "    " << static_cast<int>(contract.m_background_reference_rgba8[0]) << ",\n"
            << "    " << static_cast<int>(contract.m_background_reference_rgba8[1]) << ",\n"
            << "    " << static_cast<int>(contract.m_background_reference_rgba8[2]) << ",\n"
@@ -788,7 +890,15 @@ void write_report(const std::filesystem::path& png_path,
            << "    \"minGroundRatio\": " << contract.m_min_ground_ratio << ",\n"
            << "    \"minColoredRatio\": " << contract.m_min_colored_ratio << ",\n"
            << "    \"minLowerHalfSceneRatio\": " << contract.m_min_lower_half_scene_ratio << ",\n"
-           << "    \"minNonBackgroundColorBuckets\": " << contract.m_min_non_background_color_buckets << "\n"
+           << "    \"minNonBackgroundColorBuckets\": " << contract.m_min_non_background_color_buckets << ",\n"
+           << "    \"expectedShadowCascadeCount\": " << contract.m_expected_shadow_cascade_count << ",\n"
+           << "    \"expectedShadowEncodedPassCount\": " << contract.m_expected_shadow_encoded_pass_count << ",\n"
+           << "    \"expectedShadowMapSize\": " << contract.m_expected_shadow_map_size << ",\n"
+           << "    \"expectedShadowPcfMode\": \"" << json_escape(contract.m_expected_shadow_pcf_mode) << "\",\n"
+           << "    \"expectedShadowPcfSampleCount\": " << contract.m_expected_shadow_pcf_sample_count << ",\n"
+           << "    \"minShadowEffectiveIntensity\": " << contract.m_min_shadow_effective_intensity << ",\n"
+           << "    \"maxShadowEstimatedDepthBytes\": " << contract.m_max_shadow_estimated_depth_bytes << ",\n"
+           << "    \"minShadowAcceptedCasterCount\": " << contract.m_min_shadow_accepted_caster_count << "\n"
            << "  },\n"
            << "  \"sampledPixels\": " << pixels.m_sampled_pixels << ",\n"
            << "  \"scenePixels\": " << pixels.m_scene_pixels << ",\n"
@@ -824,6 +934,11 @@ void write_report(const std::filesystem::path& png_path,
         throw std::runtime_error(std::string(name) + " is too large.");
     }
     return static_cast<std::uint32_t>(parsed);
+}
+
+// Parses an unsigned 64-bit command-line value with overflow checking.
+[[nodiscard]] std::uint64_t parse_u64(const std::string& value) {
+    return std::stoull(value);
 }
 
 // Parses a floating-point command-line value for threshold settings.
@@ -882,6 +997,29 @@ RenderSmokeOptions parse_render_smoke_args(int argc, char** argv) {
         } else if (arg == "--min-non-background-color-buckets") {
             options.m_contract.m_min_non_background_color_buckets =
                 parse_u32(require_arg_value(argc, argv, index, arg), "min non-background color buckets");
+        } else if (arg == "--expected-shadow-cascade-count") {
+            options.m_contract.m_expected_shadow_cascade_count =
+                parse_u32(require_arg_value(argc, argv, index, arg), "expected shadow cascade count");
+        } else if (arg == "--expected-shadow-encoded-pass-count") {
+            options.m_contract.m_expected_shadow_encoded_pass_count =
+                parse_u32(require_arg_value(argc, argv, index, arg), "expected shadow encoded pass count");
+        } else if (arg == "--expected-shadow-map-size") {
+            options.m_contract.m_expected_shadow_map_size =
+                parse_u32(require_arg_value(argc, argv, index, arg), "expected shadow map size");
+        } else if (arg == "--expected-shadow-pcf-mode") {
+            options.m_contract.m_expected_shadow_pcf_mode = require_arg_value(argc, argv, index, arg);
+        } else if (arg == "--expected-shadow-pcf-sample-count") {
+            options.m_contract.m_expected_shadow_pcf_sample_count =
+                parse_u32(require_arg_value(argc, argv, index, arg), "expected shadow PCF sample count");
+        } else if (arg == "--min-shadow-effective-intensity") {
+            options.m_contract.m_min_shadow_effective_intensity =
+                parse_double(require_arg_value(argc, argv, index, arg));
+        } else if (arg == "--max-shadow-estimated-depth-bytes") {
+            options.m_contract.m_max_shadow_estimated_depth_bytes =
+                parse_u64(require_arg_value(argc, argv, index, arg));
+        } else if (arg == "--min-shadow-accepted-caster-count") {
+            options.m_contract.m_min_shadow_accepted_caster_count =
+                parse_u32(require_arg_value(argc, argv, index, arg), "min shadow accepted caster count");
         } else {
             throw std::runtime_error("Unknown argument: " + arg);
         }
@@ -898,7 +1036,7 @@ void run_render_smoke(const RenderSmokeOptions& options) {
 
     GpuContext context = create_gpu_context();
     RenderReadback readback = render_and_readback(context, options.m_contract);
-    validate_render_diagnostics(readback.m_status);
+    validate_render_diagnostics(readback.m_status, options.m_contract);
     write_rgba_png(png_path, readback.m_pixels, options.m_contract.m_width, options.m_contract.m_height);
     const PixelReport pixel_report = inspect_pixels(readback.m_pixels, options.m_contract);
     write_report(png_path, report_path, options.m_contract, context, readback.m_status, pixel_report);

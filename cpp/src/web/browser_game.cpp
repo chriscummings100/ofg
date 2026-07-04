@@ -89,6 +89,8 @@ std::optional<ControlInput> parse_control_input(double move_x,
     bool fast,
     bool slow,
     bool cycle_camera_mode,
+    bool toggle_shadow_debug_overlay,
+    bool toggle_overhead_sun,
     std::string& error) {
     const std::optional<float> parsed_move_x = parse_control_input_float("Control input move_x", move_x, error);
     if (!parsed_move_x.has_value()) {
@@ -123,6 +125,8 @@ std::optional<ControlInput> parse_control_input(double move_x,
         fast,
         slow,
         cycle_camera_mode,
+        toggle_shadow_debug_overlay,
+        toggle_overhead_sun,
     };
 }
 
@@ -331,7 +335,9 @@ void BrowserGame::set_control_input(double move_x,
     bool look_active,
     bool fast,
     bool slow,
-    bool cycle_camera_mode) {
+    bool cycle_camera_mode,
+    bool toggle_shadow_debug_overlay,
+    bool toggle_overhead_sun) {
     try {
         if (m_disposed) {
             record_error("Browser game runtime has been disposed.");
@@ -339,8 +345,18 @@ void BrowserGame::set_control_input(double move_x,
         }
 
         std::string error;
-        const std::optional<ControlInput> input = parse_control_input(
-            move_x, move_y, move_z, look_delta_x, look_delta_y, look_active, fast, slow, cycle_camera_mode, error);
+        const std::optional<ControlInput> input = parse_control_input(move_x,
+            move_y,
+            move_z,
+            look_delta_x,
+            look_delta_y,
+            look_active,
+            fast,
+            slow,
+            cycle_camera_mode,
+            toggle_shadow_debug_overlay,
+            toggle_overhead_sun,
+            error);
         if (!input.has_value()) {
             record_error(error);
             return;

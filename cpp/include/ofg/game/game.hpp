@@ -23,6 +23,8 @@
 namespace ofg {
 
 struct BloomPassDiagnostics;
+struct RendererCullingStats;
+struct ShadowPassDiagnostics;
 struct TempBufferStats;
 
 enum class GameLifecycleState {
@@ -109,8 +111,11 @@ private:
     void mark_gpu_ready(std::string adapter_name, std::string backend, std::string surface_format);
     // Records durable renderer resource counts for smoke/performance checks.
     void mark_renderer_counters(std::uint32_t pipeline_create_count, std::uint32_t buffer_create_count);
-    // Records the most recent bloom and temp-buffer diagnostics.
-    void mark_renderer_diagnostics(const BloomPassDiagnostics& bloom, const TempBufferStats& temp_buffers);
+    // Records the most recent culling, shadow, bloom, and temp-buffer diagnostics.
+    void mark_renderer_diagnostics(RendererCullingStats culling,
+        const ShadowPassDiagnostics& shadow,
+        const BloomPassDiagnostics& bloom,
+        const TempBufferStats& temp_buffers);
     // Marks the platform target/surface as configured for the current nonzero size.
     void mark_surface_configured();
     // Records a recoverable runtime/render error while preserving ready resources.

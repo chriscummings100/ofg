@@ -1,4 +1,4 @@
-// Small animated renderer demo scene for smoke tests and early renderer work.
+// Large deterministic renderer demo scene for smoke tests and renderer work.
 //
 // DemoScene owns no resources itself. It stores non-owning pointers into
 // Resources-owned assets plus cached entity/component bindings for the active
@@ -10,6 +10,7 @@
 
 #include <array>
 #include <cstdint>
+#include <vector>
 
 namespace ofg {
 
@@ -18,6 +19,16 @@ class Mesh;
 class Player;
 class Shader;
 class Texture;
+
+struct DemoSceneValidationStats {
+    std::uint32_t m_box_count{0};
+    std::uint32_t m_near_box_count{0};
+    std::uint32_t m_mid_box_count{0};
+    std::uint32_t m_far_box_count{0};
+    std::uint32_t m_partly_below_ground_count{0};
+    std::uint32_t m_overlap_cluster_box_count{0};
+    std::uint32_t m_off_camera_candidate_count{0};
+};
 
 struct DemoScene {
     Shader* m_shader{nullptr};
@@ -38,8 +49,8 @@ struct DemoScene {
     Entity* m_player_visual_entity{nullptr};
     MeshRenderer* m_player_renderer{nullptr};
     Player* m_player{nullptr};
-    std::array<Entity*, 4> m_cube_entities{};
-    std::array<MeshRenderer*, 4> m_cube_renderers{};
+    std::vector<Entity*> m_cube_entities;
+    std::vector<MeshRenderer*> m_cube_renderers;
 };
 
 // Returns the always-textured opaque shader parameter layout used by the demo.
@@ -48,11 +59,14 @@ struct DemoScene {
 // Creates generated textures, materials, meshes, and shader resources.
 void build_demo_scene(DemoScene& scene);
 
-// Creates a stable camera, floor/cube entities, and mesh-renderer components.
+// Creates a stable camera, floor/box entities, and mesh-renderer components.
 void setup_demo_scene(DemoScene& demo_scene, Scene& scene);
 
 // Mutates entity transforms for one deterministic animation time.
 void update_demo_scene(const DemoScene& demo_scene, double time_ms, Scene& scene);
+
+// Returns the deterministic validation-scene distribution used by tests and smoke reports.
+[[nodiscard]] DemoSceneValidationStats demo_scene_validation_stats();
 
 // Returns the stable timestamp used by browser-free native visual smoke.
 [[nodiscard]] double demo_native_smoke_time_ms() noexcept;

@@ -6,6 +6,8 @@
 #include "ofg/game/render_target.hpp"
 #include "ofg/render/depth_target.hpp"
 #include "ofg/render/scene_color_target.hpp"
+#include "ofg/render/shadow_debug_pass.hpp"
+#include "ofg/render/shadow_map_target.hpp"
 #include "ofg/render/tone_map_pass.hpp"
 
 #include <limits>
@@ -326,6 +328,73 @@ TEST_CASE("tone map pass creates validates and renders") {
         ofg::ToneMapBloomInput{scene_color.view(), 4, 4, 0.2f, ofg::math::vec3(0.8f, 0.9f, 1.0f)},
         output_target);
     CHECK(pass->counters().m_bind_group_create_count == 2);
+
+    WGPUCommandBuffer command = wgpuCommandEncoderFinish(encoder.m_value, nullptr);
+    encoder.m_value = nullptr;
+    REQUIRE(command != nullptr);
+    ScopedCommandBuffer command_buffer{command};
+}
+
+// Verifies the shadow-map debug overlay pass validates and encodes against a depth array.
+TEST_CASE("shadow debug pass creates validates and renders") {
+    ofg::tests::TestGpuContext gpu = make_test_gpu();
+
+    CHECK_THROWS_WITH_AS(
+        ([&]() { (void)ofg::ShadowDebugPass::create(ofg::GpuContext{}, WGPUTextureFormat_RGBA8Unorm); }()),
+        doctest::Contains("WebGPU device"),
+        ofg::EngineError);
+    CHECK_THROWS_WITH_AS(
+        ([&]() { (void)ofg::ShadowDebugPass::create(gpu.borrowed_context(), WGPUTextureFormat_Undefined); }()),
+        doctest::Contains("defined output format"),
+        ofg::EngineError);
+
+    std::unique_ptr<ofg::ShadowDebugPass> pass =
+        ofg::ShadowDebugPass::create(gpu.borrowed_context(), WGPUTextureFormat_RGBA8Unorm);
+    REQUIRE(pass != nullptr);
+    CHECK(pass->counters().m_shader_module_create_count == 1);
+    CHECK(pass->counters().m_bind_group_layout_create_count == 1);
+    CHECK(pass->counters().m_pipeline_create_count == 1);
+    CHECK(pass->counters().m_buffer_create_count == 1);
+    CHECK(pass->counters().m_bind_group_create_count == 0);
+
+    ofg::ShadowMapTarget shadow_target(gpu.borrowed_context());
+    shadow_target.resize(32);
+    ScopedTexture output_texture = create_output_texture(gpu.borrowed_context().m_device, 32, 32);
+    ScopedTextureView output_view = create_output_view(output_texture.m_value);
+    const ofg::RenderTarget output_target{output_view.m_value, WGPUTextureFormat_RGBA8Unorm, 32, 32};
+    ScopedCommandEncoder encoder = create_encoder(gpu.borrowed_context().m_device);
+
+    CHECK_THROWS_WITH_AS(pass->render(nullptr, shadow_target.sampling_view(), output_target),
+        doctest::Contains("requires"),
+        ofg::EngineError);
+    CHECK_THROWS_WITH_AS(
+        pass->render(encoder.m_value, nullptr, output_target), doctest::Contains("requires"), ofg::EngineError);
+    CHECK_THROWS_WITH_AS(([&]() {
+        pass->render(encoder.m_value,
+            shadow_target.sampling_view(),
+            ofg::RenderTarget{nullptr, WGPUTextureFormat_RGBA8Unorm, 32, 32});
+    }()),
+        doctest::Contains("requires"),
+        ofg::EngineError);
+    CHECK_THROWS_WITH_AS(([&]() {
+        pass->render(encoder.m_value,
+            shadow_target.sampling_view(),
+            ofg::RenderTarget{output_view.m_value, WGPUTextureFormat_RGBA8Unorm, 0, 32});
+    }()),
+        doctest::Contains("nonzero"),
+        ofg::EngineError);
+    CHECK_THROWS_WITH_AS(([&]() {
+        pass->render(encoder.m_value,
+            shadow_target.sampling_view(),
+            ofg::RenderTarget{output_view.m_value, WGPUTextureFormat_BGRA8Unorm, 32, 32});
+    }()),
+        doctest::Contains("does not match"),
+        ofg::EngineError);
+
+    pass->render(encoder.m_value, shadow_target.sampling_view(), output_target);
+    CHECK(pass->counters().m_bind_group_create_count == 1);
+    pass->render(encoder.m_value, shadow_target.sampling_view(), output_target);
+    CHECK(pass->counters().m_bind_group_create_count == 1);
 
     WGPUCommandBuffer command = wgpuCommandEncoderFinish(encoder.m_value, nullptr);
     encoder.m_value = nullptr;

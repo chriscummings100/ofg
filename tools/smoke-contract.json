@@ -13,5 +13,13 @@
   "minGroundRatio": 0.04,
   "minColoredRatio": 0.01,
   "minLowerHalfSceneRatio": 0.08,
-  "minNonBackgroundColorBuckets": 4
+  "minNonBackgroundColorBuckets": 4,
+  "expectedShadowCascadeCount": 3,
+  "expectedShadowEncodedPassCount": 3,
+  "expectedShadowMapSize": 1024,
+  "expectedShadowPcfMode": "five_tap",
+  "expectedShadowPcfSampleCount": 5,
+  "minShadowEffectiveIntensity": 0.1,
+  "maxShadowEstimatedDepthBytes": 16777216,
+  "minShadowAcceptedCasterCount": 1
 }

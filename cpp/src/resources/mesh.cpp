@@ -2,6 +2,7 @@
 #include "ofg/resources/mesh.hpp"
 
 #include "ofg/core/engine_error.hpp"
+#include "ofg/render/bounds.hpp"
 #include "ofg/resources/material.hpp"
 #include "ofg/gpu/common.hpp"
 
@@ -100,6 +101,7 @@ void Mesh::init(std::vector<MeshVertex> vertices, std::vector<std::uint32_t> ind
     m_vertices = std::move(vertices);
     m_indices = std::move(indices);
     m_submeshes = std::move(submeshes);
+    m_local_bounds = mesh_vertex_bounds(m_vertices);
     prepare_gpu_state();
     m_revision += 1;
 }
@@ -114,6 +116,7 @@ void Mesh::init_dynamic_vertices(
     m_vertices = std::move(vertices);
     m_indices = std::move(indices);
     m_submeshes = std::move(submeshes);
+    m_local_bounds = mesh_vertex_bounds(m_vertices);
     prepare_gpu_state();
     m_revision += 1;
 }
@@ -140,6 +143,7 @@ void Mesh::replace_vertices(std::vector<MeshVertex> vertices) {
     }
     m_vertex_buffer = next_vertex_buffer;
     m_vertices = std::move(vertices);
+    m_local_bounds = mesh_vertex_bounds(m_vertices);
     m_revision += 1;
 }
 
@@ -158,6 +162,7 @@ void Mesh::update_vertices_in_place(std::span<const MeshVertex> vertices) {
     }
 
     std::copy(vertices.begin(), vertices.end(), m_vertices.begin());
+    m_local_bounds = mesh_vertex_bounds(m_vertices);
     if (!gpu_context_is_empty(m_gpu)) {
         const std::size_t vertex_bytes = sizeof(MeshVertex) * vertices.size();
         wgpuQueueWriteBuffer(m_gpu.m_queue, m_vertex_buffer, 0, vertices.data(), vertex_bytes);
@@ -210,6 +215,11 @@ std::span<const std::uint32_t> Mesh::indices() const noexcept {
 // Returns immutable submesh ranges.
 std::span<const SubMesh> Mesh::submeshes() const noexcept {
     return m_submeshes;
+}
+
+// Returns local-space bounds computed from CPU vertex positions.
+Bounds3 Mesh::local_bounds() const noexcept {
+    return m_local_bounds;
 }
 
 // Returns the WebGPU vertex buffer, null for CPU-only resources.

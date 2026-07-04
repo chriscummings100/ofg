@@ -119,6 +119,29 @@ std::optional<Mat4> perspective_lh(float fovy_radians, float aspect, float near_
     return matrix;
 }
 
+// Builds a left-handed orthographic matrix with WebGPU depth range [0, 1].
+std::optional<Mat4> orthographic_lh(
+    float left, float right, float bottom, float top, float near_z, float far_z, std::string& error) {
+    if (!std::isfinite(left) || !std::isfinite(right) || !std::isfinite(bottom) || !std::isfinite(top) ||
+        !std::isfinite(near_z) || !std::isfinite(far_z)) {
+        error = "Orthographic parameters must be finite.";
+        return std::nullopt;
+    }
+    if (right <= left || top <= bottom || far_z <= near_z) {
+        error = "Orthographic parameters must have increasing horizontal, vertical, and depth ranges.";
+        return std::nullopt;
+    }
+
+    Mat4 matrix;
+    matrix[0] = vec4(2.0F / (right - left), 0.0F, 0.0F, 0.0F);
+    matrix[1] = vec4(0.0F, 2.0F / (top - bottom), 0.0F, 0.0F);
+    matrix[2] = vec4(0.0F, 0.0F, 1.0F / (far_z - near_z), 0.0F);
+    matrix[3] =
+        vec4(-(right + left) / (right - left), -(top + bottom) / (top - bottom), -near_z / (far_z - near_z), 1.0F);
+    error.clear();
+    return matrix;
+}
+
 // Builds a left-handed view matrix that treats camera-local +Z as forward.
 std::optional<Mat4> look_at_lh(Vec3 eye, Vec3 target, Vec3 up, std::string& error) {
     std::optional<Vec3> forward = normalize(sub(target, eye), error);

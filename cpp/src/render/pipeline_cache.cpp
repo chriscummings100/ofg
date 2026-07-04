@@ -12,12 +12,13 @@
 namespace ofg {
 namespace {
 
-// Creates a pipeline layout for frame, draw, and material bind groups.
+// Creates a pipeline layout for frame, draw, material, and shadow bind groups.
 WGPUPipelineLayout create_pipeline_layout(WGPUDevice device,
     WGPUBindGroupLayout frame_layout,
     WGPUBindGroupLayout draw_layout,
-    WGPUBindGroupLayout material_layout) {
-    std::array<WGPUBindGroupLayout, 3> layouts{frame_layout, draw_layout, material_layout};
+    WGPUBindGroupLayout material_layout,
+    WGPUBindGroupLayout shadow_layout) {
+    std::array<WGPUBindGroupLayout, 4> layouts{frame_layout, draw_layout, material_layout, shadow_layout};
 
     WGPUPipelineLayoutDescriptor descriptor = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     descriptor.label = gpu::cstring_view("OFG opaque pipeline layout");
@@ -37,7 +38,8 @@ WGPURenderPipeline create_render_pipeline(WGPUDevice device,
     WGPUBindGroupLayout frame_layout,
     WGPUBindGroupLayout draw_layout,
     WGPUShaderModule shader_module) {
-    WGPUPipelineLayout layout = create_pipeline_layout(device, frame_layout, draw_layout, key.m_material_layout);
+    WGPUPipelineLayout layout =
+        create_pipeline_layout(device, frame_layout, draw_layout, key.m_material_layout, key.m_shadow_layout);
 
     std::array<WGPUVertexAttribute, 4> attributes{
         WGPU_VERTEX_ATTRIBUTE_INIT, WGPU_VERTEX_ATTRIBUTE_INIT, WGPU_VERTEX_ATTRIBUTE_INIT, WGPU_VERTEX_ATTRIBUTE_INIT};
@@ -108,7 +110,8 @@ WGPURenderPipeline create_render_pipeline(WGPUDevice device,
 // Compares two pipeline keys by render-state identity.
 bool operator==(const PipelineKey& left, const PipelineKey& right) noexcept {
     return left.m_color_format == right.m_color_format && left.m_depth_format == right.m_depth_format &&
-           left.m_material_layout == right.m_material_layout && left.m_shader_revision == right.m_shader_revision;
+           left.m_material_layout == right.m_material_layout && left.m_shadow_layout == right.m_shadow_layout &&
+           left.m_shader_revision == right.m_shader_revision;
 }
 
 // Moves cached pipelines without duplicating ownership.
@@ -142,7 +145,7 @@ WGPURenderPipeline PipelineCache::get_or_create(WGPUDevice device,
     WGPUBindGroupLayout draw_layout,
     WGPUShaderModule shader_module) {
     if (device == nullptr || frame_layout == nullptr || draw_layout == nullptr || key.m_material_layout == nullptr ||
-        shader_module == nullptr) {
+        key.m_shadow_layout == nullptr || shader_module == nullptr) {
         throw EngineError("Opaque pipeline creation requires device, bind group layouts, and shader module.");
     }
     if (key.m_color_format == WGPUTextureFormat_Undefined || key.m_depth_format == WGPUTextureFormat_Undefined) {

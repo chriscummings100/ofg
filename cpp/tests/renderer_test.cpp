@@ -5,6 +5,7 @@
 #include "ofg/core/engine_error.hpp"
 #include "ofg/game/render_target.hpp"
 #include "ofg/math/mat.hpp"
+#include "ofg/math/quat.hpp"
 #include "ofg/math/vec.hpp"
 #include "ofg/render/draw_list.hpp"
 #include "ofg/render/opaque_pbr_shader.hpp"
@@ -15,6 +16,7 @@
 #include "ofg/resources/property_bag.hpp"
 #include "ofg/resources/shader.hpp"
 #include "ofg/resources/texture.hpp"
+#include "ofg/scene/light.hpp"
 #include "ofg/scene/mesh_renderer.hpp"
 #include "ofg/scene/scene.hpp"
 
@@ -32,6 +34,7 @@
 namespace {
 
 constexpr WGPUTextureFormat _test_format = WGPUTextureFormat_RGBA8Unorm;
+constexpr float _pi = 3.14159265358979323846f;
 
 struct RenderResources {
     std::vector<std::unique_ptr<ofg::Texture>> m_textures;
@@ -216,6 +219,7 @@ ofg::Texture* add_test_texture(RenderResources& resources,
 void add_scene_object(RenderScene& scene) {
     ofg::Entity* entity = scene.m_scene.create_entity(scene.m_scene.get_root());
     REQUIRE(entity != nullptr);
+    entity->local_transform().m_position = ofg::math::vec3(0.0f, 0.0f, 4.0f);
     ofg::Component* component = entity->create_component(ofg::ComponentType::MeshRenderer);
     REQUIRE(component != nullptr);
     REQUIRE(entity->mesh_renderer() != nullptr);
@@ -229,6 +233,29 @@ void add_scene_camera(ofg::Scene& scene) {
     ofg::Component* component = camera_entity->create_component(ofg::ComponentType::Camera);
     REQUIRE(component != nullptr);
     REQUIRE(camera_entity->camera() != nullptr);
+}
+
+// Adds a current sun light to exercise renderer-owned shadow passes.
+void add_scene_sun(ofg::Scene& scene) {
+    ofg::Entity* sun_entity = scene.create_entity(scene.get_root());
+    REQUIRE(sun_entity != nullptr);
+    ofg::Component* component = sun_entity->create_component(ofg::ComponentType::Light);
+    REQUIRE(component != nullptr);
+    REQUIRE(sun_entity->light() != nullptr);
+    sun_entity->light()->set_color_intensity(ofg::math::vec3(1.0f, 0.92f, 0.78f), 3.0f);
+    scene.environment().set_main_directional_light(sun_entity->light());
+
+    std::string error;
+    const std::optional<ofg::math::Vec3> sun_direction =
+        ofg::math::normalize(ofg::math::vec3(-0.35f, -1.0f, -0.25f), error);
+    REQUIRE_MESSAGE(sun_direction.has_value(), error);
+    const std::optional<ofg::math::Quat> sun_rotation =
+        ofg::math::quat_look_at_lh(sun_entity->local_transform().m_position,
+            ofg::math::add(sun_entity->local_transform().m_position, *sun_direction),
+            ofg::math::vec3(0.0f, 1.0f, 0.0f),
+            error);
+    REQUIRE_MESSAGE(sun_rotation.has_value(), error);
+    sun_entity->local_transform().m_rotation = *sun_rotation;
 }
 
 // Builds resources with independently selectable GPU-ready mesh/material state.
@@ -291,6 +318,7 @@ ofg::Scene make_one_object_scene(RenderScene& scene) {
     ofg::Component* component = entity->create_component(ofg::ComponentType::MeshRenderer);
     REQUIRE(component != nullptr);
     REQUIRE(entity->mesh_renderer() != nullptr);
+    entity->local_transform().m_position = ofg::math::vec3(0.0f, 0.0f, 4.0f);
     entity->mesh_renderer()->set_mesh(scene.m_mesh);
     return one_object_scene;
 }
@@ -356,12 +384,12 @@ TEST_CASE("renderer static lifecycle prepares pass resources") {
 
     REQUIRE(ofg::Renderer::prepare());
     CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Ready);
-    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 5);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 5);
-    CHECK(ofg::Renderer::counters().m_shader_module_create_count == 4);
+    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 7);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 9);
+    CHECK(ofg::Renderer::counters().m_shader_module_create_count == 6);
 
     REQUIRE(ofg::Renderer::prepare());
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 5);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 9);
     CHECK(ofg::Renderer::release());
     CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Released);
     CHECK(ofg::Renderer::release());
@@ -506,6 +534,8 @@ TEST_CASE("renderer skips invisible scene mesh renderers") {
     }
 
     init_prepared_renderer(gpu.borrowed_context());
+    ofg::Renderer::set_shadow_debug_overlay_enabled(true);
+    ofg::Renderer::set_overhead_sun_debug_enabled(true);
     ofg::Renderer::resize(32, 32);
 
     ScopedTexture texture;
@@ -516,10 +546,79 @@ TEST_CASE("renderer skips invisible scene mesh renderers") {
     CHECK_NOTHROW(
         ofg::Renderer::render(encoder.m_value, ofg::RenderTarget{view.m_value, _test_format, 32, 32}, render_scene));
 
-    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 5);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 5);
-    CHECK(ofg::Renderer::counters().m_texture_create_count == 10);
-    CHECK(ofg::Renderer::counters().m_texture_view_create_count == 10);
+    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 7);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 9);
+    CHECK(ofg::Renderer::counters().m_texture_create_count == 11);
+    CHECK(ofg::Renderer::counters().m_texture_view_create_count == 11);
+}
+
+// Verifies renderer culling stats distinguish extracted, visible, and rejected objects.
+TEST_CASE("renderer culls scene mesh renderers against the camera frustum") {
+    RendererGuard guard;
+    ofg::tests::TestGpuContext gpu = make_test_gpu();
+    RenderScene scene = make_render_scene(gpu.borrowed_context());
+    REQUIRE(scene.m_scene.mesh_renderer_count() == 2);
+    REQUIRE(scene.m_scene.get_mesh_renderer(1) != nullptr);
+    REQUIRE(scene.m_scene.get_mesh_renderer(1)->entity() != nullptr);
+    scene.m_scene.get_mesh_renderer(1)->entity()->local_transform().m_position = ofg::math::vec3(100.0f, 0.0f, 4.0f);
+
+    init_prepared_renderer(gpu.borrowed_context());
+    ofg::Renderer::set_shadow_debug_overlay_enabled(true);
+    ofg::Renderer::set_overhead_sun_debug_enabled(true);
+    ofg::Renderer::resize(32, 32);
+
+    ScopedTexture texture;
+    ScopedTextureView view = make_render_target_view(gpu.borrowed_context(), texture);
+    ScopedCommandEncoder encoder = make_encoder(gpu.borrowed_context());
+    const ofg::Scene& render_scene = scene.m_scene;
+
+    CHECK_NOTHROW(
+        ofg::Renderer::render(encoder.m_value, ofg::RenderTarget{view.m_value, _test_format, 32, 32}, render_scene));
+
+    const ofg::RendererCullingStats stats = ofg::Renderer::culling_stats();
+    CHECK(stats.m_extracted_object_count == 2);
+    CHECK(stats.m_camera_visible_object_count == 1);
+    CHECK(stats.m_camera_culled_object_count == 1);
+}
+
+// Verifies renderer-owned shadow resources consume the current sun and encode all cascades.
+TEST_CASE("renderer encodes shadow caster passes for the current sun") {
+    RendererGuard guard;
+    ofg::tests::TestGpuContext gpu = make_test_gpu();
+    RenderScene scene = make_render_scene(gpu.borrowed_context());
+    add_scene_sun(scene.m_scene);
+
+    init_prepared_renderer(gpu.borrowed_context());
+    ofg::Renderer::resize(32, 32);
+
+    ScopedTexture texture;
+    ScopedTextureView view = make_render_target_view(gpu.borrowed_context(), texture);
+    ScopedCommandEncoder encoder = make_encoder(gpu.borrowed_context());
+    const ofg::Scene& render_scene = scene.m_scene;
+
+    CHECK_NOTHROW(
+        ofg::Renderer::render(encoder.m_value, ofg::RenderTarget{view.m_value, _test_format, 32, 32}, render_scene));
+
+    const ofg::ShadowPassDiagnostics diagnostics = ofg::Renderer::shadow_diagnostics();
+    CHECK(ofg::Renderer::shadow_debug_overlay_enabled());
+    CHECK(ofg::Renderer::overhead_sun_debug_enabled());
+    CHECK(diagnostics.m_enabled);
+    CHECK(diagnostics.m_cascade_count == 3U);
+    CHECK(diagnostics.m_encoded_pass_count == 3U);
+    CHECK(diagnostics.m_map_size == 1024U);
+    CHECK(diagnostics.m_estimated_depth_bytes == 1024ULL * 1024ULL * 3ULL * 4ULL);
+    CHECK(diagnostics.m_sun_elevation_radians == doctest::Approx(_pi * 0.5f).epsilon(0.001));
+    CHECK(diagnostics.m_effective_intensity > 0.0f);
+    CHECK(diagnostics.m_total_tested_caster_count == 6U);
+    CHECK(diagnostics.m_total_accepted_caster_count > 0U);
+    CHECK(diagnostics.m_total_draw_count == diagnostics.m_total_accepted_caster_count);
+
+    WGPUCommandBufferDescriptor command_descriptor = WGPU_COMMAND_BUFFER_DESCRIPTOR_INIT;
+    command_descriptor.label = ofg::gpu::cstring_view("OFG renderer shadow debug commands");
+    ScopedCommandBuffer command{wgpuCommandEncoderFinish(encoder.m_value, &command_descriptor)};
+    encoder.m_value = nullptr;
+    REQUIRE(command.m_value != nullptr);
+    wgpuQueueSubmit(gpu.borrowed_context().m_queue, 1, &command.m_value);
 }
 
 // Verifies scene mesh renderers record into a null-backend render target and finish cleanly.
@@ -545,11 +644,11 @@ TEST_CASE("renderer records scene mesh renderers into render targets without ste
     REQUIRE(command.m_value != nullptr);
     wgpuQueueSubmit(gpu.borrowed_context().m_queue, 1, &command.m_value);
 
-    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 6);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 6);
-    CHECK(ofg::Renderer::counters().m_texture_create_count == 10);
-    CHECK(ofg::Renderer::counters().m_texture_view_create_count == 10);
-    CHECK(ofg::Renderer::counters().m_bind_group_create_count == 12);
+    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 8);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 10);
+    CHECK(ofg::Renderer::counters().m_texture_create_count == 11);
+    CHECK(ofg::Renderer::counters().m_texture_view_create_count == 11);
+    CHECK(ofg::Renderer::counters().m_bind_group_create_count == 15);
     CHECK(ofg::Renderer::bloom_diagnostics().m_active_level_count > 0);
     CHECK(ofg::Renderer::bloom_diagnostics().m_encoded_pass_count > 0);
     CHECK(ofg::Renderer::bloom_diagnostics().m_draw_count == ofg::Renderer::bloom_diagnostics().m_encoded_pass_count);
@@ -567,10 +666,10 @@ TEST_CASE("renderer records scene mesh renderers into render targets without ste
     CHECK_NOTHROW(ofg::Renderer::render(
         second_encoder.m_value, ofg::RenderTarget{second_view.m_value, _test_format, 32, 32}, one_command_scene));
 
-    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 6);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 6);
-    CHECK(ofg::Renderer::counters().m_texture_create_count == 10);
-    CHECK(ofg::Renderer::counters().m_texture_view_create_count == 10);
-    CHECK(ofg::Renderer::counters().m_bind_group_create_count == 12);
+    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 8);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 10);
+    CHECK(ofg::Renderer::counters().m_texture_create_count == 11);
+    CHECK(ofg::Renderer::counters().m_texture_view_create_count == 11);
+    CHECK(ofg::Renderer::counters().m_bind_group_create_count == 15);
     CHECK_NOTHROW(ofg::Renderer::resize(0, 0));
 }

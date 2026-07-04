@@ -1,6 +1,7 @@
 // JSON serialization for the C++ runtime debug-status contract.
 #include "ofg/runtime/runtime_debug_status.hpp"
 
+#include <cstddef>
 #include <iomanip>
 #include <ostream>
 #include <sstream>
@@ -48,6 +49,50 @@ void write_json_string(std::ostream& out, const std::string& value) {
     out << '"';
 }
 
+// Writes one shadow cascade diagnostics object.
+void write_shadow_cascade_status(std::ostream& out, const RuntimeShadowCascadeStatus& cascade) {
+    out << '{';
+    out << "\"index\":" << cascade.m_index;
+    out << ",\"testedCasterCount\":" << cascade.m_tested_caster_count;
+    out << ",\"acceptedCasterCount\":" << cascade.m_accepted_caster_count;
+    out << ",\"rejectedCasterCount\":" << cascade.m_rejected_caster_count;
+    out << ",\"drawCount\":" << cascade.m_draw_count;
+    out << ",\"submeshCount\":" << cascade.m_submesh_count;
+    out << ",\"indexCount\":" << cascade.m_index_count;
+    out << '}';
+}
+
+// Writes the runtime-visible shadow diagnostics object.
+void write_shadow_status(std::ostream& out, const RuntimeShadowStatus& shadow) {
+    out << '{';
+    out << "\"enabled\":" << shadow.m_enabled;
+    out << ",\"cascadeCount\":" << shadow.m_cascade_count;
+    out << ",\"encodedPassCount\":" << shadow.m_encoded_pass_count;
+    out << ",\"mapSize\":" << shadow.m_map_size;
+    out << ",\"estimatedDepthBytes\":" << shadow.m_estimated_depth_bytes;
+    out << ",\"pcfMode\":";
+    write_json_string(out, shadow.m_pcf_mode);
+    out << ",\"pcfSampleCount\":" << shadow.m_pcf_sample_count;
+    out << ",\"sunElevationRadians\":" << shadow.m_sun_elevation_radians;
+    out << ",\"effectiveIntensity\":" << shadow.m_effective_intensity;
+    out << ",\"lowSunClamped\":" << shadow.m_low_sun_clamped;
+    out << ",\"cascades\":[";
+    for (std::size_t index = 0; index < shadow.m_cascades.size(); ++index) {
+        if (index > 0U) {
+            out << ',';
+        }
+        write_shadow_cascade_status(out, shadow.m_cascades[index]);
+    }
+    out << ']';
+    out << ",\"totalTestedCasterCount\":" << shadow.m_total_tested_caster_count;
+    out << ",\"totalAcceptedCasterCount\":" << shadow.m_total_accepted_caster_count;
+    out << ",\"totalRejectedCasterCount\":" << shadow.m_total_rejected_caster_count;
+    out << ",\"totalDrawCount\":" << shadow.m_total_draw_count;
+    out << ",\"totalSubmeshCount\":" << shadow.m_total_submesh_count;
+    out << ",\"totalIndexCount\":" << shadow.m_total_index_count;
+    out << '}';
+}
+
 } // namespace
 
 // Clears recoverable runtime errors while preserving durable subsystem failures.
@@ -80,6 +125,24 @@ std::string RuntimeDebugStatus::to_json() const {
     out << ",\"modelLoadingState\":";
     write_json_string(out, m_model_loading_state);
     out << ",\"playerModelLoaded\":" << m_player_model_loaded;
+    out << ",\"demoScene\":{";
+    out << "\"name\":";
+    write_json_string(out, m_demo_scene.m_name);
+    out << ",\"boxCount\":" << m_demo_scene.m_box_count;
+    out << ",\"nearBoxCount\":" << m_demo_scene.m_near_box_count;
+    out << ",\"midBoxCount\":" << m_demo_scene.m_mid_box_count;
+    out << ",\"farBoxCount\":" << m_demo_scene.m_far_box_count;
+    out << ",\"partlyBelowGroundCount\":" << m_demo_scene.m_partly_below_ground_count;
+    out << ",\"overlapClusterBoxCount\":" << m_demo_scene.m_overlap_cluster_box_count;
+    out << ",\"offCameraCandidateCount\":" << m_demo_scene.m_off_camera_candidate_count;
+    out << '}';
+    out << ",\"renderCulling\":{";
+    out << "\"extractedObjectCount\":" << m_render_culling.m_extracted_object_count;
+    out << ",\"cameraVisibleObjectCount\":" << m_render_culling.m_camera_visible_object_count;
+    out << ",\"cameraCulledObjectCount\":" << m_render_culling.m_camera_culled_object_count;
+    out << '}';
+    out << ",\"shadow\":";
+    write_shadow_status(out, m_shadow);
     out << ",\"pipelineCreateCount\":" << m_pipeline_create_count;
     out << ",\"bufferCreateCount\":" << m_buffer_create_count;
     out << ",\"surfaceConfigureCount\":" << m_surface_configure_count;

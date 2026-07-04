@@ -1,6 +1,6 @@
 // Doctest coverage for the generated renderer demo scene.
 //
-// These tests keep the plane-and-cubes scene deterministic while the renderer
+// These tests keep the large default validation scene deterministic while the renderer
 // evolves. They intentionally use CPU-only resources so geometry, material
 // layout, mip-chain creation, and draw-list emission stay cheap to validate.
 #include "doctest.h"
@@ -89,22 +89,33 @@ TEST_CASE("demo scene builds generated resources with mipmapped textures") {
     CHECK(scene.m_cube_mesh->submeshes()[0].m_default_material == scene.m_cube_materials[0]);
 }
 
-// Verifies the demo setup creates a camera, player, ground entity, and four animated cube entities.
-TEST_CASE("demo scene setup and update create deterministic plane player and cube entities") {
+// Verifies the demo setup creates a camera, player, ground entity, and a broad deterministic box field.
+TEST_CASE("demo scene setup and update create deterministic plane player and box entities") {
     ofg::tests::TestGpuContext gpu = make_test_gpu();
     ResourcesGuard guard;
     init_test_resources(gpu.borrowed_context());
     ofg::DemoScene scene;
     ofg::build_demo_scene(scene);
+    const ofg::DemoSceneValidationStats stats = ofg::demo_scene_validation_stats();
+    REQUIRE(stats.m_box_count >= 150);
+    CHECK(stats.m_near_box_count >= 20);
+    CHECK(stats.m_mid_box_count >= 50);
+    CHECK(stats.m_far_box_count >= 50);
+    CHECK(stats.m_near_box_count + stats.m_mid_box_count + stats.m_far_box_count == stats.m_box_count);
+    CHECK(stats.m_partly_below_ground_count >= 12);
+    CHECK(stats.m_overlap_cluster_box_count >= 20);
+    CHECK(stats.m_off_camera_candidate_count >= 12);
 
     ofg::Scene first_scene;
     REQUIRE_NOTHROW(ofg::setup_demo_scene(scene, first_scene));
     REQUIRE_NOTHROW(ofg::update_demo_scene(scene, 0.0, first_scene));
-    REQUIRE(first_scene.entity_count() == 10);
+    REQUIRE(scene.m_cube_entities.size() == stats.m_box_count);
+    REQUIRE(scene.m_cube_renderers.size() == stats.m_box_count);
+    REQUIRE(first_scene.entity_count() == 6U + stats.m_box_count);
     REQUIRE(first_scene.camera_count() == 1);
     REQUIRE(first_scene.player_count() == 1);
     REQUIRE(first_scene.light_count() == 1);
-    REQUIRE(first_scene.mesh_renderer_count() == 6);
+    REQUIRE(first_scene.mesh_renderer_count() == 2U + stats.m_box_count);
     REQUIRE(first_scene.main_camera() != nullptr);
     CHECK(first_scene.main_camera() == first_scene.get_camera(0));
     REQUIRE(first_scene.environment().main_directional_light() != nullptr);
@@ -132,24 +143,25 @@ TEST_CASE("demo scene setup and update create deterministic plane player and cub
     CHECK(scene.m_player_visual_entity->local_transform().m_scale.x == doctest::Approx(0.6f));
     CHECK(scene.m_player_visual_entity->local_transform().m_scale.y == doctest::Approx(1.8f));
     CHECK(scene.m_player_visual_entity->local_transform().m_scale.z == doctest::Approx(0.35f));
-    CHECK(first_scene.get_mesh_renderer(2)->mesh() == scene.m_cube_mesh);
-    CHECK(first_scene.get_mesh_renderer(2)->sort_origin_offset().x == doctest::Approx(0.0f));
-    CHECK(first_scene.get_mesh_renderer(2)->sort_origin_offset().y == doctest::Approx(0.0f));
-    CHECK(first_scene.get_mesh_renderer(2)->sort_origin_offset().z == doctest::Approx(0.0f));
-    REQUIRE(first_scene.get_mesh_renderer(2)->material_overrides().size() == 1);
-    CHECK(first_scene.get_mesh_renderer(2)->material_overrides()[0].m_material == scene.m_cube_materials[0]);
-    REQUIRE(first_scene.get_mesh_renderer(5)->material_overrides().size() == 1);
-    CHECK(first_scene.get_mesh_renderer(5)->material_overrides()[0].m_material == scene.m_cube_materials[3]);
+    REQUIRE(scene.m_cube_renderers[0] != nullptr);
+    CHECK(scene.m_cube_renderers[0]->mesh() == scene.m_cube_mesh);
+    CHECK(scene.m_cube_renderers[0]->sort_origin_offset().x == doctest::Approx(0.0f));
+    CHECK(scene.m_cube_renderers[0]->sort_origin_offset().y == doctest::Approx(0.0f));
+    CHECK(scene.m_cube_renderers[0]->sort_origin_offset().z == doctest::Approx(0.0f));
+    REQUIRE(scene.m_cube_renderers[0]->material_overrides().size() == 1);
+    CHECK(scene.m_cube_renderers[0]->material_overrides()[0].m_material == scene.m_cube_materials[0]);
+    REQUIRE(scene.m_cube_renderers.back() != nullptr);
+    CHECK(scene.m_cube_renderers.back()->mesh() == scene.m_cube_mesh);
+    REQUIRE(scene.m_cube_renderers.back()->material_overrides().size() == 1);
+    CHECK(scene.m_cube_renderers.back()->material_overrides()[0].m_material == scene.m_cube_materials[3]);
 
     const ofg::Camera* camera = first_scene.main_camera();
     REQUIRE(camera != nullptr);
     const ofg::CameraProperties camera_properties = camera->camera_properties(16.0f / 9.0f);
     CHECK(camera_properties.camera == camera);
     std::string error;
-    const std::optional<ofg::math::Mat4> view = ofg::math::look_at_lh(ofg::math::vec3(6.2f, 4.4f, 7.6f),
-        ofg::math::vec3(0.0f, 0.55f, 0.0f),
-        ofg::math::vec3(0.0f, 1.0f, 0.0f),
-        error);
+    const std::optional<ofg::math::Mat4> view = ofg::math::look_at_lh(
+        ofg::math::vec3(6.2f, 4.4f, 7.6f), ofg::math::vec3(0.0f, 1.9f, 0.0f), ofg::math::vec3(0.0f, 1.0f, 0.0f), error);
     REQUIRE(view.has_value());
     const std::optional<ofg::math::Mat4> projection =
         ofg::math::perspective_lh(55.0f * _pi / 180.0f, 16.0f / 9.0f, 0.1f, 80.0f, error);

@@ -4,7 +4,7 @@ Date: 2026-07-04
 
 Commands: `npm run coverage`.
 
-Result: passed. The C++ coverage wrapper reported that checked animation/core/gpu/runtime/math/render/resource/scene files met the 90% per-file line coverage gate, including the bloom post effect, temp-buffer pool, tone mapping, lighting, environment, and sky render files. The TypeScript coverage wrapper reported that checked TypeScript files met the 90% per-file line coverage gate.
+Result: passed. The C++ coverage wrapper reported that checked animation/core/gpu/runtime/math/render/resource/scene files met the 90% per-file line coverage gate, including renderer bounds, frustum culling, render-object extraction, shadow settings, shadow cascade math, shadow map target/pass ownership, shadow frame uniform packing, opaque shadow sampling integration, public runtime shadow diagnostics, the bloom post effect, temp-buffer pool, tone mapping, lighting, environment, and sky render files. The TypeScript coverage wrapper reported that checked TypeScript files met the 90% per-file line coverage gate.
 
 Generated local artifacts:
 
@@ -25,36 +25,44 @@ Committed summary copies:
 | `cpp/src/core/frame_state.cpp` | 100.00% (10/10) |
 | `cpp/src/core/object.cpp` | 100.00% (37/37) |
 | `cpp/src/game/render_target.cpp` | 100.00% (18/18) |
-| `cpp/src/gpu/common.cpp` | 96.00% (96/100) |
+| `cpp/src/gpu/common.cpp` | 92.31% (96/104) |
 | `cpp/src/math/mat.cpp` | 100.00% (48/48) |
 | `cpp/src/math/quat.cpp` | 100.00% (95/95) |
-| `cpp/src/math/transform.cpp` | 100.00% (103/103) |
+| `cpp/src/math/transform.cpp` | 100.00% (122/122) |
 | `cpp/src/render/bloom_pass.cpp` | 90.04% (461/512, 12 defensive lines excluded) |
 | `cpp/src/render/bloom_settings.cpp` | 100.00% (97/97) |
 | `cpp/src/render/bootstrap_scene.cpp` | 100.00% (3/3) |
+| `cpp/src/render/bounds.cpp` | 100.00% (74/74) |
 | `cpp/src/render/camera_properties.cpp` | 95.74% (45/47) |
-| `cpp/src/render/demo_scene.cpp` | 91.08% (286/314) |
+| `cpp/src/render/demo_scene.cpp` | 92.96% (396/426) |
 | `cpp/src/render/depth_target.cpp` | 96.30% (78/81) |
 | `cpp/src/render/draw_list.cpp` | 96.77% (60/62) |
+| `cpp/src/render/frustum.cpp` | 100.00% (66/66) |
 | `cpp/src/render/lighting.cpp` | 100.00% (26/26) |
-| `cpp/src/render/opaque_pass.cpp` | 93.86% (260/277) |
+| `cpp/src/render/opaque_pass.cpp` | 92.98% (424/456) |
 | `cpp/src/render/opaque_pbr_shader.cpp` | 100.00% (17/17) |
-| `cpp/src/render/pipeline_cache.cpp` | 96.67% (116/120) |
+| `cpp/src/render/pipeline_cache.cpp` | 96.72% (118/122) |
+| `cpp/src/render/render_object.cpp` | 96.36% (53/55) |
 | `cpp/src/render/renderer_counters.cpp` | 100.00% (9/9) |
-| `cpp/src/render/renderer.cpp` | 91.56% (282/308) |
+| `cpp/src/render/renderer.cpp` | 92.20% (331/359) |
 | `cpp/src/render/scene_color_target.cpp` | 94.17% (113/120, 6 defensive lines excluded) |
+| `cpp/src/render/shadow_cascade.cpp` | 92.79% (206/222) |
+| `cpp/src/render/shadow_caster_pass.cpp` | 94.90% (335/353, 28 defensive lines excluded) |
+| `cpp/src/render/shadow_frame_state.cpp` | 95.83% (69/72) |
+| `cpp/src/render/shadow_map_target.cpp` | 94.82% (183/193, 13 defensive lines excluded) |
+| `cpp/src/render/shadow_settings.cpp` | 94.59% (70/74) |
 | `cpp/src/render/sky_pass.cpp` | 92.51% (247/267, 16 defensive lines excluded) |
 | `cpp/src/render/temp_buffer.cpp` | 93.78% (377/402) |
 | `cpp/src/render/tone_map_pass.cpp` | 92.29% (323/350, 14 defensive lines excluded) |
 | `cpp/src/resources/material.cpp` | 90.71% (205/226) |
-| `cpp/src/resources/mesh.cpp` | 93.72% (194/207) |
+| `cpp/src/resources/mesh.cpp` | 93.93% (201/214) |
 | `cpp/src/resources/property_bag.cpp` | 94.56% (139/147) |
 | `cpp/src/resources/resource_error.cpp` | 93.75% (15/16) |
 | `cpp/src/resources/resource.cpp` | 96.67% (58/60) |
 | `cpp/src/resources/resources.cpp` | 91.19% (435/477) |
 | `cpp/src/resources/shader.cpp` | 94.12% (128/136) |
 | `cpp/src/resources/texture.cpp` | 93.00% (226/243) |
-| `cpp/src/runtime/runtime_debug_status.cpp` | 100.00% (99/99) |
+| `cpp/src/runtime/runtime_debug_status.cpp` | 100.00% (157/157) |
 | `cpp/src/scene/animation_player.cpp` | 91.26% (282/309) |
 | `cpp/src/scene/camera.cpp` | 91.84% (225/245) |
 | `cpp/src/scene/component.cpp` | 100.00% (10/10) |
@@ -71,17 +79,17 @@ C++ exceptions:
 - `cpp/src/game/game.cpp`: device-bound `Game` renderer ownership and command encoding; covered by `npm run build:wasm`, browser smoke, and native smoke rather than native line coverage.
 - `cpp/src/web/`: browser-only Emscripten/Embind/WebGPU glue and frame-driver submission; covered by `npm run build:wasm`, TypeScript adapter tests, and browser smoke rather than native line coverage.
 - `cpp/src/native/`: native Dawn smoke harness; covered by `npm run smoke:render` because the validation value is GPU readback plus PNG/report output.
-- `cpp/src/render/bloom_pass.cpp`, `cpp/src/render/scene_color_target.cpp`, `cpp/src/render/sky_pass.cpp`, and `cpp/src/render/tone_map_pass.cpp`: only narrow defensive WebGPU null-return, impossible tangent overflow, and partial-creation cleanup lines are excluded by `tools/cpp-coverage.mjs`; normal behavior remains gated and smoke-tested.
+- `cpp/src/render/bloom_pass.cpp`, `cpp/src/render/scene_color_target.cpp`, `cpp/src/render/shadow_caster_pass.cpp`, `cpp/src/render/shadow_map_target.cpp`, `cpp/src/render/sky_pass.cpp`, and `cpp/src/render/tone_map_pass.cpp`: only narrow defensive WebGPU null-return, impossible tangent overflow, and partial-creation cleanup lines are excluded by `tools/cpp-coverage.mjs`; normal behavior remains gated and smoke-tested.
 
 ## TypeScript Line Coverage
 
 | File | Lines |
 | --- | ---: |
-| `total` | 86.63% (791/913) |
+| `total` | 87.67% (1067/1217) |
 | `src/app/canvasHost.ts` | 97.51% (196/201) |
 | `src/app/controlInput.ts` | 96.40% (161/167) |
 | `src/app/main.ts` | 0.00% (0/84), documented exception |
-| `src/app/wasmRuntime.ts` | 94.14% (434/461) |
+| `src/app/wasmRuntime.ts` | 92.81% (710/765) |
 
 TypeScript exception:
 

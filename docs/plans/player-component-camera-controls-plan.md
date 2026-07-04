@@ -148,7 +148,7 @@ The old debug camera controller files were removed. Debug fly camera behavior no
 
 The scene graph lives under `C:\dev\ofg\cpp\include\ofg\scene` and `C:\dev\ofg\cpp\src\scene`. `Scene` owns entities and flat component storage. `Entity` owns local transform data and typed non-owning pointers to components. Existing components are `Camera` and `MeshRenderer`.
 
-The renderer demo scene lives in `C:\dev\ofg\cpp\include\ofg\render\demo_scene.hpp` and `C:\dev\ofg\cpp\src\render\demo_scene.cpp`. It creates one camera entity, a checker ground plane, and four animated cube entities. This plan extends that scene with a player entity and one camera component that supports control modes.
+The renderer demo scene lives in `C:\dev\ofg\cpp\include\ofg\render\demo_scene.hpp` and `C:\dev\ofg\cpp\src\render\demo_scene.cpp`. It creates one camera entity, a checker ground plane, and a large deterministic field of cube-mesh box entities. This plan extends that scene with a player entity and one camera component that supports control modes.
 
 Definitions used in this plan:
 
@@ -242,7 +242,7 @@ Current milestone review record:
 
 The plan is complete only when all of these observable behaviors and validation gates are true.
 
-The browser app shows the existing ground/cube scene plus a player-sized box standing on the ground plane. The player box is visibly distinct from the four animated cubes.
+The browser app shows the existing ground and deterministic box-field scene plus a player-sized box standing on the ground plane. The player box is visibly distinct from the validation-scene boxes.
 
 The browser app uses one scene camera entity. Pressing `` ` `` cycles the active camera mode through debug, first person, third person, and back to debug. Repeated holding should not cycle continuously unless the final implementation explicitly documents browser key repeat behavior and tests it.
 

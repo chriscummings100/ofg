@@ -12,6 +12,7 @@
 #include "ofg/render/lighting.hpp"
 #include "ofg/render/pipeline_cache.hpp"
 #include "ofg/render/renderer_counters.hpp"
+#include "ofg/render/shadow_frame_state.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -38,24 +39,19 @@ public:
         const CameraProperties& camera,
         std::span<const LightProperties> lights,
         AmbientLight ambient_light,
+        const ShadowFrameState& shadow_state,
         const DrawList& draw_list);
     // Reports durable renderer resource counters.
     [[nodiscard]] RendererCounters counters() const noexcept;
 
 private:
     // Stores already-created pass GPU state.
-    OpaquePass(GpuContext gpu,
-        WGPUTextureFormat color_format,
-        WGPUBindGroupLayout frame_layout,
-        WGPUBuffer frame_buffer,
-        WGPUBindGroup frame_bind_group,
-        WGPUBindGroupLayout draw_layout,
-        WGPUBuffer draw_buffer,
-        WGPUBindGroup draw_bind_group,
-        std::uint32_t draw_capacity);
+    OpaquePass(GpuContext gpu, WGPUTextureFormat color_format, std::uint32_t draw_capacity);
 
     // Recreates the dynamic draw uniform buffer for a larger command count.
     void ensure_draw_capacity(std::uint32_t draw_count);
+    // Recreates the shadow bind group when the sampled shadow view changes.
+    void ensure_shadow_bind_group(const ShadowFrameState& shadow_state);
     // Releases pass-level layouts, buffers, and bind groups.
     void release_gpu_state() noexcept;
 
@@ -68,7 +64,19 @@ private:
     WGPUBindGroupLayout m_draw_layout{nullptr};
     WGPUBuffer m_draw_buffer{nullptr};
     WGPUBindGroup m_draw_bind_group{nullptr};
+    WGPUBindGroupLayout m_shadow_layout{nullptr};
+    WGPUBuffer m_shadow_buffer{nullptr};
+    WGPUBindGroup m_shadow_bind_group{nullptr};
+    WGPUTexture m_fallback_shadow_texture{nullptr};
+    WGPUTextureView m_fallback_shadow_view{nullptr};
+    WGPUSampler m_fallback_shadow_sampler{nullptr};
+    WGPUTextureView m_bound_shadow_view{nullptr};
+    WGPUSampler m_bound_shadow_sampler{nullptr};
+    std::uint64_t m_bound_shadow_generation{0};
+    bool m_bound_shadow_live{false};
     std::uint32_t m_draw_capacity{0};
+    std::uint32_t m_texture_create_count{0};
+    std::uint32_t m_texture_view_create_count{0};
     std::uint32_t m_buffer_create_count{0};
     std::uint32_t m_bind_group_create_count{0};
     PipelineCache m_pipeline_cache;

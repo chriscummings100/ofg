@@ -7,6 +7,7 @@
 #include "ofg/core/object.hpp"
 #include "ofg/core/ptr.hpp"
 #include "ofg/game/gpu_context.hpp"
+#include "ofg/render/bounds.hpp"
 #include "ofg/resources/material.hpp"
 
 #include <array>
@@ -77,6 +78,8 @@ public:
     [[nodiscard]] std::span<const std::uint32_t> indices() const noexcept;
     // Returns immutable submesh ranges.
     [[nodiscard]] std::span<const SubMesh> submeshes() const noexcept;
+    // Returns local-space bounds computed from CPU vertex positions.
+    [[nodiscard]] Bounds3 local_bounds() const noexcept;
     // Returns the WebGPU vertex buffer, null for CPU-only resources.
     [[nodiscard]] WGPUBuffer vertex_buffer() const noexcept;
     // Returns the WebGPU index buffer, null for CPU-only resources.
@@ -101,6 +104,7 @@ private:
     std::vector<MeshVertex> m_vertices;
     std::vector<std::uint32_t> m_indices;
     std::vector<SubMesh> m_submeshes;
+    Bounds3 m_local_bounds{};
     WGPUBuffer m_vertex_buffer{nullptr};
     WGPUBuffer m_index_buffer{nullptr};
     bool m_dynamic_vertices{false};

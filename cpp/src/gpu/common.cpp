@@ -43,6 +43,10 @@ std::string texture_format_name(WGPUTextureFormat format) {
         return "Rgba8UnormSrgb";
     case WGPUTextureFormat_RGBA16Float:
         return "Rgba16Float";
+    case WGPUTextureFormat_Depth32Float:
+        return "Depth32Float";
+    case WGPUTextureFormat_Depth24Plus:
+        return "Depth24Plus";
     default:
         return "Unknown";
     }
