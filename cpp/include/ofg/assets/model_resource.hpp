@@ -26,6 +26,8 @@ namespace ofg {
 
 class MeshRenderer;
 class AnimationPlayer;
+class ModelResourceLoader;
+class Resources;
 
 struct ModelNodeTemplate {
     std::string m_name;
@@ -53,12 +55,12 @@ struct SkinTemplate {
 
 class ModelResource : public Resource {
 public:
-    ModelResource() = default;
+    ModelResource();
     ModelResource(const ModelResource&) = delete;
     ModelResource& operator=(const ModelResource&) = delete;
     ModelResource(ModelResource&&) = delete;
     ModelResource& operator=(ModelResource&&) = delete;
-    ~ModelResource() override = default;
+    ~ModelResource() override;
 
     // Returns the model label used for diagnostics and instance roots.
     [[nodiscard]] const std::string& label() const noexcept;
@@ -78,7 +80,14 @@ public:
     [[nodiscard]] const AnimationClip* animation_clip(std::size_t index) const noexcept;
 
 private:
+    friend class ModelResourceLoader;
     friend class ModelResourceBuilder;
+    friend class Resources;
+
+    // Starts asynchronous loading through a temporary model loader.
+    void begin_loading(std::string source_uri, std::string model_name);
+    // Advances the temporary model loader and releases it once terminal.
+    void update_loading() override;
 
     std::string m_label;
     std::vector<std::uint32_t> m_root_node_indices;
@@ -86,6 +95,7 @@ private:
     std::vector<MeshRendererTemplate> m_mesh_renderers;
     std::vector<SkinTemplate> m_skins;
     std::vector<std::unique_ptr<AnimationClip>> m_animation_clips;
+    std::unique_ptr<ModelResourceLoader> m_loader;
 };
 
 struct ModelInstance {

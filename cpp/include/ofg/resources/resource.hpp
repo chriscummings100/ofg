@@ -1,8 +1,8 @@
 // Observable base class for asynchronously loaded OFG resources.
 //
 // Resource extends Object so persistent observers can use Ptr<T>. Resources
-// owns mutation of the load state; gameplay and renderer code should only read
-// state, source URI, and load diagnostics.
+// owns scheduling, while derived resource types own their loading state
+// machines and publish read-only state, source URI, and diagnostics.
 #pragma once
 
 #include "ofg/core/object.hpp"
@@ -51,10 +51,6 @@ public:
 protected:
     // Creates an unloaded observable resource.
     Resource() noexcept = default;
-
-private:
-    friend class Resources;
-
     // Replaces the source URI reported to observers.
     void set_source_uri(std::string source_uri);
     // Replaces the current resource state.
@@ -63,6 +59,12 @@ private:
     void set_resource_failed(std::string message);
     // Clears any previous load error.
     void clear_resource_error();
+
+private:
+    friend class Resources;
+
+    // Advances this resource's type-specific loading state machine once.
+    virtual void update_loading() = 0;
 
     ResourceState m_state{ResourceState::Unloaded};
     std::string m_source_uri;

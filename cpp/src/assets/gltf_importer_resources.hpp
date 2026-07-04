@@ -24,7 +24,7 @@ namespace ofg::gltf_importer_detail {
 // Returns a PBR material for a primitive, creating a cached material if needed.
 [[nodiscard]] Material& material_for_primitive(const GltfDocument& document,
     const GltfImportOptions& options,
-    ModelResourceImportContext& context,
+    ModelResourceLoader& loader,
     const GltfPrimitive& primitive);
 
 } // namespace ofg::gltf_importer_detail

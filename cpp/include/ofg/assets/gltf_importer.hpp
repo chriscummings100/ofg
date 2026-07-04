@@ -7,15 +7,17 @@
 
 #include "ofg/assets/gltf_document.hpp"
 #include "ofg/assets/model_resource.hpp"
-#include "ofg/game/gpu_context.hpp"
+#include "ofg/core/ptr.hpp"
 #include "ofg/resources/material.hpp"
 #include "ofg/resources/mesh.hpp"
+#include "ofg/resources/resources.hpp"
 #include "ofg/resources/shader.hpp"
 #include "ofg/resources/texture.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -24,17 +26,21 @@ namespace ofg {
 
 struct GltfImportOptions;
 
-class ModelResourceImportContext {
+class ModelResourceLoader {
 public:
-    // Creates a CPU-only or GPU-backed import context.
-    explicit ModelResourceImportContext(GpuContext gpu = {});
+    // Creates a loader usable as a temporary importer cache only.
+    ModelResourceLoader();
+    // Creates a streaming loader for one normalized source model URI.
+    ModelResourceLoader(std::string source_uri, std::string model_name);
 
-    ModelResourceImportContext(const ModelResourceImportContext&) = delete;
-    ModelResourceImportContext& operator=(const ModelResourceImportContext&) = delete;
-    ModelResourceImportContext(ModelResourceImportContext&&) = delete;
-    ModelResourceImportContext& operator=(ModelResourceImportContext&&) = delete;
-    ~ModelResourceImportContext();
+    ModelResourceLoader(const ModelResourceLoader&) = delete;
+    ModelResourceLoader& operator=(const ModelResourceLoader&) = delete;
+    ModelResourceLoader(ModelResourceLoader&&) = delete;
+    ModelResourceLoader& operator=(ModelResourceLoader&&) = delete;
+    ~ModelResourceLoader();
 
+    // Advances streaming model loading by at most one major state.
+    void update(ModelResource& target);
     // Returns the number of cached mesh resources.
     [[nodiscard]] std::size_t mesh_count() const noexcept;
     // Returns the number of cached material resources.
@@ -67,16 +73,21 @@ public:
 
 private:
     friend std::unique_ptr<ModelResource> import_gltf_model_resource(
-        const GltfDocument& document, const GltfImportOptions& options, ModelResourceImportContext& context);
+        const GltfDocument& document, const GltfImportOptions& options, ModelResourceLoader& loader);
 
-    GpuContext m_gpu;
-    std::unique_ptr<Shader> m_pbr_shader;
-    std::unique_ptr<Texture> m_default_white_texture;
-    std::unique_ptr<Texture> m_default_metallic_roughness_texture;
-    std::unique_ptr<Texture> m_default_normal_texture;
-    std::unordered_map<std::string, std::unique_ptr<Material>> m_materials;
-    std::unordered_map<std::string, std::unique_ptr<Texture>> m_textures;
-    std::unordered_map<std::string, std::unique_ptr<Mesh>> m_meshes;
+    std::string m_source_uri;
+    std::string m_model_name;
+    BlobLoadId m_root_blob_id{invalid_blob_load_id};
+    std::vector<BlobLoadId> m_dependency_blob_ids;
+    std::vector<std::string> m_dependency_uris;
+    std::optional<GltfDocument> m_pending_document;
+    Ptr<Shader> m_pbr_shader;
+    Ptr<Texture> m_default_white_texture;
+    Ptr<Texture> m_default_metallic_roughness_texture;
+    Ptr<Texture> m_default_normal_texture;
+    std::unordered_map<std::string, Ptr<Material>> m_materials;
+    std::unordered_map<std::string, Ptr<Texture>> m_textures;
+    std::unordered_map<std::string, Ptr<Mesh>> m_meshes;
 };
 
 struct GltfImportOptions {
@@ -86,12 +97,12 @@ struct GltfImportOptions {
 
 // Converts a parsed glTF document into a reusable model resource.
 [[nodiscard]] std::unique_ptr<ModelResource> import_gltf_model_resource(
-    const GltfDocument& document, const GltfImportOptions& options, ModelResourceImportContext& context);
+    const GltfDocument& document, const GltfImportOptions& options, ModelResourceLoader& loader);
 
 // Converts a parsed glTF document into an existing reusable model resource.
 void import_gltf_model_resource_into(const GltfDocument& document,
     const GltfImportOptions& options,
-    ModelResourceImportContext& context,
+    ModelResourceLoader& loader,
     ModelResource& resource);
 
 } // namespace ofg

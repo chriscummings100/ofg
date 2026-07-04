@@ -279,7 +279,7 @@ LocalTransform convert_node_transform(const GltfNode& node) {
 // Appends one supported triangle primitive into a combined mesh.
 void append_primitive(const GltfDocument& document,
     const GltfImportOptions& options,
-    ModelResourceImportContext& context,
+    ModelResourceLoader& loader,
     const GltfPrimitive& primitive,
     std::vector<MeshVertex>& vertices,
     std::vector<std::uint32_t>& indices,
@@ -403,7 +403,7 @@ void append_primitive(const GltfDocument& document,
             vertex_base,
             static_cast<std::uint32_t>(position_accessor.m_count));
     }
-    Material& material = gltf_importer_detail::material_for_primitive(document, options, context, primitive);
+    Material& material = gltf_importer_detail::material_for_primitive(document, options, loader, primitive);
     submeshes.push_back(SubMesh{
         options.m_model_name + " primitive " + std::to_string(submeshes.size()), index_start, index_count, &material});
 }
@@ -411,7 +411,7 @@ void append_primitive(const GltfDocument& document,
 // Imports one glTF mesh into a cached OFG Mesh resource.
 Mesh& import_mesh(const GltfDocument& document,
     const GltfImportOptions& options,
-    ModelResourceImportContext& context,
+    ModelResourceLoader& loader,
     std::uint32_t mesh_index) {
     if (mesh_index >= document.meshes().size()) {
         throw EngineError("glTF node references a mesh index outside the mesh table.");
@@ -425,12 +425,12 @@ Mesh& import_mesh(const GltfDocument& document,
     std::vector<std::uint32_t> indices;
     std::vector<SubMesh> submeshes;
     for (const GltfPrimitive& primitive : gltf_mesh.m_primitives) {
-        append_primitive(document, options, context, primitive, vertices, indices, submeshes);
+        append_primitive(document, options, loader, primitive, vertices, indices, submeshes);
     }
 
     const std::string label = gltf_mesh.m_name.empty() ? options.m_model_name + " mesh " + std::to_string(mesh_index)
                                                        : options.m_model_name + " " + gltf_mesh.m_name;
-    return context.get_or_create_mesh(
+    return loader.get_or_create_mesh(
         gltf_importer_detail::source_key(document, options) + "#mesh/" + std::to_string(mesh_index),
         label,
         std::move(vertices),
@@ -517,16 +517,16 @@ void add_root_nodes(ModelResourceBuilder& builder, const std::vector<std::int32_
 
 // Converts a parsed glTF document into a reusable model resource.
 std::unique_ptr<ModelResource> import_gltf_model_resource(
-    const GltfDocument& document, const GltfImportOptions& options, ModelResourceImportContext& context) {
+    const GltfDocument& document, const GltfImportOptions& options, ModelResourceLoader& loader) {
     auto resource = std::make_unique<ModelResource>();
-    import_gltf_model_resource_into(document, options, context, *resource);
+    import_gltf_model_resource_into(document, options, loader, *resource);
     return resource;
 }
 
 // Converts a parsed glTF document into an existing reusable model resource.
 void import_gltf_model_resource_into(const GltfDocument& document,
     const GltfImportOptions& options,
-    ModelResourceImportContext& context,
+    ModelResourceLoader& loader,
     ModelResource& resource) {
     if (options.m_model_name.empty()) {
         throw EngineError("GltfImportOptions requires a non-empty model name.");
@@ -570,7 +570,7 @@ void import_gltf_model_resource_into(const GltfDocument& document,
             throw EngineError("glTF node references a skin but has no mesh.");
         }
         if (node.m_mesh_index >= 0) {
-            Mesh& mesh = import_mesh(document, options, context, static_cast<std::uint32_t>(node.m_mesh_index));
+            Mesh& mesh = import_mesh(document, options, loader, static_cast<std::uint32_t>(node.m_mesh_index));
             MeshRendererTemplate mesh_renderer_template;
             mesh_renderer_template.m_node_index = static_cast<std::uint32_t>(node_index);
             mesh_renderer_template.m_mesh = &mesh;

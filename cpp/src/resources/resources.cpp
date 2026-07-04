@@ -5,7 +5,6 @@
 // resource startup and teardown without a separate arena owner.
 #include "ofg/resources/resources.hpp"
 
-#include "ofg/assets/gltf_importer.hpp"
 #include "ofg/assets/model_resource.hpp"
 #include "ofg/core/engine_error.hpp"
 #include "ofg/resources/material.hpp"
@@ -16,6 +15,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <exception>
 #include <memory>
 #include <span>
 #include <string>
@@ -92,69 +92,6 @@ std::string model_name_from_uri(std::string_view uri) {
 std::string model_resource_cache_key(std::string_view uri, std::string_view model_name) {
     return std::string(uri) + "\n" + std::string(model_name);
 }
-
-// Resolves a glTF relative URI against the root model URI directory.
-std::string resolve_model_relative_uri(std::string_view root_uri, std::string_view relative_uri) {
-    if (!relative_uri.empty() && relative_uri.front() == '/') {
-        return std::string(relative_uri.substr(1));
-    }
-    const std::size_t slash = root_uri.find_last_of('/');
-    if (slash == std::string_view::npos) {
-        return std::string(relative_uri);
-    }
-    return std::string(root_uri.substr(0, slash + 1U)) + std::string(relative_uri);
-}
-
-// Copies a loaded blob view into an AssetFile for the glTF parser provider.
-AssetFile asset_file_from_blob(const BlobView& blob) {
-    AssetFile file;
-    file.m_path = blob.m_uri;
-    file.m_bytes.assign(blob.m_bytes.begin(), blob.m_bytes.end());
-    return file;
-}
-
-// Appends one dependency id/URI pair if it has not already been seen.
-void append_unique_dependency(
-    std::vector<BlobLoadId>& ids, std::vector<std::string>& uris, BlobLoadId id, std::string uri) {
-    if (std::find(ids.begin(), ids.end(), id) != ids.end()) {
-        return;
-    }
-    ids.push_back(id);
-    uris.push_back(std::move(uri));
-}
-
-class ResourcesGltfResourceProvider final : public GltfResourceProvider {
-public:
-    // Creates a provider rooted at one model source URI.
-    explicit ResourcesGltfResourceProvider(std::string root_uri) : m_root_uri(std::move(root_uri)) {}
-
-    // Resolves a relative glTF resource through Resources blob loads.
-    std::optional<AssetFile> load_relative(std::string_view uri) override {
-        const std::string resolved_uri = resolve_model_relative_uri(m_root_uri, uri);
-        const BlobLoadId id = Resources::load_blob(resolved_uri);
-        append_unique_dependency(m_dependency_blob_ids, m_dependency_uris, id, resolved_uri);
-        const BlobView blob = Resources::blob(id);
-        if (!blob.is_loaded()) {
-            return std::nullopt;
-        }
-        return asset_file_from_blob(blob);
-    }
-
-    // Returns dependency ids requested during parsing.
-    [[nodiscard]] const std::vector<BlobLoadId>& dependency_blob_ids() const noexcept {
-        return m_dependency_blob_ids;
-    }
-
-    // Returns dependency URIs requested during parsing.
-    [[nodiscard]] const std::vector<std::string>& dependency_uris() const noexcept {
-        return m_dependency_uris;
-    }
-
-private:
-    std::string m_root_uri;
-    std::vector<BlobLoadId> m_dependency_blob_ids;
-    std::vector<std::string> m_dependency_uris;
-};
 
 } // namespace
 
@@ -309,6 +246,11 @@ Ptr<ModelResource> Resources::load_model_resource(std::string_view uri, ModelRes
 // Advances asynchronous resource loads by one scheduler pass.
 void Resources::advance_loads() {
     require_resources("Resources::advance_loads").advance_loads_impl();
+}
+
+// Returns the number of resources still scheduled for loading diagnostics.
+std::size_t Resources::loading_resource_count() {
+    return require_resources("Resources::loading_resource_count").m_loading_resources.size();
 }
 
 // Returns owned textures for diagnostics and tests.
@@ -521,174 +463,59 @@ void Resources::fail_blob_load_impl(BlobLoadId id, std::string message) {
 Ptr<ModelResource> Resources::load_model_resource_impl(std::string_view uri, ModelResourceLoadOptions options) {
     require_live_for_create("Resources::load_model_resource");
 
-    const BlobLoadId root_blob_id = load_blob_impl(uri);
-    const BlobView root_blob = blob_impl(root_blob_id);
+    const std::string normalized_uri = normalize_blob_uri(uri);
     std::string model_name = std::move(options.m_model_name);
     if (model_name.empty()) {
-        model_name = model_name_from_uri(root_blob.m_uri);
+        model_name = model_name_from_uri(normalized_uri);
     }
-    const std::string cache_key = model_resource_cache_key(root_blob.m_uri, model_name);
-    const auto existing = m_model_load_indices_by_key.find(cache_key);
-    if (existing != m_model_load_indices_by_key.end()) {
-        return Ptr<ModelResource>{m_model_loads[existing->second].m_resource};
+    const std::string cache_key = model_resource_cache_key(normalized_uri, model_name);
+    const auto existing = m_model_resource_indices_by_key.find(cache_key);
+    if (existing != m_model_resource_indices_by_key.end()) {
+        return Ptr<ModelResource>{m_model_resources[existing->second].get()};
     }
 
     auto resource = std::make_unique<ModelResource>();
     ModelResource* resource_ptr = resource.get();
-    resource_ptr->set_source_uri(root_blob.m_uri);
-    resource_ptr->clear_resource_error();
-    resource_ptr->set_resource_state(ResourceState::Queued);
+    resource_ptr->begin_loading(normalized_uri, std::move(model_name));
+    const std::size_t resource_index = m_model_resources.size();
     m_model_resources.push_back(std::move(resource));
-
-    const std::size_t load_index = m_model_loads.size();
-    ModelResourceLoadRecord record;
-    record.m_resource = resource_ptr;
-    record.m_cache_key = cache_key;
-    record.m_uri = root_blob.m_uri;
-    record.m_model_name = std::move(model_name);
-    record.m_root_blob_id = root_blob_id;
-    m_model_loads.push_back(std::move(record));
-    m_model_load_indices_by_key.emplace(cache_key, load_index);
-    m_in_progress_model_load_indices.push_back(load_index);
+    m_model_resource_indices_by_key.emplace(cache_key, resource_index);
+    enqueue_loading(*resource_ptr);
     return Ptr<ModelResource>{resource_ptr};
+}
+
+// Adds a resource to the generic loading scheduler if it still needs work.
+void Resources::enqueue_loading(Resource& resource) {
+    if (resource.is_terminal()) {
+        return;
+    }
+    if (std::find(m_loading_resources.begin(), m_loading_resources.end(), &resource) != m_loading_resources.end()) {
+        return;
+    }
+    m_loading_resources.push_back(&resource);
 }
 
 // Advances asynchronous resource loads by one scheduler pass.
 void Resources::advance_loads_impl() {
-    for (const std::size_t load_index : m_in_progress_model_load_indices) {
-        advance_model_load(load_index);
-    }
-    remove_terminal_model_loads();
-}
-
-// Advances one model resource load record by at most one major state.
-void Resources::advance_model_load(std::size_t load_index) {
-    if (load_index >= m_model_loads.size()) {
-        throw EngineError("Resources model load scheduler contains an invalid load index.");
-    }
-    ModelResourceLoadRecord& load = m_model_loads[load_index];
-    ModelResource* resource = load.m_resource;
-    if (resource == nullptr) {
-        throw EngineError("Resources model load scheduler contains a null model resource.");
-    }
-
-    switch (resource->state()) {
-    case ResourceState::Queued:
-        resource->set_resource_state(ResourceState::LoadingRootBlob);
-        return;
-    case ResourceState::LoadingRootBlob: {
-        const BlobView root_blob = blob_impl(load.m_root_blob_id);
-        if (root_blob.m_status == BlobLoadStatus::Failed) {
-            resource->set_resource_failed(
-                "Model resource root blob '" + root_blob.m_uri + "' failed: " + root_blob.m_error);
-            return;
-        }
-        if (root_blob.m_status == BlobLoadStatus::Loaded) {
-            resource->set_resource_state(ResourceState::DiscoveringDependencies);
-        }
-        return;
-    }
-    case ResourceState::DiscoveringDependencies: {
-        const BlobView root_blob = blob_impl(load.m_root_blob_id);
-        if (!root_blob.is_loaded()) {
-            resource->set_resource_state(ResourceState::LoadingRootBlob);
-            return;
-        }
-
-        ResourcesGltfResourceProvider provider(load.m_uri);
-        try {
-            load.m_pending_document = load_gltf_document(load.m_uri, root_blob.m_bytes, provider);
-        } catch (const std::exception& error) {
-            if (!provider.dependency_blob_ids().empty()) {
-                bool waiting_for_dependencies = false;
-                for (const BlobLoadId dependency_id : provider.dependency_blob_ids()) {
-                    const BlobView dependency = blob_impl(dependency_id);
-                    if (dependency.m_status == BlobLoadStatus::Failed) {
-                        resource->set_resource_failed("Model resource '" + load.m_uri + "' dependency '" +
-                                                      dependency.m_uri + "' failed: " + dependency.m_error);
-                        return;
-                    }
-                    if (dependency.m_status != BlobLoadStatus::Loaded) {
-                        waiting_for_dependencies = true;
-                    }
-                }
-                if (waiting_for_dependencies) {
-                    load.m_dependency_blob_ids = provider.dependency_blob_ids();
-                    load.m_dependency_uris = provider.dependency_uris();
-                    resource->set_resource_state(ResourceState::WaitingForDependencies);
-                    return;
-                }
-            }
-            resource->set_resource_failed(
-                "Model resource '" + load.m_uri + "' failed during dependency discovery: " + error.what());
-            return;
-        }
-
-        load.m_dependency_blob_ids = provider.dependency_blob_ids();
-        load.m_dependency_uris = provider.dependency_uris();
-        resource->set_resource_state(ResourceState::Importing);
-        return;
-    }
-    case ResourceState::WaitingForDependencies: {
-        bool all_loaded = true;
-        for (std::size_t index = 0; index < load.m_dependency_blob_ids.size(); ++index) {
-            const BlobView dependency = blob_impl(load.m_dependency_blob_ids[index]);
-            if (dependency.m_status == BlobLoadStatus::Failed) {
-                resource->set_resource_failed("Model resource '" + load.m_uri + "' dependency '" + dependency.m_uri +
-                                              "' failed: " + dependency.m_error);
-                return;
-            }
-            if (dependency.m_status != BlobLoadStatus::Loaded) {
-                all_loaded = false;
-            }
-        }
-        if (all_loaded) {
-            resource->set_resource_state(ResourceState::DiscoveringDependencies);
-        }
-        return;
-    }
-    case ResourceState::Importing:
-        if (!load.m_pending_document.has_value()) {
-            resource->set_resource_failed("Model resource '" + load.m_uri + "' has no parsed document to import.");
-            return;
+    for (Resource* resource : m_loading_resources) {
+        if (resource == nullptr || resource->is_terminal()) {
+            continue;
         }
         try {
-            import_gltf_model_resource_into(*load.m_pending_document,
-                GltfImportOptions{load.m_model_name, load.m_uri},
-                model_import_context(),
-                *resource);
-            load.m_pending_document.reset();
-            resource->clear_resource_error();
-            resource->set_resource_state(ResourceState::Loaded);
+            resource->update_loading();
         } catch (const std::exception& error) {
-            load.m_pending_document.reset();
-            resource->set_resource_failed("Model resource '" + load.m_uri + "' failed during import: " + error.what());
+            resource->set_resource_failed(error.what());
+        } catch (...) {
+            resource->set_resource_failed("Resource loading failed with an unknown exception.");
         }
-        return;
-    case ResourceState::Loaded:
-    case ResourceState::Failed:
-    case ResourceState::Unloaded:
-        return;
     }
+    remove_terminal_loading_resources();
 }
 
-// Removes terminal model loads from the in-progress list.
-void Resources::remove_terminal_model_loads() {
-    std::erase_if(m_in_progress_model_load_indices, [this](std::size_t load_index) {
-        if (load_index >= m_model_loads.size()) {
-            return true;
-        }
-        const ModelResource* resource = m_model_loads[load_index].m_resource;
-        return resource == nullptr || resource->is_terminal();
-    });
-}
-
-// Returns the model import cache owned by Resources.
-ModelResourceImportContext& Resources::model_import_context() {
-    if (m_model_import_context == nullptr) {
-        m_model_import_context = std::make_unique<ModelResourceImportContext>(m_gpu);
-    }
-    return *m_model_import_context;
+// Removes terminal resources from the generic loading scheduler.
+void Resources::remove_terminal_loading_resources() {
+    std::erase_if(
+        m_loading_resources, [](const Resource* resource) { return resource == nullptr || resource->is_terminal(); });
 }
 
 // Creates a caller-owned snapshot over a blob record's current state.
@@ -702,11 +529,9 @@ BlobView Resources::make_blob_view(const BlobLoadRecord& record) const {
 
 // Clears all resources in reverse dependency-friendly order.
 void Resources::clear_resources() {
-    m_in_progress_model_load_indices.clear();
-    m_model_load_indices_by_key.clear();
-    m_model_loads.clear();
+    m_loading_resources.clear();
+    m_model_resource_indices_by_key.clear();
     m_model_resources.clear();
-    m_model_import_context.reset();
     m_meshes.clear();
     m_materials.clear();
     m_shaders.clear();

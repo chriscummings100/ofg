@@ -13,6 +13,7 @@
 #include "ofg/math/mat.hpp"
 #include "ofg/math/vec.hpp"
 #include "ofg/resources/mesh.hpp"
+#include "ofg/resources/resources.hpp"
 #include "ofg/scene/animation_player.hpp"
 #include "ofg/scene/mesh_renderer.hpp"
 #include "ofg/scene/scene.hpp"
@@ -35,13 +36,49 @@ std::filesystem::path asset_dir() {
     return std::filesystem::path{OFG_TEST_ASSET_DIR};
 }
 
+class ScopedResources {
+public:
+    // Creates central Resources storage backed by a Dawn null device.
+    ScopedResources() {
+        std::string error;
+        m_owned_gpu = ofg::tests::TestGpuContext::create(error);
+        REQUIRE_MESSAGE(m_owned_gpu.has_value(), error);
+        create_resources(m_owned_gpu->borrowed_context());
+    }
+
+    // Creates central Resources storage borrowing an externally-owned test GPU.
+    explicit ScopedResources(ofg::GpuContext gpu) {
+        create_resources(gpu);
+    }
+
+    ScopedResources(const ScopedResources&) = delete;
+    ScopedResources& operator=(const ScopedResources&) = delete;
+
+    // Releases Resources before any borrowed test GPU goes away.
+    ~ScopedResources() {
+        if (ofg::Resources::state() != ofg::ResourcesLifecycleState::Uninitialized) {
+            (void)ofg::Resources::release();
+            ofg::Resources::destroy();
+        }
+    }
+
+private:
+    void create_resources(ofg::GpuContext gpu) {
+        ofg::Resources::destroy();
+        ofg::Resources::create(gpu);
+        REQUIRE(ofg::Resources::prepare());
+    }
+
+    std::optional<ofg::tests::TestGpuContext> m_owned_gpu;
+};
+
 // Imports one fixture model through the glTF ModelResource path.
 std::unique_ptr<ofg::ModelResource> import_fixture_model(
-    std::string model_name, std::string file_name, ofg::ModelResourceImportContext& context) {
+    std::string model_name, std::string file_name, ofg::ModelResourceLoader& loader) {
     const std::filesystem::path path = asset_dir() / file_name;
     const ofg::GltfDocument document = ofg::load_gltf_document_from_path(path);
     return ofg::import_gltf_model_resource(
-        document, ofg::GltfImportOptions{std::move(model_name), "assets/models/tests/" + file_name}, context);
+        document, ofg::GltfImportOptions{std::move(model_name), "assets/models/tests/" + file_name}, loader);
 }
 
 // Returns the squared distance between two vertex positions.
@@ -71,8 +108,9 @@ std::vector<ofg::MeshVertex> copy_vertices(std::span<const ofg::MeshVertex> vert
 
 // Verifies simple-skin.gltf produces CPU-skinned vertices from current joint entities.
 TEST_CASE("CPU skinning updates imported simple skin dynamic mesh") {
-    ofg::ModelResourceImportContext context;
-    std::unique_ptr<ofg::ModelResource> model = import_fixture_model("simple-skin", "simple-skin.gltf", context);
+    ScopedResources resources;
+    ofg::ModelResourceLoader loader;
+    std::unique_ptr<ofg::ModelResource> model = import_fixture_model("simple-skin", "simple-skin.gltf", loader);
     REQUIRE(model != nullptr);
     REQUIRE(model->animation_clip_count() == 1);
     ofg::AnimationClip* clip = model->animation_clip(0);
@@ -143,8 +181,9 @@ TEST_CASE("CPU skinning updates imported simple skin dynamic mesh") {
 
 // Verifies each skinned model instance owns separate dynamic output while sharing bind-pose resources.
 TEST_CASE("CPU skinning uses per-instance dynamic meshes") {
-    ofg::ModelResourceImportContext context;
-    std::unique_ptr<ofg::ModelResource> model = import_fixture_model("simple-skin", "simple-skin.gltf", context);
+    ScopedResources resources;
+    ofg::ModelResourceLoader loader;
+    std::unique_ptr<ofg::ModelResource> model = import_fixture_model("simple-skin", "simple-skin.gltf", loader);
     REQUIRE(model != nullptr);
 
     ofg::Scene scene;
@@ -176,8 +215,9 @@ TEST_CASE("CPU skinning keeps dynamic GPU vertex buffer creation flat") {
     std::optional<ofg::tests::TestGpuContext> gpu = ofg::tests::TestGpuContext::create(gpu_error);
     REQUIRE_MESSAGE(gpu.has_value(), gpu_error);
 
-    ofg::ModelResourceImportContext context{gpu->borrowed_context()};
-    std::unique_ptr<ofg::ModelResource> model = import_fixture_model("simple-skin", "simple-skin.gltf", context);
+    ScopedResources resources{gpu->borrowed_context()};
+    ofg::ModelResourceLoader loader;
+    std::unique_ptr<ofg::ModelResource> model = import_fixture_model("simple-skin", "simple-skin.gltf", loader);
     REQUIRE(model != nullptr);
 
     ofg::Scene scene;
@@ -205,8 +245,9 @@ TEST_CASE("CPU skinning keeps dynamic GPU vertex buffer creation flat") {
 
 // Verifies mesh renderer skinning validation catches malformed bindings and stale caches.
 TEST_CASE("CPU skinning reports invalid mesh renderer bindings") {
-    ofg::ModelResourceImportContext context;
-    std::unique_ptr<ofg::ModelResource> model = import_fixture_model("simple-skin", "simple-skin.gltf", context);
+    ScopedResources resources;
+    ofg::ModelResourceLoader loader;
+    std::unique_ptr<ofg::ModelResource> model = import_fixture_model("simple-skin", "simple-skin.gltf", loader);
     REQUIRE(model != nullptr);
 
     ofg::Scene scene;

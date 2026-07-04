@@ -1,6 +1,7 @@
 // Model resource template and scene instantiation implementation.
 #include "ofg/assets/model_resource.hpp"
 
+#include "ofg/assets/gltf_importer.hpp"
 #include "ofg/core/engine_error.hpp"
 #include "ofg/scene/animation_player.hpp"
 #include "ofg/scene/mesh_renderer.hpp"
@@ -8,6 +9,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <memory>
 #include <span>
 #include <string>
@@ -73,6 +75,39 @@ SkinBinding instantiate_skin_binding(
 }
 
 } // namespace
+
+// Creates an empty model resource that can be filled by a builder or loader.
+ModelResource::ModelResource() = default;
+
+// Releases temporary model loading state and model template data.
+ModelResource::~ModelResource() = default;
+
+// Starts asynchronous loading through a temporary model loader.
+void ModelResource::begin_loading(std::string source_uri, std::string model_name) {
+    m_loader = std::make_unique<ModelResourceLoader>(source_uri, model_name);
+    set_source_uri(std::move(source_uri));
+    clear_resource_error();
+    set_resource_state(ResourceState::Queued);
+}
+
+// Advances the temporary model loader and releases it once terminal.
+void ModelResource::update_loading() {
+    if (m_loader == nullptr) {
+        return;
+    }
+
+    try {
+        m_loader->update(*this);
+    } catch (const std::exception& error) {
+        set_resource_failed(error.what());
+    } catch (...) {
+        set_resource_failed("Model resource loading failed with an unknown exception.");
+    }
+
+    if (is_terminal()) {
+        m_loader.reset();
+    }
+}
 
 // Returns the model label used for diagnostics and instance roots.
 const std::string& ModelResource::label() const noexcept {

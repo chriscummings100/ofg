@@ -8,14 +8,19 @@
 
 #include "ofg/assets/model_resource.hpp"
 #include "ofg/core/ptr.hpp"
+#include "ofg/resources/material.hpp"
+#include "ofg/resources/mesh.hpp"
 #include "ofg/resources/resource.hpp"
 #include "ofg/resources/resources.hpp"
+#include "ofg/resources/shader.hpp"
+#include "ofg/resources/texture.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -187,6 +192,7 @@ TEST_CASE("Resources load_model_resource waits for a pending root blob") {
 
     ofg::Ptr<ofg::ModelResource> model = ofg::Resources::load_model_resource("assets/models/tests/static-box.glb");
     REQUIRE(model.get() != nullptr);
+    CHECK(ofg::Resources::loading_resource_count() == 1);
 
     ofg::Resources::advance_loads();
     CHECK(model->state() == ofg::ResourceState::LoadingRootBlob);
@@ -218,6 +224,7 @@ TEST_CASE("Resources load_model_resource reports root parse failures") {
     CHECK(model->is_failed());
     CHECK(model->load_error().find("static-box.glb") != std::string::npos);
     CHECK(model->load_error().find("dependency discovery") != std::string::npos);
+    CHECK(ofg::Resources::loading_resource_count() == 0);
 
     CHECK(ofg::Resources::release());
     ofg::Resources::destroy();
@@ -234,6 +241,7 @@ TEST_CASE("Resources load_model_resource imports a completed root GLB blob") {
     CHECK(model->state() == ofg::ResourceState::Queued);
     CHECK(model->source_uri() == "assets/models/tests/static-box.glb");
     CHECK(ofg::Resources::model_resources().size() == 1);
+    CHECK(ofg::Resources::loading_resource_count() == 1);
 
     complete_pending_blob_requests();
     for (int step = 0; step < 4 && !model->is_terminal(); ++step) {
@@ -244,6 +252,25 @@ TEST_CASE("Resources load_model_resource imports a completed root GLB blob") {
     CHECK(model->label() == "static-box");
     CHECK_FALSE(model->nodes().empty());
     CHECK_FALSE(model->root_node_indices().empty());
+    CHECK(ofg::Resources::loading_resource_count() == 0);
+    CHECK(ofg::Resources::model_resources().size() == 1);
+    CHECK(ofg::Resources::meshes().size() == 1);
+    CHECK(ofg::Resources::materials().size() == 1);
+    CHECK(ofg::Resources::textures().size() == 3);
+    CHECK(ofg::Resources::shaders().size() == 1);
+    REQUIRE(model->mesh_renderers().size() == 1);
+    REQUIRE(ofg::Resources::meshes()[0] != nullptr);
+    CHECK(model->mesh_renderers()[0].m_mesh.get() == ofg::Resources::meshes()[0].get());
+    CHECK(ofg::Resources::meshes()[0]->label() == "assets/models/tests/static-box.glb#mesh/0");
+    REQUIRE(ofg::Resources::materials()[0] != nullptr);
+    CHECK(ofg::Resources::materials()[0]->label().find("assets/models/tests/static-box.glb#material/") == 0);
+    REQUIRE(ofg::Resources::textures()[0] != nullptr);
+    CHECK(ofg::Resources::textures()[0]->label().find("assets/models/tests/static-box.glb#texture/") == 0);
+    REQUIRE(ofg::Resources::shaders()[0] != nullptr);
+    CHECK(ofg::Resources::shaders()[0]->label() == "assets/models/tests/static-box.glb#shader/pbr");
+    CHECK(ofg::Resources::load_model_resource("assets/models/tests/static-box.glb").get() == model.get());
+    CHECK(ofg::Resources::loading_resource_count() == 0);
+    CHECK(ofg::Resources::meshes().size() == 1);
 
     CHECK(ofg::Resources::release());
     CHECK(model.get() == nullptr);
@@ -270,6 +297,7 @@ TEST_CASE("Resources load_model_resource reports root blob failure") {
     CHECK(model->load_error().find("fixture unavailable") != std::string::npos);
     CHECK(ofg::Resources::load_model_resource("assets/models/tests/static-box.glb").get() == model.get());
     CHECK(ofg::Resources::pending_blob_loads().empty());
+    CHECK(ofg::Resources::loading_resource_count() == 0);
 
     CHECK(ofg::Resources::release());
     ofg::Resources::destroy();
@@ -295,6 +323,17 @@ TEST_CASE("Resources load_model_resource discovers external glTF blob dependenci
     CHECK(model->label() == "AnimatedCube");
     CHECK(model->animation_clip_count() == 1);
     CHECK_FALSE(model->mesh_renderers().empty());
+    CHECK(ofg::Resources::loading_resource_count() == 0);
+    CHECK(ofg::Resources::meshes().size() == 1);
+    CHECK(ofg::Resources::materials().size() == 1);
+    CHECK(ofg::Resources::textures().size() == 3);
+    bool found_source_texture = false;
+    for (const std::unique_ptr<ofg::Texture>& texture : ofg::Resources::textures()) {
+        REQUIRE(texture != nullptr);
+        found_source_texture =
+            found_source_texture || texture->label() == "assets/models/tests/animated-cube.gltf#texture/0/srgb";
+    }
+    CHECK(found_source_texture);
 
     CHECK(ofg::Resources::release());
     ofg::Resources::destroy();
@@ -327,6 +366,7 @@ TEST_CASE("Resources load_model_resource reports external dependency failure") {
     CHECK(model->load_error().find("animated-cube.gltf") != std::string::npos);
     CHECK(model->load_error().find("AnimatedCube.bin") != std::string::npos);
     CHECK(model->load_error().find("dependency missing") != std::string::npos);
+    CHECK(ofg::Resources::loading_resource_count() == 0);
 
     CHECK(ofg::Resources::release());
     ofg::Resources::destroy();

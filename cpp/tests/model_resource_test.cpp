@@ -5,6 +5,8 @@
 // into a live Scene multiple times.
 #include "doctest.h"
 
+#include "webgpu_test_utils.hpp"
+
 #include "ofg/assets/gltf_document.hpp"
 #include "ofg/assets/gltf_importer.hpp"
 #include "ofg/assets/model_resource.hpp"
@@ -15,6 +17,7 @@
 #include "ofg/resources/material.hpp"
 #include "ofg/resources/mesh.hpp"
 #include "ofg/resources/property_bag.hpp"
+#include "ofg/resources/resources.hpp"
 #include "ofg/resources/texture.hpp"
 #include "ofg/scene/mesh_renderer.hpp"
 #include "ofg/scene/animation_player.hpp"
@@ -198,27 +201,59 @@ private:
     std::filesystem::path m_base_directory;
 };
 
+class ScopedResources {
+public:
+    // Creates central Resources storage backed by a Dawn null device.
+    ScopedResources() {
+        std::string error;
+        m_owned_gpu = ofg::tests::TestGpuContext::create(error);
+        REQUIRE_MESSAGE(m_owned_gpu.has_value(), error);
+        create_resources(m_owned_gpu->borrowed_context());
+    }
+
+    ScopedResources(const ScopedResources&) = delete;
+    ScopedResources& operator=(const ScopedResources&) = delete;
+
+    // Releases Resources before the borrowed test GPU goes away.
+    ~ScopedResources() {
+        if (ofg::Resources::state() != ofg::ResourcesLifecycleState::Uninitialized) {
+            (void)ofg::Resources::release();
+            ofg::Resources::destroy();
+        }
+    }
+
+private:
+    void create_resources(ofg::GpuContext gpu) {
+        ofg::Resources::destroy();
+        ofg::Resources::create(gpu);
+        REQUIRE(ofg::Resources::prepare());
+    }
+
+    std::optional<ofg::tests::TestGpuContext> m_owned_gpu;
+};
+
 // Loads the static box fixture into a reusable model resource.
-std::unique_ptr<ofg::ModelResource> import_static_box(ofg::ModelResourceImportContext& context) {
+std::unique_ptr<ofg::ModelResource> import_static_box(ofg::ModelResourceLoader& loader) {
     const ofg::GltfDocument document = ofg::load_gltf_document_from_path(asset_dir() / "static-box.glb");
     return ofg::import_gltf_model_resource(
-        document, ofg::GltfImportOptions{"static-box", "assets/models/tests/static-box.glb"}, context);
+        document, ofg::GltfImportOptions{"static-box", "assets/models/tests/static-box.glb"}, loader);
 }
 
 // Loads a named fixture into a reusable model resource.
 std::unique_ptr<ofg::ModelResource> import_fixture_model(
-    std::string model_name, std::string source_uri, ofg::ModelResourceImportContext& context) {
+    std::string model_name, std::string source_uri, ofg::ModelResourceLoader& loader) {
     const ofg::GltfDocument document = ofg::load_gltf_document_from_path(asset_dir() / source_uri);
     return ofg::import_gltf_model_resource(
-        document, ofg::GltfImportOptions{std::move(model_name), std::move(source_uri)}, context);
+        document, ofg::GltfImportOptions{std::move(model_name), std::move(source_uri)}, loader);
 }
 
 } // namespace
 
 // Verifies static GLB import creates a format-neutral reusable model resource.
 TEST_CASE("glTF importer converts static box into shared model resources") {
-    ofg::ModelResourceImportContext context;
-    std::unique_ptr<ofg::ModelResource> model = import_static_box(context);
+    ScopedResources resources;
+    ofg::ModelResourceLoader loader;
+    std::unique_ptr<ofg::ModelResource> model = import_static_box(loader);
 
     REQUIRE(model != nullptr);
     CHECK(model->label() == "static-box");
@@ -230,9 +265,9 @@ TEST_CASE("glTF importer converts static box into shared model resources") {
     REQUIRE(model->mesh_renderers().size() == 1);
     CHECK(model->mesh_renderers()[0].m_node_index == 1);
     REQUIRE(model->mesh_renderers()[0].m_mesh != nullptr);
-    CHECK(context.mesh_count() == 1);
-    CHECK(context.material_count() == 1);
-    CHECK(context.texture_count() == 3);
+    CHECK(loader.mesh_count() == 1);
+    CHECK(loader.material_count() == 1);
+    CHECK(loader.texture_count() == 3);
 
     const ofg::Mesh* mesh = model->mesh_renderers()[0].m_mesh.get();
     REQUIRE(mesh != nullptr);
@@ -250,15 +285,16 @@ TEST_CASE("glTF importer converts static box into shared model resources") {
 
 // Verifies textured glTF materials import source textures and tangent data.
 TEST_CASE("glTF importer creates PBR textures and imports tangents") {
+    ScopedResources resources;
     AnimatedCubeFixtureProvider provider(asset_dir());
     const std::vector<std::byte> bytes = read_fixture_bytes(asset_dir() / "animated-cube.gltf");
     const ofg::GltfDocument document = ofg::load_gltf_document("animated-cube.gltf", bytes, provider);
     REQUIRE(document.materials().size() == 1);
     CHECK(document.materials()[0].m_base_color_texture_index >= 0);
 
-    ofg::ModelResourceImportContext context;
+    ofg::ModelResourceLoader loader;
     std::unique_ptr<ofg::ModelResource> model = ofg::import_gltf_model_resource(
-        document, ofg::GltfImportOptions{"animated-cube", "assets/models/tests/animated-cube.gltf"}, context);
+        document, ofg::GltfImportOptions{"animated-cube", "assets/models/tests/animated-cube.gltf"}, loader);
 
     REQUIRE(model != nullptr);
     REQUIRE(model->mesh_renderers().size() == 1);
@@ -266,7 +302,7 @@ TEST_CASE("glTF importer creates PBR textures and imports tangents") {
     REQUIRE(mesh != nullptr);
     REQUIRE(mesh->vertices().size() > 0);
     CHECK(std::abs(mesh->vertices()[0].m_tangent[3]) == doctest::Approx(1.0f));
-    CHECK(context.texture_count() == 3);
+    CHECK(loader.texture_count() == 3);
 
     REQUIRE(mesh->submeshes().size() == 1);
     const ofg::Material* material = mesh->submeshes()[0].m_default_material.get();
@@ -310,13 +346,14 @@ TEST_CASE("glTF generated tangents fall back for degenerate texture coordinates"
 
 // Verifies imported animation clips bind to scene entities through an AnimationPlayer component.
 TEST_CASE("glTF importer binds animation clips to instantiated scene entities") {
+    ScopedResources resources;
     AnimatedCubeFixtureProvider provider(asset_dir());
     const std::vector<std::byte> bytes = read_fixture_bytes(asset_dir() / "animated-cube.gltf");
     const ofg::GltfDocument document = ofg::load_gltf_document("animated-cube.gltf", bytes, provider);
 
-    ofg::ModelResourceImportContext context;
+    ofg::ModelResourceLoader loader;
     std::unique_ptr<ofg::ModelResource> model = ofg::import_gltf_model_resource(
-        document, ofg::GltfImportOptions{"animated-cube", "assets/models/tests/animated-cube.gltf"}, context);
+        document, ofg::GltfImportOptions{"animated-cube", "assets/models/tests/animated-cube.gltf"}, loader);
 
     REQUIRE(model != nullptr);
     REQUIRE(model->animation_clip_count() == 1);
@@ -357,15 +394,16 @@ TEST_CASE("glTF importer binds animation clips to instantiated scene entities") 
 
 // Verifies STEP animation interpolation is preserved in imported clip data.
 TEST_CASE("glTF importer imports STEP animation interpolation") {
+    ScopedResources resources;
     const std::vector<std::byte> bytes = replace_fixture_text(read_fixture_bytes(asset_dir() / "simple-skin.gltf"),
         "\"interpolation\" : \"LINEAR\"",
         "\"interpolation\" : \"STEP\"");
     ofg::FilesystemGltfResourceProvider provider{asset_dir()};
     const ofg::GltfDocument document = ofg::load_gltf_document("simple-skin-step.gltf", bytes, provider);
 
-    ofg::ModelResourceImportContext context;
+    ofg::ModelResourceLoader loader;
     std::unique_ptr<ofg::ModelResource> model = ofg::import_gltf_model_resource(
-        document, ofg::GltfImportOptions{"simple-skin-step", "assets/models/tests/simple-skin-step.gltf"}, context);
+        document, ofg::GltfImportOptions{"simple-skin-step", "assets/models/tests/simple-skin-step.gltf"}, loader);
 
     REQUIRE(model != nullptr);
     REQUIRE(model->animation_clip_count() == 1);
@@ -377,24 +415,26 @@ TEST_CASE("glTF importer imports STEP animation interpolation") {
 
 // Verifies unsupported CUBICSPLINE animation interpolation fails clearly.
 TEST_CASE("glTF importer rejects CUBICSPLINE animation interpolation") {
+    ScopedResources resources;
     const std::vector<std::byte> bytes = replace_fixture_text(read_fixture_bytes(asset_dir() / "simple-skin.gltf"),
         "\"interpolation\" : \"LINEAR\"",
         "\"interpolation\" : \"CUBICSPLINE\"");
     ofg::FilesystemGltfResourceProvider provider{asset_dir()};
     const ofg::GltfDocument document = ofg::load_gltf_document("simple-skin-cubic.gltf", bytes, provider);
 
-    ofg::ModelResourceImportContext context;
+    ofg::ModelResourceLoader loader;
     CHECK_THROWS_WITH_AS((void)ofg::import_gltf_model_resource(document,
                              ofg::GltfImportOptions{"simple-skin-cubic", "assets/models/tests/simple-skin-cubic.gltf"},
-                             context),
+                             loader),
         doctest::Contains("CUBICSPLINE"),
         ofg::EngineError);
 }
 
 // Verifies a glTF skin without an explicit skeleton root binds to instantiated joint entities.
 TEST_CASE("glTF importer binds simple skin joints through mesh renderer metadata") {
-    ofg::ModelResourceImportContext context;
-    std::unique_ptr<ofg::ModelResource> model = import_fixture_model("simple-skin", "simple-skin.gltf", context);
+    ScopedResources resources;
+    ofg::ModelResourceLoader loader;
+    std::unique_ptr<ofg::ModelResource> model = import_fixture_model("simple-skin", "simple-skin.gltf", loader);
 
     REQUIRE(model != nullptr);
     CHECK(model->nodes().size() == 3);
@@ -463,8 +503,9 @@ TEST_CASE("glTF importer binds simple skin joints through mesh renderer metadata
 
 // Verifies a glTF skin with skin.skeleton keeps the skeleton root as ordinary scene entity metadata.
 TEST_CASE("glTF importer preserves explicit skin skeleton root on mesh renderer binding") {
-    ofg::ModelResourceImportContext context;
-    std::unique_ptr<ofg::ModelResource> model = import_fixture_model("rigged-simple", "rigged-simple.glb", context);
+    ScopedResources resources;
+    ofg::ModelResourceLoader loader;
+    std::unique_ptr<ofg::ModelResource> model = import_fixture_model("rigged-simple", "rigged-simple.glb", loader);
 
     REQUIRE(model != nullptr);
     CHECK(model->nodes().size() == 5);
@@ -492,8 +533,9 @@ TEST_CASE("glTF importer preserves explicit skin skeleton root on mesh renderer 
 
 // Verifies imported model resources can be copied into a Scene many times.
 TEST_CASE("ModelResource instantiates distinct entity trees that share mesh resources") {
-    ofg::ModelResourceImportContext context;
-    std::unique_ptr<ofg::ModelResource> model = import_static_box(context);
+    ScopedResources resources;
+    ofg::ModelResourceLoader loader;
+    std::unique_ptr<ofg::ModelResource> model = import_static_box(loader);
     ofg::Scene scene;
 
     std::vector<ofg::ModelInstance> instances;
@@ -530,44 +572,45 @@ TEST_CASE("ModelResource instantiates distinct entity trees that share mesh reso
 
 // Verifies resource cache keys keep duplicate imports from rebuilding meshes/materials.
 TEST_CASE("glTF importer deduplicates resources by source URI and index") {
-    ofg::ModelResourceImportContext context;
-    std::unique_ptr<ofg::ModelResource> first = import_static_box(context);
-    std::unique_ptr<ofg::ModelResource> second = import_static_box(context);
+    ScopedResources resources;
+    ofg::ModelResourceLoader loader;
+    std::unique_ptr<ofg::ModelResource> first = import_static_box(loader);
+    std::unique_ptr<ofg::ModelResource> second = import_static_box(loader);
 
-    CHECK(context.mesh_count() == 1);
-    CHECK(context.material_count() == 1);
+    CHECK(loader.mesh_count() == 1);
+    CHECK(loader.material_count() == 1);
     REQUIRE(first->mesh_renderers().size() == 1);
     REQUIRE(second->mesh_renderers().size() == 1);
     CHECK(first->mesh_renderers()[0].m_mesh.get() == second->mesh_renderers()[0].m_mesh.get());
 }
 
-// Verifies safe pointers produce a clear error if import-owned resources die first.
-TEST_CASE("ModelResource instantiation fails clearly after cached mesh destruction") {
+// Verifies imported resources survive temporary loader destruction.
+TEST_CASE("ModelResource instantiation survives temporary loader destruction") {
+    ScopedResources resources;
     std::unique_ptr<ofg::ModelResource> model;
     {
-        ofg::ModelResourceImportContext context;
-        model = import_static_box(context);
+        ofg::ModelResourceLoader loader;
+        model = import_static_box(loader);
         REQUIRE(model->mesh_renderers().size() == 1);
         REQUIRE(model->mesh_renderers()[0].m_mesh != nullptr);
     }
 
-    CHECK(model->mesh_renderers()[0].m_mesh == nullptr);
+    CHECK(model->mesh_renderers()[0].m_mesh != nullptr);
     ofg::Scene scene;
-    CHECK_THROWS_WITH_AS((void)ofg::instantiate_model_resource(*model, scene, *scene.get_root()),
-        doctest::Contains("destroyed mesh resource"),
-        ofg::EngineError);
+    CHECK_NOTHROW((void)ofg::instantiate_model_resource(*model, scene, *scene.get_root()));
 }
 
 // Verifies required unsupported extensions fail before partial model import.
 TEST_CASE("glTF importer rejects required unsupported extensions") {
+    ScopedResources resources;
     const ofg::GltfDocument document =
         ofg::load_gltf_document_from_path(asset_dir() / "material-specular-glossiness-13.glb");
     REQUIRE_FALSE(document.extensions_required().empty());
 
-    ofg::ModelResourceImportContext context;
+    ofg::ModelResourceLoader loader;
     CHECK_THROWS_WITH_AS(
         (void)ofg::import_gltf_model_resource(
-            document, ofg::GltfImportOptions{"spec-gloss", "material-specular-glossiness-13.glb"}, context),
+            document, ofg::GltfImportOptions{"spec-gloss", "material-specular-glossiness-13.glb"}, loader),
         doctest::Contains("unsupported extensions"),
         ofg::EngineError);
 }

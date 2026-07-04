@@ -37,6 +37,7 @@ The end user-visible result is a browser scene where the player entity renders a
 - [x] (2026-07-02 10:48Z) Milestone 8 completed: local milestone review found one required coverage gap for invisible renderer extraction; added `renderer skips invisible scene mesh renderers`, reran validation, verified `.deploy` contains `quaternius-superhero-male.glb` and `quaternius-ual1-standard.glb`, and confirmed browser smoke status `modelLoadingState: "loaded"`, `playerModelLoaded: true`, `lastError: null`.
 - [x] (2026-07-02 11:18Z) Milestone 9 completed: refreshed coverage docs and summary JSON, expanded the C++ coverage gate to include `cpp/src/animation` and `opaque_pbr_shader.cpp`, documented the glTF importer coverage exception, added focused material/animation/controller coverage tests, reran final validation, and confirmed browser smoke still reports `modelLoadingState: "loaded"`, `playerModelLoaded: true`, and `lastError: null`.
 - [x] (2026-07-02 16:49Z) Follow-up architecture cleanup: removed the separate `PlayerAnimationController` component, moved locomotion clip weighting and default player model resource ownership into `Player`, reduced `Game::load_player_model` to lifecycle/status delegation, queued browser player bytes until `Game::prepare()` has created the player scene, and moved renderer transform helpers into shared math.
+- [x] (2026-07-03) Follow-up resource-loading cleanup: superseded the early `ModelResourceImportContext` ownership model. `Resources` now owns durable imported mesh/material/texture/shader/model resources, schedules loading through a generic `Resource::update_loading()` queue, and `ModelResource` owns a temporary `ModelResourceLoader` for glTF root/dependency/import state.
 
 ## Surprises & Discoveries
 
@@ -124,8 +125,8 @@ The end user-visible result is a browser scene where the player entity renders a
 - Observation: The Milestone 2 material bridge is render-path-compatible but not a complete glTF material import.
   Evidence: Imported materials use the current opaque shader, a base-color factor property, and a default white texture so static meshes can be represented with valid `Mesh`/`Material` resources. Real glTF base-color textures, metallic-roughness textures, normal textures, and texture color spaces remain Milestone 3 work.
 
-- Observation: Import-context-owned resources must outlive model resources that reference them.
-  Evidence: `ModelResource` stores `Ptr<Mesh>` references into resources owned by `ModelResourceImportContext`; a new test destroys the context before instantiation and proves the invalidated mesh pointer produces a clear `EngineError` instead of silently creating a renderer with no mesh.
+- Observation: Import-context-owned resources were an early milestone compromise and have now been replaced.
+  Evidence: The 2026-07-03 resource-loading cleanup removed `ModelResourceImportContext`; `ModelResourceLoader` now holds temporary `Ptr<T>` caches and imported durable resources are owned by `Resources`.
 
 - Observation: Milestone 3 PBR import would have pushed the structural glTF importer past the review split-pressure threshold if left in one file.
   Evidence: `cpp\src\assets\gltf_importer.cpp` is 562 lines after the tangent/import changes, while PBR material, texture, fallback, and cache helpers live in `cpp\src\assets\gltf_importer_resources.cpp` at 366 lines.
@@ -170,7 +171,7 @@ The end user-visible result is a browser scene where the player entity renders a
   Evidence: The Milestone 8 review found that `MeshRenderer::visible()` was only covered indirectly by browser smoke and demo-scene default visibility. `renderer_test.cpp` now has `renderer skips invisible scene mesh renderers`, which renders a scene where every mesh renderer points at non-GPU-ready resources but is hidden; the render path succeeds only if extraction skips those renderers before draw-list resource validation.
 
 - Observation: Partial player-model scene attachment is not yet transactional.
-  Evidence: `Game::load_player_model_impl()` imports into temporary model resources before publishing them, but once `instantiate_model_resource()` starts mutating a live `Scene`, OFG currently has only `Scene::clear()` and no targeted entity/component deletion or model-instance transaction rollback. Normal parse, clip-remap, and queued-before-scene failures remain recoverable, but an exception after partial live-scene attachment would require a future scene deletion/transaction primitive to retry without restarting the scene.
+  Evidence: The player now self-loads model resources through `Resources`, but once `instantiate_model_resource()` starts mutating a live `Scene`, OFG currently has only `Scene::clear()` and no targeted entity/component deletion or model-instance transaction rollback. Normal parse, clip-remap, and queued-before-scene failures remain recoverable, but an exception after partial live-scene attachment would require a future scene deletion/transaction primitive to retry without restarting the scene.
 
 - Observation: Final coverage initially exposed narrow native-line gaps in new runtime files.
   Evidence: The first Milestone 9 coverage run reported attention items in `material.cpp`, `animation_player.cpp`, `mesh_renderer.cpp`, and `player_animation_controller.cpp`. Focused tests now cover incomplete material GPU mutation, animation clip validation, invalid animation playback inputs, stale clip references, mesh-renderer skinning failures, invisible renderer extraction, and locomotion edge weights; the final C++ coverage gate reports `animation_clip.cpp` 100.00%, `material.cpp` 90.71%, `animation_player.cpp` 91.26%, `mesh_renderer.cpp` 94.76%, and `player_animation_controller.cpp` 100.00%.
@@ -288,8 +289,8 @@ The end user-visible result is a browser scene where the player entity renders a
   Rationale: `ModelResource` derives from `Object` so other systems can hold safe references to durable imported model templates later. The intrusive pointer list requires pointer-stable storage, so import/build APIs transfer ownership by `unique_ptr` instead of returning movable values.
   Date/Author: 2026-07-02 / Codex
 
-- Decision: Let the first `ModelResourceImportContext` own CPU/GPU resource caches directly.
-  Rationale: Milestone 2 needed deduplicated mesh/material/texture/shader resources before the global asset system exists. Context-owned caches keep the implementation narrow and testable; later runtime loading can replace this with a `Resources`-backed or asset-id store while preserving `ModelResource` references and instantiation semantics.
+- Decision: Let the first `ModelResourceImportContext` own CPU/GPU resource caches directly. Superseded on 2026-07-03 by `Resources`-owned durable resources plus temporary `ModelResourceLoader` caches.
+  Rationale: Milestone 2 needed deduplicated mesh/material/texture/shader resources before the global asset system existed. The later resource-loading cleanup replaced context ownership with `Resources::create_*` ownership while preserving `ModelResource` references and instantiation semantics.
   Date/Author: 2026-07-02 / Codex
 
 - Decision: Use the existing opaque shader and a white fallback texture as the Milestone 2 material bridge.
@@ -308,8 +309,8 @@ The end user-visible result is a browser scene where the player entity renders a
   Rationale: glTF assets may omit `TANGENT` while still providing normal maps, including the selected Quaternius player. Import explicit `TANGENT` when present; otherwise generate tangents from positions, normals, and UVs for normal-mapped triangle primitives. Missing UV attributes still fail clearly when a normal map requires tangent space; degenerate-UV triangles are skipped and vertices without any valid accumulated tangent receive a stable normal-based fallback tangent so otherwise valid real-world meshes can load.
   Date/Author: 2026-07-02 / Codex
 
-- Decision: Use browser `loadPlayerModel(playerBytes, animationBytes)` as the first model byte-transport API.
-  Rationale: The Milestone 8 target has exactly one player mesh GLB and one compatible animation-library GLB. A narrow pair of `Uint8Array` arguments keeps TypeScript as a byte transport while C++ owns parsing, model-resource caching, scene instantiation, animation remapping, CPU skinning, and fallback behavior. A broader manifest/asset API can come later when more model formats or streaming needs exist.
+- Decision: Use browser `loadPlayerModel(playerBytes, animationBytes)` as the first model byte-transport API. Superseded on 2026-07-03 by generic blob requests and `Resources::load_model_resource`.
+  Rationale: The Milestone 8 target had exactly one player mesh GLB and one compatible animation-library GLB, so a narrow pair of `Uint8Array` arguments was enough to prove C++ ownership. The later resource-loading cleanup moved asset choice and dependency loading fully into C++ while TypeScript only services opaque blob ids.
   Date/Author: 2026-07-02 / Codex
 
 - Decision: Raise browser WASM memory to `INITIAL_MEMORY=268435456` and enable `ALLOW_MEMORY_GROWTH=1`.
@@ -382,7 +383,7 @@ Milestone 1A is implemented. `GltfDocument` now exposes OFG-owned metadata for e
 
 Milestone 1A review was run locally with contract, code-quality, legacy, correctness, and validation passes. Required finding fixed: guard player audit helper accessor lookups before indexing. Follow-ups recorded: `cpp\src\assets\gltf_document.cpp` is 588 lines, just under the review split-pressure threshold, so Milestone 2 should move importer/model-resource work into new files instead of growing the parse source further. Validation rerun passed with `npm run format:cpp`, `npm run format:cpp:check`, `npm run test:cpp`, and `git -c safe.directory=C:/dev/ofg diff --check`; `npm run build:wasm` also passed after the parser metadata expansion.
 
-Milestone 2 is implemented. `ModelResource` is now the format-neutral imported prefab graph with node templates, root-node indices, mesh-renderer templates, and shared resource references. `ModelResourceImportContext` creates and deduplicates initial mesh, material, shader, and fallback texture resources by source URI plus glTF index. `gltf_importer.cpp` imports triangle-list static meshes from `static-box.glb`, decodes accessor strides and unsigned index component types, rejects required unsupported extensions and unsupported primitive features clearly, handles TRS and decomposable node matrices, and creates one `MeshRenderer` per mesh-bearing node when the model is instantiated. `model_resource_test.cpp` proves one loaded model can be copied five times into a scene with distinct entities and renderers while sharing the underlying mesh resource, and proves `Scene::clear` invalidates returned model instance pointers.
+Milestone 2 is implemented. `ModelResource` is now the format-neutral imported prefab graph with node templates, root-node indices, mesh-renderer templates, and shared resource references. Historically this milestone used `ModelResourceImportContext` to create and deduplicate initial mesh, material, shader, and fallback texture resources; the 2026-07-03 resource-loading cleanup superseded that with `Resources` ownership and temporary `ModelResourceLoader` caches. `gltf_importer.cpp` imports triangle-list static meshes from `static-box.glb`, decodes accessor strides and unsigned index component types, rejects required unsupported extensions and unsupported primitive features clearly, handles TRS and decomposable node matrices, and creates one `MeshRenderer` per mesh-bearing node when the model is instantiated. `model_resource_test.cpp` proves one loaded model can be copied five times into a scene with distinct entities and renderers while sharing the underlying mesh resource, and proves `Scene::clear` invalidates returned model instance pointers.
 
 Milestone 2 review was run locally with contract, code-quality, legacy, correctness, and validation passes. Required finding fixed: instantiating a model after context-owned mesh resources are destroyed now throws a clear `EngineError`, covered by `ModelResource instantiation fails clearly after cached mesh destruction`. Follow-ups recorded: the importer should expose and honor glTF default-scene root nodes instead of deriving roots from all parentless nodes; real glTF material/texture import is deferred to Milestone 3; `cpp\src\assets\gltf_importer.cpp` is 536 lines and should not become the dumping ground for PBR, skinning, and animation work. Validation rerun passed with `npm run format:cpp`, `npm run format:cpp:check`, `npm run test:cpp`, `git -c safe.directory=C:/dev/ofg diff --check`, and `npm run build:wasm`.
 
@@ -406,7 +407,7 @@ Milestone 7 is implemented. `AnimationPlayer` now stores multiple weighted `Anim
 
 Milestone 7 review was run locally with contract, code-quality, legacy, correctness, and validation passes. No sub-agents were used because delegated reviewers require an explicit user request in this environment, and `docs\ARCHITECTURE.md` remains absent from the repo-local checklist. Required findings fixed: the pose accumulator was kept private to `AnimationPlayer` rather than exposed as a public scene type, `PlayerAnimationController` now uses `Player::fast_speed()` instead of duplicating the sprint multiplier, an unused const clip-state lookup was removed, and `AnimationPlayer::update()` now validates accumulator binding size before applying poses. `docs\API_CONTRACTS.md` documents `PlayerAnimationController`, weighted animation playback, and the new scene update order. Tests in `animation_blending_test.cpp` cover weighted translation blending, normalized rotation blending, idle/walk/sprint controller weights, scene update order from player speed to sampled pose, controller ownership, duplicate-component rejection, and `Scene::clear` pointer invalidation. Validation rerun passed with `npm run format:cpp`, `npm run format:cpp:check`, `npm run test:cpp`, `git -c safe.directory=C:/dev/ofg diff --check`, and `npm run build:wasm`. Remaining follow-up: binding the audited Quaternius animation-library clips to the separate player model by name is still Milestone 8 work.
 
-Milestone 8 is implemented. TypeScript fetches `quaternius-superhero-male.glb` and `quaternius-ual1-standard.glb` as `Uint8Array` values and passes them through the narrow WASM facade; TypeScript tests cover the transport wrapper and updated debug-status parser. `BrowserGame` queues player bytes until `Game` exists, reports setup/import failures through `modelLoadingState`, and releases queued source bytes after import. `Game` imports the player mesh and UAL1 animation library into context-owned `ModelResource`/resource caches, remaps `Idle_Loop`, `Walk_Loop`, and `Sprint_Loop` by source node name onto the player model nodes, instantiates the skinned model under the unscaled player entity, binds an `AnimationPlayer` and `PlayerAnimationController`, and hides the fallback cube renderer through `MeshRenderer::visible`. The WASM build now uses `INITIAL_MEMORY=268435456` and `ALLOW_MEMORY_GROWTH=1`. Deployment packaging includes the selected player GLBs and model cache headers. Browser smoke waits for `playerModelLoaded` before steady-state counter checks and passes. Dedicated screenshots are `C:\dev\ofg\artifacts\player-model\player-idle.png`, `C:\dev\ofg\artifacts\player-model\player-walk.png`, `C:\dev\ofg\artifacts\player-model\player-sprint.png`, and `C:\dev\ofg\artifacts\player-model\report.json`; the screenshot report records `modelLoadingState: "loaded"`, `playerModelLoaded: true`, and `lastError: null`.
+Milestone 8 is implemented. TypeScript originally fetched `quaternius-superhero-male.glb` and `quaternius-ual1-standard.glb` as `Uint8Array` values and passed them through the narrow WASM facade; that byte-specific path was later superseded by generic blob requests and `Resources::load_model_resource`. `Player` now requests the player mesh and UAL1 animation library through `Resources`, polls `Ptr<ModelResource>` state, remaps `Idle_Loop`, `Walk_Loop`, and `Sprint_Loop` by source node name onto the player model nodes, instantiates the skinned model under the unscaled player entity, writes locomotion clip weights itself, and hides the fallback cube renderer through `MeshRenderer::visible`. The WASM build uses `INITIAL_MEMORY=268435456` and `ALLOW_MEMORY_GROWTH=1`. Deployment packaging includes the selected player GLBs and model cache headers. Browser smoke waits for `playerModelLoaded` before steady-state counter checks and passes. Dedicated screenshots are `C:\dev\ofg\artifacts\player-model\player-idle.png`, `C:\dev\ofg\artifacts\player-model\player-walk.png`, `C:\dev\ofg\artifacts\player-model\player-sprint.png`, and `C:\dev\ofg\artifacts\player-model\report.json`; the screenshot report records `modelLoadingState: "loaded"`, `playerModelLoaded: true`, and `lastError: null`.
 
 Milestone 8 review was run locally with the repo-local milestone-review contract, code-quality, legacy, correctness, and validation passes. No sub-agents were used because delegated reviewers require an explicit user request in this environment, and `docs\ARCHITECTURE.md` remains absent from the repo-local checklist. Required finding fixed: invisible mesh-renderer extraction now has native coverage in `renderer skips invisible scene mesh renderers`, proving hidden fallback renderers are skipped before draw-list resource validation. Follow-ups recorded: `cpp\src\game\game.cpp` and `cpp\src\web\browser_game.cpp` are now 800-900 line orchestration files and should be split before they cross the hard threshold; partial player-model scene attachment rollback should wait for a targeted entity-deletion or model-instantiation transaction primitive. Validation rerun passed with `npm run format:cpp`, `npm run test:cpp`, `npm run format:cpp:check`, `npm run test:ts`, `git -c safe.directory=C:/dev/ofg diff --check`, `npm run package:site`, and `npm run smoke:browser`. `.deploy` contains `assets\models\player\quaternius-superhero-male.glb` at 15,479,612 bytes and `assets\models\player\quaternius-ual1-standard.glb` at 8,114,364 bytes; browser smoke reported `modelLoadingState: "loaded"`, `playerModelLoaded: true`, `lastError: null`, `sceneRatio: 0.5335830212234707`, and screenshots under `C:\dev\ofg\artifacts\browser-smoke`.
 
@@ -799,14 +800,17 @@ The exact names may evolve during implementation, but these concepts should exis
     };
     }
 
-`C:\dev\ofg\cpp\include\ofg\assets\gltf_importer.hpp` should expose model-resource creation and scene instantiation, conceptually:
+`C:\dev\ofg\cpp\include\ofg\assets\gltf_importer.hpp` should expose model-resource creation with a temporary loader/import cache, conceptually:
 
     namespace ofg {
-    class ModelResourceImportContext {
+    class ModelResourceLoader {
     public:
-        [[nodiscard]] Texture& get_or_create_texture(std::string cache_key);
-        [[nodiscard]] Material& get_or_create_material(std::string cache_key);
-        [[nodiscard]] Mesh& get_or_create_mesh(std::string cache_key);
+        ModelResourceLoader();
+        ModelResourceLoader(std::string source_uri, std::string model_name);
+        void update(ModelResource& target);
+        [[nodiscard]] Texture& get_or_create_texture(std::string cache_key, ...);
+        [[nodiscard]] Material& get_or_create_material(std::string cache_key, ...);
+        [[nodiscard]] Mesh& get_or_create_mesh(std::string cache_key, ...);
         [[nodiscard]] Shader& pbr_shader();
         [[nodiscard]] Texture& default_white_texture();
         [[nodiscard]] Texture& default_metallic_roughness_texture();
@@ -826,18 +830,13 @@ The exact names may evolve during implementation, but these concepts should exis
         std::vector<Ptr<MeshRenderer>> m_mesh_renderers;
     };
 
-    struct ModelInstantiationContext {
-        Scene& m_scene;
-        Entity& m_parent;
-        std::vector<Ptr<Entity>> m_entities_by_node_index;
-    };
-
-    ModelResource import_gltf_model_resource(const GltfDocument& document,
+    std::unique_ptr<ModelResource> import_gltf_model_resource(const GltfDocument& document,
         const GltfImportOptions& options,
-        ModelResourceImportContext& resources);
+        ModelResourceLoader& loader);
 
     ModelInstance instantiate_model_resource(const ModelResource& resource,
-        ModelInstantiationContext& context);
+        Scene& scene,
+        Entity& parent);
     }
 
 `MeshVertex` should carry attributes needed by the PBR shader:
@@ -940,4 +939,4 @@ Scene update order should be explicit and tested. The canonical order after this
 
 This preserves same-frame camera follow, leaves a future IK hook, supports rigid attachments under joint entities, and ensures rendering sees current skinned vertices.
 
-Browser-facing APIs should be byte-oriented and narrow. TypeScript may call a method like `loadModelAsset(name, files)` or `loadPlayerModel(...)`, but the Embind implementation must copy bytes into C++ and call the C++ importer. No TypeScript code should inspect glTF JSON, skeletons, animation channels, or material fields.
+Browser-facing APIs should be blob-oriented and narrow. TypeScript should poll C++ for opaque blob ids and URIs, fetch those bytes, and complete or fail the blob id. C++ chooses model URIs, calls `Resources::load_model_resource`, resolves glTF dependencies, and owns importing. No TypeScript code should inspect glTF JSON, skeletons, animation channels, or material fields.

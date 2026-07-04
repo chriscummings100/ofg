@@ -6,13 +6,11 @@
 #pragma once
 
 #include "ofg/game/gpu_context.hpp"
-#include "ofg/assets/gltf_document.hpp"
 #include "ofg/core/ptr.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -24,7 +22,7 @@ namespace ofg {
 class Material;
 class Mesh;
 class ModelResource;
-class ModelResourceImportContext;
+class Resource;
 class Shader;
 class Texture;
 
@@ -125,6 +123,8 @@ public:
         std::string_view uri, ModelResourceLoadOptions options = {});
     // Advances asynchronous resource loads by one scheduler pass.
     static void advance_loads();
+    // Returns the number of resources still scheduled for loading diagnostics.
+    [[nodiscard]] static std::size_t loading_resource_count();
     // Returns owned textures for diagnostics and tests.
     [[nodiscard]] static std::span<const std::unique_ptr<Texture>> textures();
     // Returns owned shaders for diagnostics and tests.
@@ -166,14 +166,12 @@ private:
     void fail_blob_load_impl(BlobLoadId id, std::string message);
     // Requests a model resource by URI and returns its stable observable object.
     [[nodiscard]] Ptr<ModelResource> load_model_resource_impl(std::string_view uri, ModelResourceLoadOptions options);
+    // Adds a resource to the generic loading scheduler if it still needs work.
+    void enqueue_loading(Resource& resource);
     // Advances asynchronous resource loads by one scheduler pass.
     void advance_loads_impl();
-    // Advances one model resource load record by at most one major state.
-    void advance_model_load(std::size_t load_index);
-    // Removes terminal model loads from the in-progress list.
-    void remove_terminal_model_loads();
-    // Returns the model import cache owned by Resources.
-    [[nodiscard]] ModelResourceImportContext& model_import_context();
+    // Removes terminal resources from the generic loading scheduler.
+    void remove_terminal_loading_resources();
     // Clears all resources in reverse dependency-friendly order.
     void clear_resources();
     // Throws if resource allocation is no longer allowed.
@@ -192,17 +190,6 @@ private:
         std::string m_error;
     };
 
-    struct ModelResourceLoadRecord {
-        ModelResource* m_resource{nullptr};
-        std::string m_cache_key;
-        std::string m_uri;
-        std::string m_model_name;
-        BlobLoadId m_root_blob_id{invalid_blob_load_id};
-        std::vector<BlobLoadId> m_dependency_blob_ids;
-        std::vector<std::string> m_dependency_uris;
-        std::optional<GltfDocument> m_pending_document;
-    };
-
     // Creates a caller-owned snapshot over a blob record's current state.
     [[nodiscard]] BlobView make_blob_view(const BlobLoadRecord& record) const;
 
@@ -214,11 +201,9 @@ private:
     std::vector<BlobLoadRecord> m_blob_loads;
     std::unordered_map<std::string, std::size_t> m_blob_load_indices_by_uri;
     std::vector<PendingBlobLoad> m_pending_blob_loads;
-    std::unique_ptr<ModelResourceImportContext> m_model_import_context;
+    std::vector<Resource*> m_loading_resources;
     std::vector<std::unique_ptr<ModelResource>> m_model_resources;
-    std::vector<ModelResourceLoadRecord> m_model_loads;
-    std::unordered_map<std::string, std::size_t> m_model_load_indices_by_key;
-    std::vector<std::size_t> m_in_progress_model_load_indices;
+    std::unordered_map<std::string, std::size_t> m_model_resource_indices_by_key;
     std::vector<std::unique_ptr<Texture>> m_textures;
     std::vector<std::unique_ptr<Shader>> m_shaders;
     std::vector<std::unique_ptr<Material>> m_materials;
