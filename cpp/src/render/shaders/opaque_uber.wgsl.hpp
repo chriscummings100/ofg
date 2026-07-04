@@ -172,8 +172,18 @@ fn sample_shadow_once(cascade_index: i32, uv: vec2<f32>, depth_reference: f32) -
     return textureSampleCompareLevel(shadow_map, shadow_sampler, uv, cascade_index, depth_reference);
 }
 
+fn shadow_pcf_radius_texels(cascade_index: i32) -> f32 {
+    if (cascade_index == 0) {
+        return shadow.options2.y;
+    }
+    if (cascade_index == 1) {
+        return shadow.options2.z;
+    }
+    return shadow.options2.w;
+}
+
 fn sample_shadow_pcf(cascade_index: i32, uv: vec2<f32>, depth_reference: f32) -> f32 {
-    let texel_radius = shadow.texel_sizes.w * max(shadow.options2.y, 0.0);
+    let texel_radius = shadow.texel_sizes.w * max(shadow_pcf_radius_texels(cascade_index), 0.0);
     if (shadow.options2.x < 0.5 || texel_radius <= 0.0) {
         return sample_shadow_once(cascade_index, uv, depth_reference);
     }

@@ -172,7 +172,7 @@ ShadowCascade build_one_cascade(const CameraProperties& camera,
     const float raw_height = std::max(light_receiver_bounds.m_max.y - light_receiver_bounds.m_min.y, _minimum_extent);
     const float raw_texel_width = raw_width / static_cast<float>(settings.m_map_size);
     const float raw_texel_height = raw_height / static_cast<float>(settings.m_map_size);
-    const float margin_texels = std::ceil(settings.m_pcf_radius_texels) + 2.0f;
+    const float margin_texels = std::ceil(settings.m_pcf_radius_texels[index]) + 2.0f;
     const float width = std::max(raw_width + raw_texel_width * margin_texels * 2.0f, _minimum_extent);
     const float height = std::max(raw_height + raw_texel_height * margin_texels * 2.0f, _minimum_extent);
     const float texel_width = width / static_cast<float>(settings.m_map_size);

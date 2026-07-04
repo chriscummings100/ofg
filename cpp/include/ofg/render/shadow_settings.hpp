@@ -25,13 +25,13 @@ enum class ShadowPcfMode {
 struct ShadowSettings {
     bool m_enabled{true};
     std::uint32_t m_map_size{2048};
-    std::array<float, shadow_cascade_count()> m_cascade_end_distances{12.0f, 32.0f, 80.0f};
-    std::array<float, shadow_cascade_count()> m_cascade_blend_widths{2.0f, 4.0f, 8.0f};
+    std::array<float, shadow_cascade_count()> m_cascade_end_distances{4.0f, 22.0f, 80.0f};
+    std::array<float, shadow_cascade_count()> m_cascade_blend_widths{0.75f, 3.0f, 8.0f};
     float m_intensity{0.75f};
     float m_receiver_depth_bias{0.0015f};
     float m_normal_bias{0.08f};
     ShadowPcfMode m_pcf_mode{ShadowPcfMode::NineTap};
-    float m_pcf_radius_texels{1.75f};
+    std::array<float, shadow_cascade_count()> m_pcf_radius_texels{0.75f, 1.25f, 1.75f};
     float m_low_sun_fade_start_radians{0.174532925f};
     float m_low_sun_fade_end_radians{0.017453292f};
     float m_min_shadow_sun_elevation_radians{0.087266462f};

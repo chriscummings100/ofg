@@ -55,7 +55,8 @@ TEST_CASE("shadow frame state packs disabled neutral uniforms") {
     CHECK(uniforms.m_values[ofg::shadow_frame_uniform_matrix_offset(0)] == doctest::Approx(1.0f));
     CHECK(uniforms.m_values[ofg::shadow_frame_uniform_matrix_offset(1)] == doctest::Approx(1.0f));
     CHECK(uniforms.m_values[ofg::shadow_frame_uniform_matrix_offset(2)] == doctest::Approx(1.0f));
-    CHECK(uniforms.m_values[ofg::shadow_frame_uniform_cascade_end_offset() + 0U] == doctest::Approx(12.0f));
+    CHECK(uniforms.m_values[ofg::shadow_frame_uniform_cascade_end_offset() + 0U] ==
+          doctest::Approx(settings.m_cascade_end_distances[0]));
     CHECK(uniforms.m_values[ofg::shadow_frame_uniform_texel_size_offset() + 3U] == doctest::Approx(1.0f));
     CHECK(uniforms.m_values[ofg::shadow_frame_uniform_options_offset() + 0U] == doctest::Approx(0.0f));
     CHECK(uniforms.m_values[ofg::shadow_frame_uniform_options_offset() + 1U] == doctest::Approx(0.0f));
@@ -70,7 +71,7 @@ TEST_CASE("shadow frame state packs live cascade uniforms") {
     settings.m_receiver_depth_bias = 0.003f;
     settings.m_normal_bias = 0.12f;
     settings.m_pcf_mode = ofg::ShadowPcfMode::FiveTap;
-    settings.m_pcf_radius_texels = 2.0f;
+    settings.m_pcf_radius_texels = {0.5f, 1.0f, 2.0f};
     const ofg::ShadowCascadeSet cascades = make_test_cascades(settings);
     const ofg::ShadowFrameState state = ofg::make_shadow_frame_state(
         cascades, settings, fake_texture_view(17), fake_sampler(19), settings.m_map_size, 23);
@@ -97,8 +98,11 @@ TEST_CASE("shadow frame state packs live cascade uniforms") {
         uniforms.m_values[ofg::shadow_frame_uniform_options_offset() + 3U] == doctest::Approx(settings.m_normal_bias));
     CHECK(uniforms.m_values[ofg::shadow_frame_uniform_options2_offset() + 0U] == doctest::Approx(1.0f));
     CHECK(uniforms.m_values[ofg::shadow_frame_uniform_options2_offset() + 1U] ==
-          doctest::Approx(settings.m_pcf_radius_texels));
-    CHECK(uniforms.m_values[ofg::shadow_frame_uniform_options2_offset() + 2U] == doctest::Approx(256.0f));
+          doctest::Approx(settings.m_pcf_radius_texels[0]));
+    CHECK(uniforms.m_values[ofg::shadow_frame_uniform_options2_offset() + 2U] ==
+          doctest::Approx(settings.m_pcf_radius_texels[1]));
+    CHECK(uniforms.m_values[ofg::shadow_frame_uniform_options2_offset() + 3U] ==
+          doctest::Approx(settings.m_pcf_radius_texels[2]));
 }
 
 // Verifies missing texture handles keep the shader neutral even when cascades exist.

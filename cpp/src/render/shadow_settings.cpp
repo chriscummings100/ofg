@@ -31,8 +31,8 @@ void validate_shadow_settings(const ShadowSettings& settings) {
         throw EngineError("Shadow intensity must be finite and between zero and one.");
     }
     if (!finite_non_negative(settings.m_receiver_depth_bias) || !finite_non_negative(settings.m_normal_bias) ||
-        !finite_non_negative(settings.m_pcf_radius_texels) || !finite_positive(settings.m_caster_depth_padding)) {
-        throw EngineError("Shadow bias, PCF radius, and caster padding settings must be finite valid ranges.");
+        !finite_positive(settings.m_caster_depth_padding)) {
+        throw EngineError("Shadow bias and caster padding settings must be finite valid ranges.");
     }
     if (!finite_non_negative(settings.m_low_sun_fade_end_radians) ||
         !finite_positive(settings.m_low_sun_fade_start_radians) ||
@@ -50,6 +50,9 @@ void validate_shadow_settings(const ShadowSettings& settings) {
         }
         if (!finite_non_negative(blend_width) || blend_width >= end_distance - previous_end) {
             throw EngineError("Shadow cascade blend widths must be finite and smaller than their cascade interval.");
+        }
+        if (!finite_non_negative(settings.m_pcf_radius_texels[index])) {
+            throw EngineError("Shadow PCF radius settings must be finite non-negative values.");
         }
         previous_end = end_distance;
     }

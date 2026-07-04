@@ -99,9 +99,9 @@ ShadowFrameUniforms pack_shadow_frame_uniforms(const ShadowFrameState& state) {
 
     const std::size_t options2_offset = shadow_frame_uniform_options2_offset();
     uniforms.m_values[options2_offset + 0U] = pcf_mode_uniform_value(state.m_settings.m_pcf_mode);
-    uniforms.m_values[options2_offset + 1U] = state.m_settings.m_pcf_radius_texels;
-    uniforms.m_values[options2_offset + 2U] = static_cast<float>(map_size);
-    uniforms.m_values[options2_offset + 3U] = uniforms.m_values[end_offset + 2U];
+    uniforms.m_values[options2_offset + 1U] = state.m_settings.m_pcf_radius_texels[0];
+    uniforms.m_values[options2_offset + 2U] = state.m_settings.m_pcf_radius_texels[1];
+    uniforms.m_values[options2_offset + 3U] = state.m_settings.m_pcf_radius_texels[2];
     return uniforms;
 }
 

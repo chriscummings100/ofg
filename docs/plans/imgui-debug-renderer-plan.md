@@ -8,18 +8,20 @@ If `C:\dev\ofg\PLANS.md` is present in the repo, maintain this document in accor
 
 ## Purpose / Big Picture
 
-OFG needs an in-engine debug UI rendered by C++ on top of the WebGPU scene. After this change, running the browser app or native render smoke should show a small Dear ImGui based "OFG Debug" overlay drawn by the C++ renderer after the scene has been tone-mapped into the platform render target. The overlay should expose live renderer/runtime diagnostics such as frame count, adapter/backend, camera mode, culling counts, bloom status, temp-buffer usage, and later mutable debug settings.
+OFG needs an in-engine debug UI rendered by C++ on top of the WebGPU scene. After this change, running the browser app or native render smoke should show a small Dear ImGui based "OFG Debug" overlay drawn by the C++ renderer after the scene has been tone-mapped into the platform render target. The first useful tool in that overlay should be a quick-and-dirty debug variable menu: C++ code can declare a global bool such as `DEBUG_BOOL("render/shadows/show_debug_overlay", g_show_shadow_debug_overlay, false)`, read it from anywhere through implicit bool conversion, and let the global `DebugMenu` registry expose it to ImGui and optional browser/TypeScript editing.
 
-The important architectural outcome is that Dear ImGui is integrated as a renderer-layer debug facility, not as a TypeScript DOM overlay. TypeScript may collect and forward raw browser events, but C++ owns Dear ImGui context lifetime, UI state, input interpretation, draw-data generation, WebGPU rendering, and debug capture decisions.
+The important architectural outcome is that Dear ImGui is integrated as a renderer-layer debug facility, not as a TypeScript DOM overlay. TypeScript may collect and forward raw browser events, and may call narrow debug-menu getters/setters if exposed, but C++ owns Dear ImGui context lifetime, debug-variable storage, menu structure, UI state, input interpretation, draw-data generation, WebGPU rendering, and debug capture decisions.
 
 ## Progress
 
 - [x] (2026-07-04 12:59Z) Planning context gathered: read `C:\dev\ofg\PLANS.md`, `C:\dev\ofg\docs\GUIDES.md`, `C:\dev\ofg\docs\API_CONTRACTS.md`, `C:\dev\ofg\cpp\CMakeLists.txt`, renderer/game/browser frame code, runtime status code, and upstream Dear ImGui WebGPU backend notes.
 - [x] (2026-07-04 12:59Z) Confirmed this is still planning phase only. No implementation files, vendored source, CMake build graph, tests, or runtime behavior have been changed by this plan.
+- [x] (2026-07-04 13:20Z) Added user requirement for a simple `DebugMenu` / `DEBUG_BOOL` registry as the first ImGui-powered debug tool, with the existing shadow-map debug overlay as the pilot toggle.
 - [ ] Milestone 1: Vendor Dear ImGui and add a build-only C++ integration target.
 - [ ] Milestone 2: Add a renderer-owned, non-interactive ImGui overlay pass after tone mapping.
 - [ ] Milestone 3: Add browser/raw-input forwarding and C++ capture decisions for interactive debug UI.
-- [ ] Milestone 4: Promote useful renderer/runtime panels and update API contracts, smoke validation, screenshots, and coverage.
+- [ ] Milestone 4: Add `DebugMenu`, `DebugBool`, `DEBUG_BOOL`, ImGui menu rendering, and C++ get/set APIs.
+- [ ] Milestone 5: Convert the shadow-map debug overlay to a debug variable, expose browser editing if still desired, and update contracts, smoke validation, screenshots, and coverage.
 
 ## Surprises & Discoveries
 
@@ -34,6 +36,9 @@ The important architectural outcome is that Dear ImGui is integrated as a render
 
 - Observation: OFG currently has raw game-control input, not the richer mouse/key/text event stream that an interactive Dear ImGui platform backend needs.
   Evidence: `C:\dev\ofg\cpp\include\ofg\core\control_input.hpp` only carries movement axes, look deltas, fast/slow, and camera-cycle edge.
+
+- Observation: The active renderer tree already has a dedicated shadow-map debug overlay pass and a special-case control-input toggle for it.
+  Evidence: `C:\dev\ofg\cpp\include\ofg\render\shadow_debug_pass.hpp` defines `ShadowDebugPass`; `C:\dev\ofg\cpp\src\render\renderer.cpp` has `Renderer::set_shadow_debug_overlay_enabled(...)`; `C:\dev\ofg\cpp\src\game\game.cpp` toggles that renderer flag from `ControlInput::m_toggle_shadow_debug_overlay`.
 
 ## Decision Log
 
@@ -51,6 +56,22 @@ The important architectural outcome is that Dear ImGui is integrated as a render
 
 - Decision: Keep Dear ImGui visible by default with a compact debug panel during initial integration.
   Rationale: The feature must be observable in screenshots and smoke artifacts. A small panel is easier to validate than a hidden debug renderer that only proves itself through code.
+  Date/Author: 2026-07-04 / Codex
+
+- Decision: Add a C++ `DebugMenu` singleton and `DebugBool` variable wrapper before building fancier editors.
+  Rationale: A registry of named values gives the ImGui integration an immediate use and lets renderer systems depend on ordinary C++ globals instead of adding one-off runtime status or input fields for every debug toggle.
+  Date/Author: 2026-07-04 / Codex
+
+- Decision: Provide `DEBUG_BOOL(path, variable, default_value)` as the first declaration macro, expanding to a global `DebugBool` object with implicit `bool` conversion and assignment from bool.
+  Rationale: The user-facing call site should stay cheap enough to drop near renderer, gameplay, resource, or system code without wiring boilerplate. The wrapper keeps registration and storage behavior consistent.
+  Date/Author: 2026-07-04 / Codex
+
+- Decision: Use slash-separated paths as the public debug-menu hierarchy and as the stable browser facade keys.
+  Rationale: One path can drive C++ lookup, TypeScript lookup, and ImGui submenu construction. For example, `render/shadows/show_debug_overlay` should render as `render` -> `shadows` -> `show_debug_overlay`.
+  Date/Author: 2026-07-04 / Codex
+
+- Decision: Make the current shadow-map overlay the first debug variable, replacing the special-case renderer toggle path once the debug menu exists.
+  Rationale: It is already a renderer-only debugging aid with a clear boolean state. Moving it into `DebugMenu` proves the system on a real feature and avoids growing a second set of debug controls.
   Date/Author: 2026-07-04 / Codex
 
 ## Outcomes & Retrospective
@@ -292,4 +313,3 @@ Expected tests:
 Existing renderer/native tests updated only as needed for counters/status/visual expectations.
 
 Existing TypeScript tests in `C:\dev\ofg\tests\ts\wasmRuntime.test.ts` and `C:\dev\ofg\tests\ts\controlInput.test.ts`, or a new focused debug input test, should cover the browser facade shape and pointer-lock/capture policy.
-

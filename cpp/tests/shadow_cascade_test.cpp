@@ -136,6 +136,9 @@ TEST_CASE("shadow settings validate cascade and filter contracts") {
     settings.m_cascade_blend_widths[0] = settings.m_cascade_end_distances[0];
     CHECK_THROWS_WITH_AS(ofg::validate_shadow_settings(settings), doctest::Contains("blend widths"), ofg::EngineError);
     settings = ofg::ShadowSettings{};
+    settings.m_pcf_radius_texels[0] = -1.0f;
+    CHECK_THROWS_WITH_AS(ofg::validate_shadow_settings(settings), doctest::Contains("PCF radius"), ofg::EngineError);
+    settings = ofg::ShadowSettings{};
     settings.m_low_sun_fade_start_radians = settings.m_low_sun_fade_end_radians;
     CHECK_THROWS_WITH_AS(ofg::validate_shadow_settings(settings), doctest::Contains("low-sun"), ofg::EngineError);
 }
