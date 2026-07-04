@@ -10,6 +10,8 @@
 #include "ofg/scene/animation_player.hpp"
 #include "ofg/scene/camera.hpp"
 #include "ofg/scene/entity.hpp"
+#include "ofg/scene/environment.hpp"
+#include "ofg/scene/light.hpp"
 #include "ofg/scene/mesh_renderer.hpp"
 #include "ofg/scene/player.hpp"
 
@@ -21,17 +23,6 @@
 namespace ofg {
 
 struct SceneUpdateContext;
-
-struct DirectionalLight {
-    math::Vec3 m_direction{0.0f, -1.0f, 0.0f};
-    math::Vec3 m_color{1.0f, 1.0f, 1.0f};
-    float m_intensity{1.0f};
-};
-
-struct AmbientLight {
-    math::Vec3 m_color{1.0f, 1.0f, 1.0f};
-    float m_intensity{0.08f};
-};
 
 class Scene {
 public:
@@ -73,14 +64,16 @@ public:
     [[nodiscard]] const Camera* main_camera() const noexcept;
     // Replaces the explicit main camera selection, or clears it for first-camera fallback.
     void set_main_camera(Camera* camera);
-    // Returns the main directional light used by the first PBR renderer path.
-    [[nodiscard]] const DirectionalLight& main_light() const noexcept;
-    // Replaces the main directional light after normalizing its direction.
-    void set_main_light(DirectionalLight light);
-    // Returns the ambient light term used by the first PBR renderer path.
-    [[nodiscard]] const AmbientLight& ambient_light() const noexcept;
-    // Replaces the ambient light term.
-    void set_ambient_light(AmbientLight light);
+    // Reports the number of light components in creation order.
+    [[nodiscard]] std::size_t light_count() const noexcept;
+    // Returns one light by creation-order index.
+    [[nodiscard]] Light* get_light(std::size_t index) noexcept;
+    // Returns one light by creation-order index.
+    [[nodiscard]] const Light* get_light(std::size_t index) const noexcept;
+    // Returns scene-owned global environment state.
+    [[nodiscard]] Environment& environment() noexcept;
+    // Returns scene-owned global environment state.
+    [[nodiscard]] const Environment& environment() const noexcept;
     // Reports the number of player components in creation order.
     [[nodiscard]] std::size_t player_count() const noexcept;
     // Returns one player by creation-order index.
@@ -120,9 +113,9 @@ private:
     std::vector<std::unique_ptr<Camera>> m_cameras;
     std::vector<std::unique_ptr<Player>> m_players;
     std::vector<std::unique_ptr<AnimationPlayer>> m_animation_players;
+    std::vector<std::unique_ptr<Light>> m_lights;
     Ptr<Camera> m_main_camera;
-    DirectionalLight m_main_light;
-    AmbientLight m_ambient_light;
+    Environment m_environment;
     std::vector<math::Mat4> m_world_transform_cache;
     Entity* m_root{nullptr};
     EntityId m_next_entity_id{0};

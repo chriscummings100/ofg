@@ -329,6 +329,8 @@ function assertHeader(headers, name, expected) {
 // Samples the screenshot and verifies it matches the shared scene contract.
 function inspectSceneScreenshot(path) {
   const png = PNG.sync.read(readFileSync(path));
+  const backgroundReferenceRgba8 =
+    smokeContract.backgroundReferenceRgba8 ?? smokeContract.clearColorRgba8;
   let backgroundPixels = 0;
   let scenePixels = 0;
   let groundPixels = 0;
@@ -350,7 +352,7 @@ function inspectSceneScreenshot(path) {
         lowerHalfSampledPixels += 1;
       }
       if (
-        colorDistance(pixel, smokeContract.clearColorRgba8) <=
+        colorDistance(pixel, backgroundReferenceRgba8) <=
         smokeContract.colorDistanceTolerance
       ) {
         backgroundPixels += 1;

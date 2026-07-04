@@ -8,6 +8,7 @@
 #include "ofg/math/quat.hpp"
 #include "ofg/math/vec.hpp"
 #include "ofg/resources/resources.hpp"
+#include "ofg/runtime/runtime_debug_status.hpp"
 #include "ofg/scene/animation_player.hpp"
 #include "ofg/scene/camera.hpp"
 #include "ofg/scene/entity.hpp"
@@ -302,6 +303,19 @@ const std::string& Player::default_model_loading_state() const noexcept {
 // Returns the current default model loading error, or an empty string.
 const std::string& Player::default_model_load_error() const noexcept {
     return m_default_model_load_error;
+}
+
+// Publishes player-model loading fields into the public runtime debug snapshot.
+void Player::publish_default_model_debug_status(RuntimeDebugStatus& status, std::string& last_error) const noexcept {
+    status.m_model_loading_state = m_default_model_loading_state;
+    status.m_player_model_loaded = m_default_model_loaded;
+    if (m_default_model_loading_state == "failed") {
+        last_error =
+            m_default_model_load_error.empty() ? "Unknown player model loading error." : m_default_model_load_error;
+        status.m_last_error = last_error;
+        return;
+    }
+    status.clear_transient_error();
 }
 
 // Binds the mesh renderer used as a visible fallback while the model is unavailable.

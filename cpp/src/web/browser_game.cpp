@@ -67,13 +67,6 @@ std::optional<BlobLoadId> parse_blob_load_id(const char* label, double value, st
     return static_cast<BlobLoadId>(value);
 }
 
-// Clears transient status errors without erasing a durable model-loading failure.
-void clear_status_last_error(RuntimeDebugStatus& status) noexcept {
-    if (status.m_model_loading_state != "failed") {
-        status.m_last_error.reset();
-    }
-}
-
 // Converts a JavaScript control-input number into a finite float.
 std::optional<float> parse_control_input_float(const char* label, double value, std::string& error) {
     if (!std::isfinite(value) || value < -static_cast<double>(std::numeric_limits<float>::max()) ||
@@ -782,7 +775,7 @@ void BrowserGame::resize_setup_status(std::uint32_t width, std::uint32_t height,
     m_setup_status.m_canvas_height = height;
     m_setup_status.m_device_pixel_ratio = device_pixel_ratio;
     m_setup_status.m_initialized = false;
-    clear_status_last_error(m_setup_status);
+    m_setup_status.clear_transient_error();
 }
 
 // Advances setup-phase frame diagnostics before the Game singleton exists.
@@ -802,7 +795,7 @@ void BrowserGame::tick_setup_status(double time_ms) {
 
     m_setup_frame_state.tick(time_ms);
     m_setup_status.m_frame_count = m_setup_frame_state.frame_count();
-    clear_status_last_error(m_setup_status);
+    m_setup_status.clear_transient_error();
 }
 
 // Stores or forwards the latest sanitized control input.

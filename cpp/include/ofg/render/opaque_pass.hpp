@@ -1,29 +1,25 @@
 // Opaque WebGPU render pass for resolved OFG draw lists.
 //
 // OpaquePass owns pass-level GPU state: frame uniforms, dynamic draw uniforms,
-// depth target state, and the pipeline cache used by opaque mesh draws.
+// and the pipeline cache used by opaque mesh draws. The renderer owns the
+// shared depth target so later scene-space passes can use the same depth view.
 #pragma once
 
 #include "ofg/game/gpu_context.hpp"
 #include "ofg/game/render_target.hpp"
 #include "ofg/render/camera_properties.hpp"
 #include "ofg/render/draw_list.hpp"
+#include "ofg/render/lighting.hpp"
 #include "ofg/render/pipeline_cache.hpp"
+#include "ofg/render/renderer_counters.hpp"
 
 #include <cstdint>
 #include <memory>
+#include <span>
 
 #include <webgpu/webgpu.h>
 
 namespace ofg {
-
-struct AmbientLight;
-struct DirectionalLight;
-
-struct RendererCounters {
-    std::uint32_t m_pipeline_create_count{0};
-    std::uint32_t m_buffer_create_count{0};
-};
 
 class OpaquePass {
 public:
@@ -37,14 +33,11 @@ public:
     [[nodiscard]] static std::unique_ptr<OpaquePass> create(GpuContext gpu, WGPUTextureFormat color_format);
     // Ensures pipelines exist for every valid draw-list material.
     void prepare(const DrawList& draw_list);
-    // Resizes or releases the pass depth target.
-    void resize(std::uint32_t width, std::uint32_t height);
-    // Encodes opaque draws into the caller-owned command encoder.
-    void render(WGPUCommandEncoder encoder,
-        RenderTarget target,
+    // Encodes opaque draw commands into the caller-owned scene render pass.
+    void draw(WGPURenderPassEncoder pass,
         const CameraProperties& camera,
-        const DirectionalLight& main_light,
-        const AmbientLight& ambient_light,
+        std::span<const LightProperties> lights,
+        AmbientLight ambient_light,
         const DrawList& draw_list);
     // Reports durable renderer resource counters.
     [[nodiscard]] RendererCounters counters() const noexcept;
@@ -63,9 +56,7 @@ private:
 
     // Recreates the dynamic draw uniform buffer for a larger command count.
     void ensure_draw_capacity(std::uint32_t draw_count);
-    // Releases the current depth texture and view.
-    void release_depth_state() noexcept;
-    // Releases pass-level layouts, buffers, bind groups, and depth state.
+    // Releases pass-level layouts, buffers, and bind groups.
     void release_gpu_state() noexcept;
 
     GpuContext m_gpu;
@@ -78,11 +69,8 @@ private:
     WGPUBuffer m_draw_buffer{nullptr};
     WGPUBindGroup m_draw_bind_group{nullptr};
     std::uint32_t m_draw_capacity{0};
-    WGPUTexture m_depth_texture{nullptr};
-    WGPUTextureView m_depth_view{nullptr};
-    std::uint32_t m_depth_width{0};
-    std::uint32_t m_depth_height{0};
     std::uint32_t m_buffer_create_count{0};
+    std::uint32_t m_bind_group_create_count{0};
     PipelineCache m_pipeline_cache;
 };
 

@@ -7,6 +7,7 @@
 #include "webgpu_test_utils.hpp"
 
 #include "ofg/assets/model_resource.hpp"
+#include "ofg/core/engine_error.hpp"
 #include "ofg/core/ptr.hpp"
 #include "ofg/resources/material.hpp"
 #include "ofg/resources/mesh.hpp"
@@ -274,6 +275,31 @@ TEST_CASE("Resources load_model_resource imports a completed root GLB blob") {
 
     CHECK(ofg::Resources::release());
     CHECK(model.get() == nullptr);
+    ofg::Resources::destroy();
+}
+
+// Verifies a URI can only be requested again with the original load options.
+TEST_CASE("Resources load_model_resource rejects repeated URI with different options") {
+    ofg::tests::TestGpuContext gpu = create_test_resources();
+
+    ofg::Ptr<ofg::ModelResource> model = ofg::Resources::load_model_resource(
+        "assets/models/tests/static-box.glb", ofg::ModelResourceLoadOptions{"first static box"});
+    ofg::Ptr<ofg::ModelResource> duplicate = ofg::Resources::load_model_resource(
+        "/assets/models/tests/static-box.glb", ofg::ModelResourceLoadOptions{"first static box"});
+    CHECK(model.get() == duplicate.get());
+    CHECK(ofg::Resources::model_resources().size() == 1);
+
+    CHECK_THROWS_WITH_AS(([&]() {
+        (void)ofg::Resources::load_model_resource(
+            "assets/models/tests/static-box.glb", ofg::ModelResourceLoadOptions{"second static box"});
+    }()),
+        doctest::Contains("different load options"),
+        ofg::EngineError);
+    CHECK(ofg::Resources::model_resources().size() == 1);
+
+    CHECK(ofg::Resources::release());
+    CHECK(model.get() == nullptr);
+    CHECK(duplicate.get() == nullptr);
     ofg::Resources::destroy();
 }
 

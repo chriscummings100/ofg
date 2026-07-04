@@ -50,6 +50,13 @@ void write_json_string(std::ostream& out, const std::string& value) {
 
 } // namespace
 
+// Clears recoverable runtime errors while preserving durable subsystem failures.
+void RuntimeDebugStatus::clear_transient_error() noexcept {
+    if (m_model_loading_state != "failed") {
+        m_last_error.reset();
+    }
+}
+
 // Serializes the status using the browser-facing debug-status field names.
 std::string RuntimeDebugStatus::to_json() const {
     std::ostringstream out;

@@ -445,7 +445,7 @@ void handle_error_scope(
             if (y >= contract.m_height / 2U) {
                 report.m_lower_half_sampled_pixels += 1U;
             }
-            if (color_distance(pixel, contract.m_clear_color_rgba8) <= contract.m_color_distance_tolerance) {
+            if (color_distance(pixel, contract.m_background_reference_rgba8) <= contract.m_color_distance_tolerance) {
                 report.m_background_pixels += 1U;
             } else {
                 report.m_scene_pixels += 1U;
@@ -501,8 +501,8 @@ void validate_contract(const SmokeContract& contract) {
     if (contract.m_width == 0 || contract.m_height == 0) {
         throw std::runtime_error("Smoke contract dimensions must be non-zero.");
     }
-    if (contract.m_clear_color_rgba8.size() != 4U) {
-        throw std::runtime_error("Smoke contract clear color must have four channels.");
+    if (contract.m_background_reference_rgba8.size() != 4U) {
+        throw std::runtime_error("Smoke contract background reference color must have four channels.");
     }
     if (contract.m_sample_step == 0) {
         throw std::runtime_error("Smoke contract sample step must be non-zero.");
@@ -741,11 +741,11 @@ void write_report(const std::filesystem::path& png_path,
            << "  \"textureFormat\": \"" << gpu::texture_format_name(_render_format) << "\",\n"
            << "  \"adapterName\": \"" << json_escape(context.m_adapter_name) << "\",\n"
            << "  \"backend\": \"" << json_escape(context.m_backend) << "\",\n"
-           << "  \"clearColor\": [\n"
-           << "    " << static_cast<int>(contract.m_clear_color_rgba8[0]) << ",\n"
-           << "    " << static_cast<int>(contract.m_clear_color_rgba8[1]) << ",\n"
-           << "    " << static_cast<int>(contract.m_clear_color_rgba8[2]) << ",\n"
-           << "    " << static_cast<int>(contract.m_clear_color_rgba8[3]) << "\n"
+           << "  \"backgroundReferenceRgba8\": [\n"
+           << "    " << static_cast<int>(contract.m_background_reference_rgba8[0]) << ",\n"
+           << "    " << static_cast<int>(contract.m_background_reference_rgba8[1]) << ",\n"
+           << "    " << static_cast<int>(contract.m_background_reference_rgba8[2]) << ",\n"
+           << "    " << static_cast<int>(contract.m_background_reference_rgba8[3]) << "\n"
            << "  ],\n"
            << "  \"thresholds\": {\n"
            << "    \"sampleStep\": " << contract.m_sample_step << ",\n"
@@ -799,15 +799,15 @@ void write_report(const std::filesystem::path& png_path,
     return std::stod(value);
 }
 
-// Parses the comma-separated RGBA clear color passed by the Node smoke wrapper.
-[[nodiscard]] std::vector<std::uint8_t> parse_clear_color(const std::string& value) {
+// Parses the comma-separated RGBA background reference passed by the Node smoke wrapper.
+[[nodiscard]] std::vector<std::uint8_t> parse_background_reference(const std::string& value) {
     std::vector<std::uint8_t> result;
     std::stringstream stream(value);
     std::string item;
     while (std::getline(stream, item, ',')) {
-        const std::uint32_t parsed = parse_u32(item, "clear color channel");
+        const std::uint32_t parsed = parse_u32(item, "background reference color channel");
         if (parsed > 255U) {
-            throw std::runtime_error("Clear color channel must be <= 255.");
+            throw std::runtime_error("Background reference color channel must be <= 255.");
         }
         result.push_back(static_cast<std::uint8_t>(parsed));
     }
@@ -827,8 +827,9 @@ RenderSmokeOptions parse_render_smoke_args(int argc, char** argv) {
             options.m_contract.m_width = parse_u32(require_arg_value(argc, argv, index, arg), "width");
         } else if (arg == "--height") {
             options.m_contract.m_height = parse_u32(require_arg_value(argc, argv, index, arg), "height");
-        } else if (arg == "--clear-color-rgba8") {
-            options.m_contract.m_clear_color_rgba8 = parse_clear_color(require_arg_value(argc, argv, index, arg));
+        } else if (arg == "--background-reference-rgba8") {
+            options.m_contract.m_background_reference_rgba8 =
+                parse_background_reference(require_arg_value(argc, argv, index, arg));
         } else if (arg == "--sample-step") {
             options.m_contract.m_sample_step = parse_u32(require_arg_value(argc, argv, index, arg), "sample step");
         } else if (arg == "--color-distance-tolerance") {

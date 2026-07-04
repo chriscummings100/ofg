@@ -18,8 +18,8 @@ struct SmokeContract {
     std::uint32_t m_width{800};
     // Output height in pixels.
     std::uint32_t m_height{450};
-    // Expected background clear color in RGBA8 order.
-    std::vector<std::uint8_t> m_clear_color_rgba8{27, 37, 50, 255};
+    // Expected background reference color in RGBA8 order.
+    std::vector<std::uint8_t> m_background_reference_rgba8{198, 216, 236, 255};
     // Pixel sampling stride used for report generation.
     std::uint32_t m_sample_step{3};
     // Maximum RGB distance for a pixel to count as background.

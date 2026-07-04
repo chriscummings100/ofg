@@ -17,6 +17,7 @@ enum class ComponentType {
     Camera,
     Player,
     AnimationPlayer,
+    Light,
 };
 
 class Component : public Object {

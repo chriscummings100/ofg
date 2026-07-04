@@ -4,7 +4,7 @@
 #include "ofg/core/engine_error.hpp"
 #include "ofg/gpu/common.hpp"
 #include "ofg/math/mat.hpp"
-#include "ofg/render/bootstrap_scene.hpp"
+#include "ofg/render/lighting.hpp"
 #include "ofg/resources/material.hpp"
 #include "ofg/resources/mesh.hpp"
 #include "ofg/resources/shader.hpp"
@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 
 namespace ofg {
@@ -25,17 +26,6 @@ constexpr std::uint64_t _draw_uniform_bytes = sizeof(float) * 32;
 constexpr std::uint64_t _draw_uniform_stride = 256;
 constexpr std::uint32_t _initial_draw_capacity = 1;
 constexpr float _normal_matrix_min_determinant = 0.000001f;
-
-// Converts the shared renderer clear color into WebGPU descriptor form.
-WGPUColor webgpu_clear_color() noexcept {
-    const ClearColor clear = clear_color();
-    WGPUColor color = WGPU_COLOR_INIT;
-    color.r = clear.m_r;
-    color.g = clear.m_g;
-    color.b = clear.m_b;
-    color.a = clear.m_a;
-    return color;
-}
 
 // Creates a uniform buffer with CopyDst writes enabled.
 WGPUBuffer create_uniform_buffer(WGPUDevice device, const char* label, std::uint64_t byte_size) {
@@ -142,19 +132,29 @@ void write_draw_uniforms(WGPUQueue queue, WGPUBuffer buffer, std::uint64_t offse
 void write_frame_uniforms(WGPUQueue queue,
     WGPUBuffer buffer,
     const CameraProperties& camera,
-    const DirectionalLight& main_light,
-    const AmbientLight& ambient_light) {
+    std::span<const LightProperties> lights,
+    AmbientLight ambient_light) {
     std::array<float, 32> packed{};
     const std::array<float, 16> view_projection = math::pack_mat4(camera.clip_from_world);
     std::copy(view_projection.begin(), view_projection.end(), packed.begin());
 
-    packed[16] = main_light.m_direction.x;
-    packed[17] = main_light.m_direction.y;
-    packed[18] = main_light.m_direction.z;
+    math::Vec3 main_light_direction{0.0f, -1.0f, 0.0f};
+    math::Vec3 main_light_color{0.0f, 0.0f, 0.0f};
+    for (const LightProperties& light : lights) {
+        if (light.m_type == LightPropertiesType::Directional) {
+            main_light_direction = light.m_direction;
+            main_light_color = math::mul(light.m_color, light.m_intensity);
+            break;
+        }
+    }
+
+    packed[16] = main_light_direction.x;
+    packed[17] = main_light_direction.y;
+    packed[18] = main_light_direction.z;
     packed[19] = 0.0f;
-    packed[20] = main_light.m_color.x * main_light.m_intensity;
-    packed[21] = main_light.m_color.y * main_light.m_intensity;
-    packed[22] = main_light.m_color.z * main_light.m_intensity;
+    packed[20] = main_light_color.x;
+    packed[21] = main_light_color.y;
+    packed[22] = main_light_color.z;
     packed[23] = 0.0f;
     packed[24] = ambient_light.m_color.x * ambient_light.m_intensity;
     packed[25] = ambient_light.m_color.y * ambient_light.m_intensity;
@@ -238,6 +238,7 @@ std::unique_ptr<OpaquePass> OpaquePass::create(GpuContext gpu, WGPUTextureFormat
         gpu.m_device, "OFG opaque frame bind group", pass->m_frame_layout, pass->m_frame_buffer, _frame_uniform_bytes);
     pass->m_draw_bind_group = create_uniform_bind_group(
         gpu.m_device, "OFG opaque draw bind group", pass->m_draw_layout, pass->m_draw_buffer, _draw_uniform_bytes);
+    pass->m_bind_group_create_count = 2;
 
     return pass;
 }
@@ -259,50 +260,19 @@ void OpaquePass::prepare(const DrawList& draw_list) {
     }
 }
 
-// Resizes or releases the pass depth target.
-void OpaquePass::resize(std::uint32_t width, std::uint32_t height) {
-    if (width == 0 || height == 0) {
-        release_depth_state();
-        m_depth_width = 0;
-        m_depth_height = 0;
-        return;
-    }
-    if (m_depth_view != nullptr && width == m_depth_width && height == m_depth_height) {
-        return;
-    }
-
-    WGPUTexture next_texture =
-        gpu::create_depth_texture(m_gpu.m_device, m_depth_format, width, height, "OFG opaque depth texture");
-    WGPUTextureView next_view = nullptr;
-    try {
-        next_view = gpu::create_depth_view(next_texture, m_depth_format, "OFG opaque depth view");
-    } catch (...) {
-        wgpuTextureRelease(next_texture);
-        throw;
-    }
-
-    release_depth_state();
-    m_depth_texture = next_texture;
-    m_depth_view = next_view;
-    m_depth_width = width;
-    m_depth_height = height;
-}
-
-// Encodes opaque draws into the caller-owned command encoder.
-void OpaquePass::render(WGPUCommandEncoder encoder,
-    RenderTarget target,
+// Encodes opaque draw commands into the caller-owned scene render pass.
+void OpaquePass::draw(WGPURenderPassEncoder pass,
     const CameraProperties& camera,
-    const DirectionalLight& main_light,
-    const AmbientLight& ambient_light,
+    std::span<const LightProperties> lights,
+    AmbientLight ambient_light,
     const DrawList& draw_list) {
-    if (encoder == nullptr || target.m_view == nullptr) {
-        throw EngineError("OpaquePass render requires an encoder and texture view.");
+    if (pass == nullptr) {
+        throw EngineError("OpaquePass draw requires an open render pass.");
     }
-    resize(target.m_width, target.m_height);
     prepare(draw_list);
     ensure_draw_capacity(static_cast<std::uint32_t>(draw_list.size()));
 
-    write_frame_uniforms(m_gpu.m_queue, m_frame_buffer, camera, main_light, ambient_light);
+    write_frame_uniforms(m_gpu.m_queue, m_frame_buffer, camera, lights, ambient_light);
     std::uint32_t draw_index = 0;
     for (const DrawCommand& command : draw_list.commands()) {
         write_draw_uniforms(m_gpu.m_queue,
@@ -312,66 +282,39 @@ void OpaquePass::render(WGPUCommandEncoder encoder,
         draw_index += 1;
     }
 
-    WGPURenderPassColorAttachment color_attachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
-    color_attachment.view = target.m_view;
-    color_attachment.loadOp = WGPULoadOp_Clear;
-    color_attachment.storeOp = WGPUStoreOp_Store;
-    color_attachment.clearValue = webgpu_clear_color();
+    wgpuRenderPassEncoderSetBindGroup(pass, 0, m_frame_bind_group, 0, nullptr);
+    draw_index = 0;
+    for (const DrawCommand& command : draw_list.commands()) {
+        const std::uint32_t dynamic_offset = draw_index * static_cast<std::uint32_t>(_draw_uniform_stride);
+        wgpuRenderPassEncoderSetBindGroup(pass, 1, m_draw_bind_group, 1, &dynamic_offset);
+        wgpuRenderPassEncoderSetVertexBuffer(pass, 0, command.m_mesh->vertex_buffer(), 0, WGPU_WHOLE_SIZE);
+        wgpuRenderPassEncoderSetIndexBuffer(
+            pass, command.m_mesh->index_buffer(), WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
 
-    WGPURenderPassDepthStencilAttachment depth_attachment = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
-    depth_attachment.view = m_depth_view;
-    depth_attachment.depthLoadOp = WGPULoadOp_Clear;
-    depth_attachment.depthStoreOp = WGPUStoreOp_Store;
-    depth_attachment.depthClearValue = 1.0F;
-
-    WGPURenderPassDescriptor pass_descriptor = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
-    pass_descriptor.label = gpu::cstring_view("OFG opaque pass");
-    pass_descriptor.colorAttachmentCount = 1;
-    pass_descriptor.colorAttachments = &color_attachment;
-    pass_descriptor.depthStencilAttachment = &depth_attachment;
-
-    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &pass_descriptor);
-    if (pass == nullptr) {
-        throw EngineError("wgpuCommandEncoderBeginRenderPass returned null for opaque pass.");
-    }
-
-    try {
-        wgpuRenderPassEncoderSetBindGroup(pass, 0, m_frame_bind_group, 0, nullptr);
-        draw_index = 0;
-        for (const DrawCommand& command : draw_list.commands()) {
-            const std::uint32_t dynamic_offset = draw_index * static_cast<std::uint32_t>(_draw_uniform_stride);
-            wgpuRenderPassEncoderSetBindGroup(pass, 1, m_draw_bind_group, 1, &dynamic_offset);
-            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, command.m_mesh->vertex_buffer(), 0, WGPU_WHOLE_SIZE);
-            wgpuRenderPassEncoderSetIndexBuffer(
-                pass, command.m_mesh->index_buffer(), WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
-
-            const std::span<const SubMesh> submeshes = command.m_mesh->submeshes();
-            for (std::uint32_t submesh_index = 0; submesh_index < submeshes.size(); ++submesh_index) {
-                Material& material = resolve_material(command, submesh_index);
-                const PipelineKey key = pipeline_key_for(material, m_color_format, m_depth_format);
-                WGPURenderPipeline pipeline = m_pipeline_cache.get_or_create(
-                    m_gpu.m_device, key, m_frame_layout, m_draw_layout, material.shader().module());
-                const SubMesh& submesh = submeshes[submesh_index];
-                wgpuRenderPassEncoderSetPipeline(pass, pipeline);
-                wgpuRenderPassEncoderSetBindGroup(pass, 2, material.bind_group(), 0, nullptr);
-                wgpuRenderPassEncoderDrawIndexed(pass, submesh.m_index_count, 1, submesh.m_index_start, 0, 0);
-            }
-            draw_index += 1;
+        const std::span<const SubMesh> submeshes = command.m_mesh->submeshes();
+        for (std::uint32_t submesh_index = 0; submesh_index < submeshes.size(); ++submesh_index) {
+            Material& material = resolve_material(command, submesh_index);
+            const PipelineKey key = pipeline_key_for(material, m_color_format, m_depth_format);
+            WGPURenderPipeline pipeline = m_pipeline_cache.get_or_create(
+                m_gpu.m_device, key, m_frame_layout, m_draw_layout, material.shader().module());
+            const SubMesh& submesh = submeshes[submesh_index];
+            wgpuRenderPassEncoderSetPipeline(pass, pipeline);
+            wgpuRenderPassEncoderSetBindGroup(pass, 2, material.bind_group(), 0, nullptr);
+            wgpuRenderPassEncoderDrawIndexed(pass, submesh.m_index_count, 1, submesh.m_index_start, 0, 0);
         }
-    } catch (...) {
-        wgpuRenderPassEncoderEnd(pass);
-        wgpuRenderPassEncoderRelease(pass);
-        throw;
+        draw_index += 1;
     }
-
-    wgpuRenderPassEncoderEnd(pass);
-    wgpuRenderPassEncoderRelease(pass);
 }
 
 // Reports durable renderer resource counters.
 RendererCounters OpaquePass::counters() const noexcept {
     const PipelineCacheCounters pipeline_counters = m_pipeline_cache.counters();
-    return RendererCounters{pipeline_counters.m_pipeline_create_count, m_buffer_create_count};
+    RendererCounters counters;
+    counters.m_pipeline_create_count = pipeline_counters.m_pipeline_create_count;
+    counters.m_buffer_create_count = m_buffer_create_count;
+    counters.m_bind_group_layout_create_count = 2;
+    counters.m_bind_group_create_count = m_bind_group_create_count;
+    return counters;
 }
 
 // Recreates the dynamic draw uniform buffer for a larger command count.
@@ -406,23 +349,11 @@ void OpaquePass::ensure_draw_capacity(std::uint32_t draw_count) {
     m_draw_buffer = next_buffer;
     m_draw_bind_group = next_bind_group;
     m_draw_capacity = next_capacity;
+    m_bind_group_create_count += 1;
 }
 
-// Releases the current depth texture and view.
-void OpaquePass::release_depth_state() noexcept {
-    if (m_depth_view != nullptr) {
-        wgpuTextureViewRelease(m_depth_view);
-        m_depth_view = nullptr;
-    }
-    if (m_depth_texture != nullptr) {
-        wgpuTextureRelease(m_depth_texture);
-        m_depth_texture = nullptr;
-    }
-}
-
-// Releases pass-level layouts, buffers, bind groups, and depth state.
+// Releases pass-level layouts, buffers, and bind groups.
 void OpaquePass::release_gpu_state() noexcept {
-    release_depth_state();
     if (m_draw_bind_group != nullptr) {
         wgpuBindGroupRelease(m_draw_bind_group);
         m_draw_bind_group = nullptr;

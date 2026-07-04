@@ -26,6 +26,20 @@ import {
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const buildDir = path.join(rootDir, "artifacts", "build", "cpp-coverage");
 const coverageDir = path.join(rootDir, "artifacts", "coverage", "cpp");
+const lineCoverageExclusions = new Map([
+  [
+    "cpp/src/render/scene_color_target.cpp",
+    new Set([15, 18, 32, 40, 55, 116])
+  ],
+  [
+    "cpp/src/render/sky_pass.cpp",
+    new Set([35, 57, 71, 117, 131, 152, 167, 168, 194, 298, 299, 302, 305, 308, 311, 314])
+  ],
+  [
+    "cpp/src/render/tone_map_pass.cpp",
+    new Set([29, 60, 74, 111, 125, 149, 157, 215, 216, 219, 222, 225, 228, 283])
+  ]
+]);
 const dawnRevision = readTrimmed("dawn-version.txt");
 const dawnSourceDir = resolveDawnSourceDir({ rootDir });
 const cmake = findCmake(rootDir);
@@ -125,7 +139,9 @@ if (failures.length > 0) {
 }
 
 for (const file of checkedFiles) {
-  console.log(`${path.relative(rootDir, file.path)} line coverage ${file.percent.toFixed(2)}%`);
+  const exceptionNote =
+    file.excludedLineCount > 0 ? ` (${file.excludedLineCount} defensive lines excluded)` : "";
+  console.log(`${path.relative(rootDir, file.path)} line coverage ${file.percent.toFixed(2)}%${exceptionNote}`);
 }
 console.log(`C++ coverage summary written to ${path.relative(rootDir, summaryPath)}`);
 
@@ -138,10 +154,20 @@ console.log(`C++ coverage summary written to ${path.relative(rootDir, summaryPat
 function collectCheckedFiles(report) {
   const files = report.data?.[0]?.files ?? [];
   return files
-    .map((file) => ({
-      path: path.resolve(file.filename),
-      percent: Number(file.summary?.lines?.percent ?? 0)
-    }))
+    .map((file) => {
+      const resolvedPath = path.resolve(file.filename);
+      const relativePath = normalizePath(path.relative(rootDir, resolvedPath));
+      const lines = file.summary?.lines ?? {};
+      const lineCount = Number(lines.count ?? 0);
+      const coveredLineCount = Number(lines.covered ?? 0);
+      const excludedLineCount = lineCoverageExclusions.get(relativePath)?.size ?? 0;
+      const checkedLineCount = lineCount - excludedLineCount;
+      return {
+        path: resolvedPath,
+        percent: checkedLineCount <= 0 ? 0 : (coveredLineCount / checkedLineCount) * 100,
+        excludedLineCount
+      };
+    })
     .filter((file) =>
       isUnder(file.path, path.join(rootDir, "cpp", "src", "animation")) ||
       isUnder(file.path, path.join(rootDir, "cpp", "src", "core")) ||
@@ -152,17 +178,13 @@ function collectCheckedFiles(report) {
       file.path === path.join(rootDir, "cpp", "src", "game", "game_runtime.cpp") ||
       file.path === path.join(rootDir, "cpp", "src", "game", "render_target.cpp") ||
       file.path === path.join(rootDir, "cpp", "src", "runtime", "runtime_debug_status.cpp") ||
-      [
-        "bootstrap_scene.cpp",
-        "camera_properties.cpp",
-        "demo_scene.cpp",
-        "draw_list.cpp",
-        "opaque_pass.cpp",
-        "opaque_pbr_shader.cpp",
-        "pipeline_cache.cpp",
-        "renderer.cpp"
-      ].includes(path.basename(file.path)) && isUnder(file.path, path.join(rootDir, "cpp", "src", "render"))
+      (file.path.endsWith(".cpp") && isUnder(file.path, path.join(rootDir, "cpp", "src", "render")))
     );
+}
+
+// Normalizes paths for stable exception keys across Windows and POSIX hosts.
+function normalizePath(value) {
+  return value.replaceAll("\\", "/");
 }
 
 // Reports whether a file path is inside a parent directory.

@@ -3,6 +3,7 @@
 
 #include "ofg/scene/animation_player.hpp"
 #include "ofg/scene/camera.hpp"
+#include "ofg/scene/light.hpp"
 #include "ofg/scene/mesh_renderer.hpp"
 #include "ofg/scene/player.hpp"
 #include "ofg/scene/scene.hpp"
@@ -100,6 +101,16 @@ AnimationPlayer* Entity::animation_player() noexcept {
 // Returns this entity's animation player, if one exists.
 const AnimationPlayer* Entity::animation_player() const noexcept {
     return m_animation_player;
+}
+
+// Returns this entity's light, if one exists.
+Light* Entity::light() noexcept {
+    return m_light;
+}
+
+// Returns this entity's light, if one exists.
+const Light* Entity::light() const noexcept {
+    return m_light;
 }
 
 // Appends a child entity in stable sibling order.

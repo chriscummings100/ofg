@@ -28,6 +28,8 @@ std::unique_ptr<Resources> Resources::s_resources;
 
 namespace {
 
+constexpr const char* _model_resource_type = "ModelResource";
+
 // Normalizes host-visible asset URIs into relative, portable cache keys.
 std::string normalize_blob_uri(std::string_view uri) {
     while (!uri.empty() && uri.front() == '/') {
@@ -88,9 +90,9 @@ std::string model_name_from_uri(std::string_view uri) {
     return std::string(name);
 }
 
-// Builds the first model-resource cache key from URI and import-affecting options.
-std::string model_resource_cache_key(std::string_view uri, std::string_view model_name) {
-    return std::string(uri) + "\n" + std::string(model_name);
+// Builds a stable key for options that affect a model resource load request.
+std::string model_resource_options_key(std::string_view model_name) {
+    return "model_name=" + std::string(model_name);
 }
 
 } // namespace
@@ -468,20 +470,82 @@ Ptr<ModelResource> Resources::load_model_resource_impl(std::string_view uri, Mod
     if (model_name.empty()) {
         model_name = model_name_from_uri(normalized_uri);
     }
-    const std::string cache_key = model_resource_cache_key(normalized_uri, model_name);
-    const auto existing = m_model_resource_indices_by_key.find(cache_key);
-    if (existing != m_model_resource_indices_by_key.end()) {
-        return Ptr<ModelResource>{m_model_resources[existing->second].get()};
+    const std::string options_key = model_resource_options_key(model_name);
+    Resource* existing = find_registered_uri_resource(
+        normalized_uri, _model_resource_type, options_key, "Resources::load_model_resource");
+    if (existing != nullptr) {
+        ModelResource* model_resource = dynamic_cast<ModelResource*>(existing);
+        if (model_resource == nullptr) {
+            throw EngineError(
+                "Resources::load_model_resource found a URI registry entry with an invalid ModelResource pointer.");
+        }
+        return Ptr<ModelResource>{model_resource};
     }
 
     auto resource = std::make_unique<ModelResource>();
     ModelResource* resource_ptr = resource.get();
     resource_ptr->begin_loading(normalized_uri, std::move(model_name));
-    const std::size_t resource_index = m_model_resources.size();
     m_model_resources.push_back(std::move(resource));
-    m_model_resource_indices_by_key.emplace(cache_key, resource_index);
+    try {
+        register_uri_resource(*resource_ptr, _model_resource_type, options_key, "Resources::load_model_resource");
+    } catch (...) {
+        m_model_resources.pop_back();
+        throw;
+    }
     enqueue_loading(*resource_ptr);
     return Ptr<ModelResource>{resource_ptr};
+}
+
+// Returns an existing URI-backed resource after validating type and load options.
+Resource* Resources::find_registered_uri_resource(const std::string& normalized_uri,
+    std::string_view resource_type,
+    std::string_view options_key,
+    const char* operation) const {
+    const auto existing = m_resources_by_uri.find(normalized_uri);
+    if (existing == m_resources_by_uri.end()) {
+        return nullptr;
+    }
+    const ResourceUriEntry& entry = existing->second;
+    if (entry.m_resource == nullptr || entry.m_resource_type == nullptr) {
+        throw EngineError(
+            std::string(operation) + " found an invalid URI registry entry for '" + normalized_uri + "'.");
+    }
+    if (std::string_view(entry.m_resource_type) != resource_type) {
+        throw EngineError(std::string(operation) + " cannot load URI '" + normalized_uri + "' as " +
+                          std::string(resource_type) + " because it is already registered as " + entry.m_resource_type +
+                          ".");
+    }
+    if (entry.m_options_key != options_key) {
+        throw EngineError(std::string(operation) + " cannot load URI '" + normalized_uri +
+                          "' with different load options after the resource was first requested.");
+    }
+    return entry.m_resource;
+}
+
+// Registers a URI-backed resource in the canonical URI map.
+void Resources::register_uri_resource(
+    Resource& resource, const char* resource_type, std::string options_key, const char* operation) {
+    const std::string& uri = resource.source_uri();
+    if (uri.empty()) {
+        throw EngineError(std::string(operation) + " cannot register a resource without a source URI.");
+    }
+    const auto inserted =
+        m_resources_by_uri.emplace(uri, ResourceUriEntry{&resource, resource_type, std::move(options_key)});
+    if (!inserted.second) {
+        throw EngineError(std::string(operation) + " cannot register duplicate resource URI '" + uri + "'.");
+    }
+}
+
+// Removes a URI-backed resource from the canonical URI map before destruction.
+void Resources::unregister_uri_resource(const Resource& resource) noexcept {
+    const std::string& uri = resource.source_uri();
+    if (uri.empty()) {
+        return;
+    }
+    const auto existing = m_resources_by_uri.find(uri);
+    if (existing != m_resources_by_uri.end() && existing->second.m_resource == &resource) {
+        m_resources_by_uri.erase(existing);
+    }
 }
 
 // Adds a resource to the generic loading scheduler if it still needs work.
@@ -530,8 +594,13 @@ BlobView Resources::make_blob_view(const BlobLoadRecord& record) const {
 // Clears all resources in reverse dependency-friendly order.
 void Resources::clear_resources() {
     m_loading_resources.clear();
-    m_model_resource_indices_by_key.clear();
+    for (const std::unique_ptr<ModelResource>& resource : m_model_resources) {
+        if (resource != nullptr) {
+            unregister_uri_resource(*resource);
+        }
+    }
     m_model_resources.clear();
+    m_resources_by_uri.clear();
     m_meshes.clear();
     m_materials.clear();
     m_shaders.clear();

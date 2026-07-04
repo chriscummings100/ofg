@@ -16,6 +16,7 @@
 #include "ofg/resources/resources.hpp"
 #include "ofg/resources/texture.hpp"
 #include "ofg/scene/camera.hpp"
+#include "ofg/scene/light.hpp"
 #include "ofg/scene/player.hpp"
 
 #include <cstddef>
@@ -99,14 +100,17 @@ TEST_CASE("demo scene setup and update create deterministic plane player and cub
     ofg::Scene first_scene;
     REQUIRE_NOTHROW(ofg::setup_demo_scene(scene, first_scene));
     REQUIRE_NOTHROW(ofg::update_demo_scene(scene, 0.0, first_scene));
-    REQUIRE(first_scene.entity_count() == 9);
+    REQUIRE(first_scene.entity_count() == 10);
     REQUIRE(first_scene.camera_count() == 1);
     REQUIRE(first_scene.player_count() == 1);
+    REQUIRE(first_scene.light_count() == 1);
     REQUIRE(first_scene.mesh_renderer_count() == 6);
     REQUIRE(first_scene.main_camera() != nullptr);
     CHECK(first_scene.main_camera() == first_scene.get_camera(0));
-    CHECK(first_scene.main_light().m_direction.y < -0.8f);
-    CHECK(first_scene.ambient_light().m_intensity == doctest::Approx(0.22f));
+    REQUIRE(first_scene.environment().main_directional_light() != nullptr);
+    CHECK(first_scene.environment().main_directional_light() == first_scene.get_light(0));
+    CHECK(first_scene.get_light(0)->enabled());
+    CHECK(first_scene.environment().ambient_light().m_intensity > 0.0f);
     REQUIRE(scene.m_ground_renderer != nullptr);
     CHECK(first_scene.get_mesh_renderer(0) == scene.m_ground_renderer);
     CHECK(scene.m_ground_renderer->mesh() == scene.m_ground_mesh);

@@ -166,6 +166,16 @@ private:
     void fail_blob_load_impl(BlobLoadId id, std::string message);
     // Requests a model resource by URI and returns its stable observable object.
     [[nodiscard]] Ptr<ModelResource> load_model_resource_impl(std::string_view uri, ModelResourceLoadOptions options);
+    // Returns an existing URI-backed resource after validating type and load options.
+    [[nodiscard]] Resource* find_registered_uri_resource(const std::string& normalized_uri,
+        std::string_view resource_type,
+        std::string_view options_key,
+        const char* operation) const;
+    // Registers a URI-backed resource in the canonical URI map.
+    void register_uri_resource(
+        Resource& resource, const char* resource_type, std::string options_key, const char* operation);
+    // Removes a URI-backed resource from the canonical URI map before destruction.
+    void unregister_uri_resource(const Resource& resource) noexcept;
     // Adds a resource to the generic loading scheduler if it still needs work.
     void enqueue_loading(Resource& resource);
     // Advances asynchronous resource loads by one scheduler pass.
@@ -190,6 +200,12 @@ private:
         std::string m_error;
     };
 
+    struct ResourceUriEntry {
+        Resource* m_resource{nullptr};
+        const char* m_resource_type{nullptr};
+        std::string m_options_key;
+    };
+
     // Creates a caller-owned snapshot over a blob record's current state.
     [[nodiscard]] BlobView make_blob_view(const BlobLoadRecord& record) const;
 
@@ -202,8 +218,8 @@ private:
     std::unordered_map<std::string, std::size_t> m_blob_load_indices_by_uri;
     std::vector<PendingBlobLoad> m_pending_blob_loads;
     std::vector<Resource*> m_loading_resources;
+    std::unordered_map<std::string, ResourceUriEntry> m_resources_by_uri;
     std::vector<std::unique_ptr<ModelResource>> m_model_resources;
-    std::unordered_map<std::string, std::size_t> m_model_resource_indices_by_key;
     std::vector<std::unique_ptr<Texture>> m_textures;
     std::vector<std::unique_ptr<Shader>> m_shaders;
     std::vector<std::unique_ptr<Material>> m_materials;

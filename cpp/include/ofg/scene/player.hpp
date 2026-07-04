@@ -20,6 +20,7 @@ class AnimationClip;
 class AnimationPlayer;
 class MeshRenderer;
 class ModelResource;
+struct RuntimeDebugStatus;
 class Scene;
 struct SceneUpdateContext;
 
@@ -58,6 +59,8 @@ public:
     [[nodiscard]] const std::string& default_model_loading_state() const noexcept;
     // Returns the current default model loading error, or an empty string.
     [[nodiscard]] const std::string& default_model_load_error() const noexcept;
+    // Publishes player-model loading fields into the public runtime debug snapshot.
+    void publish_default_model_debug_status(RuntimeDebugStatus& status, std::string& last_error) const noexcept;
     // Binds the mesh renderer used as a visible fallback while the model is unavailable.
     void bind_fallback_renderer(MeshRenderer& renderer);
     // Sets whether the fallback renderer is currently visible.

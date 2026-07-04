@@ -56,13 +56,6 @@ std::string device_pixel_ratio_message(double value) {
 
 constexpr float _max_delta_seconds = 0.1f;
 
-// Clears transient status errors without erasing a durable model-loading failure.
-void clear_status_last_error(RuntimeDebugStatus& status) noexcept {
-    if (status.m_model_loading_state != "failed") {
-        status.m_last_error.reset();
-    }
-}
-
 } // namespace
 
 std::unique_ptr<Game> Game::s_game;
@@ -370,14 +363,7 @@ void Game::update_impl(double time_ms) {
         m_control_input, time_ms, delta_seconds, primary_player, main_camera, m_current_scene.get(), m_gpu};
     m_current_scene->update(context);
     if (primary_player != nullptr) {
-        m_status.m_model_loading_state = primary_player->default_model_loading_state();
-        m_status.m_player_model_loaded = primary_player->default_model_loaded();
-        if (primary_player->default_model_loading_state() == "failed") {
-            m_last_error = primary_player->default_model_load_error();
-            m_status.m_last_error = m_last_error;
-        } else {
-            clear_status_last_error(m_status);
-        }
+        primary_player->publish_default_model_debug_status(m_status, m_last_error);
     }
     if (main_camera != nullptr) {
         m_status.m_camera_mode = camera_control_mode_name(main_camera->control_mode());
@@ -502,7 +488,7 @@ void Game::resize_runtime(std::uint32_t width, std::uint32_t height, double devi
         m_surface_configured = false;
     }
     m_status.m_initialized = m_gpu_ready && m_surface_configured && width > 0 && height > 0;
-    clear_status_last_error(m_status);
+    m_status.clear_transient_error();
 }
 
 // Advances frame state after validating the frame timestamp.
@@ -520,7 +506,7 @@ void Game::tick_runtime(double time_ms) {
 
     m_frame_state.tick(time_ms);
     m_status.m_frame_count = m_frame_state.frame_count();
-    clear_status_last_error(m_status);
+    m_status.clear_transient_error();
 }
 
 // Returns the clamped frame delta in seconds for component updates.
@@ -553,7 +539,7 @@ void Game::mark_gpu_ready(std::string adapter_name, std::string backend, std::st
     m_status.m_backend = std::move(backend);
     m_status.m_surface_format = std::move(surface_format);
     m_status.m_initialized = m_surface_configured && m_status.m_canvas_width > 0 && m_status.m_canvas_height > 0;
-    clear_status_last_error(m_status);
+    m_status.clear_transient_error();
 }
 
 // Records durable renderer resource counts for smoke/performance checks.
@@ -566,7 +552,7 @@ void Game::mark_renderer_counters(std::uint32_t pipeline_create_count, std::uint
 
     m_status.m_pipeline_create_count = pipeline_create_count;
     m_status.m_buffer_create_count = buffer_create_count;
-    clear_status_last_error(m_status);
+    m_status.clear_transient_error();
 }
 
 // Marks the platform target/surface as configured for the current nonzero size.
@@ -584,7 +570,7 @@ void Game::mark_surface_configured() {
     if (m_status.m_canvas_width == 0 || m_status.m_canvas_height == 0) {
         m_surface_configured = false;
         m_status.m_initialized = false;
-        clear_status_last_error(m_status);
+        m_status.clear_transient_error();
         return;
     }
 
@@ -593,7 +579,7 @@ void Game::mark_surface_configured() {
     }
     m_surface_configured = true;
     m_status.m_initialized = true;
-    clear_status_last_error(m_status);
+    m_status.clear_transient_error();
 }
 
 // Records a recoverable runtime/render error while preserving ready resources.

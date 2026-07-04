@@ -6,6 +6,7 @@
 #include "ofg/math/quat.hpp"
 #include "ofg/math/transform.hpp"
 #include "ofg/math/vec.hpp"
+#include "ofg/render/lighting.hpp"
 #include "ofg/render/opaque_pbr_shader.hpp"
 #include "ofg/resources/material.hpp"
 #include "ofg/resources/mesh.hpp"
@@ -14,6 +15,7 @@
 #include "ofg/resources/shader.hpp"
 #include "ofg/resources/texture.hpp"
 #include "ofg/scene/camera.hpp"
+#include "ofg/scene/light.hpp"
 #include "ofg/scene/player.hpp"
 #include "ofg/scene/scene.hpp"
 
@@ -342,12 +344,36 @@ void setup_demo_scene(DemoScene& demo_scene, Scene& scene) {
     validate_demo_resources(demo_scene);
 
     scene.clear();
-    scene.set_main_light(DirectionalLight{math::vec3(-0.35f, -1.0f, -0.25f), math::vec3(1.0f, 0.96f, 0.88f), 3.2f});
-    scene.set_ambient_light(AmbientLight{math::vec3(0.46f, 0.52f, 0.62f), 0.22f});
     demo_scene.m_scene = &scene;
     demo_scene.m_scene_generation = scene.generation();
 
     Entity* root = scene.get_root();
+    Entity* sun_entity = scene.create_entity(root);
+    Component* sun_component = sun_entity->create_component(ComponentType::Light);
+    if (sun_component == nullptr || sun_component->type() != ComponentType::Light || sun_entity->light() == nullptr) {
+        throw EngineError("Demo scene failed to create a directional sun Light component.");
+    }
+    Light* sun_light = sun_entity->light();
+    sun_light->set_color_intensity(math::vec3(1.0f, 0.96f, 0.88f), 3.2f);
+    scene.environment().set_main_directional_light(sun_light);
+    scene.environment().set_ambient_light(AmbientLight{math::vec3(0.46f, 0.52f, 0.62f), 0.22f});
+
+    std::string light_error;
+    const std::optional<math::Vec3> initial_sun_direction =
+        math::normalize(math::vec3(-0.35f, -1.0f, -0.25f), light_error);
+    if (!initial_sun_direction.has_value()) {
+        throw EngineError(light_error.empty() ? "Demo sun direction could not be normalized." : light_error);
+    }
+    const std::optional<math::Quat> initial_sun_rotation =
+        math::quat_look_at_lh(sun_entity->local_transform().m_position,
+            math::add(sun_entity->local_transform().m_position, *initial_sun_direction),
+            math::vec3(0.0f, 1.0f, 0.0f),
+            light_error);
+    if (!initial_sun_rotation.has_value()) {
+        throw EngineError(light_error.empty() ? "Demo sun rotation could not be built." : light_error);
+    }
+    sun_entity->local_transform().m_rotation = *initial_sun_rotation;
+
     Entity* camera_entity = scene.create_entity(root);
     configure_demo_camera(*camera_entity);
 

@@ -29,6 +29,8 @@ struct RuntimeDebugStatus {
     std::uint32_t m_surface_configure_count{0};
     std::optional<std::string> m_last_error;
 
+    // Clears recoverable runtime errors while preserving durable subsystem failures.
+    void clear_transient_error() noexcept;
     // Serializes the status using the browser-facing debug-status field names.
     [[nodiscard]] std::string to_json() const;
 

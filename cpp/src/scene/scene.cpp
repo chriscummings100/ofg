@@ -9,35 +9,19 @@
 #include "ofg/math/vec.hpp"
 #include "ofg/scene/animation_player.hpp"
 #include "ofg/scene/camera.hpp"
+#include "ofg/scene/environment.hpp"
+#include "ofg/scene/light.hpp"
 #include "ofg/scene/player.hpp"
 #include "ofg/scene/scene_update.hpp"
 
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <optional>
-#include <string>
 #include <utility>
 #include <vector>
 
 namespace ofg {
 namespace {
-
-// Returns whether every component is finite.
-bool is_finite_vec3(math::Vec3 value) noexcept {
-    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
-}
-
-// Validates a non-negative finite light color and intensity.
-void validate_light_color(math::Vec3 color, float intensity, const char* label) {
-    if (!is_finite_vec3(color) || !std::isfinite(intensity)) {
-        throw EngineError(std::string(label) + " light values must be finite.");
-    }
-    if (color.x < 0.0f || color.y < 0.0f || color.z < 0.0f || intensity < 0.0f) {
-        throw EngineError(std::string(label) + " light color and intensity must be non-negative.");
-    }
-}
 
 // Writes one cached world transform per entity id in tree order.
 void write_world_transform_cache(
@@ -64,7 +48,8 @@ Scene::Scene() {
 Scene::Scene(Scene&& other) noexcept
     : m_entities(std::move(other.m_entities)), m_mesh_renderers(std::move(other.m_mesh_renderers)),
       m_cameras(std::move(other.m_cameras)), m_players(std::move(other.m_players)),
-      m_animation_players(std::move(other.m_animation_players)), m_main_camera(std::move(other.m_main_camera)),
+      m_animation_players(std::move(other.m_animation_players)), m_lights(std::move(other.m_lights)),
+      m_main_camera(std::move(other.m_main_camera)), m_environment(std::move(other.m_environment)),
       m_world_transform_cache(std::move(other.m_world_transform_cache)), m_root(other.m_root),
       m_next_entity_id(other.m_next_entity_id), m_generation(other.m_generation) {
     rebind_entities_after_move();
@@ -83,7 +68,9 @@ Scene& Scene::operator=(Scene&& other) noexcept {
     m_cameras = std::move(other.m_cameras);
     m_players = std::move(other.m_players);
     m_animation_players = std::move(other.m_animation_players);
+    m_lights = std::move(other.m_lights);
     m_main_camera = std::move(other.m_main_camera);
+    m_environment = std::move(other.m_environment);
     m_world_transform_cache = std::move(other.m_world_transform_cache);
     m_root = other.m_root;
     m_next_entity_id = other.m_next_entity_id;
@@ -206,32 +193,35 @@ void Scene::set_main_camera(Camera* camera) {
     m_main_camera = camera;
 }
 
-// Returns the main directional light used by the first PBR renderer path.
-const DirectionalLight& Scene::main_light() const noexcept {
-    return m_main_light;
+// Reports the number of light components in creation order.
+std::size_t Scene::light_count() const noexcept {
+    return m_lights.size();
 }
 
-// Replaces the main directional light after normalizing its direction.
-void Scene::set_main_light(DirectionalLight light) {
-    validate_light_color(light.m_color, light.m_intensity, "Directional");
-    std::string error;
-    std::optional<math::Vec3> direction = math::normalize(light.m_direction, error);
-    if (!direction.has_value()) {
-        throw EngineError(error.empty() ? "Directional light direction must be nonzero." : error);
+// Returns one light by creation-order index.
+Light* Scene::get_light(std::size_t index) noexcept {
+    if (index >= m_lights.size()) {
+        return nullptr;
     }
-    light.m_direction = *direction;
-    m_main_light = light;
+    return m_lights[index].get();
 }
 
-// Returns the ambient light term used by the first PBR renderer path.
-const AmbientLight& Scene::ambient_light() const noexcept {
-    return m_ambient_light;
+// Returns one light by creation-order index.
+const Light* Scene::get_light(std::size_t index) const noexcept {
+    if (index >= m_lights.size()) {
+        return nullptr;
+    }
+    return m_lights[index].get();
 }
 
-// Replaces the ambient light term.
-void Scene::set_ambient_light(AmbientLight light) {
-    validate_light_color(light.m_color, light.m_intensity, "Ambient");
-    m_ambient_light = light;
+// Returns scene-owned global environment state.
+Environment& Scene::environment() noexcept {
+    return m_environment;
+}
+
+// Returns scene-owned global environment state.
+const Environment& Scene::environment() const noexcept {
+    return m_environment;
 }
 
 // Reports the number of player components in creation order.
@@ -279,6 +269,7 @@ const AnimationPlayer* Scene::get_animation_player(std::size_t index) const noex
 // Updates scene-owned gameplay and camera components in deterministic order.
 void Scene::update(const SceneUpdateContext& context) {
     validate_control_input(context.m_controls);
+    m_environment.update(*this, context.m_time_ms, context.m_delta_seconds);
     for (const std::unique_ptr<Player>& player : m_players) {
         player->update(context);
     }
@@ -305,10 +296,12 @@ std::uint32_t Scene::generation() const noexcept {
 // Clears all entities/components and creates a fresh root.
 void Scene::clear() {
     m_main_camera = nullptr;
+    m_environment = Environment{};
     m_cameras.clear();
     m_players.clear();
     m_animation_players.clear();
     m_mesh_renderers.clear();
+    m_lights.clear();
     m_world_transform_cache.clear();
     m_entities.clear();
     m_root = nullptr;
@@ -352,6 +345,13 @@ Component* Scene::create_component(Entity& entity, ComponentType type) {
         m_animation_players.push_back(std::make_unique<AnimationPlayer>(&entity));
         entity.m_animation_player = m_animation_players.back().get();
         return entity.m_animation_player;
+    case ComponentType::Light:
+        if (entity.m_light != nullptr) {
+            throw EngineError("Entity already has a Light component.");
+        }
+        m_lights.push_back(std::make_unique<Light>(&entity));
+        entity.m_light = m_lights.back().get();
+        return entity.m_light;
     }
 
     throw EngineError("Scene cannot create an unknown component type.");

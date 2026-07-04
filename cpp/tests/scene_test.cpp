@@ -12,20 +12,24 @@
 #include "ofg/math/quat.hpp"
 #include "ofg/math/transform.hpp"
 #include "ofg/math/vec.hpp"
+#include "ofg/render/lighting.hpp"
 #include "ofg/resources/mesh.hpp"
 #include "ofg/resources/resources.hpp"
 #include "ofg/scene/camera.hpp"
+#include "ofg/scene/light.hpp"
 #include "ofg/scene/mesh_renderer.hpp"
 #include "ofg/scene/player.hpp"
 #include "ofg/scene/scene.hpp"
 #include "ofg/scene/scene_update.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -158,32 +162,134 @@ TEST_CASE("scene rejects invalid entity parents") {
         ofg::EngineError);
 }
 
-// Verifies scene-owned lighting has validated defaults and authoring setters.
-TEST_CASE("scene stores main directional and ambient lighting") {
+// Verifies directional lights are components and environment owns global lighting state.
+TEST_CASE("scene owns directional light components and environment resolves sun lighting") {
     ofg::Scene scene;
 
-    CHECK(scene.main_light().m_direction.y == doctest::Approx(-1.0f));
-    CHECK(scene.ambient_light().m_intensity == doctest::Approx(0.08f));
+    CHECK(scene.light_count() == 0);
+    CHECK(scene.environment().ambient_light().m_intensity == doctest::Approx(0.08f));
+    CHECK(scene.environment().star_seed() == 1337U);
 
-    scene.set_main_light(
-        ofg::DirectionalLight{ofg::math::vec3(0.0f, -2.0f, 0.0f), ofg::math::vec3(1.0f, 0.9f, 0.8f), 2.5f});
-    CHECK(scene.main_light().m_direction.y == doctest::Approx(-1.0f));
-    CHECK(scene.main_light().m_intensity == doctest::Approx(2.5f));
+    ofg::Entity* light_entity = scene.create_entity(scene.get_root());
+    ofg::Component* component = light_entity->create_component(ofg::ComponentType::Light);
+    REQUIRE(component != nullptr);
+    CHECK(component->type() == ofg::ComponentType::Light);
+    REQUIRE(light_entity->light() != nullptr);
+    ofg::Light* light = light_entity->light();
+    CHECK(light->entity() == light_entity);
+    CHECK(light->light_type() == ofg::LightType::Directional);
+    CHECK(light->enabled());
+    light->set_enabled(false);
+    CHECK_FALSE(light->enabled());
+    light->set_enabled(true);
+    CHECK(light->enabled());
+    CHECK(scene.light_count() == 1);
+    CHECK(scene.get_light(0) == light);
+    CHECK(scene.get_light(1) == nullptr);
 
-    scene.set_ambient_light(ofg::AmbientLight{ofg::math::vec3(0.2f, 0.3f, 0.4f), 0.15f});
-    CHECK(scene.ambient_light().m_color.z == doctest::Approx(0.4f));
-    CHECK(scene.ambient_light().m_intensity == doctest::Approx(0.15f));
+    light->set_color_intensity(ofg::math::vec3(1.0f, 0.9f, 0.8f), 2.5f);
+    CHECK(light->intensity() == doctest::Approx(2.5f));
 
-    CHECK_THROWS_WITH_AS(([&]() {
-        scene.set_main_light(
-            ofg::DirectionalLight{ofg::math::vec3(0.0f, 0.0f, 0.0f), ofg::math::vec3(1.0f, 1.0f, 1.0f), 1.0f});
-    }()),
-        doctest::Contains("normalize"),
+    scene.environment().set_ambient_light(ofg::AmbientLight{ofg::math::vec3(0.2f, 0.3f, 0.4f), 0.15f});
+    CHECK(scene.environment().ambient_light().m_color.z == doctest::Approx(0.4f));
+    CHECK(scene.environment().ambient_light().m_intensity == doctest::Approx(0.15f));
+
+    std::array<ofg::LightProperties, 1> light_properties{};
+    CHECK(ofg::build_light_properties(scene, std::span<ofg::LightProperties>(light_properties)) == 0);
+
+    ofg::Scene foreign_scene;
+    ofg::Entity* foreign_light_entity = foreign_scene.create_entity(foreign_scene.get_root());
+    (void)foreign_light_entity->create_component(ofg::ComponentType::Light);
+    scene.environment().set_main_directional_light(foreign_light_entity->light());
+
+    ofg::ControlInput controls;
+    ofg::SceneUpdateContext context{controls, 1000.0, 0.0f, nullptr, nullptr};
+    scene.update(context);
+
+    CHECK(scene.environment().main_directional_light() == light);
+    CHECK(ofg::build_light_properties(scene, std::span<ofg::LightProperties>(light_properties)) == 1);
+    CHECK(light_properties[0].m_type == ofg::LightPropertiesType::Directional);
+    CHECK(ofg::build_light_properties(scene, std::span<ofg::LightProperties>{}) == 0);
+
+    const ofg::math::Mat4 world_from_light = ofg::world_from_local(*light_entity);
+    const ofg::math::Vec3 forward =
+        ofg::math::vec3(world_from_light[2].x, world_from_light[2].y, world_from_light[2].z);
+    const ofg::math::Vec3 expected_travel = ofg::math::mul(scene.environment().sun_direction(), -1.0f);
+    CHECK(ofg::math::dot(forward, expected_travel) > 0.999f);
+    CHECK(light_properties[0].m_intensity >= 0.0f);
+
+    CHECK_THROWS_WITH_AS(([&]() { (void)light_entity->create_component(ofg::ComponentType::Light); }()),
+        doctest::Contains("Light"),
         ofg::EngineError);
-    CHECK_THROWS_WITH_AS(
-        ([&]() { scene.set_ambient_light(ofg::AmbientLight{ofg::math::vec3(-1.0f, 0.0f, 0.0f), 1.0f}); }()),
+    CHECK_THROWS_WITH_AS(([&]() { light->set_color_intensity(ofg::math::vec3(-1.0f, 0.0f, 0.0f), 1.0f); }()),
         doctest::Contains("non-negative"),
         ofg::EngineError);
+    CHECK_THROWS_WITH_AS(([&]() {
+        light->set_color_intensity(ofg::math::vec3(std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f), 1.0f);
+    }()),
+        doctest::Contains("finite"),
+        ofg::EngineError);
+    CHECK_THROWS_WITH_AS(([&]() { light->set_color_intensity(ofg::math::vec3(1.0f, 1.0f, 1.0f), -1.0f); }()),
+        doctest::Contains("non-negative"),
+        ofg::EngineError);
+
+    CHECK_THROWS_WITH_AS(([&]() {
+        scene.environment().set_ambient_light(
+            ofg::AmbientLight{ofg::math::vec3(std::numeric_limits<float>::infinity(), 0.0f, 0.0f), 1.0f});
+    }()),
+        doctest::Contains("finite"),
+        ofg::EngineError);
+    CHECK_THROWS_WITH_AS(([&]() {
+        scene.environment().set_ambient_light(ofg::AmbientLight{ofg::math::vec3(1.0f, 1.0f, 1.0f), -0.1f});
+    }()),
+        doctest::Contains("non-negative"),
+        ofg::EngineError);
+
+    ofg::SkyWeather invalid_weather = scene.environment().weather();
+    invalid_weather.m_cloud_coverage = 2.0f;
+    CHECK_THROWS_WITH_AS(
+        ([&]() { scene.environment().set_weather(invalid_weather); }()), doctest::Contains("[0, 1]"), ofg::EngineError);
+    invalid_weather = scene.environment().weather();
+    invalid_weather.m_cloud_scale = std::numeric_limits<float>::infinity();
+    CHECK_THROWS_WITH_AS(
+        ([&]() { scene.environment().set_weather(invalid_weather); }()), doctest::Contains("finite"), ofg::EngineError);
+    invalid_weather = scene.environment().weather();
+    invalid_weather.m_cloud_height = -1.0f;
+    CHECK_THROWS_WITH_AS(([&]() { scene.environment().set_weather(invalid_weather); }()),
+        doctest::Contains("non-negative"),
+        ofg::EngineError);
+
+    CHECK_THROWS_WITH_AS(
+        ([&]() { scene.environment().update(scene, std::numeric_limits<double>::infinity(), 0.0f); }()),
+        doctest::Contains("finite"),
+        ofg::EngineError);
+    CHECK_THROWS_WITH_AS(([&]() { scene.environment().update(scene, 1000.0, -0.01f); }()),
+        doctest::Contains("non-negative"),
+        ofg::EngineError);
+
+    scene.environment().update(scene, 90000.0, 0.0f);
+    CHECK(scene.environment().day_factor() == doctest::Approx(1.0f));
+
+    light->set_enabled(false);
+    CHECK(ofg::build_light_properties(scene, std::span<ofg::LightProperties>(light_properties)) == 0);
+    light->set_enabled(true);
+
+    ofg::Light orphan_light(nullptr);
+    scene.environment().set_main_directional_light(&orphan_light);
+    CHECK(ofg::build_light_properties(scene, std::span<ofg::LightProperties>(light_properties)) == 0);
+    scene.environment().set_main_directional_light(light);
+
+    light_entity->local_transform().m_scale = ofg::math::vec3(1.0f, 1.0f, 0.0f);
+    CHECK_THROWS_WITH_AS(
+        ([&]() { (void)ofg::build_light_properties(scene, std::span<ofg::LightProperties>(light_properties)); }()),
+        doctest::Contains("zero-length"),
+        ofg::EngineError);
+    light_entity->local_transform().m_scale = ofg::math::vec3(1.0f, 1.0f, 1.0f);
+
+    scene.clear();
+    CHECK(scene.light_count() == 0);
+    CHECK(scene.environment().main_directional_light() == nullptr);
+    CHECK(scene.environment().ambient_light().m_intensity == doctest::Approx(0.08f));
 }
 
 // Verifies mesh renderer components are scene-owned and exposed by index.

@@ -16,6 +16,7 @@ namespace ofg {
 
 class Camera;
 class AnimationPlayer;
+class Light;
 class MeshRenderer;
 class Player;
 class Scene;
@@ -73,6 +74,10 @@ public:
     [[nodiscard]] AnimationPlayer* animation_player() noexcept;
     // Returns this entity's animation player, if one exists.
     [[nodiscard]] const AnimationPlayer* animation_player() const noexcept;
+    // Returns this entity's light, if one exists.
+    [[nodiscard]] Light* light() noexcept;
+    // Returns this entity's light, if one exists.
+    [[nodiscard]] const Light* light() const noexcept;
 
 private:
     friend class Scene;
@@ -93,6 +98,7 @@ private:
     Camera* m_camera{nullptr};
     Player* m_player{nullptr};
     AnimationPlayer* m_animation_player{nullptr};
+    Light* m_light{nullptr};
 };
 
 } // namespace ofg

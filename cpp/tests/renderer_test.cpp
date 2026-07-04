@@ -354,11 +354,12 @@ TEST_CASE("renderer static lifecycle prepares pass resources") {
 
     REQUIRE(ofg::Renderer::prepare());
     CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Ready);
-    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 0);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 2);
+    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 2);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 4);
+    CHECK(ofg::Renderer::counters().m_shader_module_create_count == 2);
 
     REQUIRE(ofg::Renderer::prepare());
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 2);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 4);
     CHECK(ofg::Renderer::release());
     CHECK(ofg::Renderer::state() == ofg::RendererLifecycleState::Released);
     CHECK(ofg::Renderer::release());
@@ -501,8 +502,10 @@ TEST_CASE("renderer skips invisible scene mesh renderers") {
     CHECK_NOTHROW(
         ofg::Renderer::render(encoder.m_value, ofg::RenderTarget{view.m_value, _test_format, 32, 32}, render_scene));
 
-    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 0);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 2);
+    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 2);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 4);
+    CHECK(ofg::Renderer::counters().m_texture_create_count == 2);
+    CHECK(ofg::Renderer::counters().m_texture_view_create_count == 2);
 }
 
 // Verifies scene mesh renderers record into a null-backend render target and finish cleanly.
@@ -528,8 +531,11 @@ TEST_CASE("renderer records scene mesh renderers into render targets without ste
     REQUIRE(command.m_value != nullptr);
     wgpuQueueSubmit(gpu.borrowed_context().m_queue, 1, &command.m_value);
 
-    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 1);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 3);
+    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 3);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 5);
+    CHECK(ofg::Renderer::counters().m_texture_create_count == 2);
+    CHECK(ofg::Renderer::counters().m_texture_view_create_count == 2);
+    CHECK(ofg::Renderer::counters().m_bind_group_create_count == 5);
 
     ScopedTexture second_texture;
     ScopedTextureView second_view = make_render_target_view(gpu.borrowed_context(), second_texture);
@@ -538,7 +544,10 @@ TEST_CASE("renderer records scene mesh renderers into render targets without ste
     CHECK_NOTHROW(ofg::Renderer::render(
         second_encoder.m_value, ofg::RenderTarget{second_view.m_value, _test_format, 32, 32}, one_command_scene));
 
-    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 1);
-    CHECK(ofg::Renderer::counters().m_buffer_create_count == 3);
+    CHECK(ofg::Renderer::counters().m_pipeline_create_count == 3);
+    CHECK(ofg::Renderer::counters().m_buffer_create_count == 5);
+    CHECK(ofg::Renderer::counters().m_texture_create_count == 2);
+    CHECK(ofg::Renderer::counters().m_texture_view_create_count == 2);
+    CHECK(ofg::Renderer::counters().m_bind_group_create_count == 5);
     CHECK_NOTHROW(ofg::Renderer::resize(0, 0));
 }

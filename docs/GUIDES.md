@@ -23,4 +23,8 @@ Files should have detailed and maintained comments at the top to document their 
 
 To continue being maintainable when large, the OFG code base needs to remain modular, with clear contracts between modules. Extending the public interface of a module requires clear justification and documentation.
 
+## Facade ownership (2026-07-04)
+
+Facade and lifecycle files such as `game.cpp` should stay thin. They may coordinate startup and shutdown, frame order, and compact status aggregation, but feature-specific behavior belongs in the owning subsystem, component, or resource type. Do not let `game.cpp` become a dumping ground for player, renderer, resource, terrain, networking, or UI implementation details. If a feature needs more than orchestration or status plumbing in `Game`, move it behind an owned API and document that boundary.
+
 

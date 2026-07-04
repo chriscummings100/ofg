@@ -1,7 +1,7 @@
 // Doctest coverage for deterministic C++ bootstrap scene data.
 //
-// The triangle is now legacy layout data, while the clear color is still shared
-// by the active renderer and smoke contracts.
+// The triangle is now legacy layout data, while the clear color remains the
+// renderer's pre-sky clear baseline.
 #include "doctest.h"
 
 #include "ofg/render/bootstrap_scene.hpp"
@@ -40,8 +40,8 @@ TEST_CASE("bootstrap vertex layout matches WGSL attributes") {
     CHECK(ofg::bootstrap_vertex_color_offset() == 8);
 }
 
-// Verifies the C++ clear color matches the shared smoke-contract bytes.
-TEST_CASE("bootstrap clear color matches smoke contract") {
+// Verifies the C++ clear color keeps the dark bootstrap baseline.
+TEST_CASE("bootstrap clear color keeps bootstrap baseline") {
     CHECK(ofg::clear_color_rgba8() == std::array<std::uint8_t, 4>{27, 37, 50, 255});
 
     const ofg::ClearColor color = ofg::clear_color();

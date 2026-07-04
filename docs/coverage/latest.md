@@ -1,10 +1,10 @@
 # Latest Coverage
 
-Date: 2026-07-02
+Date: 2026-07-04
 
 Commands: `npm run coverage`.
 
-Result: passed. The C++ coverage wrapper reported that checked animation/core/gpu/runtime/math/render/resource/scene files met the 90% per-file line coverage gate, and the TypeScript coverage wrapper reported that checked TypeScript files met the 90% per-file line coverage gate.
+Result: passed. The C++ coverage wrapper reported that checked animation/core/gpu/runtime/math/render/resource/scene files met the 90% per-file line coverage gate, including the new HDR target, tone-map, lighting, environment, and sky render files. The TypeScript coverage wrapper reported that checked TypeScript files met the 90% per-file line coverage gate.
 
 Generated local artifacts:
 
@@ -31,28 +31,36 @@ Committed summary copies:
 | `cpp/src/math/transform.cpp` | 100.00% (103/103) |
 | `cpp/src/render/bootstrap_scene.cpp` | 100.00% (3/3) |
 | `cpp/src/render/camera_properties.cpp` | 95.74% (45/47) |
-| `cpp/src/render/demo_scene.cpp` | 92.47% (270/292) |
+| `cpp/src/render/demo_scene.cpp` | 91.08% (286/314) |
+| `cpp/src/render/depth_target.cpp` | 96.30% (78/81) |
 | `cpp/src/render/draw_list.cpp` | 96.77% (60/62) |
-| `cpp/src/render/opaque_pass.cpp` | 92.22% (308/334) |
+| `cpp/src/render/lighting.cpp` | 100.00% (26/26) |
+| `cpp/src/render/opaque_pass.cpp` | 93.86% (260/277) |
 | `cpp/src/render/opaque_pbr_shader.cpp` | 100.00% (17/17) |
 | `cpp/src/render/pipeline_cache.cpp` | 96.67% (116/120) |
-| `cpp/src/render/renderer.cpp` | 90.22% (166/184) |
+| `cpp/src/render/renderer.cpp` | 90.35% (234/259) |
+| `cpp/src/render/renderer_counters.cpp` | 100.00% (9/9) |
+| `cpp/src/render/scene_color_target.cpp` | 94.17% (113/120, 6 defensive lines excluded) |
+| `cpp/src/render/sky_pass.cpp` | 92.51% (247/267, 16 defensive lines excluded) |
+| `cpp/src/render/tone_map_pass.cpp` | 92.61% (238/257, 14 defensive lines excluded) |
 | `cpp/src/resources/material.cpp` | 90.71% (205/226) |
 | `cpp/src/resources/mesh.cpp` | 93.72% (194/207) |
 | `cpp/src/resources/property_bag.cpp` | 94.56% (139/147) |
-| `cpp/src/resources/resource_error.cpp` | 93.75% (15/16) |
 | `cpp/src/resources/resource.cpp` | 96.67% (58/60) |
-| `cpp/src/resources/resources.cpp` | 92.68% (532/574) |
+| `cpp/src/resources/resource_error.cpp` | 93.75% (15/16) |
+| `cpp/src/resources/resources.cpp` | 91.19% (435/477) |
 | `cpp/src/resources/shader.cpp` | 94.12% (128/136) |
 | `cpp/src/resources/texture.cpp` | 93.00% (226/243) |
-| `cpp/src/runtime/runtime_debug_status.cpp` | 100.00% (78/78) |
+| `cpp/src/runtime/runtime_debug_status.cpp` | 100.00% (83/83) |
 | `cpp/src/scene/animation_player.cpp` | 91.26% (282/309) |
 | `cpp/src/scene/camera.cpp` | 91.84% (225/245) |
 | `cpp/src/scene/component.cpp` | 100.00% (10/10) |
-| `cpp/src/scene/entity.cpp` | 95.31% (61/64) |
+| `cpp/src/scene/entity.cpp` | 91.43% (64/70) |
+| `cpp/src/scene/environment.cpp` | 94.89% (223/235) |
+| `cpp/src/scene/light.cpp` | 100.00% (32/32) |
 | `cpp/src/scene/mesh_renderer.cpp` | 94.06% (190/202) |
-| `cpp/src/scene/player.cpp` | 91.43% (320/350) |
-| `cpp/src/scene/scene.cpp` | 91.97% (275/299) |
+| `cpp/src/scene/player.cpp` | 90.30% (326/361) |
+| `cpp/src/scene/scene.cpp` | 90.73% (274/302) |
 
 C++ exceptions:
 
@@ -60,6 +68,7 @@ C++ exceptions:
 - `cpp/src/game/game.cpp`: device-bound `Game` renderer ownership and command encoding; covered by `npm run build:wasm`, browser smoke, and native smoke rather than native line coverage.
 - `cpp/src/web/`: browser-only Emscripten/Embind/WebGPU glue and frame-driver submission; covered by `npm run build:wasm`, TypeScript adapter tests, and browser smoke rather than native line coverage.
 - `cpp/src/native/`: native Dawn smoke harness; covered by `npm run smoke:render` because the validation value is GPU readback plus PNG/report output.
+- `cpp/src/render/scene_color_target.cpp`, `cpp/src/render/sky_pass.cpp`, and `cpp/src/render/tone_map_pass.cpp`: only narrow defensive WebGPU null-return, impossible tangent overflow, and partial-creation cleanup lines are excluded by `tools/cpp-coverage.mjs`; normal behavior remains gated and smoke-tested.
 
 ## TypeScript Line Coverage
 

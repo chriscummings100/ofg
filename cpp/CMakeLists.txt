@@ -115,11 +115,17 @@ add_library(ofg_cpp
   src/render/bootstrap_scene.cpp
   src/render/camera_properties.cpp
   src/render/demo_scene.cpp
+  src/render/depth_target.cpp
   src/render/draw_list.cpp
+  src/render/lighting.cpp
   src/render/opaque_pass.cpp
   src/render/opaque_pbr_shader.cpp
   src/render/pipeline_cache.cpp
+  src/render/renderer_counters.cpp
   src/render/renderer.cpp
+  src/render/scene_color_target.cpp
+  src/render/sky_pass.cpp
+  src/render/tone_map_pass.cpp
   src/resources/material.cpp
   src/resources/mesh.cpp
   src/resources/property_bag.cpp
@@ -133,6 +139,8 @@ add_library(ofg_cpp
   src/scene/animation_player.cpp
   src/scene/component.cpp
   src/scene/entity.cpp
+  src/scene/environment.cpp
+  src/scene/light.cpp
   src/scene/mesh_renderer.cpp
   src/scene/player.cpp
   src/scene/scene.cpp
@@ -216,6 +224,7 @@ if(OFG_BUILD_TESTS AND NOT EMSCRIPTEN)
     tests/property_bag_test.cpp
     tests/resource_gpu_test.cpp
     tests/resource_error_test.cpp
+    tests/renderer_targets_test.cpp
     tests/resources_lifecycle_test.cpp
     tests/resources_model_load_test.cpp
     tests/pipeline_cache_test.cpp
@@ -224,6 +233,7 @@ if(OFG_BUILD_TESTS AND NOT EMSCRIPTEN)
     tests/runtime_debug_status_test.cpp
     tests/scene_animation_test.cpp
     tests/scene_test.cpp
+    tests/sky_pass_test.cpp
     tests/test_main.cpp
     tests/texture_resource_test.cpp
     tests/webgpu_test_utils.cpp

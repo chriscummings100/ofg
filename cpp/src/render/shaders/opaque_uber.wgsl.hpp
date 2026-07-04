@@ -1,7 +1,7 @@
 // WGSL source for OFG's opaque PBR draw-list renderer.
 //
 // The first PBR path supports metallic-roughness materials, base-color textures,
-// normal maps, one main directional light, and an ambient term.
+// normal maps, one renderer-facing directional light, and an ambient term.
 #pragma once
 
 namespace ofg::render::shaders {

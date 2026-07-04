@@ -8,12 +8,15 @@
 
 #include "ofg/game/gpu_context.hpp"
 #include "ofg/game/render_target.hpp"
+#include "ofg/render/depth_target.hpp"
 #include "ofg/render/draw_list.hpp"
 #include "ofg/render/opaque_pass.hpp"
+#include "ofg/render/scene_color_target.hpp"
+#include "ofg/render/sky_pass.hpp"
+#include "ofg/render/tone_map_pass.hpp"
 #include "ofg/scene/scene.hpp"
 
 #include <memory>
-#include <vector>
 
 #include <webgpu/webgpu.h>
 
@@ -80,7 +83,11 @@ private:
     WGPUTextureFormat m_color_format{WGPUTextureFormat_Undefined};
     RendererLifecycleState m_state{RendererLifecycleState::Uninitialized};
     DrawList m_draw_list;
-    std::vector<std::unique_ptr<OpaquePass>> m_passes;
+    std::unique_ptr<SceneColorTarget> m_scene_color_target;
+    std::unique_ptr<DepthTarget> m_depth_target;
+    std::unique_ptr<OpaquePass> m_opaque_pass;
+    std::unique_ptr<SkyPass> m_sky_pass;
+    std::unique_ptr<ToneMapPass> m_tone_map_pass;
 };
 
 } // namespace ofg

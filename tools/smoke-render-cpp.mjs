@@ -74,6 +74,8 @@ run(cmake, ["--build", buildDir, "--target", "ofg_render_smoke_cpp", "--parallel
 const smokeContract = JSON.parse(
   readFileSync(path.join(rootDir, "tools", "smoke-contract.json"), "utf8")
 );
+const backgroundReferenceRgba8 =
+  smokeContract.backgroundReferenceRgba8 ?? smokeContract.clearColorRgba8;
 const executable = path.join(
   buildDir,
   process.platform === "win32" ? "ofg_render_smoke_cpp.exe" : "ofg_render_smoke_cpp"
@@ -89,8 +91,8 @@ run(executable, [
   String(smokeContract.width),
   "--height",
   String(smokeContract.height),
-  "--clear-color-rgba8",
-  smokeContract.clearColorRgba8.join(","),
+  "--background-reference-rgba8",
+  backgroundReferenceRgba8.join(","),
   "--sample-step",
   String(smokeContract.sampleStep),
   "--color-distance-tolerance",
