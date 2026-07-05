@@ -2,6 +2,7 @@
 #include "ofg/terrain/terrain.hpp"
 
 #include "ofg/core/engine_error.hpp"
+#include "ofg/resources/material.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -60,6 +61,46 @@ void Terrain::set_config(TerrainConfig config) {
         m_config = config;
         clear_chunks();
     }
+}
+
+// Stores the shared clay terrain material used by normal terrain rendering.
+void Terrain::set_material(Material* material) noexcept {
+    m_material = material;
+}
+
+// Returns the shared clay terrain material, or nullptr.
+Material* Terrain::material() noexcept {
+    return m_material.get();
+}
+
+// Returns the shared clay terrain material, or nullptr.
+const Material* Terrain::material() const noexcept {
+    return m_material.get();
+}
+
+// Stores the shared height-debug plane material used by debug rendering.
+void Terrain::set_debug_plane_material(Material* material) noexcept {
+    m_debug_plane_material = material;
+}
+
+// Returns the shared height-debug plane material, or nullptr.
+Material* Terrain::debug_plane_material() noexcept {
+    return m_debug_plane_material.get();
+}
+
+// Returns the shared height-debug plane material, or nullptr.
+const Material* Terrain::debug_plane_material() const noexcept {
+    return m_debug_plane_material.get();
+}
+
+// Selects which chunk-owned render data terrain extraction should expose.
+void Terrain::set_render_mode(TerrainRenderMode mode) noexcept {
+    m_render_mode = mode;
+}
+
+// Returns the selected terrain render mode.
+TerrainRenderMode Terrain::render_mode() const noexcept {
+    return m_render_mode;
 }
 
 // Reconciles the fixed 5 by 5 LOD0 surface region around the origin chunk.

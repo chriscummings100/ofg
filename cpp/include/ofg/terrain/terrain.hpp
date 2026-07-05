@@ -6,6 +6,7 @@
 // before the renderer attaches richer textures and meshes in later milestones.
 #pragma once
 
+#include "ofg/core/ptr.hpp"
 #include "ofg/math/vec.hpp"
 #include "ofg/terrain/terrain_chunk.hpp"
 
@@ -14,6 +15,8 @@
 #include <map>
 
 namespace ofg {
+
+class Material;
 
 struct TerrainConfig {
     std::uint64_t m_seed{1};
@@ -24,12 +27,33 @@ struct TerrainTickContext {
     math::Vec3 m_generation_origin{0.0f, 0.0f, 0.0f};
 };
 
+enum class TerrainRenderMode {
+    ClayMesh,
+    HeightDebugPlane,
+};
+
 class Terrain {
 public:
     // Returns the current deterministic terrain generation inputs.
     [[nodiscard]] const TerrainConfig& config() const noexcept;
     // Replaces generation inputs and clears generated chunks when they change.
     void set_config(TerrainConfig config);
+    // Stores the shared clay terrain material used by normal terrain rendering.
+    void set_material(Material* material) noexcept;
+    // Returns the shared clay terrain material, or nullptr.
+    [[nodiscard]] Material* material() noexcept;
+    // Returns the shared clay terrain material, or nullptr.
+    [[nodiscard]] const Material* material() const noexcept;
+    // Stores the shared height-debug plane material used by debug rendering.
+    void set_debug_plane_material(Material* material) noexcept;
+    // Returns the shared height-debug plane material, or nullptr.
+    [[nodiscard]] Material* debug_plane_material() noexcept;
+    // Returns the shared height-debug plane material, or nullptr.
+    [[nodiscard]] const Material* debug_plane_material() const noexcept;
+    // Selects which chunk-owned render data terrain extraction should expose.
+    void set_render_mode(TerrainRenderMode mode) noexcept;
+    // Returns the selected terrain render mode.
+    [[nodiscard]] TerrainRenderMode render_mode() const noexcept;
     // Reconciles the fixed 5 by 5 LOD0 surface region around the origin chunk.
     void tick(const TerrainTickContext& context);
     // Samples the deterministic heightfield at one world X/Z coordinate.
@@ -52,6 +76,9 @@ public:
 private:
     TerrainConfig m_config;
     std::map<TerrainChunkId, TerrainChunk> m_chunks;
+    Ptr<Material> m_material;
+    Ptr<Material> m_debug_plane_material;
+    TerrainRenderMode m_render_mode{TerrainRenderMode::ClayMesh};
 };
 
 // Validates user-tunable terrain generation inputs.

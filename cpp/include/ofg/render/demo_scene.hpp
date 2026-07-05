@@ -7,7 +7,6 @@
 
 #include "ofg/resources/shader.hpp"
 #include "ofg/scene/scene.hpp"
-#include "ofg/terrain/terrain_scene.hpp"
 
 #include <array>
 #include <cstdint>
@@ -39,7 +38,6 @@ struct DemoScene {
     Material* m_player_material{nullptr};
     std::array<Material*, 4> m_cube_materials{};
     Mesh* m_cube_mesh{nullptr};
-    TerrainSceneResources m_terrain_resources;
     Scene* m_scene{nullptr};
     std::uint32_t m_scene_generation{0};
     Entity* m_player_entity{nullptr};

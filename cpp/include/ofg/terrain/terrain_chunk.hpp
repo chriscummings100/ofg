@@ -1,9 +1,8 @@
 // Addressable procedural terrain chunk data.
 //
-// TerrainChunk owns the generated CPU heightfield for one fixed-size LOD0
-// terrain chunk. Renderer milestones attach debug textures and mesh resources
-// to this same chunk object so terrain data and render resources keep the same
-// stable chunk identity.
+// TerrainChunk owns the generated CPU heightfield and chunk-local render data
+// for one fixed-size LOD0 terrain chunk. Optional debug resources live on the
+// chunk too, so terrain rendering can stay a simple per-chunk data extraction.
 #pragma once
 
 #include "ofg/core/ptr.hpp"
@@ -61,18 +60,18 @@ public:
     [[nodiscard]] float world_min_x() const noexcept;
     // Returns the world Z coordinate of this chunk's minimum Z edge.
     [[nodiscard]] float world_min_z() const noexcept;
-    // Returns the debug texture resource attached to this chunk, or nullptr.
-    [[nodiscard]] Texture* heightfield_debug_texture() noexcept;
+    // Returns the generated terrain render mesh attached to this chunk, or nullptr.
+    [[nodiscard]] Mesh* render_mesh() noexcept;
     // Returns the debug-plane mesh resource attached to this chunk, or nullptr.
     [[nodiscard]] Mesh* debug_plane_mesh() noexcept;
-    // Returns the generated heightfield mesh resource attached to this chunk, or nullptr.
-    [[nodiscard]] Mesh* heightfield_mesh() noexcept;
-    // Attaches the Resources-owned debug texture produced for this chunk.
-    void set_heightfield_debug_texture(Texture* texture) noexcept;
+    // Returns the debug-plane texture resource attached to this chunk, or nullptr.
+    [[nodiscard]] Texture* debug_plane_texture() noexcept;
+    // Attaches the Resources-owned terrain render mesh produced for this chunk.
+    void set_render_mesh(Mesh* mesh) noexcept;
     // Attaches the Resources-owned debug-plane mesh used for this chunk.
     void set_debug_plane_mesh(Mesh* mesh) noexcept;
-    // Attaches the Resources-owned generated heightfield mesh for this chunk.
-    void set_heightfield_mesh(Mesh* mesh) noexcept;
+    // Attaches the Resources-owned debug-plane texture produced for this chunk.
+    void set_debug_plane_texture(Texture* texture) noexcept;
 
     // Regenerates the fixed 33 by 33 LOD0 heightfield from Terrain::sample().
     void generate_heightfield(const Terrain& terrain);
@@ -80,9 +79,9 @@ public:
 private:
     TerrainChunkId m_id;
     std::vector<TerrainSample> m_heightfield_samples;
-    Ptr<Texture> m_heightfield_debug_texture;
+    Ptr<Mesh> m_render_mesh;
     Ptr<Mesh> m_debug_plane_mesh;
-    Ptr<Mesh> m_heightfield_mesh;
+    Ptr<Texture> m_debug_plane_texture;
 };
 
 // Validates the first supported terrain chunk address space.

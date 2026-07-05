@@ -18,7 +18,7 @@
 #include "ofg/scene/light.hpp"
 #include "ofg/scene/player.hpp"
 #include "ofg/scene/scene.hpp"
-#include "ofg/terrain/terrain_scene.hpp"
+#include "ofg/terrain/terrain.hpp"
 
 #include "shaders/opaque_uber.wgsl.hpp"
 
@@ -314,11 +314,6 @@ void validate_demo_resources(const DemoScene& demo_scene) {
     if (demo_scene.m_cube_mesh == nullptr || demo_scene.m_player_material == nullptr) {
         throw EngineError("Demo scene resources are not initialized.");
     }
-    if (demo_scene.m_terrain_resources.m_height_debug_shader == nullptr ||
-        demo_scene.m_terrain_resources.m_height_debug_default_material == nullptr ||
-        demo_scene.m_terrain_resources.m_debug_plane_mesh == nullptr) {
-        throw EngineError("Demo scene terrain debug resources are not initialized.");
-    }
     for (Material* material : demo_scene.m_cube_materials) {
         if (material == nullptr) {
             throw EngineError("Demo scene cube materials are not initialized.");
@@ -334,20 +329,6 @@ void validate_demo_bindings(const DemoScene& demo_scene, const Scene& scene) {
     if (demo_scene.m_player_entity == nullptr || demo_scene.m_player_visual_entity == nullptr ||
         demo_scene.m_player_renderer == nullptr || demo_scene.m_player == nullptr) {
         throw EngineError("Demo scene player entity binding is not initialized.");
-    }
-    if (demo_scene.m_terrain_resources.m_debug_chunks.size() != scene.terrain().chunk_count() ||
-        demo_scene.m_terrain_resources.m_debug_chunks.size() <
-            static_cast<std::size_t>(terrain_initial_surface_radius_chunks * 2 + 1) *
-                static_cast<std::size_t>(terrain_initial_surface_radius_chunks * 2 + 1)) {
-        throw EngineError("Demo scene terrain debug bindings are not initialized.");
-    }
-    for (const TerrainDebugChunkBinding& binding : demo_scene.m_terrain_resources.m_debug_chunks) {
-        if (binding.m_entity == nullptr || binding.m_renderer == nullptr || binding.m_material == nullptr) {
-            throw EngineError("Demo scene terrain debug bindings are not initialized.");
-        }
-        if (scene.terrain().find_chunk(binding.m_chunk_id) == nullptr) {
-            throw EngineError("Demo scene terrain debug bindings are stale for the current streamed chunks.");
-        }
     }
     const std::size_t placement_count = cube_placements().size();
     if (demo_scene.m_cube_entities.size() != placement_count || demo_scene.m_cube_renderers.size() != placement_count) {
@@ -373,7 +354,6 @@ void build_demo_scene(DemoScene& scene) {
     scene.m_shader = &Resources::create_shader("OFG opaque demo shader");
     scene.m_shader->init_from_wgsl(
         render::shaders::opaque_uber_wgsl, opaque_demo_shader_layout(), {PipelineDefinition{"opaque demo"}});
-    build_terrain_debug_resources(scene.m_terrain_resources);
 
     scene.m_white_texture =
         add_texture("OFG generated white texture", 1, 1, TextureColorSpace::Srgb, rgba_bytes({255, 255, 255, 255}));
@@ -472,8 +452,7 @@ void setup_demo_scene(DemoScene& demo_scene, Scene& scene) {
     demo_scene.m_player_entity->local_transform().m_scale = math::vec3(1.0f, 1.0f, 1.0f);
     demo_scene.m_player_visual_entity->local_transform().m_scale = math::vec3(0.6f, 1.8f, 0.35f);
 
-    setup_terrain_debug_scene(
-        demo_scene.m_terrain_resources, scene, *root, demo_scene.m_player_entity->local_transform().m_position);
+    scene.terrain().tick(TerrainTickContext{demo_scene.m_player_entity->local_transform().m_position});
 
     const std::vector<CubePlacement>& placements = cube_placements();
     demo_scene.m_cube_entities.assign(placements.size(), nullptr);

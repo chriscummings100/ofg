@@ -37,9 +37,9 @@ TEST_CASE("terrain chunk exposes identity and empty resource slots") {
     CHECK(chunk.heightfield_samples().empty());
     CHECK(chunk.world_min_x() == doctest::Approx(-64.0f));
     CHECK(chunk.world_min_z() == doctest::Approx(96.0f));
-    CHECK(chunk.heightfield_debug_texture() == nullptr);
+    CHECK(chunk.render_mesh() == nullptr);
     CHECK(chunk.debug_plane_mesh() == nullptr);
-    CHECK(chunk.heightfield_mesh() == nullptr);
+    CHECK(chunk.debug_plane_texture() == nullptr);
     CHECK_THROWS_WITH_AS(([&]() { (void)chunk.heightfield_sample_at(0, 0); }()),
         doctest::Contains("not been generated"),
         ofg::EngineError);

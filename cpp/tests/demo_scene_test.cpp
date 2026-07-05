@@ -71,26 +71,21 @@ TEST_CASE("demo scene builds generated resources with mipmapped textures") {
 
     ofg::build_demo_scene(scene);
 
-    CHECK(ofg::Resources::shaders().size() == 2);
-    CHECK(ofg::Resources::textures().size() == 4);
-    CHECK(ofg::Resources::materials().size() == 6);
-    CHECK(ofg::Resources::meshes().size() == 2);
+    CHECK(ofg::Resources::shaders().size() == 1);
+    CHECK(ofg::Resources::textures().size() == 3);
+    CHECK(ofg::Resources::materials().size() == 5);
+    CHECK(ofg::Resources::meshes().size() == 1);
     REQUIRE(scene.m_white_texture != nullptr);
     REQUIRE(scene.m_neutral_metallic_roughness_texture != nullptr);
     REQUIRE(scene.m_flat_normal_texture != nullptr);
-    REQUIRE(scene.m_terrain_resources.m_zero_height_texture != nullptr);
     REQUIRE(scene.m_player_material != nullptr);
     CHECK(scene.m_white_texture->mip_level_count() == 1);
-    CHECK(scene.m_terrain_resources.m_zero_height_texture->mip_level_count() == 1);
-    CHECK(scene.m_terrain_resources.m_zero_height_texture->pixel_format() == ofg::TexturePixelFormat::R16Float);
     CHECK(scene.m_neutral_metallic_roughness_texture->pixel_format() == ofg::TexturePixelFormat::Rgba8);
     CHECK(scene.m_flat_normal_texture->pixel_format() == ofg::TexturePixelFormat::Rgba8);
-    CHECK(scene.m_terrain_resources.m_debug_plane_mesh->submeshes()[0].m_default_material ==
-          scene.m_terrain_resources.m_height_debug_default_material);
     CHECK(scene.m_cube_mesh->submeshes()[0].m_default_material == scene.m_cube_materials[0]);
 }
 
-// Verifies the demo setup creates a camera, player, terrain debug chunks, and deterministic boxes.
+// Verifies the demo setup creates a camera, player, terrain chunks, and deterministic boxes.
 TEST_CASE("demo scene setup and update create terrain player and box entities") {
     ofg::tests::TestGpuContext gpu = make_test_gpu();
     ResourcesGuard guard;
@@ -115,26 +110,19 @@ TEST_CASE("demo scene setup and update create terrain player and box entities") 
         static_cast<std::size_t>(ofg::terrain_initial_surface_radius_chunks * 2 + 1);
     REQUIRE(scene.m_cube_entities.size() == stats.m_box_count);
     REQUIRE(scene.m_cube_renderers.size() == stats.m_box_count);
-    REQUIRE(scene.m_terrain_resources.m_debug_chunks.size() == terrain_chunk_count);
     REQUIRE(first_scene.terrain().chunk_count() == terrain_chunk_count);
-    REQUIRE(first_scene.entity_count() == 5U + terrain_chunk_count + stats.m_box_count);
+    REQUIRE(first_scene.entity_count() == 5U + stats.m_box_count);
     REQUIRE(first_scene.camera_count() == 1);
     REQUIRE(first_scene.player_count() == 1);
     REQUIRE(first_scene.light_count() == 1);
-    REQUIRE(first_scene.mesh_renderer_count() == 1U + terrain_chunk_count + stats.m_box_count);
+    REQUIRE(first_scene.mesh_renderer_count() == 1U + stats.m_box_count);
     REQUIRE(first_scene.main_camera() != nullptr);
     CHECK(first_scene.main_camera() == first_scene.get_camera(0));
     REQUIRE(first_scene.environment().main_directional_light() != nullptr);
     CHECK(first_scene.environment().main_directional_light() == first_scene.get_light(0));
     CHECK(first_scene.get_light(0)->enabled());
     CHECK(first_scene.environment().ambient_light().m_intensity > 0.0f);
-    const std::size_t terrain_texture_count = ofg::Resources::textures().size();
-    const std::size_t terrain_material_count = ofg::Resources::materials().size();
     const std::size_t terrain_entity_count = first_scene.entity_count();
-    REQUIRE_NOTHROW(ofg::sync_terrain_debug_scene(scene.m_terrain_resources, first_scene, *first_scene.get_root()));
-    CHECK(ofg::Resources::textures().size() == terrain_texture_count);
-    CHECK(ofg::Resources::materials().size() == terrain_material_count);
-    CHECK(first_scene.entity_count() == terrain_entity_count);
     REQUIRE(scene.m_player != nullptr);
     REQUIRE(scene.m_player_entity != nullptr);
     REQUIRE(scene.m_player_visual_entity != nullptr);
@@ -153,12 +141,7 @@ TEST_CASE("demo scene setup and update create terrain player and box entities") 
     CHECK(scene.m_player_visual_entity->local_transform().m_scale.x == doctest::Approx(0.6f));
     CHECK(scene.m_player_visual_entity->local_transform().m_scale.y == doctest::Approx(1.8f));
     CHECK(scene.m_player_visual_entity->local_transform().m_scale.z == doctest::Approx(0.35f));
-    const ofg::TerrainDebugChunkBinding& first_terrain = scene.m_terrain_resources.m_debug_chunks.front();
-    REQUIRE(first_terrain.m_renderer != nullptr);
-    CHECK(first_terrain.m_renderer->mesh() == scene.m_terrain_resources.m_debug_plane_mesh);
-    REQUIRE(first_terrain.m_renderer->material_overrides().size() == 1);
-    CHECK(first_terrain.m_renderer->material_overrides()[0].m_material == first_terrain.m_material);
-    const ofg::TerrainChunk* first_chunk = first_scene.terrain().find_chunk(first_terrain.m_chunk_id);
+    const ofg::TerrainChunk* first_chunk = first_scene.terrain().find_chunk(ofg::TerrainChunkId{0, 0, 0, 0});
     REQUIRE(first_chunk != nullptr);
     CHECK(first_chunk->has_heightfield());
     REQUIRE(scene.m_cube_renderers[0] != nullptr);
@@ -177,8 +160,6 @@ TEST_CASE("demo scene setup and update create terrain player and box entities") 
     REQUIRE(first_scene.terrain().chunk_count() == terrain_chunk_count);
     CHECK(first_scene.terrain().find_chunk(ofg::TerrainChunkId{0, -2, 0, -2}) == nullptr);
     CHECK(first_scene.terrain().find_chunk(ofg::TerrainChunkId{0, 3, 0, -2}) != nullptr);
-    REQUIRE_NOTHROW(ofg::sync_terrain_debug_scene(scene.m_terrain_resources, first_scene, *first_scene.get_root()));
-    CHECK(scene.m_terrain_resources.m_debug_chunks.size() == first_scene.terrain().chunk_count());
     CHECK(first_scene.entity_count() == terrain_entity_count);
     REQUIRE_NOTHROW(ofg::update_demo_scene(scene, 250.0, first_scene));
 

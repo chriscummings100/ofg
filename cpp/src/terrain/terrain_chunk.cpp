@@ -66,9 +66,9 @@ float TerrainChunk::world_min_z() const noexcept {
     return static_cast<float>(m_id.m_chunk_z * terrain_chunk_lod0_cells_per_edge);
 }
 
-// Returns the debug texture resource attached to this chunk, or nullptr.
-Texture* TerrainChunk::heightfield_debug_texture() noexcept {
-    return m_heightfield_debug_texture.get();
+// Returns the generated terrain render mesh attached to this chunk, or nullptr.
+Mesh* TerrainChunk::render_mesh() noexcept {
+    return m_render_mesh.get();
 }
 
 // Returns the debug-plane mesh resource attached to this chunk, or nullptr.
@@ -76,14 +76,14 @@ Mesh* TerrainChunk::debug_plane_mesh() noexcept {
     return m_debug_plane_mesh.get();
 }
 
-// Returns the generated heightfield mesh resource attached to this chunk, or nullptr.
-Mesh* TerrainChunk::heightfield_mesh() noexcept {
-    return m_heightfield_mesh.get();
+// Returns the debug-plane texture resource attached to this chunk, or nullptr.
+Texture* TerrainChunk::debug_plane_texture() noexcept {
+    return m_debug_plane_texture.get();
 }
 
-// Attaches the Resources-owned debug texture produced for this chunk.
-void TerrainChunk::set_heightfield_debug_texture(Texture* texture) noexcept {
-    m_heightfield_debug_texture = texture;
+// Attaches the Resources-owned terrain render mesh produced for this chunk.
+void TerrainChunk::set_render_mesh(Mesh* mesh) noexcept {
+    m_render_mesh = mesh;
 }
 
 // Attaches the Resources-owned debug-plane mesh used for this chunk.
@@ -91,9 +91,9 @@ void TerrainChunk::set_debug_plane_mesh(Mesh* mesh) noexcept {
     m_debug_plane_mesh = mesh;
 }
 
-// Attaches the Resources-owned generated heightfield mesh for this chunk.
-void TerrainChunk::set_heightfield_mesh(Mesh* mesh) noexcept {
-    m_heightfield_mesh = mesh;
+// Attaches the Resources-owned debug-plane texture produced for this chunk.
+void TerrainChunk::set_debug_plane_texture(Texture* texture) noexcept {
+    m_debug_plane_texture = texture;
 }
 
 // Regenerates the fixed 33 by 33 LOD0 heightfield from Terrain::sample().

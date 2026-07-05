@@ -187,7 +187,6 @@ add_library(ofg_cpp
   src/scene/scene.cpp
   src/terrain/terrain.cpp
   src/terrain/terrain_chunk.cpp
-  src/terrain/terrain_scene.cpp
 )
 
 target_include_directories(ofg_cpp
