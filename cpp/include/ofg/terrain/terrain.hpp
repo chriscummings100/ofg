@@ -13,10 +13,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <vector>
 
 namespace ofg {
 
 class Material;
+struct RenderObject;
 
 struct TerrainConfig {
     std::uint64_t m_seed{1};
@@ -43,13 +45,13 @@ public:
     // Returns the shared clay terrain material, or nullptr.
     [[nodiscard]] Material* material() noexcept;
     // Returns the shared clay terrain material, or nullptr.
-    [[nodiscard]] const Material* material() const noexcept;
+    [[nodiscard]] Material* material() const noexcept;
     // Stores the shared height-debug plane material used by debug rendering.
-    void set_debug_plane_material(Material* material) noexcept;
+    void set_debug_plane_material(Material* material);
     // Returns the shared height-debug plane material, or nullptr.
     [[nodiscard]] Material* debug_plane_material() noexcept;
     // Returns the shared height-debug plane material, or nullptr.
-    [[nodiscard]] const Material* debug_plane_material() const noexcept;
+    [[nodiscard]] Material* debug_plane_material() const noexcept;
     // Selects which chunk-owned render data terrain extraction should expose.
     void set_render_mode(TerrainRenderMode mode) noexcept;
     // Returns the selected terrain render mode.
@@ -70,6 +72,8 @@ public:
     [[nodiscard]] std::size_t chunk_count() const noexcept;
     // Returns the current chunk map for render/debug iteration.
     [[nodiscard]] const std::map<TerrainChunkId, TerrainChunk>& chunks() const noexcept;
+    // Appends render objects for currently generated, renderable terrain chunks.
+    void extract_render_objects(std::vector<RenderObject>& output) const;
     // Clears all streamed chunks without changing the generator config.
     void clear_chunks() noexcept;
 

@@ -32,6 +32,8 @@ There must be no `terrain_scene.cpp`, `TerrainScene`, renderer-side terrain chun
   Evidence: this plan now requires no `terrain_scene.cpp`, `Terrain` ownership of `Ptr<Material> m_material` and `Ptr<Material> m_debug_plane_material`, chunk ownership of `Ptr<Mesh> m_render_mesh`, `Ptr<Mesh> m_debug_plane_mesh`, and `Ptr<Texture> m_debug_plane_texture`, generation-time render mesh creation, local-space chunk mesh vertices, and `Terrain::extract_render_objects()` as the only terrain render handoff.
 - [x] (2026-07-05 08:20+01:00) Stripped the stale terrain scene bridge out of code.
   Evidence: deleted `cpp/include/ofg/terrain/terrain_scene.hpp` and `cpp/src/terrain/terrain_scene.cpp`, removed `TerrainSceneResources` from `DemoScene`, removed per-frame terrain debug sync from `Game`, and kept `Terrain`/`TerrainChunk` as the only terrain ownership types with terrain-owned material pointers and chunk-owned render/debug resource pointers.
+- [x] (2026-07-05 09:02+01:00) Restored debug plane rendering through the new per-chunk layout.
+  Evidence: `TerrainChunk` now generates its own debug plane mesh, R16Float debug texture, and texture-backed material override; `Terrain::extract_render_objects()` appends ordinary render objects for chunks in debug plane mode; `DemoScene` assigns a terrain-owned debug material without `TerrainSceneResources`.
 - [ ] Replace the stale terrain render bridge with direct extraction over chunk-owned clay and debug render resources.
 - [ ] Update system and API contract docs for both debug rendering and clay mesh rendering.
 - [x] (2026-07-04 20:12+01:00) Ran `npm run format:cpp` and `npm run test:cpp`; native C++ tests passed with the new terrain, R16Float texture, and non-filtering material tests.

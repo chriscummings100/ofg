@@ -33,7 +33,7 @@ void extract_render_objects(const Scene& scene, std::vector<RenderObject>& outpu
     output.clear();
     stats = RenderObjectExtractionStats{};
     stats.m_scene_mesh_renderer_count = static_cast<std::uint32_t>(scene.mesh_renderer_count());
-    output.reserve(scene.mesh_renderer_count());
+    output.reserve(scene.mesh_renderer_count() + scene.terrain().chunk_count());
 
     for (std::size_t index = 0; index < scene.mesh_renderer_count(); ++index) {
         const MeshRenderer* mesh_renderer = scene.get_mesh_renderer(index);
@@ -66,6 +66,7 @@ void extract_render_objects(const Scene& scene, std::vector<RenderObject>& outpu
         output.push_back(object);
     }
 
+    scene.terrain().extract_render_objects(output);
     stats.m_extracted_object_count = static_cast<std::uint32_t>(output.size());
 }
 

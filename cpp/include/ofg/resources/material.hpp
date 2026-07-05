@@ -33,6 +33,8 @@ public:
     // Replaces one property and refreshes validation state.
     void set_property(std::string name, PropertyValue value);
     // Returns the referenced shader.
+    [[nodiscard]] Shader& shader();
+    // Returns the referenced shader.
     [[nodiscard]] const Shader& shader() const;
     // Returns the material label.
     [[nodiscard]] const std::string& label() const noexcept;

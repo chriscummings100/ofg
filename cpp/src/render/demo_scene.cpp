@@ -21,6 +21,7 @@
 #include "ofg/terrain/terrain.hpp"
 
 #include "shaders/opaque_uber.wgsl.hpp"
+#include "shaders/terrain_height_debug.wgsl.hpp"
 
 #include <array>
 #include <cmath>
@@ -76,6 +77,14 @@ Texture* add_texture(std::string label,
     return &texture;
 }
 
+// Creates and initializes a generated R16Float texture through Resources.
+Texture* add_r16_float_texture(
+    std::string label, std::uint32_t width, std::uint32_t height, std::vector<float> values) {
+    Texture& texture = Resources::create_texture(std::move(label));
+    texture.init_from_r16_float_pixels(width, height, pack_r16_float_pixels(values));
+    return &texture;
+}
+
 // Creates and initializes a PBR material backed by generated fallback textures.
 Material* add_material(std::string label,
     Shader& shader,
@@ -91,6 +100,38 @@ Material* add_material(std::string label,
     properties.set("normal_texture", &normal_texture);
 
     Material& material = Resources::create_material(std::move(label));
+    material.init(shader, std::move(properties));
+    return &material;
+}
+
+// Returns the explicit shader parameter layout used by the height debug shader.
+ShaderParameterLayout terrain_height_debug_shader_layout() {
+    return ShaderParameterLayout{{
+        ShaderParameter{"view_projection", ShaderParameterType::Mat4, ShaderParameterScope::Frame, 0, true},
+        ShaderParameter{"main_light_direction", ShaderParameterType::Vec4, ShaderParameterScope::Frame, 64, false},
+        ShaderParameter{"main_light_color", ShaderParameterType::Vec4, ShaderParameterScope::Frame, 80, false},
+        ShaderParameter{"ambient_light_color", ShaderParameterType::Vec4, ShaderParameterScope::Frame, 96, false},
+        ShaderParameter{"camera_position", ShaderParameterType::Vec4, ShaderParameterScope::Frame, 112, false},
+        ShaderParameter{"model", ShaderParameterType::Mat4, ShaderParameterScope::Draw, 0, false},
+        ShaderParameter{"normal_model", ShaderParameterType::Mat4, ShaderParameterScope::Draw, 64, false},
+        ShaderParameter{"height_debug_options", ShaderParameterType::Vec4, ShaderParameterScope::Material, 0, true},
+        ShaderParameter{"heightfield_texture", ShaderParameterType::Texture, ShaderParameterScope::Material, 0, true},
+    }};
+}
+
+// Creates the shared debug-plane material assigned to Terrain.
+Material* add_terrain_debug_material() {
+    Shader& shader = Resources::create_shader("OFG terrain height debug shader");
+    shader.init_from_wgsl(render::shaders::terrain_height_debug_wgsl,
+        terrain_height_debug_shader_layout(),
+        {PipelineDefinition{"terrain height debug"}});
+
+    Texture* zero_height_texture = add_r16_float_texture("OFG terrain zero height texture", 1, 1, {0.0f});
+    PropertyBag properties;
+    properties.set("height_debug_options", math::vec4(1.0f, 0.0f, 0.0f, 0.0f));
+    properties.set("heightfield_texture", zero_height_texture);
+
+    Material& material = Resources::create_material("OFG terrain height debug material");
     material.init(shader, std::move(properties));
     return &material;
 }
@@ -311,7 +352,8 @@ void configure_demo_camera(Entity& entity) {
 
 // Validates resources that must exist before scene entity setup or update.
 void validate_demo_resources(const DemoScene& demo_scene) {
-    if (demo_scene.m_cube_mesh == nullptr || demo_scene.m_player_material == nullptr) {
+    if (demo_scene.m_cube_mesh == nullptr || demo_scene.m_player_material == nullptr ||
+        demo_scene.m_terrain_debug_material == nullptr) {
         throw EngineError("Demo scene resources are not initialized.");
     }
     for (Material* material : demo_scene.m_cube_materials) {
@@ -354,6 +396,7 @@ void build_demo_scene(DemoScene& scene) {
     scene.m_shader = &Resources::create_shader("OFG opaque demo shader");
     scene.m_shader->init_from_wgsl(
         render::shaders::opaque_uber_wgsl, opaque_demo_shader_layout(), {PipelineDefinition{"opaque demo"}});
+    scene.m_terrain_debug_material = add_terrain_debug_material();
 
     scene.m_white_texture =
         add_texture("OFG generated white texture", 1, 1, TextureColorSpace::Srgb, rgba_bytes({255, 255, 255, 255}));
@@ -452,6 +495,8 @@ void setup_demo_scene(DemoScene& demo_scene, Scene& scene) {
     demo_scene.m_player_entity->local_transform().m_scale = math::vec3(1.0f, 1.0f, 1.0f);
     demo_scene.m_player_visual_entity->local_transform().m_scale = math::vec3(0.6f, 1.8f, 0.35f);
 
+    scene.terrain().set_render_mode(TerrainRenderMode::HeightDebugPlane);
+    scene.terrain().set_debug_plane_material(demo_scene.m_terrain_debug_material);
     scene.terrain().tick(TerrainTickContext{demo_scene.m_player_entity->local_transform().m_position});
 
     const std::vector<CubePlacement>& placements = cube_placements();

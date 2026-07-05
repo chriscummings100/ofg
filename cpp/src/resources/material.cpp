@@ -348,6 +348,11 @@ void Material::set_property(std::string name, PropertyValue value) {
 }
 
 // Returns the referenced shader.
+Shader& Material::shader() {
+    return *m_shader;
+}
+
+// Returns the referenced shader.
 const Shader& Material::shader() const {
     return *m_shader;
 }

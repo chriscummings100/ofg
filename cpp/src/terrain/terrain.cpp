@@ -2,7 +2,11 @@
 #include "ofg/terrain/terrain.hpp"
 
 #include "ofg/core/engine_error.hpp"
+#include "ofg/math/transform.hpp"
+#include "ofg/render/bounds.hpp"
+#include "ofg/render/render_object.hpp"
 #include "ofg/resources/material.hpp"
+#include "ofg/resources/mesh.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -74,13 +78,18 @@ Material* Terrain::material() noexcept {
 }
 
 // Returns the shared clay terrain material, or nullptr.
-const Material* Terrain::material() const noexcept {
+Material* Terrain::material() const noexcept {
     return m_material.get();
 }
 
 // Stores the shared height-debug plane material used by debug rendering.
-void Terrain::set_debug_plane_material(Material* material) noexcept {
+void Terrain::set_debug_plane_material(Material* material) {
     m_debug_plane_material = material;
+    if (m_debug_plane_material != nullptr) {
+        for (auto& entry : m_chunks) {
+            entry.second.generate_debug_plane(*this);
+        }
+    }
 }
 
 // Returns the shared height-debug plane material, or nullptr.
@@ -89,7 +98,7 @@ Material* Terrain::debug_plane_material() noexcept {
 }
 
 // Returns the shared height-debug plane material, or nullptr.
-const Material* Terrain::debug_plane_material() const noexcept {
+Material* Terrain::debug_plane_material() const noexcept {
     return m_debug_plane_material.get();
 }
 
@@ -134,6 +143,9 @@ void Terrain::tick(const TerrainTickContext& context) {
         TerrainChunk* chunk = get_or_create_chunk(id);
         if (chunk != nullptr && !chunk->has_heightfield()) {
             chunk->generate_heightfield(*this);
+        }
+        if (chunk != nullptr && m_debug_plane_material != nullptr) {
+            chunk->generate_debug_plane(*this);
         }
     }
 }
@@ -199,6 +211,44 @@ std::size_t Terrain::chunk_count() const noexcept {
 // Returns the current chunk map for render/debug iteration.
 const std::map<TerrainChunkId, TerrainChunk>& Terrain::chunks() const noexcept {
     return m_chunks;
+}
+
+// Appends render objects for currently generated, renderable terrain chunks.
+void Terrain::extract_render_objects(std::vector<RenderObject>& output) const {
+    for (const auto& entry : m_chunks) {
+        const TerrainChunk& chunk = entry.second;
+
+        Mesh* mesh = nullptr;
+        std::span<const MaterialOverride> material_overrides;
+        switch (m_render_mode) {
+        case TerrainRenderMode::ClayMesh:
+            mesh = chunk.render_mesh();
+            break;
+        case TerrainRenderMode::HeightDebugPlane:
+            mesh = chunk.debug_plane_mesh();
+            material_overrides = chunk.debug_plane_material_overrides();
+            break;
+        }
+
+        if (mesh == nullptr) {
+            continue;
+        }
+
+        const math::Mat4 world_from_chunk =
+            math::mat4_translation(math::vec3(chunk.world_min_x(), 0.0f, chunk.world_min_z()));
+        const Bounds3 local_bounds = mesh->local_bounds();
+        RenderObject object;
+        object.m_mesh = mesh;
+        object.m_model = world_from_chunk;
+        object.m_material_overrides = material_overrides;
+        object.m_sort_origin = math::transform_point(world_from_chunk,
+            math::vec3(static_cast<float>(terrain_chunk_lod0_cells_per_edge) * 0.5f,
+                0.0f,
+                static_cast<float>(terrain_chunk_lod0_cells_per_edge) * 0.5f));
+        object.m_local_bounds = local_bounds;
+        object.m_world_bounds = transform_bounds(local_bounds, world_from_chunk);
+        output.push_back(object);
+    }
 }
 
 // Clears all streamed chunks without changing the generator config.

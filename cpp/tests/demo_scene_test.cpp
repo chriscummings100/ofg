@@ -11,6 +11,7 @@
 #include "ofg/math/transform.hpp"
 #include "ofg/render/demo_scene.hpp"
 #include "ofg/render/camera_properties.hpp"
+#include "ofg/render/render_object.hpp"
 #include "ofg/resources/material.hpp"
 #include "ofg/resources/mesh.hpp"
 #include "ofg/resources/resources.hpp"
@@ -24,6 +25,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -71,14 +73,15 @@ TEST_CASE("demo scene builds generated resources with mipmapped textures") {
 
     ofg::build_demo_scene(scene);
 
-    CHECK(ofg::Resources::shaders().size() == 1);
-    CHECK(ofg::Resources::textures().size() == 3);
-    CHECK(ofg::Resources::materials().size() == 5);
+    CHECK(ofg::Resources::shaders().size() == 2);
+    CHECK(ofg::Resources::textures().size() == 4);
+    CHECK(ofg::Resources::materials().size() == 6);
     CHECK(ofg::Resources::meshes().size() == 1);
     REQUIRE(scene.m_white_texture != nullptr);
     REQUIRE(scene.m_neutral_metallic_roughness_texture != nullptr);
     REQUIRE(scene.m_flat_normal_texture != nullptr);
     REQUIRE(scene.m_player_material != nullptr);
+    REQUIRE(scene.m_terrain_debug_material != nullptr);
     CHECK(scene.m_white_texture->mip_level_count() == 1);
     CHECK(scene.m_neutral_metallic_roughness_texture->pixel_format() == ofg::TexturePixelFormat::Rgba8);
     CHECK(scene.m_flat_normal_texture->pixel_format() == ofg::TexturePixelFormat::Rgba8);
@@ -111,6 +114,11 @@ TEST_CASE("demo scene setup and update create terrain player and box entities") 
     REQUIRE(scene.m_cube_entities.size() == stats.m_box_count);
     REQUIRE(scene.m_cube_renderers.size() == stats.m_box_count);
     REQUIRE(first_scene.terrain().chunk_count() == terrain_chunk_count);
+    CHECK(first_scene.terrain().debug_plane_material() == scene.m_terrain_debug_material);
+    CHECK(first_scene.terrain().render_mode() == ofg::TerrainRenderMode::HeightDebugPlane);
+    CHECK(ofg::Resources::textures().size() == 4U + terrain_chunk_count);
+    CHECK(ofg::Resources::materials().size() == 6U + terrain_chunk_count);
+    CHECK(ofg::Resources::meshes().size() == 1U + terrain_chunk_count);
     REQUIRE(first_scene.entity_count() == 5U + stats.m_box_count);
     REQUIRE(first_scene.camera_count() == 1);
     REQUIRE(first_scene.player_count() == 1);
@@ -144,6 +152,23 @@ TEST_CASE("demo scene setup and update create terrain player and box entities") 
     const ofg::TerrainChunk* first_chunk = first_scene.terrain().find_chunk(ofg::TerrainChunkId{0, 0, 0, 0});
     REQUIRE(first_chunk != nullptr);
     CHECK(first_chunk->has_heightfield());
+    REQUIRE(first_chunk->debug_plane_mesh() != nullptr);
+    REQUIRE(first_chunk->debug_plane_texture() != nullptr);
+    CHECK(first_chunk->debug_plane_texture()->pixel_format() == ofg::TexturePixelFormat::R16Float);
+    REQUIRE(first_chunk->debug_plane_material_overrides().size() == 1);
+    CHECK(first_chunk->debug_plane_material_overrides()[0].m_submesh_index == 0);
+    CHECK(first_chunk->debug_plane_material_overrides()[0].m_material != nullptr);
+    std::vector<ofg::RenderObject> render_objects;
+    ofg::RenderObjectExtractionStats extraction_stats;
+    REQUIRE_NOTHROW(ofg::extract_render_objects(first_scene, render_objects, extraction_stats));
+    REQUIRE(render_objects.size() == first_scene.mesh_renderer_count() + terrain_chunk_count);
+    CHECK(extraction_stats.m_extracted_object_count == render_objects.size());
+    const ofg::TerrainChunk& first_streamed_chunk = first_scene.terrain().chunks().begin()->second;
+    const ofg::RenderObject& first_terrain_object = render_objects[first_scene.mesh_renderer_count()];
+    CHECK(first_terrain_object.m_mesh == first_streamed_chunk.debug_plane_mesh());
+    REQUIRE(first_terrain_object.m_material_overrides.size() == 1);
+    CHECK(first_terrain_object.m_material_overrides[0].m_material.get() ==
+          first_streamed_chunk.debug_plane_material_overrides()[0].m_material.get());
     REQUIRE(scene.m_cube_renderers[0] != nullptr);
     CHECK(scene.m_cube_renderers[0]->mesh() == scene.m_cube_mesh);
     CHECK(scene.m_cube_renderers[0]->sort_origin_offset().x == doctest::Approx(0.0f));

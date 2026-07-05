@@ -2,12 +2,19 @@
 #include "ofg/terrain/terrain_chunk.hpp"
 
 #include "ofg/core/engine_error.hpp"
+#include "ofg/math/vec.hpp"
+#include "ofg/resources/material.hpp"
+#include "ofg/resources/property_bag.hpp"
+#include "ofg/resources/resources.hpp"
 #include "ofg/terrain/terrain.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace ofg {
 namespace {
@@ -23,6 +30,41 @@ namespace {
 
 [[nodiscard]] bool coordinate_inside_limit(std::int32_t coordinate) noexcept {
     return coordinate >= -terrain_chunk_coordinate_abs_limit && coordinate <= terrain_chunk_coordinate_abs_limit;
+}
+
+// Creates a stable human-readable resource label suffix from a chunk id.
+[[nodiscard]] std::string chunk_label_suffix(TerrainChunkId id) {
+    return " L" + std::to_string(id.m_lod) + " X" + std::to_string(id.m_chunk_x) + " Y" + std::to_string(id.m_chunk_y) +
+           " Z" + std::to_string(id.m_chunk_z);
+}
+
+// Converts generated height samples into one tightly packed R16Float texel buffer.
+[[nodiscard]] std::vector<std::byte> heightfield_debug_pixels(const TerrainChunk& chunk) {
+    if (!chunk.has_heightfield()) {
+        throw EngineError("Terrain debug texture requires a generated chunk heightfield.");
+    }
+
+    const std::span<const TerrainSample> samples = chunk.heightfield_samples();
+    std::vector<float> heights;
+    heights.reserve(samples.size());
+    for (const TerrainSample& sample : samples) {
+        if (!std::isfinite(sample.m_height)) {
+            throw EngineError("Terrain debug texture requires finite heightfield samples.");
+        }
+        heights.push_back(sample.m_height);
+    }
+    return pack_r16_float_pixels(heights);
+}
+
+// Builds one local-space 32 by 32 meter XZ debug quad.
+[[nodiscard]] std::vector<MeshVertex> terrain_debug_plane_vertices() {
+    const float edge = static_cast<float>(terrain_chunk_lod0_cells_per_edge);
+    return {
+        MeshVertex{{0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+        MeshVertex{{edge, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
+        MeshVertex{{edge, 0.0f, edge}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+        MeshVertex{{0.0f, 0.0f, edge}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+    };
 }
 
 } // namespace
@@ -71,14 +113,34 @@ Mesh* TerrainChunk::render_mesh() noexcept {
     return m_render_mesh.get();
 }
 
+// Returns the generated terrain render mesh attached to this chunk, or nullptr.
+Mesh* TerrainChunk::render_mesh() const noexcept {
+    return m_render_mesh.get();
+}
+
 // Returns the debug-plane mesh resource attached to this chunk, or nullptr.
 Mesh* TerrainChunk::debug_plane_mesh() noexcept {
+    return m_debug_plane_mesh.get();
+}
+
+// Returns the debug-plane mesh resource attached to this chunk, or nullptr.
+Mesh* TerrainChunk::debug_plane_mesh() const noexcept {
     return m_debug_plane_mesh.get();
 }
 
 // Returns the debug-plane texture resource attached to this chunk, or nullptr.
 Texture* TerrainChunk::debug_plane_texture() noexcept {
     return m_debug_plane_texture.get();
+}
+
+// Returns the debug-plane texture resource attached to this chunk, or nullptr.
+Texture* TerrainChunk::debug_plane_texture() const noexcept {
+    return m_debug_plane_texture.get();
+}
+
+// Returns the material override that binds this chunk's debug texture.
+std::span<const MaterialOverride> TerrainChunk::debug_plane_material_overrides() const noexcept {
+    return m_debug_plane_material_overrides;
 }
 
 // Attaches the Resources-owned terrain render mesh produced for this chunk.
@@ -111,6 +173,49 @@ void TerrainChunk::generate_heightfield(const Terrain& terrain) {
             const float world_z = base_z + static_cast<float>(sample_z);
             m_heightfield_samples[heightfield_index(sample_x, sample_z)] = terrain.sample(world_x, world_z);
         }
+    }
+}
+
+// Creates chunk-owned debug plane mesh, texture, and texture material override.
+void TerrainChunk::generate_debug_plane(const Terrain& terrain) {
+    if (!has_heightfield()) {
+        generate_heightfield(terrain);
+    }
+
+    Material* debug_material = terrain.debug_plane_material();
+    if (debug_material == nullptr) {
+        throw EngineError("Terrain debug plane generation requires Terrain::debug_plane_material().");
+    }
+
+    Texture* texture = m_debug_plane_texture.get();
+    if (texture == nullptr) {
+        Texture& created_texture =
+            Resources::create_texture("OFG terrain height debug texture" + chunk_label_suffix(m_id));
+        created_texture.init_from_r16_float_pixels(static_cast<std::uint32_t>(terrain_chunk_lod0_vertices_per_edge),
+            static_cast<std::uint32_t>(terrain_chunk_lod0_vertices_per_edge),
+            heightfield_debug_pixels(*this));
+        m_debug_plane_texture = &created_texture;
+        texture = &created_texture;
+    }
+
+    if (m_debug_plane_mesh == nullptr) {
+        std::vector<SubMesh> submeshes{SubMesh{"terrain height debug", 0, 6, debug_material}};
+        Mesh& mesh = Resources::create_mesh("OFG terrain debug plane mesh" + chunk_label_suffix(m_id));
+        mesh.init(terrain_debug_plane_vertices(), {0, 1, 2, 0, 2, 3}, std::move(submeshes));
+        m_debug_plane_mesh = &mesh;
+    }
+
+    const bool has_live_override =
+        !m_debug_plane_material_overrides.empty() && m_debug_plane_material_overrides[0].m_material.get() != nullptr;
+    if (!has_live_override) {
+        PropertyBag properties;
+        const float divisor = std::max(terrain.config().m_height_scale * 2.0f, 0.0001f);
+        properties.set("height_debug_options", math::vec4(divisor, 0.0f, 0.0f, 0.0f));
+        properties.set("heightfield_texture", texture);
+
+        Material& material = Resources::create_material("OFG terrain height debug material" + chunk_label_suffix(m_id));
+        material.init(debug_material->shader(), std::move(properties));
+        m_debug_plane_material_overrides = {MaterialOverride{0, &material}};
     }
 }
 

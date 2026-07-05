@@ -6,6 +6,7 @@
 #pragma once
 
 #include "ofg/core/ptr.hpp"
+#include "ofg/render/draw_list.hpp"
 #include "ofg/resources/mesh.hpp"
 #include "ofg/resources/texture.hpp"
 
@@ -62,10 +63,18 @@ public:
     [[nodiscard]] float world_min_z() const noexcept;
     // Returns the generated terrain render mesh attached to this chunk, or nullptr.
     [[nodiscard]] Mesh* render_mesh() noexcept;
+    // Returns the generated terrain render mesh attached to this chunk, or nullptr.
+    [[nodiscard]] Mesh* render_mesh() const noexcept;
     // Returns the debug-plane mesh resource attached to this chunk, or nullptr.
     [[nodiscard]] Mesh* debug_plane_mesh() noexcept;
+    // Returns the debug-plane mesh resource attached to this chunk, or nullptr.
+    [[nodiscard]] Mesh* debug_plane_mesh() const noexcept;
     // Returns the debug-plane texture resource attached to this chunk, or nullptr.
     [[nodiscard]] Texture* debug_plane_texture() noexcept;
+    // Returns the debug-plane texture resource attached to this chunk, or nullptr.
+    [[nodiscard]] Texture* debug_plane_texture() const noexcept;
+    // Returns the material override that binds this chunk's debug texture.
+    [[nodiscard]] std::span<const MaterialOverride> debug_plane_material_overrides() const noexcept;
     // Attaches the Resources-owned terrain render mesh produced for this chunk.
     void set_render_mesh(Mesh* mesh) noexcept;
     // Attaches the Resources-owned debug-plane mesh used for this chunk.
@@ -75,6 +84,8 @@ public:
 
     // Regenerates the fixed 33 by 33 LOD0 heightfield from Terrain::sample().
     void generate_heightfield(const Terrain& terrain);
+    // Creates chunk-owned debug plane mesh, texture, and texture material override.
+    void generate_debug_plane(const Terrain& terrain);
 
 private:
     TerrainChunkId m_id;
@@ -82,6 +93,7 @@ private:
     Ptr<Mesh> m_render_mesh;
     Ptr<Mesh> m_debug_plane_mesh;
     Ptr<Texture> m_debug_plane_texture;
+    std::vector<MaterialOverride> m_debug_plane_material_overrides;
 };
 
 // Validates the first supported terrain chunk address space.
