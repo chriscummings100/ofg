@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -65,6 +66,66 @@ namespace {
         MeshVertex{{edge, 0.0f, edge}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
         MeshVertex{{0.0f, 0.0f, edge}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
     };
+}
+
+[[nodiscard]] MeshVertex terrain_render_vertex(
+    const Terrain& terrain, const TerrainChunk& chunk, std::int32_t sample_x, std::int32_t sample_z) {
+    const float local_x = static_cast<float>(sample_x);
+    const float local_z = static_cast<float>(sample_z);
+    const float world_x = chunk.world_min_x() + local_x;
+    const float world_z = chunk.world_min_z() + local_z;
+    const float height = chunk.heightfield_sample_at(sample_x, sample_z).m_height;
+
+    const float left = terrain.sample(world_x - 1.0f, world_z).m_height;
+    const float right = terrain.sample(world_x + 1.0f, world_z).m_height;
+    const float back = terrain.sample(world_x, world_z - 1.0f).m_height;
+    const float forward = terrain.sample(world_x, world_z + 1.0f).m_height;
+    const math::Vec3 tangent_x = math::vec3(2.0f, right - left, 0.0f);
+    const math::Vec3 tangent_z = math::vec3(0.0f, forward - back, 2.0f);
+
+    std::string error;
+    const std::optional<math::Vec3> normal = math::normalize(math::cross(tangent_z, tangent_x), error);
+    if (!normal.has_value()) {
+        throw EngineError(error.empty() ? "Terrain render mesh normal creation failed." : error);
+    }
+    const std::optional<math::Vec3> tangent = math::normalize(tangent_x, error);
+    if (!tangent.has_value()) {
+        throw EngineError(error.empty() ? "Terrain render mesh tangent creation failed." : error);
+    }
+
+    const float edge = static_cast<float>(terrain_chunk_lod0_cells_per_edge);
+    return MeshVertex{{local_x, height, local_z},
+        {normal->x, normal->y, normal->z},
+        {tangent->x, tangent->y, tangent->z, 1.0f},
+        {local_x / edge, local_z / edge}};
+}
+
+[[nodiscard]] std::vector<MeshVertex> terrain_render_vertices(const Terrain& terrain, const TerrainChunk& chunk) {
+    std::vector<MeshVertex> vertices;
+    vertices.reserve(
+        static_cast<std::size_t>(terrain_chunk_lod0_vertices_per_edge * terrain_chunk_lod0_vertices_per_edge));
+    for (std::int32_t sample_z = 0; sample_z < terrain_chunk_lod0_vertices_per_edge; ++sample_z) {
+        for (std::int32_t sample_x = 0; sample_x < terrain_chunk_lod0_vertices_per_edge; ++sample_x) {
+            vertices.push_back(terrain_render_vertex(terrain, chunk, sample_x, sample_z));
+        }
+    }
+    return vertices;
+}
+
+[[nodiscard]] std::vector<std::uint32_t> terrain_render_indices() {
+    std::vector<std::uint32_t> indices;
+    indices.reserve(
+        static_cast<std::size_t>(terrain_chunk_lod0_cells_per_edge * terrain_chunk_lod0_cells_per_edge) * 6U);
+    for (std::int32_t cell_z = 0; cell_z < terrain_chunk_lod0_cells_per_edge; ++cell_z) {
+        for (std::int32_t cell_x = 0; cell_x < terrain_chunk_lod0_cells_per_edge; ++cell_x) {
+            const std::uint32_t top_left = static_cast<std::uint32_t>(heightfield_index(cell_x, cell_z));
+            const std::uint32_t top_right = static_cast<std::uint32_t>(heightfield_index(cell_x + 1, cell_z));
+            const std::uint32_t bottom_right = static_cast<std::uint32_t>(heightfield_index(cell_x + 1, cell_z + 1));
+            const std::uint32_t bottom_left = static_cast<std::uint32_t>(heightfield_index(cell_x, cell_z + 1));
+            indices.insert(indices.end(), {top_left, top_right, bottom_right, top_left, bottom_right, bottom_left});
+        }
+    }
+    return indices;
 }
 
 } // namespace
@@ -143,19 +204,17 @@ std::span<const MaterialOverride> TerrainChunk::debug_plane_material_overrides()
     return m_debug_plane_material_overrides;
 }
 
-// Attaches the Resources-owned terrain render mesh produced for this chunk.
-void TerrainChunk::set_render_mesh(Mesh* mesh) noexcept {
-    m_render_mesh = mesh;
-}
-
-// Attaches the Resources-owned debug-plane mesh used for this chunk.
-void TerrainChunk::set_debug_plane_mesh(Mesh* mesh) noexcept {
-    m_debug_plane_mesh = mesh;
-}
-
-// Attaches the Resources-owned debug-plane texture produced for this chunk.
-void TerrainChunk::set_debug_plane_texture(Texture* texture) noexcept {
-    m_debug_plane_texture = texture;
+// Generates any missing chunk-owned data required by the current Terrain state.
+void TerrainChunk::generate(const Terrain& terrain) {
+    if (!has_heightfield()) {
+        generate_heightfield(terrain);
+    }
+    if (terrain.material() != nullptr) {
+        generate_render_mesh(terrain);
+    }
+    if (terrain.render_mode() == TerrainRenderMode::HeightDebugPlane && terrain.debug_plane_material() != nullptr) {
+        generate_debug_plane(terrain);
+    }
 }
 
 // Regenerates the fixed 33 by 33 LOD0 heightfield from Terrain::sample().
@@ -174,6 +233,29 @@ void TerrainChunk::generate_heightfield(const Terrain& terrain) {
             m_heightfield_samples[heightfield_index(sample_x, sample_z)] = terrain.sample(world_x, world_z);
         }
     }
+}
+
+// Creates the chunk-local heightfield render mesh from generated samples.
+void TerrainChunk::generate_render_mesh(const Terrain& terrain) {
+    if (m_render_mesh != nullptr) {
+        return;
+    }
+    if (!has_heightfield()) {
+        generate_heightfield(terrain);
+    }
+
+    Material* material = terrain.material();
+    if (material == nullptr) {
+        throw EngineError("Terrain render mesh generation requires Terrain::material().");
+    }
+
+    std::vector<MeshVertex> vertices = terrain_render_vertices(terrain, *this);
+    std::vector<std::uint32_t> indices = terrain_render_indices();
+    std::vector<SubMesh> submeshes{SubMesh{"terrain clay", 0, static_cast<std::uint32_t>(indices.size()), material}};
+
+    Mesh& mesh = Resources::create_mesh("OFG terrain render mesh" + chunk_label_suffix(m_id));
+    mesh.init(std::move(vertices), std::move(indices), std::move(submeshes));
+    m_render_mesh = &mesh;
 }
 
 // Creates chunk-owned debug plane mesh, texture, and texture material override.

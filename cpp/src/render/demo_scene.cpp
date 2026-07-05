@@ -2,6 +2,7 @@
 #include "ofg/render/demo_scene.hpp"
 
 #include "ofg/core/engine_error.hpp"
+#include "ofg/debug/debug_menu.hpp"
 #include "ofg/math/mat.hpp"
 #include "ofg/math/quat.hpp"
 #include "ofg/math/transform.hpp"
@@ -34,6 +35,9 @@
 #include <vector>
 
 namespace ofg {
+
+DEBUG_BOOL("terrain/show_debug_plane", g_show_terrain_debug_plane, false);
+
 namespace {
 
 constexpr float _pi = 3.14159265358979323846f;
@@ -353,7 +357,7 @@ void configure_demo_camera(Entity& entity) {
 // Validates resources that must exist before scene entity setup or update.
 void validate_demo_resources(const DemoScene& demo_scene) {
     if (demo_scene.m_cube_mesh == nullptr || demo_scene.m_player_material == nullptr ||
-        demo_scene.m_terrain_debug_material == nullptr) {
+        demo_scene.m_terrain_material == nullptr || demo_scene.m_terrain_debug_material == nullptr) {
         throw EngineError("Demo scene resources are not initialized.");
     }
     for (Material* material : demo_scene.m_cube_materials) {
@@ -383,6 +387,12 @@ void validate_demo_bindings(const DemoScene& demo_scene, const Scene& scene) {
     }
 }
 
+// Applies the current terrain debug menu choice to the scene-owned terrain object.
+void apply_terrain_render_mode(Scene& scene) noexcept {
+    scene.terrain().set_render_mode(
+        g_show_terrain_debug_plane ? TerrainRenderMode::HeightDebugPlane : TerrainRenderMode::ClayMesh);
+}
+
 } // namespace
 
 // Returns the always-textured opaque shader parameter layout used by the demo.
@@ -409,6 +419,12 @@ void build_demo_scene(DemoScene& scene) {
         "OFG generated flat normal texture", 1, 1, TextureColorSpace::Linear, rgba_bytes({128, 128, 255, 255}));
 
     // Materials all share one shader layout: PBR factors plus the required texture slots.
+    scene.m_terrain_material = add_material("OFG terrain clay material",
+        *scene.m_shader,
+        math::vec4(0.70f, 0.68f, 0.62f, 1.0f),
+        *scene.m_white_texture,
+        *scene.m_neutral_metallic_roughness_texture,
+        *scene.m_flat_normal_texture);
     scene.m_player_material = add_material("OFG demo player material",
         *scene.m_shader,
         math::vec4(0.15f, 0.86f, 0.92f, 1.0f),
@@ -495,8 +511,9 @@ void setup_demo_scene(DemoScene& demo_scene, Scene& scene) {
     demo_scene.m_player_entity->local_transform().m_scale = math::vec3(1.0f, 1.0f, 1.0f);
     demo_scene.m_player_visual_entity->local_transform().m_scale = math::vec3(0.6f, 1.8f, 0.35f);
 
-    scene.terrain().set_render_mode(TerrainRenderMode::HeightDebugPlane);
+    scene.terrain().set_material(demo_scene.m_terrain_material);
     scene.terrain().set_debug_plane_material(demo_scene.m_terrain_debug_material);
+    apply_terrain_render_mode(scene);
     scene.terrain().tick(TerrainTickContext{demo_scene.m_player_entity->local_transform().m_position});
 
     const std::vector<CubePlacement>& placements = cube_placements();
@@ -520,6 +537,7 @@ void update_demo_scene(const DemoScene& demo_scene, double time_ms, Scene& scene
     if (!std::isfinite(time_ms)) {
         throw EngineError("Demo scene update requires finite time.");
     }
+    apply_terrain_render_mode(scene);
 
     demo_scene.m_player_entity->local_transform().m_position.y = demo_scene.m_player->height() * 0.5f;
     demo_scene.m_player_entity->local_transform().m_scale = math::vec3(1.0f, 1.0f, 1.0f);

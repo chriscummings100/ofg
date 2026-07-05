@@ -50,7 +50,7 @@ TEST_CASE("terrain chunk generates a 33 by 33 heightfield from terrain sampling"
     ofg::Terrain terrain;
     ofg::TerrainChunk chunk{ofg::TerrainChunkId{0, 0, 0, 0}};
 
-    chunk.generate_heightfield(terrain);
+    chunk.generate(terrain);
 
     CHECK(chunk.has_heightfield());
     CHECK(chunk.heightfield_samples().size() == static_cast<std::size_t>(ofg::terrain_chunk_lod0_vertices_per_edge *
@@ -67,8 +67,8 @@ TEST_CASE("terrain chunk heightfields agree on shared edges") {
     ofg::TerrainChunk left{ofg::TerrainChunkId{0, 0, 0, 0}};
     ofg::TerrainChunk right{ofg::TerrainChunkId{0, 1, 0, 0}};
 
-    left.generate_heightfield(terrain);
-    right.generate_heightfield(terrain);
+    left.generate(terrain);
+    right.generate(terrain);
 
     for (std::int32_t z = 0; z < ofg::terrain_chunk_lod0_vertices_per_edge; ++z) {
         CHECK(

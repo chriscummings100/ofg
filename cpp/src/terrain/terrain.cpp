@@ -85,9 +85,9 @@ Material* Terrain::material() const noexcept {
 // Stores the shared height-debug plane material used by debug rendering.
 void Terrain::set_debug_plane_material(Material* material) {
     m_debug_plane_material = material;
-    if (m_debug_plane_material != nullptr) {
+    if (m_debug_plane_material != nullptr && m_render_mode == TerrainRenderMode::HeightDebugPlane) {
         for (auto& entry : m_chunks) {
-            entry.second.generate_debug_plane(*this);
+            entry.second.generate(*this);
         }
     }
 }
@@ -141,11 +141,8 @@ void Terrain::tick(const TerrainTickContext& context) {
 
     for (TerrainChunkId id : desired_ids) {
         TerrainChunk* chunk = get_or_create_chunk(id);
-        if (chunk != nullptr && !chunk->has_heightfield()) {
-            chunk->generate_heightfield(*this);
-        }
-        if (chunk != nullptr && m_debug_plane_material != nullptr) {
-            chunk->generate_debug_plane(*this);
+        if (chunk != nullptr) {
+            chunk->generate(*this);
         }
     }
 }

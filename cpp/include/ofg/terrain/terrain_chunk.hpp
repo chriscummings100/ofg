@@ -75,19 +75,18 @@ public:
     [[nodiscard]] Texture* debug_plane_texture() const noexcept;
     // Returns the material override that binds this chunk's debug texture.
     [[nodiscard]] std::span<const MaterialOverride> debug_plane_material_overrides() const noexcept;
-    // Attaches the Resources-owned terrain render mesh produced for this chunk.
-    void set_render_mesh(Mesh* mesh) noexcept;
-    // Attaches the Resources-owned debug-plane mesh used for this chunk.
-    void set_debug_plane_mesh(Mesh* mesh) noexcept;
-    // Attaches the Resources-owned debug-plane texture produced for this chunk.
-    void set_debug_plane_texture(Texture* texture) noexcept;
 
+    // Generates any missing chunk-owned data required by the current Terrain state.
+    void generate(const Terrain& terrain);
+
+private:
     // Regenerates the fixed 33 by 33 LOD0 heightfield from Terrain::sample().
     void generate_heightfield(const Terrain& terrain);
+    // Creates the chunk-local heightfield render mesh from generated samples.
+    void generate_render_mesh(const Terrain& terrain);
     // Creates chunk-owned debug plane mesh, texture, and texture material override.
     void generate_debug_plane(const Terrain& terrain);
 
-private:
     TerrainChunkId m_id;
     std::vector<TerrainSample> m_heightfield_samples;
     Ptr<Mesh> m_render_mesh;

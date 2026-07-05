@@ -34,12 +34,17 @@ There must be no `terrain_scene.cpp`, `TerrainScene`, renderer-side terrain chun
   Evidence: deleted `cpp/include/ofg/terrain/terrain_scene.hpp` and `cpp/src/terrain/terrain_scene.cpp`, removed `TerrainSceneResources` from `DemoScene`, removed per-frame terrain debug sync from `Game`, and kept `Terrain`/`TerrainChunk` as the only terrain ownership types with terrain-owned material pointers and chunk-owned render/debug resource pointers.
 - [x] (2026-07-05 09:02+01:00) Restored debug plane rendering through the new per-chunk layout.
   Evidence: `TerrainChunk` now generates its own debug plane mesh, R16Float debug texture, and texture-backed material override; `Terrain::extract_render_objects()` appends ordinary render objects for chunks in debug plane mode; `DemoScene` assigns a terrain-owned debug material without `TerrainSceneResources`.
-- [ ] Replace the stale terrain render bridge with direct extraction over chunk-owned clay and debug render resources.
+- [x] (2026-07-05 09:23+01:00) Reintroduced actual terrain mesh rendering through chunk-owned render meshes.
+  Evidence: `TerrainChunk::generate_render_mesh()` now creates 1089-vertex, 6144-index local-space heightfield meshes with the terrain clay material; `Terrain::tick()` generates render meshes for chunks when `Terrain::m_material` is assigned; default demo rendering uses `TerrainRenderMode::ClayMesh`; `terrain/show_debug_plane` switches extraction to chunk-owned debug planes.
+- [x] (2026-07-05 09:36+01:00) Collapsed Terrain-to-chunk generation down to a single public chunk entry point.
+  Evidence: `Terrain::tick()` now calls only `TerrainChunk::generate(*this)` for chunk generation; heightfield, clay mesh, and debug-plane generation stages are private `TerrainChunk` implementation details.
 - [ ] Update system and API contract docs for both debug rendering and clay mesh rendering.
 - [x] (2026-07-04 20:12+01:00) Ran `npm run format:cpp` and `npm run test:cpp`; native C++ tests passed with the new terrain, R16Float texture, and non-filtering material tests.
 - [x] (2026-07-04 20:22+01:00) Ran `npm run format:cpp`, `npm run test:cpp`, `npm run smoke:render`, and `npm run smoke:browser`; browser and native smoke passed with terrain debug planes visible.
 - [x] (2026-07-04 21:10+01:00) Re-ran validation after the streaming/material-layout/opaque-capacity revisions: `npm run format:cpp`, `npm run test:cpp`, `npm run format:cpp:check`, `git diff --check`, `npm run smoke:browser`, and `npm run smoke:render` pass. `git diff --check` reports only existing line-ending warnings.
 - [x] (2026-07-04 21:12+01:00) Refreshed durable terrain debug screenshots and reports from the latest passing native/browser smoke runs under `C:\dev\ofg\artifacts\terrain-debug`.
+- [x] (2026-07-05 09:23+01:00) Validated the chunk-owned clay mesh path.
+  Evidence: `npm run format:cpp`, `npm run format:cpp:check`, `npm run test:cpp`, `npm run smoke:render`, `npm run smoke:browser`, and `git diff --check` pass; `git diff --check` reports only the existing line-ending warning. Visual artifacts show clay mesh terrain at `C:\dev\ofg\artifacts\render-smoke\opaque-demo.png` and `C:\dev\ofg\artifacts\browser-smoke\opaque-demo.png`.
 - [ ] Run milestone review and record outcomes.
 
 ## Surprises & Discoveries
@@ -147,6 +152,14 @@ There must be no `terrain_scene.cpp`, `TerrainScene`, renderer-side terrain chun
 - Decision: Terrain mesh vertices are chunk-local.
   Rationale: Large worlds should avoid storing large absolute positions in low-precision vertex data. The mesh vertices should be generated in the local coordinate space of the chunk, with the render object's model transform placing the chunk at its world origin.
   Date/Author: 2026-07-05 / User
+
+- Decision: Default demo terrain rendering is the clay mesh path, with debug planes controlled by `terrain/show_debug_plane`.
+  Rationale: The normal game view should prove generated terrain mesh rendering through the opaque shader path, while the retained height-debug plane visualization should stay available through the existing ImGui-backed debug bool registry.
+  Date/Author: 2026-07-05 / User, implemented by Codex
+
+- Decision: `TerrainChunk::generate(...)` is the only public chunk generation entry point.
+  Rationale: `Terrain` should choose which chunk ids exist, but the chunk should own the internal generation sequence. Heightfield sampling, clay mesh creation, and optional debug plane creation may stay split into private methods for readability.
+  Date/Author: 2026-07-05 / User, implemented by Codex
 
 - Decision: Share compatible material bind-group layouts by structural layout key.
   Rationale: Terrain debug rendering uses one texture/material per visible chunk. If each material owns a distinct bind-group layout, the opaque pipeline cache treats structurally identical terrain materials as separate pipeline layouts and creates pipelines lazily as chunks become visible. Sharing compatible layouts keeps pipeline creation bounded by shader/material schema instead of chunk count.
@@ -464,12 +477,12 @@ The C++ terrain interface should end with stable names close to:
         [[nodiscard]] Mesh* render_mesh() noexcept;
         [[nodiscard]] Mesh* debug_plane_mesh() noexcept;
         [[nodiscard]] Texture* debug_plane_texture() noexcept;
-        void generate_heightfield(const Terrain& terrain);
-        void generate_render_mesh(const Terrain& terrain);
-        void generate_debug_plane(const Terrain& terrain);
         void generate(const Terrain& terrain);
 
     private:
+        void generate_heightfield(const Terrain& terrain);
+        void generate_render_mesh(const Terrain& terrain);
+        void generate_debug_plane(const Terrain& terrain);
         TerrainChunkId m_id;
         std::vector<TerrainSample> m_heightfield_samples;
         Ptr<Mesh> m_render_mesh;
