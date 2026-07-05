@@ -17,6 +17,7 @@ This is mostly native C++ runtime work. There is no intended visual redesign, so
 ## Progress
 
 - [x] (2026-07-04 09:25Z) Authored this proposed ExecPlan after reading `C:\dev\ofg\PLANS.md`, `C:\dev\ofg\docs\GUIDES.md`, `C:\dev\ofg\docs\API_CONTRACTS.md`, `C:\dev\ofg\docs\SYSTEMS.md`, the current `Game` facade, scene update context, and current active plan style.
+- [x] (2026-07-05 22:12Z) Reviewed this ExecPlan against the current codebase and refreshed it for the active terrain, Dear ImGui debug UI, shadow, bloom, temp-buffer, and renderer-diagnostics paths.
 - [ ] Implement the portable state-machine core and native doctests.
 - [ ] Integrate root, boot, `GameState`, `LevelState`, and `DemoLevelState` into the `Game` lifecycle without moving platform frame-driver ownership out of `BrowserGame` or native smoke.
 - [ ] Update active docs and contracts.
@@ -33,6 +34,18 @@ This is mostly native C++ runtime work. There is no intended visual redesign, so
 
 - Observation: The current runtime already has `ControlInput`, `Player`, `Camera`, `Scene::update`, and player-model loading owned in C++.
   Evidence: `C:\dev\ofg\cpp\include\ofg\scene\scene_update.hpp`, `C:\dev\ofg\cpp\include\ofg\scene\player.hpp`, and `C:\dev\ofg\cpp\src\game\game.cpp` show the current per-frame update path.
+
+- Observation: The only other active plan is now `C:\dev\ofg\docs\plans\terrain-chunk-renderer-plan.md`, and it still has open docs/review tasks.
+  Evidence: `Get-ChildItem docs\plans,docs\archived` on 2026-07-05 showed only `basic-state-system-plan.md` and `terrain-chunk-renderer-plan.md` in active plans, while `terrain-chunk-renderer-plan.md` Progress still has unchecked docs and milestone-review items.
+
+- Observation: The current `Game` facade now stores `DebugUiInput`, passes `DebugUiFrameInfo` to `Renderer::render`, masks gameplay input when the previous Dear ImGui frame wants mouse or keyboard capture, and mirrors renderer diagnostics into `RuntimeDebugStatus`.
+  Evidence: `C:\dev\ofg\cpp\include\ofg\game\game.hpp` has `m_debug_ui_input` and `mark_renderer_diagnostics(...)`; `C:\dev\ofg\cpp\src\game\game.cpp` has `set_debug_ui_input_impl`, capture masking in `update_impl`, `DebugUiFrameInfo` construction in `render_impl`, and bloom/shadow/temp-buffer/debug-UI status publishing.
+
+- Observation: The current demo scene is terrain-aware and much larger than the earlier player-and-cubes demo.
+  Evidence: `C:\dev\ofg\cpp\src\render\demo_scene.cpp` creates terrain clay/debug materials, assigns them to `Scene::terrain()`, ticks terrain around the player, and maintains a large validation box field; `C:\dev\ofg\cpp\src\render\render_object.cpp` appends terrain render objects through `scene.terrain().extract_render_objects(output)`.
+
+- Observation: `C:\dev\ofg\docs\SYSTEMS.md` currently contains stale terrain-scene bridge references.
+  Evidence: On 2026-07-05, `docs\SYSTEMS.md` still named `cpp/include/ofg/terrain/terrain_scene.hpp`, while the active terrain plan says the terrain scene bridge has been removed and current code does not contain that file.
 
 ## Decision Log
 
@@ -72,6 +85,22 @@ This is mostly native C++ runtime work. There is no intended visual redesign, so
   Rationale: `GameState` is the in-game container and `LevelState` is the contract for level-specific scene ownership. `DemoLevelState` is simply the first level. Proving this root-to-game-to-level path keeps the first integration small while leaving pause, editor, UI, multiplayer, and level-loading decisions for follow-up plans.
   Date/Author: 2026-07-04 / Codex
 
+- Decision: Finish or explicitly account for the active terrain plan before implementing Game integration.
+  Rationale: `DemoLevelState` will own the current demo-level scene flow, and that flow now includes terrain material assignment, chunk generation, direct terrain render-object extraction, and terrain debug mode. Implementing state integration against stale terrain assumptions would create churn.
+  Date/Author: 2026-07-05 / Codex
+
+- Decision: `DemoLevelState` may own `DemoScene` bindings and call the existing demo setup/update helpers, but terrain generation remains owned by `Terrain`, and render extraction remains owned by `Terrain::extract_render_objects()` plus renderer extraction.
+  Rationale: Level states should orchestrate level lifetime, not become terrain or renderer subsystems. This keeps the state hierarchy aligned with current ownership contracts.
+  Date/Author: 2026-07-05 / Codex
+
+- Decision: Keep Dear ImGui input, renderer diagnostic aggregation, and `DebugUiFrameInfo` plumbing in `Game`/`Renderer` rather than moving them into `GameState` or `LevelState`.
+  Rationale: These are runtime facade and renderer inspection concerns. States can react to future UI/editor decisions, but they should not own ImGui backend state, debug variable storage, or renderer pass diagnostics.
+  Date/Author: 2026-07-05 / Codex
+
+- Decision: Do not introduce a `GameFlowHost` or equivalent service facade for the first integration.
+  Rationale: The state system is already a new architectural layer. Adding a second indirection layer before there is real complexity would make the initial implementation harder to follow. Keep the first game-flow states implementation-local and pass direct references or simple values from `Game` where needed.
+  Date/Author: 2026-07-05 / Codex
+
 ## Outcomes & Retrospective
 
 Not implemented yet. This section should be updated after the state core and Game integration land, including any API changes made during implementation, validation command results, coverage notes, and remaining follow-ups such as pause/editor state implementations.
@@ -80,15 +109,15 @@ Not implemented yet. This section should be updated after the state core and Gam
 
 This plan preserves and extends the active contracts in `C:\dev\ofg\docs\API_CONTRACTS.md`.
 
-`OFG-BOOT-001 TypeScript Host Ownership` is preserved. TypeScript still owns DOM boot, raw input collection, WASM loading, resize, and blob fetch transport. It must not choose game state transitions, own pause/editor behavior, mutate scene graphs, or inspect state objects.
+`OFG-BOOT-001 TypeScript Host Ownership` is preserved. TypeScript still owns DOM boot, raw control-input collection, raw debug-UI input collection, WASM loading, resize, and blob fetch transport. It must not choose game state transitions, own pause/editor behavior, mutate scene graphs, inspect state objects, own Dear ImGui widget state, or own terrain/editor/game-world data.
 
-`OFG-BOOT-002 C++ Runtime Ownership` is extended. C++ will own the hierarchical state system, root state, boot flow state, in-game state, level state contract, and first demo level state. `Game` may hold the root state and report compact status, but specific state transition behavior belongs in state classes or a small game-flow module, not in broad `game.cpp` branches.
+`OFG-BOOT-002 C++ Runtime Ownership` is extended. C++ will own the hierarchical state system, root state, boot flow state, in-game state, level state contract, and first demo level state. `Game` may hold the root state and report compact status, but specific state transition behavior belongs in state classes or a small game-flow module, not in broad `game.cpp` branches. Existing C++ ownership remains intact: `Game` stores raw `ControlInput` and raw `DebugUiInput`, `Renderer` owns Dear ImGui rendering and diagnostics, `Scene` owns `Terrain`, `Terrain` owns chunk generation and render extraction data, `Player` owns player model loading, and `Camera` owns camera behavior.
 
-`OFG-BOOT-003 WASM Facade` is preserved unless implementation adds an optional diagnostic debug-status field. The facade must not expose mutable state pointers or let TypeScript spawn C++ states directly. If a debug field such as `gameStatePath` is added, it is read-only diagnostics.
+`OFG-BOOT-003 WASM Facade` is preserved unless implementation adds an optional diagnostic debug-status field. The facade must not expose mutable state pointers or let TypeScript spawn C++ states directly. If a debug field such as `gameStatePath` is added, it is read-only diagnostics and must be mirrored in `C:\dev\ofg\src\app\wasmRuntime.ts` tests and `RuntimeDebugStatus` tests.
 
-`OFG-BOOT-004 Renderer Compatibility` and `OFG-BOOT-005 WebGPU Baseline` are preserved. The rendered scene, WebGPU feature requirements, target acquisition, and renderer pass behavior should not change as part of the state core. Browser/native smoke should produce the same visual class of output.
+`OFG-BOOT-004 Renderer Compatibility` and `OFG-BOOT-005 WebGPU Baseline` are preserved. The rendered scene, WebGPU feature requirements, target acquisition, renderer pass behavior, terrain extraction behavior, culling/shadow/bloom/temp-buffer diagnostics, and Dear ImGui debug overlay behavior should not change as part of the state core. Browser/native smoke should produce the same visual class of output.
 
-`OFG-BOOT-006 Resource Lifetime` is preserved. State transitions may create, update, or clear scene-level objects through existing runtime/resource APIs, but they must not recreate durable renderer or resource objects every frame. `Resources::advance_loads()` should still run once per accepted `Game::update` before gameplay components observe resource state.
+`OFG-BOOT-006 Resource Lifetime` is preserved. State transitions may create, update, or clear scene-level objects through existing runtime/resource APIs, but they must not recreate durable renderer or resource objects every frame. `Resources::advance_loads()` should still run once per accepted `Game::update` before gameplay components observe resource state. Terrain chunks may create chunk-owned meshes/textures during terrain generation or explicit terrain mutation, not during render extraction; state code must not reintroduce a terrain scene bridge or visibility-time terrain resource generation.
 
 `OFG-BOOT-009 Coverage` applies. New C++ implementation files in `cpp/src/state` and any modified portable game-flow files must pass the default C++ coverage attention gate unless this plan records a specific exception with rationale. Browser-only glue remains validated through build and smoke where coverage cannot directly execute it.
 
@@ -100,11 +129,15 @@ The repository root is `C:\dev\ofg`.
 
 The current browser/native runtime uses `Game` as a static C++ facade. Its public interface is in `C:\dev\ofg\cpp\include\ofg\game\game.hpp`, and its implementation is in `C:\dev\ofg\cpp\src\game\game.cpp`. `BrowserGame` and native smoke create the WebGPU device and call `Game::create`, repeatedly call `Game::prepare` until ready, then call `Game::update` and `Game::render` for frames. `BrowserGame` owns browser-specific surface acquisition and queue submission; that must not move into the state system.
 
-`Game::prepare_impl` currently prepares `Resources`, creates the current demo `Scene`, calls `build_demo_scene`, `setup_demo_scene`, and `update_demo_scene`, then prepares `Renderer`. `Game::update_impl` validates time, advances `Resources::advance_loads`, updates demo transforms, calls `Scene::update`, publishes player/camera debug status, and clears one-frame input edges. The state integration should move the high-level "which flow is active" responsibility out of direct `Game` branches without hiding the existing frame order.
+`Game::prepare_impl` currently prepares `Resources`, creates the current demo `Scene`, calls `build_demo_scene`, `setup_demo_scene`, and `update_demo_scene`, records demo-scene validation counts, then prepares `Renderer`. `Game::update_impl` validates time, computes a clamped delta, updates demo transforms, toggles the renderer overhead-sun debug flag from a one-frame `ControlInput` edge, advances `Resources::advance_loads`, masks gameplay controls when the previous Dear ImGui frame wants mouse or keyboard capture, calls `Scene::update`, publishes player/camera debug status, and clears one-frame input edges. `Game::render_impl` builds `DebugUiFrameInfo`, calls `Renderer::render`, clears transient debug-UI input, and mirrors renderer culling, shadow, bloom, temp-buffer, and debug-UI diagnostics into `RuntimeDebugStatus`. The state integration should move the high-level "which flow is active" responsibility out of direct `Game` branches without hiding these frame-order and diagnostics responsibilities.
 
-Scene and component update code lives under `C:\dev\ofg\cpp\include\ofg\scene` and `C:\dev\ofg\cpp\src\scene`. `Scene::update` validates controls, updates `Environment`, updates players, updates animation players, updates CPU-skinned mesh renderers, then updates cameras. This order is part of the active contract and should stay intact.
+Scene and component update code lives under `C:\dev\ofg\cpp\include\ofg\scene` and `C:\dev\ofg\cpp\src\scene`. `Scene::update` validates controls, updates `Environment`, updates players, updates animation players, ticks scene-owned `Terrain` around the primary player when available, updates CPU-skinned mesh renderers, then updates cameras. This order is part of the active contract and should stay intact.
 
-Renderer demo setup lives in `C:\dev\ofg\cpp\include\ofg\render\demo_scene.hpp` and `C:\dev\ofg\cpp\src\render\demo_scene.cpp`. It is acceptable for `DemoLevelState` to reuse the current demo scene functions so this plan does not mix state-machine work with scene content changes.
+Renderer demo setup lives in `C:\dev\ofg\cpp\include\ofg\render\demo_scene.hpp` and `C:\dev\ofg\cpp\src\render\demo_scene.cpp`. It is acceptable for `DemoLevelState` to reuse the current demo scene functions so this plan does not mix state-machine work with scene content changes. The current demo setup creates terrain clay/debug materials, assigns them to `Scene::terrain()`, creates a player and a large validation box field, and lets terrain append ordinary render objects through `Terrain::extract_render_objects()` during renderer extraction.
+
+The current debug UI input path lives in `C:\dev\ofg\cpp\include\ofg\debug\debug_ui_input.hpp`, `C:\dev\ofg\cpp\src\web\browser_game.cpp`, `C:\dev\ofg\src\app\controlInput.ts`, and `C:\dev\ofg\src\app\wasmRuntime.ts`. `Game` stores the latest raw `DebugUiInput`; `Renderer` owns the Dear ImGui overlay, capture wishes, and debug UI diagnostics.
+
+The active terrain plan is `C:\dev\ofg\docs\plans\terrain-chunk-renderer-plan.md`. Before implementing the Game integration milestones in this plan, re-read that plan and confirm whether its remaining docs/review tasks are complete or still need to be accounted for.
 
 Definitions used by this plan:
 
@@ -128,7 +161,7 @@ The `State` class should be non-copyable and non-movable. It owns active child, 
 
 Milestone 2 hardens lifecycle semantics with focused tests. Cover immediate single-frame completion, multi-frame enter, multi-frame leave, leave requested during enter, active child replacement, pending child replacement by a newer pending child, substate replacement by index, parent leave waiting for active descendants, pending descendants discarded when parent leaves before activation, `spawn_sibling` replacing the current active child through the parent, deterministic substate update order, `inhibit_control_on_child`, null spawn rejection, and recursive update rejection. Include a transition-budget test or implementation guard so immediate replacement loops cannot hang.
 
-Milestone 3 adds the first game-flow state classes without broad gameplay changes. Add a small game-flow module such as `C:\dev\ofg\cpp\include\ofg\game\game_flow.hpp` and `C:\dev\ofg\cpp\src\game\game_flow.cpp`, or keep private classes in `game_flow.cpp` if no public type is needed. The first concrete states should be:
+Milestone 3 adds the first game-flow state classes without broad gameplay changes. Add a small game-flow module such as `C:\dev\ofg\cpp\include\ofg\game\game_flow.hpp` and `C:\dev\ofg\cpp\src\game\game_flow.cpp`, or keep private classes in `game_flow.cpp` if no public type is needed. Before coding this milestone, re-read the active terrain plan if it still exists under `C:\dev\ofg\docs\plans` and verify the current `DemoScene`, `Terrain`, and renderer extraction APIs. The first concrete states should be:
 
 `RootState`, a thin host state whose default main does not complete and whose only job is to own the active high-level flow.
 
@@ -140,13 +173,15 @@ Milestone 3 adds the first game-flow state classes without broad gameplay change
 
 `DemoLevelState`, the first concrete level. This replaces the earlier placeholder name `DemoGameState`. It inherits from `LevelState`, reuses the existing demo scene setup and per-frame update behavior, and must not move renderer command encoding, browser surface acquisition, or queue submission into state code.
 
-The concrete game states need access to a narrow host/service object rather than all of `Game`. A small service interface can expose only what these states need, such as creating the demo scene, updating the current scene for the frame, clearing the current scene during leave, reading current time/delta/control input, and publishing active-scene diagnostics. If this is overkill during implementation, keep helper functions private to the game-flow module and record the simpler decision here.
+The concrete game states should stay close to the `Game` implementation for the first integration. They may live as private implementation classes in `game_flow.cpp`, or directly in `game.cpp` if that is clearer and does not bloat the facade. Pass the concrete data they need directly, such as `DemoScene&`, the current `Scene*` or scene owner reference, current frame time, masked gameplay controls, and `GpuContext`. Do not add a `GameFlowHost` service facade unless a later plan identifies repeated cross-state dependencies that genuinely need one.
 
-Milestone 4 integrates the root state into `Game`. Add a `std::unique_ptr<State> m_root_state` or equivalent concrete root owner to `Game`. During prepare, after `Resources::prepare()` is complete and before `Renderer::prepare()` needs scene resources, create the root state, spawn `BootFlowState`, and update the root until `BootFlowState` has handed off to `GameState` and `GameState` has activated its initial `DemoLevelState` child, or until a state reports it is still asynchronously entering. During `Game::update_impl`, keep the existing frame order: tick runtime, compute delta, advance resource loads, update the root state, publish active scene status, clear one-frame control edges, and record the latest time. During render, `Game` still validates the target and passes the active scene to `Renderer::render`.
+Milestone 4 integrates the root state into `Game`. Add a `std::unique_ptr<State> m_root_state` or equivalent concrete root owner to `Game`. During prepare, after `Resources::prepare()` is complete and before `Renderer::prepare()` needs scene resources, create the root state, spawn `BootFlowState`, and update the root until `BootFlowState` has handed off to `GameState` and `GameState` has activated its initial `DemoLevelState` child, or until a state reports it is still asynchronously entering. `DemoLevelState` should replace direct demo scene setup in `Game::prepare_impl` by calling the current `build_demo_scene`, `setup_demo_scene`, and initial `update_demo_scene` behavior using direct references to the `Game`-owned `DemoScene` and current `Scene`.
 
-Milestone 5 integrates release and diagnostics. `Game::release_impl` should request root-state leave and update it until finished before clearing the scene and destroying the root. This ensures active game states receive leave callbacks instead of being silently destroyed during ordinary runtime shutdown. If the existing `GameLifecycleState` values are not expressive enough, add a compact lifecycle step such as `Rel_States`; otherwise use the existing scene-release phase and document the exact ordering. Optionally add a read-only debug-status field such as `gameStatePath` if tests or browser diagnostics need to observe the active high-level state without exposing state pointers.
+During `Game::update_impl`, keep the current frame order: tick runtime, compute delta, preserve `m_last_delta_seconds`, handle one-frame global control edges such as overhead-sun debug toggling, advance `Resources::advance_loads`, apply debug-UI capture masking to gameplay controls, update the root state, publish active scene status, clear one-frame control edges, and record the latest time. `DemoLevelState` should replace direct per-frame demo-scene update calls in `Game::update_impl`; it should still call the existing demo helper so terrain mode, terrain ticking, player visual reset, and validation-box animation remain unchanged. During render, `Game` still validates the target, constructs `DebugUiFrameInfo`, calls `Renderer::render`, clears debug-UI input transients, and mirrors renderer diagnostics into `RuntimeDebugStatus`.
 
-Milestone 6 updates documentation and validates. Update `C:\dev\ofg\docs\SYSTEMS.md` with a new CppStateSystem or CppGameFlow section, and update `C:\dev\ofg\docs\API_CONTRACTS.md` to say C++ owns high-level game-flow state transitions. Run the repo formatting, test, smoke, and coverage gates. Because this is runtime behavior, run browser and native smoke even if visuals are intended to be unchanged.
+Milestone 5 integrates release and diagnostics. `Game::release_impl` should request root-state leave and update it until finished before clearing the scene and destroying the root. This ensures active game states receive leave callbacks instead of being silently destroyed during ordinary runtime shutdown. Preserve the current release contract unless there is a recorded reason to change it: drain renderer resources, then let the state/scene layer leave and clear scene-owned runtime state, then drain `Resources`, then dispose runtime status and borrowed GPU handles. If the existing `GameLifecycleState` values are not expressive enough, add a compact lifecycle step such as `Rel_States`; otherwise use the existing `Rel_Scene` phase and document that it now drains the state tree before resetting scene data. Optionally add a read-only debug-status field such as `gameStatePath` if tests or browser diagnostics need to observe the active high-level state without exposing state pointers.
+
+Milestone 6 updates documentation and validates. Update `C:\dev\ofg\docs\SYSTEMS.md` with a new CppStateSystem or CppGameFlow section, and update `C:\dev\ofg\docs\API_CONTRACTS.md` to say C++ owns high-level game-flow state transitions. While editing docs, remove or correct stale terrain-scene bridge references if the active terrain plan has not already done so. Run the repo formatting, test, smoke, and coverage gates. Because this is runtime behavior, run browser and native smoke even if visuals are intended to be unchanged.
 
 ## Concrete Steps
 
@@ -156,6 +191,9 @@ Before implementation:
 
     git status --short
     Get-Content -Raw docs\plans\basic-state-system-plan.md
+    if (Test-Path docs\plans\terrain-chunk-renderer-plan.md) { Get-Content -Raw docs\plans\terrain-chunk-renderer-plan.md }
+
+Expected result: the implementation starts from the latest state-system plan and the latest terrain ownership plan. If the terrain plan still has open docs/review items, either finish them first or record in this plan why state implementation can safely proceed.
 
 After adding the state core and tests:
 
@@ -170,7 +208,7 @@ After integrating state flow with `Game`:
     npm run format:cpp:check
     npm test
 
-Expected result: C++ and TypeScript tests pass. Existing Game tests should still prove prepare, update, render, debug status, and control-edge consumption.
+Expected result: C++ and TypeScript tests pass. Existing Game tests should still prove prepare, update, render, debug status, control-edge consumption, debug-UI input forwarding, bloom diagnostics, shadow diagnostics, temp-buffer diagnostics, terrain setup, and demo-scene validation counts.
 
 For browser review if a dev server is needed:
 
@@ -225,13 +263,23 @@ The Game integration is accepted when:
 
 The boot flow hands off to `GameState`, and `GameState` activates `DemoLevelState` as its initial `LevelState` child without changing the visible startup result.
 
+`DemoLevelState` owns the demo-level binding and calls current demo setup/update helpers, including terrain material assignment, terrain render-mode application, player visual reset, and validation-box animation.
+
+`Terrain` remains scene-owned and chunk generation/render extraction remains in `Terrain` and `TerrainChunk`; no state class reintroduces `TerrainScene`, renderer-side terrain slot maps, visibility-time terrain mesh generation, or terrain-specific renderer caches.
+
 `Game::update_impl` advances resources before scene components observe resource state, as required by `OFG-BOOT-006`.
 
+`Game::update_impl` still masks gameplay controls when the previous Dear ImGui frame reports mouse or keyboard capture.
+
 `Game::render_impl` still renders the active scene through `Renderer::render`, and browser/native frame drivers still own command-buffer finish, queue submit, presentation, and readback.
+
+`Game::render_impl` still builds `DebugUiFrameInfo`, clears debug-UI input transients after render, and mirrors renderer culling, shadow, bloom, temp-buffer, and debug-UI diagnostics into `RuntimeDebugStatus`.
 
 `Game::release_impl` asks the root state tree to leave before clearing scene-owned runtime state.
 
 No mutable state objects, child pointers, substate pointers, renderer internals, or scene ownership are exposed to TypeScript.
+
+Existing browser-facing debug status fields remain present unless this plan records an intentional contract change. At minimum, tests and smoke should continue to observe lifecycle state, frame count, camera mode, model-loading state, player-model-loaded state, demo-scene diagnostics, render-culling diagnostics, shadow diagnostics, debug-UI diagnostics, bloom diagnostics, temp-buffer diagnostics, renderer counters, and last-error behavior.
 
 Validation commands that must pass:
 
@@ -270,6 +318,7 @@ Likely new source files:
     C:\dev\ofg\cpp\tests\state_machine_test.cpp
     C:\dev\ofg\cpp\include\ofg\game\game_flow.hpp
     C:\dev\ofg\cpp\src\game\game_flow.cpp
+    C:\dev\ofg\cpp\tests\game_flow_test.cpp, if game-flow behavior can be tested without a WebGPU device
 
 Final smoke artifacts should remain the standard ones unless implementation adds state-specific diagnostics:
 
@@ -357,5 +406,14 @@ At the end of Game integration, the stable concepts should exist even if concret
 `LevelState` is the base type for level-specific scene ownership.
 
 `DemoLevelState` inherits from `LevelState`, represents the current default playable level, and reuses existing scene/component/resource update order.
+
+The concrete game-flow implementation should avoid a new host/service facade for the first integration. Prefer direct references captured by implementation-local state constructors or passed by simple setter methods before `State::update()`. For example, `DemoLevelState` can work with the existing `Game`-owned `DemoScene` and current `Scene` owner directly:
+
+    build_demo_scene(m_demo_scene);
+    m_current_scene = std::make_unique<Scene>();
+    setup_demo_scene(m_demo_scene, *m_current_scene);
+    update_demo_scene(m_demo_scene, m_time_ms, *m_current_scene);
+
+The exact member names may differ. The important rule is that state code may orchestrate level scene setup/update/clear, but it must not own renderer frame submission, WebGPU handles, Dear ImGui backend state, resource registries, TypeScript facade methods, or renderer diagnostic collection. During ordinary updates, `Game` should still build or provide the `SceneUpdateContext` data with masked gameplay controls, primary player, main camera, current `Scene`, and `GpuContext`.
 
 `Game` remains the lifecycle facade used by browser and native frame drivers. It can own the root state and compact diagnostics, but browser-specific frame-driver work stays in `BrowserGame`, renderer command recording stays in `Renderer`, resource loading stays in `Resources`, and player/camera behavior stays in their scene components.
