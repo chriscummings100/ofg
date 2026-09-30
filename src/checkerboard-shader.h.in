@@ -1,0 +1,4 @@
+// Generated from shaders/checkerboard.slang by CMake; do not edit this generated header.
+#pragma once
+
+inline constexpr const char* checkerboardShader = R"slang(@CHECKERBOARD_SHADER@)slang";

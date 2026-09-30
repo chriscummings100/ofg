@@ -70,7 +70,7 @@ Use explicit ownership and resource retirement. Unloading a tile must eventually
 
 ## Browser portability
 
-The current bootstrap step is native Windows D3D12 only; the user explicitly deferred browser setup for now. Browser support remains a project goal. Once that path is introduced, prove native and browser rendering, compute and ImGui early. Native development is the normal iteration loop. Re-run browser checks at milestone boundaries and whenever shared shaders, resource bindings, upload/readback, device lifecycle, UI/input, platform abstractions or dependencies change. Pure CPU changes need focused tests, not an automatic browser rebuild for every edit.
+The current bootstrap step is the native Windows D3D12 checkerboard; the user requested this visual baseline before browser bring-up. Browser support is the next step. Once that path is introduced, prove native and browser rendering, compute and ImGui early. Native development is the normal iteration loop. Re-run browser checks at milestone boundaries and whenever shared shaders, resource bindings, upload/readback, device lifecycle, UI/input, platform abstractions or dependencies change. Pure CPU changes need focused tests, not an automatic browser rebuild for every edit.
 
 Design shared shaders against a documented, queried WebGPU capability baseline. Do not rely on native-only features for required behavior. Staying within GPU features is necessary but insufficient: the web path also needs asynchronous initialization/loading, a callback-driven frame loop, portable shader layouts and deliberate memory budgets. Treat unsupported backend operations as explicit failures or tested fallbacks.
 
@@ -86,7 +86,7 @@ Use integration tests for shader bindings, uploads, compute results, rendering a
 
 Run the checks appropriate to the change and record their results. Report a skipped, unavailable or failing check honestly; a successful build alone is not proof of correct behavior. Coverage helps reveal missing cases but does not replace assertions, failure-path testing or visual inspection.
 
-Record the actual build/test/run commands in [DEVELOPING.md](DEVELOPING.md) as they are implemented. The native console application and its GPU-dependent CTest startup check are implemented; CPU/doctest targets and rendering are still to come. Do not claim a command, preset or executable works until it has been run. Establish a practical coverage policy as application logic is introduced; the initial device-startup glue is verified by the integration check, and historical coverage commands and thresholds are not inherited automatically.
+Record the actual build/test/run commands in [DEVELOPING.md](DEVELOPING.md) as they are implemented. The native checkerboard window, CTest startup check and doctest GPU pixel test are implemented; GPU-independent CPU tests and browser support are still to come. Do not claim a command, preset or executable works until it has been run. Establish a practical coverage policy as application logic is introduced; the initial device-startup glue is verified by the integration check, and historical coverage commands and thresholds are not inherited automatically.
 
 For visual work, inspect and present native/browser screenshots and relevant diagnostics, saving durable evidence under `artifacts`. For performance claims, name hardware, backend, viewport, workload and measurement method. Track live allocated bytes and resources, including pending retirement; cumulative allocation counts are not residency.
 

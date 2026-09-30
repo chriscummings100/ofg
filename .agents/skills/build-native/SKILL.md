@@ -19,9 +19,11 @@ If the submodule is missing, use the documented initialization command. Do not u
 
 ## Configure, compile and verify
 
-Follow the documented native configure command, then build target `ofg`. Check the exit status at each stage before proceeding. The first configure fetches prebuilt Slang and DirectX dependencies; routine builds reuse them. D3D12 is the only enabled backend and no Emscripten or native Dawn setup is needed.
+Follow the documented native configure command, then build targets `ofg` and `ofg-render-test` (only `ofg` when `BUILD_TESTING=OFF`). Check the exit status at each stage before proceeding. The first configure fetches prebuilt Slang, DirectX dependencies and pinned GLFW; routine builds reuse them. D3D12 is the only enabled backend and no Emscripten or native Dawn setup is needed.
 
-Run the built executable and the `ofg-startup` CTest check when verifying startup. Success means a zero exit code and the adapter message, not just a successful link. This is a console application that creates and releases a D3D12 device; it does not yet open a window. The startup test is GPU-dependent, so report unavailable hardware/runtime as an unverified startup rather than disguising it as a pass. Do not enable the entire upstream RHI test suite to test OFG.
+Run `ofg --check-device` for finite startup verification, then run both CTest checks as documented. Normal `ofg` launch opens an interactive checkerboard window and stays running until closed; do not use it as a finite command-line test. The render test checks every offscreen pixel through doctest. Both checks are GPU-dependent, so report unavailable hardware/runtime honestly. Do not enable the entire upstream RHI test suite to test OFG.
+
+For rendering changes, also inspect the window, resize/maximize it, minimize/restore it, and verify clean close. Save screenshots under `artifacts/checkerboard`. The automated offscreen check does not prove presentation. The shared shader is embedded by CMake; editing it requires a rebuild, not runtime asset copying.
 
 The Slang DLLs and the `D3D12` runtime directory belong beside `ofg.exe`; upstream CMake copies them into the build directory. The application exports the Agility SDK selection through RHI's helper. Investigate missing output files when startup fails outside a developer shell; do not mask packaging defects by adding dependency directories to the system PATH.
 

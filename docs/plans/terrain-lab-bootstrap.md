@@ -1,12 +1,15 @@
 # Bootstrap a Slang RHI terrain laboratory for native and browser use
 
-This ExecPlan follows [PLANS.md](../../PLANS.md) and [AGENTS.md](../../AGENTS.md). Status: native dependency integration and a minimal console application's D3D12 startup are verified. The user authorized a main.cpp linked to RHI, clarification of the native build environment, and a native-build skill; browser work remains deferred. Windowing, rendering, UI and terrain milestones remain future work. Keep Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective current.
+This ExecPlan follows [PLANS.md](../../PLANS.md) and [AGENTS.md](../../AGENTS.md). Status: native device startup is committed as d10c9c6, and the native checkerboard window and GPU rendering check are verified. Browser bring-up is the next step. UI and terrain remain future work. Keep Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective current.
 
 ## Purpose / Big Picture
 
 Establish a small C++ terrain laboratory using Slang RHI in both a native Windows D3D12 window and a browser WebGPU canvas. The observable result is the same diagnostic terrain scene, ImGui controls and numerical output on both targets, with measured startup, resource use and streaming behavior. Native D3D12 is the daily development path; the browser is proved immediately and checked at relevant changes and milestones. This establishes the foundation for the terrain implementation described in [the restart research](../research/terrain-first-restart.md).
 
 ## Progress
+
+- [x] (2026-10-01) Committed the native startup baseline as d10c9c6 before rendering work.
+- [x] (2026-10-01) Rendered a shared Slang checkerboard in a resizable GLFW/D3D12 window. Preserved --check-device and added the ofg-checkerboard doctest integration test; all pixels passed at 1x1, 129x97 and 259x193. Inspected maximize/resize, minimize/restore and clean close. Screenshots are under artifacts/checkerboard.
 
 - [x] (2026-09-30) Reviewed backup terrain, architecture and plans through three independent source investigations.
 - [x] (2026-09-30) Checked current Slang RHI/SlangPy sources and recorded concrete browser limitations.
@@ -25,11 +28,15 @@ Establish a small C++ terrain laboratory using Slang RHI in both a native Window
 
 ## Surprises & Discoveries
 
+The first native checkerboard build and pixel test passed. A final automated window interaction exposed missed brief Escape presses when press/release both arrived between frames; enabling GLFW sticky key state fixed it, and the rebuilt application exited successfully on the same brief Escape input. Launching from artifacts/checkerboard also verified working-directory-independent shader loading. The preferred presentation format can apply sRGB encoding, so visual screenshot byte values differ from the linear RGBA8 UNORM test target. Tests deliberately validate the offscreen format; they do not claim screenshot byte equality. GLFW is pinned to b00e6a8a88ad1b60c0a045e696301deb92c9a13e (the revision in RHI's examples).
+
 The backup only renders a 160 m square of synchronous, single-resolution terrain. Its resource registry retains evicted chunk meshes. Its native graphics route is offscreen Vulkan/Dawn rather than a native application. These findings justify a fresh terrain-focused vertical slice.
 
 Slang RHI has an Emscripten integration, including prebuilt WASM Slang compiler libraries, but the inspected upstream example only checks device/queue and buffer behavior. Its Emscripten CI builds without running tests. Indirect draws are disabled in the current RHI WASM command path. None of this proves that ordinary browser graphics or compute fail; those are precisely what this spike must establish.
 
 ## Decision Log
+
+2026-10-01, user scope update: commit the native baseline, then render a checkerboard before switching to browser work. Use one full-screen triangle with a Slang fragment shader producing 64-pixel squares; no texture asset or vertex buffer is needed. Keep shader/pipeline/draw code separate from the native GLFW host for reuse by the future browser host. Fetch GLFW at the same pinned revision used by RHI's examples, without enabling those examples. Preserve the device check as --check-device and add an offscreen GPU pixel test through CTest. Test the shared draw at odd/non-square dimensions to cover edges, row pitch and resize-sized targets; inspect window resize, minimize/restore and close. These platform/render integration checks replace artificial unit mocks; CPU coverage remains deferred until there is CPU domain logic.
 
 2026-09-30, user decision: use C++/Slang RHI, with native Windows D3D12 for most development and Emscripten/WebGPU for the browser. Build and run both early, then test the browser periodically and at compatibility-sensitive changes. This supersedes the earlier open framework comparison; browser removal would require a new product decision.
 
@@ -47,7 +54,9 @@ Slang RHI has an Emscripten integration, including prebuilt WASM Slang compiler 
 
 ## Outcomes & Retrospective
 
-The pinned submodule and native CMake integration now build ofg.exe. Direct startup and the CTest integration check create a D3D12 device successfully without a developer-shell runtime dependency. Compilation does need the Visual Studio x64 environment, now documented with installation discovery and the warning that separate tool invocations use separate shells. The build-native skill is validated. The submodule remains unmodified. Rendering, browser execution, terrain tests, memory measurements and performance benchmarks remain unimplemented or unverified; the overall bootstrap is incomplete.
+The checkerboard slice now provides a native visual reference and a shared renderer for browser bring-up. src/main.cpp contains only native startup/window/event responsibilities; src/checkerboard.cpp and shaders/checkerboard.slang contain the common pipeline and draw. The shader is embedded at build time, avoiding working-directory-sensitive loading. Both CTest checks pass and the live window survives maximize and minimize/restore. No browser code was added in this slice.
+
+The pinned submodule and native CMake integration now build ofg.exe. Direct startup and the CTest integration check create a D3D12 device successfully without a developer-shell runtime dependency. Compilation does need the Visual Studio x64 environment, now documented with installation discovery and the warning that separate tool invocations use separate shells. The build-native skill is validated. The submodule remains unmodified. Browser execution, terrain tests, memory measurements and performance benchmarks remain unimplemented or unverified; the overall bootstrap is incomplete.
 
 ## Contract and Quality Baseline
 
@@ -57,11 +66,11 @@ Global addresses use integer sample/tile coordinates. Compute fixtures initially
 
 Every allocation has an identifiable owner and eviction path. Resources referenced by queued GPU work are retired only after completion. Requests carry generation identity so a late result cannot populate a newly reused tile slot. Queues, staging data and retired resources count toward memory budgets.
 
-Use doctest for C++ tests and register them with CTest. Establish independently configurable CPU tests, separate native GPU integration checks and browser smoke, plus a practical coverage policy when adding code. CPU-only configuration must avoid adding the RHI target or fetching graphics dependencies. Pin doctest directly for OFG; upstream only creates its own doctest target when its test suite is enabled, so enabling all upstream tests merely to acquire that target is unnecessary. Addressing, stale-request, ownership and failure branches need behavioral tests. GPU/platform exclusions need explicit rationale. A percentage cannot substitute for executing both target paths.
+Use doctest for C++ tests and register them with CTest. Establish independently configurable CPU tests, separate native GPU integration checks and browser smoke, plus a practical coverage policy when adding code. CPU-only configuration must avoid adding the RHI target or fetching graphics dependencies. The initial GPU integration test includes the doctest 2.4.11 header already pinned within the RHI submodule without enabling upstream tests. When adding independent CPU tests, pin doctest separately so CPU configuration does not depend on RHI. This is a deliberate simplification for the current GPU-only slice. Addressing, stale-request, ownership and failure branches need behavioral tests. GPU/platform exclusions need explicit rationale. A percentage cannot substitute for executing both target paths.
 
 ## Context and Orientation
 
-The repository initially contained only `README.md`. It now contains project guidance, the research note, this plan, a Slang RHI submodule, root/external CMake files, src/main.cpp, a native-build skill and native build instructions in `DEVELOPING.md`. Target ofg builds a console application and ofg-startup is a GPU-dependent CTest integration check. There are no build presets, CPU/doctest suites or windowed application yet. `C:\dev\ofg-old2` is a read-only reference, not an implementation dependency.
+The repository initially contained only `README.md`. It now contains project guidance, the research note, this plan, a Slang RHI submodule, root/external CMake files, src/main.cpp, a native-build skill and native build instructions in `DEVELOPING.md`. Target ofg opens a native checkerboard window; ofg-startup invokes --check-device. Target ofg-render-test implements the ofg-checkerboard doctest/CTest GPU integration check. There are no build presets or GPU-independent CPU suites yet. `C:\dev\ofg-old2` is a read-only reference, not an implementation dependency.
 
 A render hardware interface, or RHI, wraps different GPU APIs. Slang compiles shader code for those APIs. Emscripten compiles C++ to WebAssembly for the browser. The native SlangPy package adds Python bindings and convenience APIs; it is not an established browser host.
 
@@ -79,7 +88,7 @@ For native, enable only RHI D3D12 and the SDK pieces required for that path. Exp
 
 Start with a small native window/event host (GLFW is the first candidate, consistent with RHI examples) and a browser canvas/event host. Shared application code must not depend on a GLFW window handle. Use the same frame/update interface, but native owns a normal loop while web schedules callbacks. No local graphics build may require the browser toolchain to be installed.
 
-Build both targets from pinned inputs. Record graphics adapter, browser version, backend, enabled features and limits. Bring up a native window and browser canvas, compile the same simple Slang shaders, and present a triangle in both. Verify asynchronous initialization, resize, errors and device teardown. Measure compressed transfer bytes and cold startup. If compiler distribution is too costly, investigate supported precompilation with reflection as a separate experiment; do not claim raw WGSL is a drop-in RHI shader program.
+Build both targets from pinned inputs. Record graphics adapter, browser version, backend, enabled features and limits. Bring up a native window and browser canvas, compile the same simple Slang shaders, and present the checkerboard in both. Verify asynchronous initialization, resize, errors and device teardown. Measure compressed transfer bytes and cold startup. If compiler distribution is too costly, investigate supported precompilation with reflection as a separate experiment; do not claim raw WGSL is a drop-in RHI shader program.
 
 Success is passing CPU-only tests, two inspectable screenshots, logs with correct backend identities, and reproducible clean-build instructions. Upstream buffer-only WASM sample success is insufficient.
 
@@ -89,7 +98,7 @@ Implement one small ImGui draw-data renderer using RHI, with native and browser 
 
 Show backend, frame timings, seed and a simple terrain/compute parameter in the same ImGui panel on both targets. A UI change must visibly affect the shared scene. Reuse RHI's reference-counted handles and shader cursor before adding custom resource wrappers or reflection APIs.
 
-Replace the triangle with a small set of regular heightfield patches. Upload a float32 height field, obtain normals from one shared convention, and render via direct/instanced draws. Use a portable compute kernel that modifies a diagnostic height field with a known expected result. Validate compute output by asynchronous readback and consume it in rendering without a blocking per-frame CPU readback.
+Replace the checkerboard with a small set of regular heightfield patches. Upload a float32 height field, obtain normals from one shared convention, and render via direct/instanced draws. Use a portable compute kernel that modifies a diagnostic height field with a known expected result. Validate compute output by asynchronous readback and consume it in rendering without a blocking per-frame CPU readback.
 
 Test buffer and texture paths actually needed by the proposed terrain implementation, sample/texture format support, shader reflection/binding layout, compute-to-render ordering and repeated frame submission. Use integer global patch addresses and camera-relative float transforms. Capture a simple far-from-origin fixture. This is a capability probe, not the final terrain LOD system.
 
@@ -126,6 +135,8 @@ Add a `cpu-tests` configure/build/test preset for GPU-independent work. The name
 These commands are specifications for targets to create, not currently runnable project commands. Milestone 1 must record tested commands for launching the native executable and serving the browser output, the actual localhost URL, and browser automation. Keep the server available during visual work. Add no public deployment in this spike.
 
 ## Milestone Review
+
+Native checkerboard slice review, 2026-10-01: verified direct RHI usage, explicit window/GPU ownership, queue completion before resize and teardown, error propagation, embedded shader regeneration, no native-only dependency inside the shared renderer, and unchanged RHI submodule. The window event loop checks close immediately after polling, including minimized close. Source formatting and both GPU tests pass. Exact pixel checks cover draw coverage, shader compilation, square boundaries, small/odd targets, alpha and padded readback; live inspection covers presentation, resize and minimize/restore. Integration testing is the explicit coverage choice for this GPU/platform slice; no CPU coverage claim or performance claim is made. The full cross-platform milestone remains incomplete.
 
 Before completing each milestone, check source ownership, cross-platform behavior, numerical assumptions, failure paths, obsolete scaffolding, docs, and actual validation evidence. Fix actionable findings and rerun affected checks. No legacy review skill or historical API-contract document is installed in this fresh repository. Record the review directly unless an applicable skill is later added.
 
@@ -174,3 +185,5 @@ Browser filesystem and event-loop responsibilities follow [Emscripten runtime gu
 The stable boundaries are diagnostic terrain data, explicit Slang kernel inputs/outputs, a narrow renderer, native/web hosts and asynchronous tile requests. Concrete class/function signatures should be chosen during implementation rather than importing old singleton APIs. Use a versioned manifest for units, coordinates, generator version, channel layouts and content hashes. Reserve Python/SlangPy tooling for producing or examining compatible artifacts without making it a runtime dependency of the browser application.
 
 Revision note, 2026-09-30: revised from an open framework comparison into the user's selected Slang RHI terrain-laboratory bootstrap. The first authorized implementation step is now the minimal native dependency build; browser configuration is explicitly deferred. Application, testing, UI and terrain milestones remain future work.
+
+Revision note, 2026-10-01: completed the user-requested native checkerboard before browser work, updated commands/build skill and retained the startup check. Screenshot evidence: artifacts/checkerboard/native.png, native-maximized.png, native-restored.png.
