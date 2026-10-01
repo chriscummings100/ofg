@@ -4,6 +4,8 @@ Repository-specific skills live here. Keep ordinary project rules in `AGENTS.md`
 
 The [build-native skill](build-native/SKILL.md) covers the verified Windows x64 environment, CMake/Ninja application build and D3D12 startup check. Invoke it as `$build-native`, or use it for native build/startup work.
 
+The [build-web skill](build-web/SKILL.md) covers the separate Emscripten/WebGPU build and Playwright screenshot/diagnostic workflow. Invoke it as `$build-web`, or use it for browser build and smoke-check work. The [architecture note](../../docs/architecture.md) maps both hosts to the shared checkerboard renderer.
+
 Additional useful skills to create as their workflows become available are:
 
 | Candidate | Purpose | When to create it |

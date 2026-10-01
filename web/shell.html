@@ -1,0 +1,46 @@
+<!doctype html>
+<!-- Minimal browser host for the shared Slang RHI checkerboard. -->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OFG | WebGPU checkerboard</title>
+    <link rel="icon" href="data:,">
+    <style>
+        html, body { margin: 0; height: 100%; background: #202020; color: #eee; font: 14px system-ui; }
+        body { display: flex; flex-direction: column; }
+        header { padding: 10px 16px; }
+        canvas { display: block; width: 100%; flex: 1; min-height: 0; }
+        [data-failed="true"] { color: #ff9b9b; }
+    </style>
+</head>
+<body>
+    <header id="status" role="status">Loading WebGPU checkerboard...</header>
+    <canvas id="canvas" width="960" height="640" aria-label="Slang RHI checkerboard"></canvas>
+    <script>
+        var Module = {
+            canvas: document.getElementById('canvas'),
+            frameCount: 0,
+            failed: false,
+            noInitialRun: !navigator.gpu,
+            // Keeps errors visible and exposes a small readiness signal for the browser smoke check.
+            setStatus(text, failed = false) {
+                if (this.failed && !failed) return;
+                this.failed ||= failed;
+                const status = document.getElementById('status');
+                status.textContent = text;
+                status.dataset.failed = String(this.failed);
+            },
+            // Called after a submitted frame; browser automation waits for several frames before capture.
+            frameRendered() {
+                if (++this.frameCount === 1) this.setStatus('WebGPU checkerboard ready');
+            },
+            print: text => console.log(text),
+            printErr: text => console.error(text),
+            onAbort: reason => Module.setStatus(`WebAssembly stopped: ${reason}`, true)
+        };
+        if (!navigator.gpu) Module.setStatus('WebGPU is unavailable. Use a supported browser on localhost or HTTPS.', true);
+    </script>
+    {{{ SCRIPT }}}
+</body>
+</html>

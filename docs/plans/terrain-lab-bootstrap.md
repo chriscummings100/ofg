@@ -1,12 +1,16 @@
 # Bootstrap a Slang RHI terrain laboratory for native and browser use
 
-This ExecPlan follows [PLANS.md](../../PLANS.md) and [AGENTS.md](../../AGENTS.md). Status: native device startup is committed as d10c9c6, and the native checkerboard window and GPU rendering check are verified. Browser bring-up is the next step. UI and terrain remain future work. Keep Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective current.
+This ExecPlan follows [PLANS.md](../../PLANS.md) and [AGENTS.md](../../AGENTS.md). Status: native device startup is committed as d10c9c6, and the native checkerboard window and GPU rendering check are verified. Browser checkerboard bring-up is verified with a separate CMake target/preset and a focused Playwright smoke check. UI and terrain remain future work. Keep Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective current.
 
 ## Purpose / Big Picture
 
 Establish a small C++ terrain laboratory using Slang RHI in both a native Windows D3D12 window and a browser WebGPU canvas. The observable result is the same diagnostic terrain scene, ImGui controls and numerical output on both targets, with measured startup, resource use and streaming behavior. Native D3D12 is the daily development path; the browser is proved immediately and checked at relevant changes and milestones. This establishes the foundation for the terrain implementation described in [the restart research](../research/terrain-first-restart.md).
 
 ## Progress
+
+- [x] (2026-10-01) Added docs/architecture.md and .agents/skills/build-web/SKILL.md, linked from repository guidance and development docs. The checkpoint records the working example, host/shared-renderer boundaries, ownership, test coverage and current limitations.
+
+- [x] (2026-10-01) Added target ofg-web, preset web and build/web output. Emscripten 6.0.0 build and Playwright/Chrome 154.0.8037.59 smoke pass, covering screenshot pixels, resize, reload and missing-WebGPU messaging, with no browser console errors. Native configure/build and both CTest checks still pass through native-debug.
 
 - [x] (2026-10-01) Committed the native startup baseline as d10c9c6 before rendering work.
 - [x] (2026-10-01) Rendered a shared Slang checkerboard in a resizable GLFW/D3D12 window. Preserved --check-device and added the ofg-checkerboard doctest integration test; all pixels passed at 1x1, 129x97 and 259x193. Inspected maximize/resize, minimize/restore and clean close. Screenshots are under artifacts/checkerboard.
@@ -28,6 +32,8 @@ Establish a small C++ terrain laboratory using Slang RHI in both a native Window
 
 ## Surprises & Discoveries
 
+Browser bring-up: installed Emscripten 6.0.0 compiled the pinned RHI and Slang WASM libraries without upstream source changes. The first Chrome 154 smoke passed with UNORM gray levels 32/224, resize and reload, and no console errors. RHI exposes an empty adapter description in this browser; log a neutral fallback and retain a separate navigator.gpu adapter query in the smoke report. Emscripten warns about Asyncify plus WASM exceptions, matching upstream's flags; do not generalize checkerboard success to arbitrary exception/async paths. clang-format split a JavaScript triple-equals inside EM_ASM and caused a subsequent link failure; move that JavaScript logic to the HTML shell and keep EM_ASM to simple calls.
+
 The first native checkerboard build and pixel test passed. A final automated window interaction exposed missed brief Escape presses when press/release both arrived between frames; enabling GLFW sticky key state fixed it, and the rebuilt application exited successfully on the same brief Escape input. Launching from artifacts/checkerboard also verified working-directory-independent shader loading. The preferred presentation format can apply sRGB encoding, so visual screenshot byte values differ from the linear RGBA8 UNORM test target. Tests deliberately validate the offscreen format; they do not claim screenshot byte equality. GLFW is pinned to b00e6a8a88ad1b60c0a045e696301deb92c9a13e (the revision in RHI's examples).
 
 The backup only renders a 160 m square of synchronous, single-resolution terrain. Its resource registry retains evicted chunk meshes. Its native graphics route is offscreen Vulkan/Dawn rather than a native application. These findings justify a fresh terrain-focused vertical slice.
@@ -35,6 +41,10 @@ The backup only renders a 160 m square of synchronous, single-resolution terrain
 Slang RHI has an Emscripten integration, including prebuilt WASM Slang compiler libraries, but the inspected upstream example only checks device/queue and buffer behavior. Its Emscripten CI builds without running tests. Indirect draws are disabled in the current RHI WASM command path. None of this proves that ordinary browser graphics or compute fail; those are precisely what this spike must establish.
 
 ## Decision Log
+
+2026-10-01, user documentation checkpoint: document the achieved architecture and keep the checkerboard as the runnable example, add a browser-build skill beside the native skill, and commit the browser milestone before expanding the application. Exact commands stay in DEVELOPING.md; the architecture note explains boundaries and limits, and skills provide agent workflow guidance.
+
+2026-10-01, user scope update: use a separate browser build target; do not port the full test suite to the browser. Add CMake presets native-debug and web, executable target ofg-web, a small canvas host, and a Playwright smoke script with screenshots and console diagnostics. Reuse installed Emscripten 6.0.0 if compatible; keep native configuration independent of Emscripten and Node. playwright-core 1.61.0 was confirmed in the backup and is pinned with pngjs 7.0.0 for screenshot verification.
 
 2026-10-01, user scope update: commit the native baseline, then render a checkerboard before switching to browser work. Use one full-screen triangle with a Slang fragment shader producing 64-pixel squares; no texture asset or vertex buffer is needed. Keep shader/pipeline/draw code separate from the native GLFW host for reuse by the future browser host. Fetch GLFW at the same pinned revision used by RHI's examples, without enabling those examples. Preserve the device check as --check-device and add an offscreen GPU pixel test through CTest. Test the shared draw at odd/non-square dimensions to cover edges, row pitch and resize-sized targets; inspect window resize, minimize/restore and close. These platform/render integration checks replace artificial unit mocks; CPU coverage remains deferred until there is CPU domain logic.
 
@@ -54,9 +64,13 @@ Slang RHI has an Emscripten integration, including prebuilt WASM Slang compiler 
 
 ## Outcomes & Retrospective
 
-The checkerboard slice now provides a native visual reference and a shared renderer for browser bring-up. src/main.cpp contains only native startup/window/event responsibilities; src/checkerboard.cpp and shaders/checkerboard.slang contain the common pipeline and draw. The shader is embedded at build time, avoiding working-directory-sensitive loading. Both CTest checks pass and the live window survives maximize and minimize/restore. No browser code was added in this slice.
+The documentation checkpoint now gives a new contributor a short source map and gives agents separate native and browser workflows. It builds on the verified checkerboard implementation without duplicating it into a second sample application. Runtime behavior is unchanged by this documentation step.
 
-The pinned submodule and native CMake integration now build ofg.exe. Direct startup and the CTest integration check create a D3D12 device successfully without a developer-shell runtime dependency. Compilation does need the Visual Studio x64 environment, now documented with installation discovery and the warning that separate tool invocations use separate shells. The build-native skill is validated. The submodule remains unmodified. Browser execution, terrain tests, memory measurements and performance benchmarks remain unimplemented or unverified; the overall bootstrap is incomplete.
+The browser checkerboard now runs the same renderer and shader as native. Emscripten 6.0.0 and the pinned RHI/Slang WASM package work without submodule edits. The web preset selects only WebGPU, the native preset only D3D12; native keeps the full C++ suite. Playwright captures initial 960x641 and resized/reloaded 773x478 canvases with exact 32/224 gray levels and no console errors. A separate navigator.gpu query reports Intel gen-12lp; RHI itself leaves the adapter description empty, so do not claim it selected the native NVIDIA device. The missing-WebGPU error is verified. Local serving at http://127.0.0.1:8080 is available via npm run serve:web. The distribution includes roughly 26 MB of uncompressed WASM and the documented upstream Asyncify/exception caveat. Compute, ImGui, independent CPU tests and terrain remain future work.
+
+The checkerboard slice now provides a native visual reference and a shared renderer for browser bring-up. src/main.cpp contains only native startup/window/event responsibilities; src/checkerboard.cpp and shaders/checkerboard.slang contain the common pipeline and draw. The shader is embedded at build time, avoiding working-directory-sensitive loading. Both CTest checks pass and the live window survives maximize and minimize/restore. That native slice preceded the browser implementation described above.
+
+The pinned submodule and native CMake integration now build ofg.exe. Direct startup and the CTest integration check create a D3D12 device successfully without a developer-shell runtime dependency. Compilation does need the Visual Studio x64 environment, now documented with installation discovery and the warning that separate tool invocations use separate shells. The build-native skill is validated. The submodule remains unmodified. Terrain tests, residency measurements and performance benchmarks remain unimplemented or unverified; the overall bootstrap is incomplete.
 
 ## Contract and Quality Baseline
 
@@ -70,7 +84,7 @@ Use doctest for C++ tests and register them with CTest. Establish independently 
 
 ## Context and Orientation
 
-The repository initially contained only `README.md`. It now contains project guidance, the research note, this plan, a Slang RHI submodule, root/external CMake files, src/main.cpp, a native-build skill and native build instructions in `DEVELOPING.md`. Target ofg opens a native checkerboard window; ofg-startup invokes --check-device. Target ofg-render-test implements the ofg-checkerboard doctest/CTest GPU integration check. There are no build presets or GPU-independent CPU suites yet. `C:\dev\ofg-old2` is a read-only reference, not an implementation dependency.
+The repository initially contained only `README.md`. It now contains project guidance, the research note, this plan, a Slang RHI submodule, root/external CMake files, src/main.cpp, a native-build skill and native build instructions in `DEVELOPING.md`. Target ofg opens a native checkerboard window; ofg-startup invokes --check-device. Target ofg-render-test implements the ofg-checkerboard doctest/CTest GPU integration check. CMakePresets.json defines native-debug and web; target ofg-web builds the browser HTML/JS/WASM. There are no GPU-independent CPU suites yet. `C:\dev\ofg-old2` is a read-only reference, not an implementation dependency.
 
 A render hardware interface, or RHI, wraps different GPU APIs. Slang compiles shader code for those APIs. Emscripten compiles C++ to WebAssembly for the browser. The native SlangPy package adds Python bindings and convenience APIs; it is not an established browser host.
 
@@ -90,7 +104,7 @@ Start with a small native window/event host (GLFW is the first candidate, consis
 
 Build both targets from pinned inputs. Record graphics adapter, browser version, backend, enabled features and limits. Bring up a native window and browser canvas, compile the same simple Slang shaders, and present the checkerboard in both. Verify asynchronous initialization, resize, errors and device teardown. Measure compressed transfer bytes and cold startup. If compiler distribution is too costly, investigate supported precompilation with reflection as a separate experiment; do not claim raw WGSL is a drop-in RHI shader program.
 
-Success is passing CPU-only tests, two inspectable screenshots, logs with correct backend identities, and reproducible clean-build instructions. Upstream buffer-only WASM sample success is insufficient.
+Success is passing CPU-only tests (in a later slice), two inspectable screenshots, logs with correct backend identities, and reproducible clean-build instructions. Upstream buffer-only WASM sample success is insufficient.
 
 ### Milestone 2: shared ImGui, terrain and compute on both targets
 
@@ -127,14 +141,20 @@ From `C:\dev\ofg`, begin with `git status --short` and inspect available CMake, 
     cmake --preset native-debug
     cmake --build --preset native-debug
     ctest --preset native-debug --output-on-failure
-    emcmake cmake --preset web-debug
-    cmake --build --preset web-debug
+    cmake --preset web
+    cmake --build --preset web
+    npm.cmd ci
+    npm.cmd run smoke:web
 
-Add a `cpu-tests` configure/build/test preset for GPU-independent work. The names above remain proposed until implemented. Pin compiler/toolchain choices during bring-up; MSVC and clang-cl are native options, while browser builds use Emscripten. Do not inherit the previous project's Clang-only requirement without a concrete reason.
+The native-debug and web commands above are implemented. A future `cpu-tests` preset remains proposed for GPU-independent work. Pin compiler/toolchain choices during bring-up; MSVC and clang-cl are native options, while browser builds use Emscripten. Do not inherit the previous project's Clang-only requirement without a concrete reason.
 
-These commands are specifications for targets to create, not currently runnable project commands. Milestone 1 must record tested commands for launching the native executable and serving the browser output, the actual localhost URL, and browser automation. Keep the server available during visual work. Add no public deployment in this spike.
+DEVELOPING.md contains the current toolchain setup for these runnable commands. Milestone 1 must record tested commands for launching the native executable and serving the browser output, the actual localhost URL, and browser automation. Keep the server available during visual work. Add no public deployment in this spike.
 
 ## Milestone Review
+
+Documentation checkpoint review, 2026-10-01: the architecture note matches the current source/CMake boundaries and clearly distinguishes working graphics from future terrain/UI work. The browser skill passed the skill-creator validator; all new and updated local Markdown links resolve, and whitespace checks pass. Existing native and browser runtime results remain applicable because this step changed documentation only. The checkpoint includes the previously verified browser implementation and its lockfile; generated builds, packages and screenshots remain ignored.
+
+Browser checkerboard review, 2026-10-01: native code and the shared renderer/shader are unchanged; platform selection is explicit in external CMake and tests are excluded from web. The browser callback owns its app state, submits without a blocking per-frame wait, handles canvas/DPR changes, and reports initialization/render errors. The missing-API path preserves its explanatory status rather than allowing loader progress to hide it. Header/JavaScript logic is kept out of formatter-sensitive inline C++ macros. The loopback server exposes only build outputs; Playwright owns and closes its browser/server and writes a diagnostic report. Configure/build, native tests, browser screenshot/resize/reload/error smoke, C++ formatting, Node syntax, documentation links and whitespace checks pass. Screenshots were inspected visually. The unmodified submodule and separate output trees preserve native isolation. Full milestone 1 remains incomplete because CPU-only tests and broader device/lifecycle coverage are future slices.
 
 Native checkerboard slice review, 2026-10-01: verified direct RHI usage, explicit window/GPU ownership, queue completion before resize and teardown, error propagation, embedded shader regeneration, no native-only dependency inside the shared renderer, and unchanged RHI submodule. The window event loop checks close immediately after polling, including minimized close. Source formatting and both GPU tests pass. Exact pixel checks cover draw coverage, shader compilation, square boundaries, small/odd targets, alpha and padded readback; live inspection covers presentation, resize and minimize/restore. Integration testing is the explicit coverage choice for this GPU/platform slice; no CPU coverage claim or performance claim is made. The full cross-platform milestone remains incomplete.
 
@@ -187,3 +207,5 @@ The stable boundaries are diagnostic terrain data, explicit Slang kernel inputs/
 Revision note, 2026-09-30: revised from an open framework comparison into the user's selected Slang RHI terrain-laboratory bootstrap. The first authorized implementation step is now the minimal native dependency build; browser configuration is explicitly deferred. Application, testing, UI and terrain milestones remain future work.
 
 Revision note, 2026-10-01: completed the user-requested native checkerboard before browser work, updated commands/build skill and retained the startup check. Screenshot evidence: artifacts/checkerboard/native.png, native-maximized.png, native-restored.png.
+
+Revision note, 2026-10-01: completed separate native/web CMake presets, browser checkerboard host and focused Playwright automation per user direction. Evidence is artifacts/browser-smoke/report.json and checkerboard*.png; DEVELOPING.md has exact commands and current limitations.

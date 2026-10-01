@@ -1,6 +1,8 @@
 # Developing OFG
 
-The current application opens a resizable native Windows D3D12 window and renders a checkerboard through Slang RHI. Browser configuration comes next, using this image as a visual baseline.
+The current application opens a resizable native Windows D3D12 window and renders a checkerboard through Slang RHI. A separate Emscripten/WebGPU build renders the same shader in a browser.
+
+See the [architecture note](docs/architecture.md) for source responsibilities and the checkerboard reference flow. Agent workflows are documented in the [native build skill](.agents/skills/build-native/SKILL.md) and [browser build skill](.agents/skills/build-web/SKILL.md).
 
 ## Prerequisites
 
@@ -32,7 +34,7 @@ cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build/native --target ofg ofg-render-test --parallel
 ```
 
-The root `CMakeLists.txt` includes `external/CMakeLists.txt`, which selects the D3D12-only dependency configuration and adds `external/slang-rhi`. Git records the exact RHI revision in the submodule entry; do not update it implicitly during configuration.
+The root `CMakeLists.txt` includes `external/CMakeLists.txt`, which selects D3D12 for native builds or WebGPU for Emscripten, and adds `external/slang-rhi`. Git records the exact RHI revision in the submodule entry; do not update it implicitly during configuration.
 
 The first configuration downloads the prebuilt Slang compiler, DirectX dependencies and GLFW. GLFW is pinned to `b00e6a8a88ad1b60c0a045e696301deb92c9a13e`, matching RHI's native examples. With `BUILD_TESTING=OFF`, build only target `ofg`. Generated files and downloads stay under `build/native`. Subsequent builds reuse that directory.
 
@@ -73,6 +75,60 @@ Those optional Clang tools are needed for that formatter command, not for the MS
 
 The application configure/build, direct startup, CTest startup check and formatting check passed on 2026-10-01 with CMake 3.26.3, Ninja 1.13.2 and MSVC 19.51 in an x64 Visual Studio 2026 developer environment. Startup ran on an NVIDIA GeForce RTX 3050 Ti Laptop GPU. RHI is pinned to `16324a68af477baaede620e713644f5e9613b1a2`, using its prebuilt Slang 2026.17.1 dependency.
 
-The generated RHI configuration confirms D3D12 is enabled and all other graphics backends are disabled. The native checkerboard build and both tests passed on the same hardware on 2026-10-01. Live window inspection verified rendering, maximize/resize, minimize/restore and clean shutdown. Screenshots are saved locally under `artifacts/checkerboard/native.png`, `native-maximized.png` and `native-restored.png`. Browser execution, texture sampling, compute and ImGui remain unverified.
+The generated RHI configuration confirms D3D12 is enabled and all other graphics backends are disabled. The native checkerboard build and both tests passed on the same hardware on 2026-10-01. Live window inspection verified rendering, maximize/resize, minimize/restore and clean shutdown. Screenshots are saved locally under `artifacts/checkerboard/native.png`, `native-maximized.png` and `native-restored.png`. Texture sampling, compute and ImGui remain unverified; browser checkerboard validation is described below.
 
 The repository [build-native skill](.agents/skills/build-native/SKILL.md) guides agents through this workflow and its environment requirements.
+
+## Separate native and browser targets
+
+CMake presets keep the toolchains and outputs separate. The native preset reuses the existing native build directory:
+
+```powershell
+cmake --preset native-debug
+cmake --build --preset native-debug
+ctest --preset native-debug
+```
+
+The browser target is `ofg-web`, selected by the `web` build preset. It produces `build/web/index.html`, `index.js` and `index.wasm`; it does not build GLFW, DirectX, desktop Dawn or the C++ test executables. The same `ofg-render` sources and embedded Slang shader are compiled by each toolchain. There is no Makefile or npm layer around compilation.
+
+## Build for the browser
+
+The tested SDK is Emscripten 6.0.0, already installed at `C:\tools\emsdk` on this machine. Activate the SDK using its normal setup so `EMSDK` points at its root and its compiler can find Node/Python. CMake reads the Emscripten toolchain from `EMSDK`; it does not download or switch SDK versions. Have CMake and Ninja on PATH. No MSVC compilation is involved in the browser build. If using the bundled Visual Studio Ninja, the discovery block above gives `$vsRoot`; add only its Ninja folder when needed:
+
+```powershell
+$env:PATH = (Join-Path $vsRoot 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja') + ';' + $env:PATH
+emcc --version
+cmake --preset web
+cmake --build --preset web --parallel 8
+```
+
+Stop if any command fails. The first build fetches the pinned RHI's Slang 2026.17.1 WASM libraries and uses Emscripten's `emdawnwebgpu` port. It does not build the Slang compiler from source. The final link still optimizes the bundled compiler and takes substantially longer than a native incremental link. Routine builds reuse `build/web`; leave `build/native` intact.
+
+The browser currently includes the runtime Slang compiler: the initial verified WASM output was 26,795,946 bytes (about 25.6 MiB), before HTTP compression. This is a bring-up baseline, not an optimized distribution-size target. Emscripten warns about combining Asyncify and WASM exceptions. These settings mirror the pinned RHI preset; the checkerboard path works, but arbitrary exception paths through suspended calls are not established by this smoke check. Revisit this with any async/lifecycle expansion.
+
+## Serve and inspect the browser build
+
+Node is used for browser tooling only. The checked-in lockfile pins `playwright-core` 1.61.0 and `pngjs` 7.0.0. Node 24.14.0 and installed Google Chrome were used for verification; the smoke script does not download a browser. From ordinary PowerShell:
+
+```powershell
+npm.cmd ci
+npm.cmd run serve:web
+```
+
+Open `http://127.0.0.1:8080`. Stop the server with Ctrl+C. Serve the generated files over localhost or HTTPS, rather than opening the HTML with `file://`. This single-threaded build needs no cross-origin isolation headers. The small loopback server serves only the three generated files.
+
+In another shell, run the focused browser check:
+
+```powershell
+npm.cmd run smoke:web
+# Optional visible browser for debugging:
+npm.cmd run smoke:web -- --headed
+```
+
+The script starts its own server on a free loopback port and closes it and Chrome afterward. It checks initial rendering, resize, reload, and the missing-WebGPU error message. Screenshots and `report.json` are saved under `artifacts/browser-smoke`. The report includes Chrome version, console/errors, image sizes and browser adapter diagnostics. The screenshots' checkerboard cells are checked against their pixel boundaries; native's full C++ test suite stays native. A successful browser check is not a claim that all RHI features work on WebGPU.
+
+The native surface and browser surface may prefer different sRGB/UNORM formats. The smoke check accepts either consistent encoding of the shader's two gray levels; it still checks every cell boundary. Browser privacy may omit the RHI adapter name, so the app reports `browser-selected adapter` rather than guessing the native GPU. Chrome can warn that Windows ignores `powerPreference`; this is retained in the report rather than counted as a rendering error.
+
+Build commands and test registration are in `CMakePresets.json` and `CMakeLists.txt`; automation lives in `tools/browser-smoke.mjs`. The [Playwright library documentation](https://playwright.dev/docs/library) covers the screenshot/console workflow used here.
+
+Browser build and smoke passed on 2026-10-01 with Emscripten 6.0.0, Chrome 154.0.8037.59 and Playwright 1.61.0. Captured canvases were 960x641 initially and 773x478 after resize/reload. Console errors were empty; the missing-WebGPU message also passed. An independent browser adapter query reported Intel gen-12lp, while RHI omitted its description. Native preset configuration/build and both native CTest checks passed afterward.

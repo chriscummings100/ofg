@@ -2,8 +2,10 @@
 cmake_minimum_required(VERSION 3.24)
 project(ofg LANGUAGES C CXX)
 
-if(NOT WIN32)
-    message(FATAL_ERROR "OFG currently supports native Windows builds.")
+if(EMSCRIPTEN)
+    add_compile_options(-fwasm-exceptions)
+elseif(NOT WIN32)
+    message(FATAL_ERROR "OFG supports native Windows and Emscripten browser builds.")
 endif()
 
 add_subdirectory(external)
@@ -18,11 +20,29 @@ target_compile_features(ofg-render PUBLIC cxx_std_20)
 target_include_directories(ofg-render PUBLIC src PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(ofg-render PUBLIC slang-rhi)
 
-add_executable(ofg src/main.cpp)
-target_link_libraries(ofg PRIVATE ofg-render glfw)
+if(EMSCRIPTEN)
+    add_executable(ofg-web src/web-main.cpp)
+    target_link_libraries(ofg-web PRIVATE ofg-render)
+    set_target_properties(ofg-web PROPERTIES OUTPUT_NAME index SUFFIX .html)
+    set_property(TARGET ofg-web APPEND PROPERTY LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html)
+    # RHI's WebGPU initialization yields through Asyncify; mirror its upstream WASM preset.
+    target_link_options(ofg-web PRIVATE
+        --use-port=emdawnwebgpu
+        --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
+        -fwasm-exceptions --export=__cpp_exception
+        -sASSERTIONS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576
+        -sASYNCIFY=1 -sASYNCIFY_IGNORE_INDIRECT=1
+        "-sASYNCIFY_ONLY=['*main*','*wait*','*initialize*','*create*','*map*','*readBuffer*']"
+    )
+else()
+    add_executable(ofg src/main.cpp)
+    target_link_libraries(ofg PRIVATE ofg-render glfw)
+endif()
 
-include(CTest)
-if(BUILD_TESTING)
+if(NOT EMSCRIPTEN)
+    include(CTest)
+endif()
+if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_test(NAME ofg-startup COMMAND ofg --check-device)
 
     add_executable(ofg-render-test tests/checkerboard-test.cpp)

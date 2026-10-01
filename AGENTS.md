@@ -56,7 +56,9 @@ Follow [PLANS.md](PLANS.md) for substantial work. The current bootstrap plan is 
 
 `C:\dev\ofg-old2` is a historical reference. Preserve it. Reuse useful concepts and assets with provenance, not its build system, global resource registry, or obsolete contracts wholesale.
 
-Project skills belong in `.agents/skills`. Use [build-native](.agents/skills/build-native/SKILL.md) for the Windows x64 build environment and native build/startup checks. Keep a small set of workflows grounded in real repository commands; do not copy stale skills or invent successful checks. Available skills and future candidates are described in [.agents/skills/README.md](.agents/skills/README.md).
+The [architecture note](docs/architecture.md) describes the current two-host/shared-renderer baseline and its verification limits. The checkerboard application is the runnable example.
+
+Project skills belong in `.agents/skills`. Use [build-native](.agents/skills/build-native/SKILL.md) for the Windows x64 build environment and native build/startup checks, and [build-web](.agents/skills/build-web/SKILL.md) for the Emscripten target and Playwright browser smoke workflow. Keep a small set of workflows grounded in real repository commands; do not copy stale skills or invent successful checks. Available skills and future candidates are described in [.agents/skills/README.md](.agents/skills/README.md).
 
 ## Architecture and dependencies
 
@@ -70,7 +72,7 @@ Use explicit ownership and resource retirement. Unloading a tile must eventually
 
 ## Browser portability
 
-The current bootstrap step is the native Windows D3D12 checkerboard; the user requested this visual baseline before browser bring-up. Browser support is the next step. Once that path is introduced, prove native and browser rendering, compute and ImGui early. Native development is the normal iteration loop. Re-run browser checks at milestone boundaries and whenever shared shaders, resource bindings, upload/readback, device lifecycle, UI/input, platform abstractions or dependencies change. Pure CPU changes need focused tests, not an automatic browser rebuild for every edit.
+The native Windows D3D12 checkerboard and a separate browser WebGPU target are implemented. Use the native-debug and web CMake presets, with distinct build directories. The user wants the full C++ suite to remain native; use the focused Playwright browser smoke check for screenshots, console diagnostics and presentation rather than porting every test. Prove compute and ImGui on both targets as those features are introduced. Native development is the normal iteration loop. Re-run browser checks at milestone boundaries and whenever shared shaders, resource bindings, upload/readback, device lifecycle, UI/input, platform abstractions or dependencies change. Pure CPU changes need focused tests, not an automatic browser rebuild for every edit.
 
 Design shared shaders against a documented, queried WebGPU capability baseline. Do not rely on native-only features for required behavior. Staying within GPU features is necessary but insufficient: the web path also needs asynchronous initialization/loading, a callback-driven frame loop, portable shader layouts and deliberate memory budgets. Treat unsupported backend operations as explicit failures or tested fallbacks.
 
@@ -86,7 +88,7 @@ Use integration tests for shader bindings, uploads, compute results, rendering a
 
 Run the checks appropriate to the change and record their results. Report a skipped, unavailable or failing check honestly; a successful build alone is not proof of correct behavior. Coverage helps reveal missing cases but does not replace assertions, failure-path testing or visual inspection.
 
-Record the actual build/test/run commands in [DEVELOPING.md](DEVELOPING.md) as they are implemented. The native checkerboard window, CTest startup check and doctest GPU pixel test are implemented; GPU-independent CPU tests and browser support are still to come. Do not claim a command, preset or executable works until it has been run. Establish a practical coverage policy as application logic is introduced; the initial device-startup glue is verified by the integration check, and historical coverage commands and thresholds are not inherited automatically.
+Record the actual build/test/run commands in [DEVELOPING.md](DEVELOPING.md) as they are implemented. The native checkerboard window, CTest startup check and doctest GPU pixel test are implemented; a focused Playwright browser smoke check covers the web target. GPU-independent CPU tests are still to come. Do not claim a command, preset or executable works until it has been run. Establish a practical coverage policy as application logic is introduced; the initial device-startup glue is verified by the integration check, and historical coverage commands and thresholds are not inherited automatically.
 
 For visual work, inspect and present native/browser screenshots and relevant diagnostics, saving durable evidence under `artifacts`. For performance claims, name hardware, backend, viewport, workload and measurement method. Track live allocated bytes and resources, including pending retirement; cumulative allocation counts are not residency.
 
