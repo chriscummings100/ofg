@@ -1,3 +1,13 @@
+# Tests use a separately pinned header so the CPU preset needs no RHI checkout.
+if(BUILD_TESTING AND NOT EMSCRIPTEN)
+    add_library(doctest INTERFACE)
+    target_include_directories(doctest SYSTEM INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/doctest)
+endif()
+
+if(NOT OFG_BUILD_APP)
+    return()
+endif()
+
 # Build only the selected platform's RHI backend, without upstream applications or tests.
 set(SLANG_RHI_BUILD_TESTS OFF)
 set(SLANG_RHI_BUILD_EXAMPLES OFF)

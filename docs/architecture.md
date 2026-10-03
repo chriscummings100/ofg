@@ -1,4 +1,4 @@
-# Native and browser rendering baseline
+# Application foundations and rendering baseline
 
 OFG currently renders a checkerboard through Slang RHI on Windows D3D12 and browser WebGPU. This small application is the executable reference for adding the terrain laboratory. Build and run commands live in [DEVELOPING.md](../DEVELOPING.md); future milestones live in the [bootstrap plan](plans/terrain-lab-bootstrap.md).
 
@@ -23,6 +23,10 @@ Each build compiles the shared C++ sources with its own toolchain. The native ex
 | [web/shell.html](../web/shell.html) | Owns the HTML canvas, visible status/error messages and small automation readiness signals. |
 | [src/checkerboard.cpp](../src/checkerboard.cpp) | Creates the Slang shader program and render pipeline, then submits a full-target draw. Its [header](../src/checkerboard.h) defines the two shared operations. |
 | [shaders/checkerboard.slang](../shaders/checkerboard.slang) | Generates one full-screen triangle and alternating 64-pixel squares without vertex buffers or texture assets. |
+| [src/state/state.h](../src/state/state.h) | Hierarchical lifecycle and owned child/substate flow in GPU-independent ofg-core. |
+| [src/scene/scene.h](../src/scene/scene.h) | Owned entity hierarchy and transforms, with concrete components deferred. |
+| [src/resources/resources.h](../src/resources/resources.h) | Static pollable resource loading, shared asset ownership and weak lookup, with concrete loaders deferred. |
+| [src/core/ptr.h](../src/core/ptr.h) | Auto-nulling non-owning observers for Object-derived types. |
 | [external/CMakeLists.txt](../external/CMakeLists.txt) | Selects the platform's RHI backend and adds GLFW only for native builds. |
 
 The shader is embedded in a generated header by root CMake. Editing it triggers regeneration and recompilation. At runtime, Slang compiles the embedded source for the selected backend. This avoids working-directory-dependent shader paths and currently requires shipping the Slang compiler with each application.
@@ -35,14 +39,17 @@ The native host creates a device, GLFW window, surface, graphics queue and pipel
 
 The browser host initializes once and transfers its application state to Emscripten's animation loop. RHI device initialization yields through Asyncify while browser promises complete. Frames adjust the canvas to CSS size multiplied by device pixel ratio, acquire an image, draw and present without a blocking per-frame wait. On a reported rendering failure, the loop is cancelled before its application state is released. Normal browser lifetime ends with page teardown; reload is part of the smoke check.
 
-Keep future shared rendering independent of GLFW, the DOM and platform event loops. Hosts should own those differences. Add helpers when repeated behavior or a real lifetime contract requires them. Future terrain addressing, generation and residency logic should be independently testable without a GPU; that separation is a design direction, not an existing CPU library.
+Keep future shared rendering independent of GLFW, the DOM and platform event loops. Hosts should own those differences. Add helpers when repeated behavior or a real lifetime contract requires them. Future terrain addressing, generation and residency logic should be independently testable without a GPU; the existing `ofg-core` library provides that dependency boundary for state, scene and math. Its [contracts and provenance](state-and-scene.md) describe what was brought forward from the backup. Both hosts link the core, but the checkerboard does not yet exercise it.
 
 ## Build and verification boundaries
 
 | Preset | Target and output | Verification |
 | --- | --- | --- |
-| `native-debug` | `ofg` and `ofg-render-test` in `build/native` | CTest device startup and doctest offscreen pixel checks; visual inspection of the window. |
+| `native-debug` | `ofg`, `ofg-core-test` and `ofg-render-test` in `build/native` | CPU suite, CTest device startup and doctest offscreen pixel checks; visual inspection of the window. |
+| `cpu-tests` | `ofg-core-test` in `build/cpu-tests` | State, scene, lifetime and math tests; no graphics configuration or downloads. |
 | `web` | `ofg-web`, producing HTML/JS/WASM in `build/web` | Playwright screenshot checks, console diagnostics, resize, reload and missing-WebGPU messaging. |
+
+The resource foundation also lives in `ofg-core`, with no graphics dependency. Its [loading and ownership contract](resources.md) uses shared resource pointers and weak lookup; the checkerboard does not yet load assets.
 
 The full C++ test suite stays native, as requested. [The browser smoke script](../tools/browser-smoke.mjs) checks presentation without porting every native test. It owns an isolated Chrome instance and temporary loopback server and closes both afterward. Node packages are browser tooling dependencies, not native build dependencies.
 
@@ -54,4 +61,4 @@ Screenshots and diagnostic reports are local, ignored outputs under `artifacts/c
 
 The browser WASM includes the Slang compiler and is about 26 MB before compression. Emscripten warns about mixing Asyncify and WASM exceptions; the settings follow the pinned RHI preset, and only the exercised paths are verified. Browser adapter descriptions may be empty and must not be inferred from the native GPU. The preferred native and browser color formats may differ.
 
-ImGui, texture sampling, compute, GPU-independent CPU tests, terrain and streaming are still ahead. The checkerboard is the current example; extend the application in small tested steps and preserve this render check as the baseline.
+ImGui, texture sampling, compute, concrete resource loaders, concrete scene components, terrain and streaming are still ahead. The scene currently supports whole-scene clear, with no individual deletion or reparenting. The checkerboard is the current example; extend the application in small tested steps and preserve this render check as the baseline.

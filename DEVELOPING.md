@@ -30,8 +30,8 @@ From the repository root:
 
 ```powershell
 git submodule update --init --recursive
-cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Debug
-cmake --build build/native --target ofg ofg-render-test --parallel
+cmake --preset native-debug
+cmake --build --preset native-debug --parallel
 ```
 
 The root `CMakeLists.txt` includes `external/CMakeLists.txt`, which selects D3D12 for native builds or WebGPU for Emscripten, and adds `external/slang-rhi`. Git records the exact RHI revision in the submodule entry; do not update it implicitly during configuration.
@@ -52,21 +52,37 @@ ctest --test-dir build/native --output-on-failure
 
 Normal launch prints the selected adapter and opens a 960-by-640 framebuffer with alternating dark/light 64-pixel squares. Resize or maximize the window: squares retain their pixel size and new squares fill the exposed area. Minimize/restore should resume rendering. Escape or the close button exits cleanly. The shader is embedded at build time from `shaders/checkerboard.slang`, so launch does not depend on the current working directory. Editing the shader triggers CMake regeneration and recompilation on the next build.
 
-`--check-device` creates the device, prints `OFG initialized D3D12 on <adapter name>.` and exits without a window. Failure returns nonzero. CTest runs two finite checks, both labeled `native` and `gpu`, with a 30-second timeout:
+`--check-device` creates the device, prints `OFG initialized D3D12 on <adapter name>.` and exits without a window. Failure returns nonzero. CTest runs three finite checks with a 30-second timeout. The core suite is labeled `cpu`; the other two are labeled `native` and `gpu`:
 
+- `ofg-core`: GPU-independent doctest suite for state lifecycle, scene hierarchy/transforms, observer lifetime, resource loading/lifetime and CPU math.
 - `ofg-startup`: device creation through `ofg --check-device`.
 - `ofg-checkerboard`: a doctest GPU integration test using the same pipeline and draw as the application. It verifies every RGBA8 UNORM pixel at 1-by-1, 129-by-97 and 259-by-193, including alpha, partial cells and row pitch. RHI validation errors fail the test. Expected gray levels are exactly 32 and 224; no tolerance is needed for these constant UNORM values.
 
-Both tests require a working D3D12 adapter/runtime. The window uses the surface's preferred format, which may apply sRGB encoding to the shader's linear gray levels; screenshots need not have the same byte values as the UNORM offscreen test. The integration test uses doctest 2.4.11 already pinned inside the RHI submodule; there are no GPU-independent CPU tests yet. Neither automated test opens a window, so presentation and resize still need visual inspection.
+The two GPU tests require a working D3D12 adapter/runtime. The window uses the surface's preferred format, which may apply sRGB encoding to the shader's linear gray levels; screenshots need not have the same byte values as the UNORM offscreen test. All C++ tests use the independently vendored [doctest 2.4.11 header](external/doctest/README.md). None of the automated C++ tests opens a window, so presentation and resize still need visual inspection.
 
 The native entry point exports the Agility SDK version/path using Slang RHI's helper. This selects the copied D3D12 runtime without requiring a system-wide installation or a custom PATH for the application.
+
+## CPU-only build and tests
+
+Use the same Visual Studio x64 environment setup above, then:
+
+```powershell
+cmake --preset cpu-tests
+cmake --build --preset cpu-tests --parallel
+ctest --preset cpu-tests
+```
+
+This separate `build/cpu-tests` tree sets `OFG_BUILD_APP=OFF`. It builds only `ofg-core` and `ofg-core-test`, without adding Slang RHI, GLFW or graphics downloads. The vendored doctest header is independent of the RHI submodule, so submodule initialization is unnecessary for this preset. Native-debug includes the same core suite; use `ctest --preset native-debug -L cpu` or `-L gpu` for an already-built subset. An application build with tests disabled uses `cmake --build build/native --target ofg` instead of the test-inclusive build preset.
+
+See [state and scene contracts](docs/state-and-scene.md) and [resource loading](docs/resources.md) for usage, ownership, provenance and limits. Core tests are native; browser smoke remains focused on rendering. The initial state/scene import passed 40 cases and 826 assertions, including all 16 legacy state and 11 math cases, on 2026-10-01. The resource foundation expands that suite to 48 cases and 878 assertions, all passing on the same date. No numerical coverage percentage has been measured or required for this import; behavioral acceptance is recorded in its [plan](docs/archived/import-state-and-scene.md).
 
 ## Formatting
 
 Use the checked-in `.clang-format`. The verified formatter is clang-format 22.1.3 from the Visual Studio C++ Clang tools. After the discovery block above, check the current source with:
 
 ```powershell
-& (Join-Path $vsRoot 'VC\Tools\Llvm\x64\bin\clang-format.exe') --dry-run --Werror src/main.cpp src/checkerboard.cpp src/checkerboard.h tests/checkerboard-test.cpp
+$projectSources = @(rg --files src tests -g '*.cpp' -g '*.h')
+& (Join-Path $vsRoot 'VC\Tools\Llvm\x64\bin\clang-format.exe') --dry-run --Werror $projectSources
 ```
 
 Those optional Clang tools are needed for that formatter command, not for the MSVC build. Formatting must not modify the RHI submodule.
@@ -89,7 +105,7 @@ cmake --build --preset native-debug
 ctest --preset native-debug
 ```
 
-The browser target is `ofg-web`, selected by the `web` build preset. It produces `build/web/index.html`, `index.js` and `index.wasm`; it does not build GLFW, DirectX, desktop Dawn or the C++ test executables. The same `ofg-render` sources and embedded Slang shader are compiled by each toolchain. There is no Makefile or npm layer around compilation.
+The browser target is `ofg-web`, selected by the `web` build preset. It produces `build/web/index.html`, `index.js` and `index.wasm`; it does not build GLFW, DirectX, desktop Dawn or the C++ test executables. The same `ofg-core` and `ofg-render` sources and embedded Slang shader are compiled by each toolchain. There is no Makefile or npm layer around compilation.
 
 ## Build for the browser
 

@@ -1,6 +1,6 @@
 ---
 name: build-native
-description: Configure, compile, and smoke-test OFG's native Windows D3D12 application. Use for native builds, startup verification, and diagnosing the required MSVC x64 environment; browser builds are outside this workflow.
+description: Configure, compile, and smoke-test OFG's native Windows D3D12 application and GPU-independent core tests. Use for native builds, startup verification, and diagnosing the required MSVC x64 environment; browser builds are outside this workflow.
 ---
 
 # Build OFG natively
@@ -19,9 +19,11 @@ If the submodule is missing, use the documented initialization command. Do not u
 
 ## Configure, compile and verify
 
-Follow the documented native configure command, then build targets `ofg` and `ofg-render-test` (only `ofg` when `BUILD_TESTING=OFF`). Check the exit status at each stage before proceeding. The first configure fetches prebuilt Slang, DirectX dependencies and pinned GLFW; routine builds reuse them. D3D12 is the only enabled backend and no Emscripten or native Dawn setup is needed.
+Follow the documented native configure command, then build targets `ofg`, `ofg-render-test` and `ofg-core-test` (only `ofg` when `BUILD_TESTING=OFF`). Check the exit status at each stage before proceeding. The first configure fetches prebuilt Slang, DirectX dependencies and pinned GLFW; routine builds reuse them. D3D12 is the only enabled backend and no Emscripten or native Dawn setup is needed.
 
-Run `ofg --check-device` for finite startup verification, then run both CTest checks as documented. Normal `ofg` launch opens an interactive checkerboard window and stays running until closed; do not use it as a finite command-line test. The render test checks every offscreen pixel through doctest. Both checks are GPU-dependent, so report unavailable hardware/runtime honestly. Do not enable the entire upstream RHI test suite to test OFG.
+Run `ofg --check-device` for finite startup verification, then run the three CTest checks as documented. Normal `ofg` launch opens an interactive checkerboard window and stays running until closed; do not use it as a finite command-line test. The render test checks every offscreen pixel through doctest. The device and render checks are GPU-dependent, so report unavailable hardware/runtime honestly. Do not enable the entire upstream RHI test suite to test OFG.
+
+For pure state, scene or math work, use the documented `cpu-tests` configure/build/test presets. They use `build/cpu-tests` with `OFG_BUILD_APP=OFF`, and require neither the RHI submodule nor graphics downloads. This runs the same core suite as native-debug without initializing a GPU. Re-run the native integration checks when build wiring changes.
 
 For rendering changes, also inspect the window, resize/maximize it, minimize/restore it, and verify clean close. Save screenshots under `artifacts/checkerboard`. The automated offscreen check does not prove presentation. The shared shader is embedded by CMake; editing it requires a rebuild, not runtime asset copying.
 

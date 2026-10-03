@@ -8,6 +8,12 @@ Establish a small C++ terrain laboratory using Slang RHI in both a native Window
 
 ## Progress
 
+- [ ] Review the [cube, mesh and material plan](cube-mesh-materials.md) before implementation, as requested on 2026-10-01. This proposed slice includes procedural geometry, cloneable materials and a scene-owned MeshRenderer; implementation has not started.
+
+- [x] (2026-10-01) Added static pollable resources with shared asset ownership, weak lookup and native-only blocking convenience. All 48 core cases/878 assertions and native integration tests pass; the core compiles with Emscripten. See [resource foundation](../archived/resource-foundation.md). Concrete asset loading remains next.
+
+- [x] (2026-10-01) Imported GPU-independent state/scene foundations and math with the cpu-tests preset. All 40 cases/826 assertions, three native CTest checks, Emscripten build and browser smoke pass. See the [completed import plan](../archived/import-state-and-scene.md) and [contracts](../state-and-scene.md).
+
 - [x] (2026-10-01) Added docs/architecture.md and .agents/skills/build-web/SKILL.md, linked from repository guidance and development docs. The checkpoint records the working example, host/shared-renderer boundaries, ownership, test coverage and current limitations.
 
 - [x] (2026-10-01) Added target ofg-web, preset web and build/web output. Emscripten 6.0.0 build and Playwright/Chrome 154.0.8037.59 smoke pass, covering screenshot pixels, resize, reload and missing-WebGPU messaging, with no browser console errors. Native configure/build and both CTest checks still pass through native-debug.
@@ -64,6 +70,8 @@ Slang RHI has an Emscripten integration, including prebuilt WASM Slang compiler 
 
 ## Outcomes & Retrospective
 
+The user-requested state and component-free scene foundations now live in ofg-core. The cpu-tests preset builds without adding graphics dependencies; doctest is independently vendored. State behavior, unique ownership and auto-nulling observers are preserved. No resource system or concrete components are included. This supersedes the earlier checkpoint statements below that CPU tests were still future work.
+
 The documentation checkpoint now gives a new contributor a short source map and gives agents separate native and browser workflows. It builds on the verified checkerboard implementation without duplicating it into a second sample application. Runtime behavior is unchanged by this documentation step.
 
 The browser checkerboard now runs the same renderer and shader as native. Emscripten 6.0.0 and the pinned RHI/Slang WASM package work without submodule edits. The web preset selects only WebGPU, the native preset only D3D12; native keeps the full C++ suite. Playwright captures initial 960x641 and resized/reloaded 773x478 canvases with exact 32/224 gray levels and no console errors. A separate navigator.gpu query reports Intel gen-12lp; RHI itself leaves the adapter description empty, so do not claim it selected the native NVIDIA device. The missing-WebGPU error is verified. Local serving at http://127.0.0.1:8080 is available via npm run serve:web. The distribution includes roughly 26 MB of uncompressed WASM and the documented upstream Asyncify/exception caveat. Compute, ImGui, independent CPU tests and terrain remain future work.
@@ -80,11 +88,11 @@ Global addresses use integer sample/tile coordinates. Compute fixtures initially
 
 Every allocation has an identifiable owner and eviction path. Resources referenced by queued GPU work are retired only after completion. Requests carry generation identity so a late result cannot populate a newly reused tile slot. Queues, staging data and retired resources count toward memory budgets.
 
-Use doctest for C++ tests and register them with CTest. Establish independently configurable CPU tests, separate native GPU integration checks and browser smoke, plus a practical coverage policy when adding code. CPU-only configuration must avoid adding the RHI target or fetching graphics dependencies. The initial GPU integration test includes the doctest 2.4.11 header already pinned within the RHI submodule without enabling upstream tests. When adding independent CPU tests, pin doctest separately so CPU configuration does not depend on RHI. This is a deliberate simplification for the current GPU-only slice. Addressing, stale-request, ownership and failure branches need behavioral tests. GPU/platform exclusions need explicit rationale. A percentage cannot substitute for executing both target paths.
+Use doctest for C++ tests and register them with CTest. Establish independently configurable CPU tests, separate native GPU integration checks and browser smoke, plus a practical coverage policy when adding code. CPU-only configuration must avoid adding the RHI target or fetching graphics dependencies. The initial GPU integration test includes the doctest 2.4.11 header already pinned within the RHI submodule without enabling upstream tests. The subsequent state/scene import vendors doctest separately under external/doctest, so CPU configuration does not depend on RHI. Addressing, stale-request, ownership and failure branches need behavioral tests. GPU/platform exclusions need explicit rationale. A percentage cannot substitute for executing both target paths.
 
 ## Context and Orientation
 
-The repository initially contained only `README.md`. It now contains project guidance, the research note, this plan, a Slang RHI submodule, root/external CMake files, src/main.cpp, a native-build skill and native build instructions in `DEVELOPING.md`. Target ofg opens a native checkerboard window; ofg-startup invokes --check-device. Target ofg-render-test implements the ofg-checkerboard doctest/CTest GPU integration check. CMakePresets.json defines native-debug and web; target ofg-web builds the browser HTML/JS/WASM. There are no GPU-independent CPU suites yet. `C:\dev\ofg-old2` is a read-only reference, not an implementation dependency.
+The repository initially contained only `README.md`. It now contains project guidance, the research note, this plan, a Slang RHI submodule, root/external CMake files, src/main.cpp, a native-build skill and native build instructions in `DEVELOPING.md`. Target ofg opens a native checkerboard window; ofg-startup invokes --check-device. Target ofg-render-test implements the ofg-checkerboard doctest/CTest GPU integration check. CMakePresets.json defines native-debug and web; target ofg-web builds the browser HTML/JS/WASM. The cpu-tests preset now builds ofg-core-test without graphics configuration; see the completed import plan. `C:\dev\ofg-old2` is a read-only reference, not an implementation dependency.
 
 A render hardware interface, or RHI, wraps different GPU APIs. Slang compiles shader code for those APIs. Emscripten compiles C++ to WebAssembly for the browser. The native SlangPy package adds Python bindings and convenience APIs; it is not an established browser host.
 
@@ -146,7 +154,7 @@ From `C:\dev\ofg`, begin with `git status --short` and inspect available CMake, 
     npm.cmd ci
     npm.cmd run smoke:web
 
-The native-debug and web commands above are implemented. A future `cpu-tests` preset remains proposed for GPU-independent work. Pin compiler/toolchain choices during bring-up; MSVC and clang-cl are native options, while browser builds use Emscripten. Do not inherit the previous project's Clang-only requirement without a concrete reason.
+The native-debug and web commands above are implemented. The `cpu-tests` preset is now implemented for GPU-independent state, scene, observer and math work. Pin compiler/toolchain choices during bring-up; MSVC and clang-cl are native options, while browser builds use Emscripten. Do not inherit the previous project's Clang-only requirement without a concrete reason.
 
 DEVELOPING.md contains the current toolchain setup for these runnable commands. Milestone 1 must record tested commands for launching the native executable and serving the browser output, the actual localhost URL, and browser automation. Keep the server available during visual work. Add no public deployment in this spike.
 
