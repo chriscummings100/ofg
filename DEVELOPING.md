@@ -1,6 +1,6 @@
 # Developing OFG
 
-The current application opens a resizable native Windows D3D12 window and renders a checkerboard through Slang RHI. A separate Emscripten/WebGPU build renders the same shader in a browser.
+The current application opens a resizable native Windows D3D12 window and renders two scene-owned checker cubes, one with an isolated cyan face material. A separate Emscripten/WebGPU build renders the same scene. Select the original full-screen checkerboard using `--checkerboard` natively or `?demo=checkerboard` in the browser.
 
 See the [architecture note](docs/architecture.md) for source responsibilities and the checkerboard reference flow. Agent workflows are documented in the [native build skill](.agents/skills/build-native/SKILL.md) and [browser build skill](.agents/skills/build-web/SKILL.md).
 
@@ -50,15 +50,15 @@ These commands work from an ordinary PowerShell; launching the built application
 ctest --test-dir build/native --output-on-failure
 ```
 
-Normal launch prints the selected adapter and opens a 960-by-640 framebuffer with alternating dark/light 64-pixel squares. Resize or maximize the window: squares retain their pixel size and new squares fill the exposed area. Minimize/restore should resume rendering. Escape or the close button exits cleanly. The shader is embedded at build time from `shaders/checkerboard.slang`, so launch does not depend on the current working directory. Editing the shader triggers CMake regeneration and recompilation on the next build.
+Normal launch prints the selected adapter and opens a 960-by-640 framebuffer showing the stationary procedural scene. `ofg.exe --checkerboard` selects alternating dark/light 64-pixel squares. Resize or maximize the window: the scene projection tracks aspect ratio; the checkerboard diagnostic retains 64-pixel squares. Minimize/restore should resume rendering. Escape or the close button exits cleanly. The shader is embedded at build time from `shaders/checkerboard.slang` and `shaders/mesh.slang`, so launch does not depend on the current working directory. Editing the shader triggers CMake regeneration and recompilation on the next build.
 
-`--check-device` creates the device, prints `OFG initialized D3D12 on <adapter name>.` and exits without a window. Failure returns nonzero. CTest runs three finite checks with a 30-second timeout. The core suite is labeled `cpu`; the other two are labeled `native` and `gpu`:
+`--check-device` creates the device, prints `OFG initialized D3D12 on <adapter name>.` and exits without a window. Failure returns nonzero. CTest runs four finite checks with a 30-second timeout. The core suite is labeled `cpu`; the others are labeled `native` and `gpu`:
 
 - `ofg-core`: GPU-independent doctest suite for state lifecycle, scene hierarchy/transforms, observer lifetime, resource loading/lifetime and CPU math.
 - `ofg-startup`: device creation through `ofg --check-device`.
 - `ofg-checkerboard`: a doctest GPU integration test using the same pipeline and draw as the application. It verifies every RGBA8 UNORM pixel at 1-by-1, 129-by-97 and 259-by-193, including alpha, partial cells and row pitch. RHI validation errors fail the test. Expected gray levels are exactly 32 and 224; no tolerance is needed for these constant UNORM values.
 
-The two GPU tests require a working D3D12 adapter/runtime. The window uses the surface's preferred format, which may apply sRGB encoding to the shader's linear gray levels; screenshots need not have the same byte values as the UNORM offscreen test. All C++ tests use the independently vendored [doctest 2.4.11 header](external/doctest/README.md). None of the automated C++ tests opens a window, so presentation and resize still need visual inspection.
+The GPU tests require a working D3D12 adapter/runtime. The window uses the surface's preferred format, which may apply sRGB encoding to the shader's linear gray levels; screenshots need not have the same byte values as the UNORM offscreen test. All C++ tests use the independently vendored [doctest 2.4.11 header](external/doctest/README.md). None of the automated C++ tests opens a window, so presentation and resize still need visual inspection.
 
 The native entry point exports the Agility SDK version/path using Slang RHI's helper. This selects the copied D3D12 runtime without requiring a system-wide installation or a custom PATH for the application.
 
@@ -120,7 +120,7 @@ cmake --build --preset web --parallel 8
 
 Stop if any command fails. The first build fetches the pinned RHI's Slang 2026.17.1 WASM libraries and uses Emscripten's `emdawnwebgpu` port. It does not build the Slang compiler from source. The final link still optimizes the bundled compiler and takes substantially longer than a native incremental link. Routine builds reuse `build/web`; leave `build/native` intact.
 
-The browser currently includes the runtime Slang compiler: the initial verified WASM output was 26,795,946 bytes (about 25.6 MiB), before HTTP compression. This is a bring-up baseline, not an optimized distribution-size target. Emscripten warns about combining Asyncify and WASM exceptions. These settings mirror the pinned RHI preset; the checkerboard path works, but arbitrary exception paths through suspended calls are not established by this smoke check. Revisit this with any async/lifecycle expansion.
+The browser currently includes the runtime Slang compiler: the initial verified WASM output was 26,795,946 bytes (about 25.6 MiB), before HTTP compression. This is a bring-up baseline, not an optimized distribution-size target. Emscripten warns about combining Asyncify and WASM exceptions. The startup settings originate in the pinned RHI preset. Scene rendering extends the Asyncify allowlist to OFG/RHI, browser frame calls and Emscripten callback thunks because buffer uploads and uniform staging maps can yield. Emscripten pauses/resumes its main loop across those yields. The browser renders into a persistent host-owned texture and acquires the canvas only for the final presentation pass, because canvas textures expire across event-loop turns. Arbitrary exception paths through suspended calls are not established by the smoke check. Revisit this with any async/lifecycle expansion.
 
 ## Serve and inspect the browser build
 
@@ -141,10 +141,24 @@ npm.cmd run smoke:web
 npm.cmd run smoke:web -- --headed
 ```
 
-The script starts its own server on a free loopback port and closes it and Chrome afterward. It checks initial rendering, resize, reload, and the missing-WebGPU error message. Screenshots and `report.json` are saved under `artifacts/browser-smoke`. The report includes Chrome version, console/errors, image sizes and browser adapter diagnostics. The screenshots' checkerboard cells are checked against their pixel boundaries; native's full C++ test suite stays native. A successful browser check is not a claim that all RHI features work on WebGPU.
+The script starts its own server on a free loopback port and closes it and Chrome afterward. It checks scene rendering, checker cells and isolated tint, resize, reload, the original checkerboard diagnostic, and the missing-WebGPU error message. Scene and checkerboard screenshots and `report.json` are saved under `artifacts/scene-rendering/browser`. The report includes Chrome version, console/errors, image sizes and browser adapter diagnostics. The screenshots' checkerboard cells are checked against their pixel boundaries; native's full C++ test suite stays native. A successful browser check is not a claim that all RHI features work on WebGPU.
 
 The native surface and browser surface may prefer different sRGB/UNORM formats. The smoke check accepts either consistent encoding of the shader's two gray levels; it still checks every cell boundary. Browser privacy may omit the RHI adapter name, so the app reports `browser-selected adapter` rather than guessing the native GPU. Chrome can warn that Windows ignores `powerPreference`; this is retained in the report rather than counted as a rendering error.
 
 Build commands and test registration are in `CMakePresets.json` and `CMakeLists.txt`; automation lives in `tools/browser-smoke.mjs`. The [Playwright library documentation](https://playwright.dev/docs/library) covers the screenshot/console workflow used here.
 
 Browser build and smoke passed on 2026-10-01 with Emscripten 6.0.0, Chrome 154.0.8037.59 and Playwright 1.61.0. Captured canvases were 960x641 initially and 773x478 after resize/reload. Console errors were empty; the missing-WebGPU message also passed. An independent browser adapter query reported Intel gen-12lp, while RHI omitted its description. Native preset configuration/build and both native CTest checks passed afterward.
+
+## Scene-object rendering checks
+
+`ofg-scene-rendering` runs the scene GPU/Game tests in `ofg-render-test`; `ofg-checkerboard` selects the original exact pixel test. The CPU suite now also covers transform caches, typed components, meshes/materials and draw extraction. Run the existing cpu-tests and native-debug build/test presets and `npm.cmd run smoke:web`. Uniform tests allow one byte of UNORM quantization error for fractional values; flat primary colors remain exact. Browser geometry checks avoid cross-backend edge equality.
+
+Use `.\build\native\ofg.exe` for the scene, `.\build\native\ofg.exe --checkerboard` for the diagnostic, and `--check-device` for finite startup. Browser equivalents are `http://127.0.0.1:8080/` and `http://127.0.0.1:8080/?demo=checkerboard`. Game owns application updates; hosts retain event loops and presentation. There are no camera controls in this stationary fixture.
+
+Native presentation evidence lives under `artifacts/scene-rendering/native`: `scene.png`, `scene-resized.png`, `scene-restored.png`, stdout/stderr logs and the local `capture.ps1` probe. The probe targets the rendering window (not its console), resizes and minimizes/restores it, then requests normal close. These screenshots supplement the offscreen integration tests.
+
+In restricted agent shells, Emscripten needs write access to its installed SDK cache and temporary directory. A denied cache lock can look like an idle linker. Do not delete the SDK/cache or change toolchains: request the required build access, inspect only the task's processes, and stop a stalled task before retrying. `emsdk_env.ps1` also writes a generated script into the SDK. An already configured SDK can be selected with process-local `EMSDK=C:/tools/emsdk` and the documented Ninja path instead.
+
+Scene-object implementation verified on 2026-10-03: cpu-tests passes 55 cases/959 assertions; native-debug passes all four CTest checks (7 render cases/178 assertions). The final web build and smoke pass in Chrome 154.0.8037.95 on the browser-selected adapter (independent query: Intel gen-12lp). Native uses NVIDIA GeForce RTX 3050 Ti Laptop GPU. All six browser captures were generated; the initial/resized/reloaded scene images were inspected. The report contains no errors or validation warnings, only the documented power-preference warning. The final WASM is 27,140,650 bytes before compression. This records build size, not a performance target.
+
+The [completed scene-object plan](docs/archived/scene-object-rendering.md) records the checks, lifetime findings and limitations. The browser's final presentation uses `src/render/present.*` and `shaders/present.slang`: a resource-only image-load pass avoids both uniform staging yields and an unsupported surface copy-destination requirement. Native offscreen tests compare its output pixels. This internal presentation texture does not introduce material texture support.

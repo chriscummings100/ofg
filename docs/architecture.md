@@ -1,64 +1,54 @@
-# Application foundations and rendering baseline
+# Scene rendering architecture
 
-OFG currently renders a checkerboard through Slang RHI on Windows D3D12 and browser WebGPU. This small application is the executable reference for adding the terrain laboratory. Build and run commands live in [DEVELOPING.md](../DEVELOPING.md); future milestones live in the [bootstrap plan](plans/terrain-lab-bootstrap.md).
+OFG renders a procedural scene through shared C++ and Slang on native Windows D3D12 and browser WebGPU. The scene demonstrates parented transforms, two shared cube instances, an independent cyan face material, and an off-camera instance. The original checkerboard remains a diagnostic. Build/run commands are in [DEVELOPING.md](../DEVELOPING.md); this implementation is tracked by the [scene-object plan](archived/scene-object-rendering.md).
 
-## One renderer, two hosts
+## Frame flow and ownership
 
 ```mermaid
 flowchart TD
-    Native[Native host: GLFW window and event loop] --> Renderer[Shared C++ checkerboard renderer]
-    Web[Browser host: canvas and animation callbacks] --> Renderer
-    Shader[Shared Slang shader, embedded at build time] --> Renderer
-    Renderer --> RHI[Slang RHI]
-    RHI --> DX12[D3D12 in the native build]
-    RHI --> WebGPU[WebGPU in the browser build]
+    Host[Native GLFW host / browser callback] --> Game[Game: resources, State, Scene update]
+    Game --> Extract[Camera culling and DrawList]
+    Extract --> Graphics[Graphics: preparation, pipelines, indexed draws]
+    Graphics --> RHI[Slang RHI: D3D12 / WebGPU]
+    RHI --> Host
 ```
 
-Each build compiles the shared C++ sources with its own toolchain. The native executable does not run through WebAssembly. The browser builds that C++ into WebAssembly and uses Emscripten's WebGPU port; it does not build a desktop Dawn checkout.
+The hosts create the device, queue and surface and call `Game::frame(deltaSeconds, target)` before presentation. Native renders directly into the acquired image. Browser renders into a host-owned texture, then acquires the canvas image and draws a fullscreen image-load pass into it without yielding: canvas textures expire across event-loop turns. They own window/canvas events and resize. Graphics retains the device/queue through an explicit initialize/shutdown lifecycle. Native drains its queue before swap-chain recreation and shutdown. Browser callbacks do not block the JavaScript event loop. The pinned RHI yields through Asyncify during initial buffer uploads and per-command-buffer uniform staging maps; Emscripten pauses/resumes the main loop during those yields. The OFG/RHI call chains and Emscripten callback thunks are instrumented explicitly, while the embedded Slang compiler is excluded. No explicit per-frame queue drain is added.
 
-| Source | Responsibility |
+Game owns one current Scene and root State. A frame updates Resources, then State, then the current Scene (including any scene installed by State), then extracts and renders. State hook signatures are unchanged; behavior can read `Game::deltaSeconds()`. A null target performs updates only; no selected camera renders the background. Frame reentry, shutdown inside a frame, invalid delta and missing initialization fail explicitly. Shutdown destroys State storage without synthesizing leave hooks.
+
+Scene uniquely owns stable Entity, Camera and MeshRenderer allocations. Entity owns local TRS and a lazy world matrix. Camera uses its Entity's inverse world matrix and a perspective projection. MeshRenderer owns shared Mesh and nullable material overrides. Mesh owns submesh default Materials; Material owns a shared Shader. Resources use shared ownership and a weak keyed lookup independently of scene observers. There are no owning back-references.
+
+DrawList construction conservatively tests the eight mesh-bound corners against the six homogeneous clip planes. It emits one entry per visible submesh in creation order with shared Mesh/Material, submesh index and a copied world matrix. A list survives scene clear; materials must not change between extraction and submission. There is no sorting, spatial index or batching.
+
+## CPU and GPU boundaries
+
+`ofg-core` owns math, observers, State, Scene/components, resource descriptions and draw extraction. It builds and tests without RHI. `ofg-render` owns Graphics, Game, the fixture, and checkerboard rendering, and links both core and RHI. Mesh and Shader privately own forward-declared graphics data; their public headers contain no RHI types.
+
+Graphics lazily creates immutable vertex/index buffers and shader programs. Weak tracking allows shutdown to reset surviving assets' GPU handles. Pipeline entries observe Shader ownership identity and distinguish color format. Expired Shader entries are pruned each rendered frame; material changes and clones reuse pipelines. Fixed settings are position/normal/UV vertices, uint32 triangle indices, single sampling, one color target, D32Float/Less depth with writes, and no blending or face culling. A newly variable setting must become part of the cache key.
+
+Each draw receives independent RHI shader-object storage. Reflection validates every direct `material` field and the required `draw.clipFromLocal` float4x4. Scalars and vectors are explicitly packed; matrices respect reflected row/column storage. Slang compilation uses unique internal module names and paths because its session caches both; resource source names remain in diagnostics. The compiler session may retain compiled modules until device/session destruction; weak application caches do not claim to evict compiler internals.
+
+RHI command buffers retain referenced buffers, pipelines, attachments and bindings. Native queues retain submitted command buffers until completion; WebGPU owns submitted backend work. Assets may be released after submission. No application-level retirement system or permanent owning asset registry is added. Reinitialization recreates GPU data from surviving CPU descriptions.
+
+## Source responsibilities
+
+| Location | Responsibility |
 | --- | --- |
-| [src/main.cpp](../src/main.cpp) | Creates the native device/window, polls events, handles resize and presents frames. Also provides the finite `--check-device` path. |
-| [src/web-main.cpp](../src/web-main.cpp) | Creates the browser device/surface, sizes the canvas in physical pixels and submits frames from animation callbacks. |
-| [web/shell.html](../web/shell.html) | Owns the HTML canvas, visible status/error messages and small automation readiness signals. |
-| [src/checkerboard.cpp](../src/checkerboard.cpp) | Creates the Slang shader program and render pipeline, then submits a full-target draw. Its [header](../src/checkerboard.h) defines the two shared operations. |
-| [shaders/checkerboard.slang](../shaders/checkerboard.slang) | Generates one full-screen triangle and alternating 64-pixel squares without vertex buffers or texture assets. |
-| [src/state/state.h](../src/state/state.h) | Hierarchical lifecycle and owned child/substate flow in GPU-independent ofg-core. |
-| [src/scene/scene.h](../src/scene/scene.h) | Owned entity hierarchy and transforms, with concrete components deferred. |
-| [src/resources/resources.h](../src/resources/resources.h) | Static pollable resource loading, shared asset ownership and weak lookup, with concrete loaders deferred. |
-| [src/core/ptr.h](../src/core/ptr.h) | Auto-nulling non-owning observers for Object-derived types. |
-| [external/CMakeLists.txt](../external/CMakeLists.txt) | Selects the platform's RHI backend and adds GLFW only for native builds. |
+| `src/main.cpp`, `src/web-main.cpp`, `web/shell.html` | Device/surface, events, callbacks, acquisition, presentation and error reporting. |
+| `src/game.*` | Shared frame order and scene/State ownership. |
+| `src/scene/` | Stable entity hierarchy, transform cache and typed components. |
+| `src/resources/` | Cooperative loading and immutable Mesh/Shader descriptions, editable Materials. |
+| `src/render/draw-list.*` | GPU-independent culling and draw extraction. |
+| `src/render/graphics.*`, `resource-gpu-data.h` | Direct RHI preparation, binding, pipelines and GPU lifetime. |
+| `src/render/present.*`, `shaders/present.slang` | Final image-load presentation without uniform staging; needed because browser canvas images expire across yields. |
+| `src/lab/scene-fixture.*`, `shaders/mesh.slang` | Original procedural cube fixture and embedded UV checker shader. |
+| `src/checkerboard.*`, `shaders/checkerboard.slang` | Original full-screen diagnostic and exact pixel regression. |
 
-The shader is embedded in a generated header by root CMake. Editing it triggers regeneration and recompilation. At runtime, Slang compiles the embedded source for the selected backend. This avoids working-directory-dependent shader paths and currently requires shipping the Slang compiler with each application.
+Shader sources are embedded by CMake; launch does not depend on the working directory. Native and web use separate toolchains/build directories and the same shared code. Native does not depend on Emscripten, Dawn or Python at runtime.
 
-The shared renderer receives a queue, pipeline and target texture. It submits work; the host owns presentation and lifecycle. There is no general engine layer or second graphics abstraction over RHI.
+## Verification and limits
 
-## Ownership and frame flow
+CPU tests establish scene/resource/culling contracts. Native offscreen tests establish indexed draws, depth, independent uniforms, scalar/vector/matrix binding, reflected errors, pipeline reuse/separation and release after submission. Native window evidence covers presentation, resize, minimize/restore and normal close. Browser smoke covers scene structure, tint/checker regions, resize/reload, original checkerboard and missing-WebGPU messaging. Evidence and current results are recorded in the plan and DEVELOPING.md.
 
-The native host creates a device, GLFW window, surface, graphics queue and pipeline. Each frame polls events, updates the surface if its framebuffer size changed, acquires an image, draws and presents. Minimized windows wait for events. Queue completion precedes swap-chain recreation and teardown. RHI handles use `ComPtr`; the surface is released before the window is destroyed.
-
-The browser host initializes once and transfers its application state to Emscripten's animation loop. RHI device initialization yields through Asyncify while browser promises complete. Frames adjust the canvas to CSS size multiplied by device pixel ratio, acquire an image, draw and present without a blocking per-frame wait. On a reported rendering failure, the loop is cancelled before its application state is released. Normal browser lifetime ends with page teardown; reload is part of the smoke check.
-
-Keep future shared rendering independent of GLFW, the DOM and platform event loops. Hosts should own those differences. Add helpers when repeated behavior or a real lifetime contract requires them. Future terrain addressing, generation and residency logic should be independently testable without a GPU; the existing `ofg-core` library provides that dependency boundary for state, scene and math. Its [contracts and provenance](state-and-scene.md) describe what was brought forward from the backup. Both hosts link the core, but the checkerboard does not yet exercise it.
-
-## Build and verification boundaries
-
-| Preset | Target and output | Verification |
-| --- | --- | --- |
-| `native-debug` | `ofg`, `ofg-core-test` and `ofg-render-test` in `build/native` | CPU suite, CTest device startup and doctest offscreen pixel checks; visual inspection of the window. |
-| `cpu-tests` | `ofg-core-test` in `build/cpu-tests` | State, scene, lifetime and math tests; no graphics configuration or downloads. |
-| `web` | `ofg-web`, producing HTML/JS/WASM in `build/web` | Playwright screenshot checks, console diagnostics, resize, reload and missing-WebGPU messaging. |
-
-The resource foundation also lives in `ofg-core`, with no graphics dependency. Its [loading and ownership contract](resources.md) uses shared resource pointers and weak lookup; the checkerboard does not yet load assets.
-
-The full C++ test suite stays native, as requested. [The browser smoke script](../tools/browser-smoke.mjs) checks presentation without porting every native test. It owns an isolated Chrome instance and temporary loopback server and closes both afterward. Node packages are browser tooling dependencies, not native build dependencies.
-
-Verified baseline: native D3D12 device/render tests and window interaction pass; the same shader renders in Chrome WebGPU with resize and reload. Native offscreen tests compare every RGBA8 pixel at small/odd dimensions. Browser screenshots check cell boundaries and allow the surface's consistent UNORM or sRGB encoding. Neither test suite establishes all graphics features or long-running resource residency.
-
-Screenshots and diagnostic reports are local, ignored outputs under `artifacts/checkerboard` and `artifacts/browser-smoke`. Regenerate them with the documented workflow; the source, test scripts and recorded outcomes are the durable checkpoint. The [native build skill](../.agents/skills/build-native/SKILL.md) and [browser build skill](../.agents/skills/build-web/SKILL.md) guide agents through those workflows.
-
-## Current limits
-
-The browser WASM includes the Slang compiler and is about 26 MB before compression. Emscripten warns about mixing Asyncify and WASM exceptions; the settings follow the pinned RHI preset, and only the exercised paths are verified. Browser adapter descriptions may be empty and must not be inferred from the native GPU. The preferred native and browser color formats may differ.
-
-ImGui, texture sampling, compute, concrete resource loaders, concrete scene components, terrain and streaming are still ahead. The scene currently supports whole-scene clear, with no individual deletion or reparenting. The checkerboard is the current example; extend the application in small tested steps and preserve this render check as the baseline.
+Scene values are floats near the origin. There is one selected perspective camera and no individual entity/component removal or reparenting. File import, material textures, lighting, ImGui, compute, terrain, streaming, large-world coordinates, custom update components and multiple passes are future work. No performance or long-running residency claim is made. Emscripten's existing Asyncify/WASM-exception warning remains a portability limitation beyond exercised paths.

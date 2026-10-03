@@ -1,5 +1,10 @@
-// Browser host: WebGPU device/canvas setup and callback-driven presentation of the shared checkerboard.
+// Browser host: WebGPU device/canvas setup and callback-driven presentation of the shared scene and selectable
+// checkerboard.
 #include "checkerboard.h"
+#include "game.h"
+#include "render/graphics.h"
+#include "render/present.h"
+#include "lab/scene-fixture.h"
 
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -15,6 +20,15 @@ struct BrowserApp
     ComPtr<ISurface> surface;
     ComPtr<ICommandQueue> queue;
     ComPtr<IRenderPipeline> pipeline;
+    ComPtr<IRenderPipeline> presentPipeline;
+    ComPtr<ITexture> sceneTarget;
+    double previousTime{0};
+    // Releases application and graphics state when the callback stops; browser owns submitted GPU work.
+    ~BrowserApp()
+    {
+        ofg::Game::shutdown();
+        ofg::Graphics::shutdown();
+    }
 };
 
 // Reports startup/render failure to both the visible page and the browser automation diagnostics.
@@ -24,7 +38,7 @@ static void reportFailure(Result result)
     EM_ASM({ Module.setStatus('WebGPU initialization or rendering failed. See the console.', true); });
 }
 
-// Creates the same shader/pipeline as native; RHI yields to browser promises during device initialization.
+// Initializes the shared renderer or diagnostic; RHI yields to browser promises during device initialization.
 static Result initializeBrowser(BrowserApp& app)
 {
     DeviceDesc desc = {};
@@ -33,9 +47,23 @@ static Result initializeBrowser(BrowserApp& app)
     SLANG_RETURN_ON_FAIL(getRHI()->createDevice(desc, app.device.writeRef()));
     SLANG_RETURN_ON_FAIL(app.device->getQueue(QueueType::Graphics, app.queue.writeRef()));
     SLANG_RETURN_ON_FAIL(app.device->createSurface(WindowHandle::fromWGPUCanvas("#canvas"), app.surface.writeRef()));
-    SLANG_RETURN_ON_FAIL(
-        createCheckerboardPipeline(app.device, app.surface->getInfo().preferredFormat, app.pipeline.writeRef())
-    );
+    if (EM_ASM_INT({ return Module.checkerboard ? 1 : 0; }))
+    {
+        SLANG_RETURN_ON_FAIL(
+            createCheckerboardPipeline(app.device, app.surface->getInfo().preferredFormat, app.pipeline.writeRef())
+        );
+    }
+    else
+    {
+        SLANG_RETURN_ON_FAIL(createPresentationPipeline(
+            app.device,
+            app.surface->getInfo().preferredFormat,
+            app.presentPipeline.writeRef()
+        ));
+        ofg::Graphics::initialize(app.device, app.queue);
+        ofg::Game::initialize(ofg::createSceneFixture());
+    }
+    app.previousTime = emscripten_get_now();
     // Browsers may omit the adapter description; do not infer an identity from the native device.
     const char* adapter = app.device->getInfo().adapterName;
     if (!adapter || !adapter[0])
@@ -50,6 +78,9 @@ static Result initializeBrowser(BrowserApp& app)
 // Resizes to physical display pixels and submits a frame without blocking the browser's event loop.
 static Result drawBrowserFrame(BrowserApp& app)
 {
+    const double now = emscripten_get_now();
+    const float deltaSeconds = float((now - app.previousTime) / 1000.0);
+    app.previousTime = now;
     double cssWidth = 0;
     double cssHeight = 0;
     if (emscripten_get_element_css_size("#canvas", &cssWidth, &cssHeight) != EMSCRIPTEN_RESULT_SUCCESS)
@@ -61,6 +92,10 @@ static Result drawBrowserFrame(BrowserApp& app)
     const int height = int(cssHeight * pixelRatio);
     if (width <= 0 || height <= 0)
     {
+        if (!app.pipeline)
+        {
+            ofg::Game::frame(deltaSeconds, nullptr);
+        }
         return SLANG_OK;
     }
 
@@ -73,13 +108,36 @@ static Result drawBrowserFrame(BrowserApp& app)
         resized.height = height;
         resized.format = app.surface->getInfo().preferredFormat;
         SLANG_RETURN_ON_FAIL(app.surface->configure(resized));
+        if (!app.pipeline)
+        {
+            TextureDesc target{};
+            target.type = TextureType::Texture2D;
+            target.size = {uint32_t(width), uint32_t(height), 1};
+            target.format = resized.format;
+            target.usage = TextureUsage::RenderTarget | TextureUsage::ShaderResource;
+            target.defaultState = ResourceState::RenderTarget;
+            SLANG_RETURN_ON_FAIL(app.device->createTexture(target, nullptr, app.sceneTarget.writeRef()));
+        }
     }
 
+    // Uploads and uniform staging may yield. Canvas textures expire across event-loop turns, so acquire only
+    // after rendering into host-owned storage; the final image-load shader has no uniforms/maps that can yield.
+    if (!app.pipeline)
+    {
+        ofg::Game::frame(deltaSeconds, app.sceneTarget);
+    }
     ComPtr<ITexture> image;
     SLANG_RETURN_ON_FAIL(app.surface->acquireNextImage(image.writeRef()));
     if (image)
     {
-        SLANG_RETURN_ON_FAIL(drawCheckerboard(app.queue, app.pipeline, image));
+        if (app.pipeline)
+        {
+            SLANG_RETURN_ON_FAIL(drawCheckerboard(app.queue, app.pipeline, image));
+        }
+        else
+        {
+            SLANG_RETURN_ON_FAIL(drawPresentation(app.queue, app.presentPipeline, app.sceneTarget, image));
+        }
         SLANG_RETURN_ON_FAIL(app.surface->present());
         EM_ASM({ Module.frameRendered(); });
     }
@@ -90,7 +148,14 @@ static Result drawBrowserFrame(BrowserApp& app)
 static void browserFrame(void* context)
 {
     auto app = static_cast<BrowserApp*>(context);
-    const Result result = drawBrowserFrame(*app);
+    Result result = SLANG_FAIL;
+    try
+    {
+        result = drawBrowserFrame(*app);
+    } catch (const std::exception& error)
+    {
+        std::fprintf(stderr, "OFG scene: %s\n", error.what());
+    }
     if (SLANG_FAILED(result))
     {
         emscripten_cancel_main_loop();
@@ -103,7 +168,14 @@ static void browserFrame(void* context)
 int main()
 {
     auto app = std::make_unique<BrowserApp>();
-    const Result result = initializeBrowser(*app);
+    Result result = SLANG_FAIL;
+    try
+    {
+        result = initializeBrowser(*app);
+    } catch (const std::exception& error)
+    {
+        std::fprintf(stderr, "OFG initialization: %s\n", error.what());
+    }
     if (SLANG_FAILED(result))
     {
         reportFailure(result);

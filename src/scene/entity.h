@@ -14,6 +14,8 @@
 namespace ofg {
 
 class Scene;
+class Camera;
+class MeshRenderer;
 
 using EntityId = std::uint32_t;
 
@@ -34,10 +36,26 @@ public:
 
     // Returns this entity's stable id within its owning scene generation.
     [[nodiscard]] EntityId id() const noexcept;
-    // Returns the mutable local transform from this entity into its parent.
-    [[nodiscard]] LocalTransform& localTransform() noexcept;
     // Returns the local transform from this entity into its parent.
     [[nodiscard]] const LocalTransform& localTransform() const noexcept;
+    // Sets finite local TRS, normalizing rotation, and invalidates descendant world matrices.
+    void setLocalTransform(const LocalTransform& transform);
+    // Changes local translation in parent-space units.
+    void setLocalPosition(math::Vec3 position);
+    // Changes local rotation; rejects a zero/non-finite quaternion.
+    void setLocalRotation(math::Quat rotation);
+    // Changes local scale; zero scale is permitted for geometry, but cannot define a camera view.
+    void setLocalScale(math::Vec3 scale);
+    // Refreshes ancestors as needed and returns the cached local-to-world matrix.
+    [[nodiscard]] const math::Mat4& worldTransform() const noexcept;
+    // Returns this entity's borrowed camera, if any.
+    Camera* camera() noexcept { return m_camera; }
+    // Returns this entity's borrowed camera, if any.
+    const Camera* camera() const noexcept { return m_camera; }
+    // Returns this entity's borrowed mesh renderer, if any.
+    MeshRenderer* meshRenderer() noexcept { return m_meshRenderer; }
+    // Returns this entity's borrowed mesh renderer, if any.
+    const MeshRenderer* meshRenderer() const noexcept { return m_meshRenderer; }
 
     // Returns this entity's parent, or nullptr for the root.
     [[nodiscard]] Entity* parent() noexcept;
@@ -59,10 +77,16 @@ private:
     Entity(Scene* scene, EntityId id, Entity* parent) noexcept;
     // Appends a child entity in stable sibling order.
     void appendChild(Entity* child) noexcept;
+    // Marks this subtree dirty; dirty nodes already have dirty descendants.
+    void invalidateWorldTransform() noexcept;
 
     Scene* m_scene{nullptr};
     EntityId m_id{0};
     LocalTransform m_localTransform;
+    mutable math::Mat4 m_worldTransform{math::mat4Identity()};
+    mutable bool m_worldDirty{true};
+    Camera* m_camera{nullptr};
+    MeshRenderer* m_meshRenderer{nullptr};
     Entity* m_parent{nullptr};
     Entity* m_firstChild{nullptr};
     Entity* m_lastChild{nullptr};

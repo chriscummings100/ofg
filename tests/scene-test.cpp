@@ -227,11 +227,11 @@ TEST_CASE("scene transforms compose from local to world")
     ofg::Entity* child = scene.createEntity(root);
     ofg::Entity* grandchild = scene.createEntity(child);
 
-    root->localTransform().position = ofg::math::vec3(10.0f, 0.0f, 0.0f);
-    child->localTransform().position = ofg::math::vec3(0.0f, 0.0f, 2.0f);
-    child->localTransform().rotation = requireYRotation(1.57079632679f);
-    grandchild->localTransform().position = ofg::math::vec3(1.0f, 0.0f, 0.0f);
-    grandchild->localTransform().scale = ofg::math::vec3(2.0f, 2.0f, 2.0f);
+    root->setLocalPosition(ofg::math::vec3(10.0f, 0.0f, 0.0f));
+    child->setLocalPosition(ofg::math::vec3(0.0f, 0.0f, 2.0f));
+    child->setLocalRotation(requireYRotation(1.57079632679f));
+    grandchild->setLocalPosition(ofg::math::vec3(1.0f, 0.0f, 0.0f));
+    grandchild->setLocalScale(ofg::math::vec3(2.0f, 2.0f, 2.0f));
 
     const ofg::math::Mat4 worldFromGrandchild = ofg::worldFromLocal(*grandchild);
     const ofg::math::Vec4 origin = ofg::math::mul(worldFromGrandchild, ofg::math::vec4(0.0f, 0.0f, 0.0f, 1.0f));

@@ -1,10 +1,10 @@
 <!doctype html>
-<!-- Minimal browser host for the shared Slang RHI checkerboard. -->
+<!-- Minimal browser host for the shared Slang RHI scene and checkerboard diagnostic. -->
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>OFG | WebGPU checkerboard</title>
+    <title>OFG | WebGPU scene objects</title>
     <link rel="icon" href="data:,">
     <style>
         html, body { margin: 0; height: 100%; background: #202020; color: #eee; font: 14px system-ui; }
@@ -15,12 +15,13 @@
     </style>
 </head>
 <body>
-    <header id="status" role="status">Loading WebGPU checkerboard...</header>
-    <canvas id="canvas" width="960" height="640" aria-label="Slang RHI checkerboard"></canvas>
+    <header id="status" role="status">Loading WebGPU scene...</header>
+    <canvas id="canvas" width="960" height="640" aria-label="Slang RHI scene"></canvas>
     <script>
         var Module = {
             canvas: document.getElementById('canvas'),
             frameCount: 0,
+            checkerboard: new URLSearchParams(location.search).get('demo') === 'checkerboard',
             failed: false,
             noInitialRun: !navigator.gpu,
             // Keeps errors visible and exposes a small readiness signal for the browser smoke check.
@@ -33,7 +34,7 @@
             },
             // Called after a submitted frame; browser automation waits for several frames before capture.
             frameRendered() {
-                if (++this.frameCount === 1) this.setStatus('WebGPU checkerboard ready');
+                if (++this.frameCount === 1) this.setStatus(this.checkerboard ? 'WebGPU checkerboard ready' : 'WebGPU scene ready');
             },
             print: text => console.log(text),
             printErr: text => console.error(text),

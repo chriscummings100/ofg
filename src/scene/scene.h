@@ -1,9 +1,11 @@
 // Scene-owned entity hierarchy, stable allocation and local-to-world transforms.
-// Concrete component storage is added alongside each component when needed.
+// Typed Camera and MeshRenderer allocations stay stable and are destroyed before entities.
 #pragma once
 
 #include "math/mat.h"
 #include "scene/entity.h"
+#include "scene/camera.h"
+#include "scene/mesh-renderer.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -17,6 +19,8 @@ class Scene
 public:
     // Creates a scene with a single root entity.
     Scene();
+    // Destroys components before their entities.
+    ~Scene() = default;
     Scene(const Scene&) = delete;
     Scene& operator=(const Scene&) = delete;
     // Transfers storage without changing entity addresses; leaves other without a root.
@@ -40,6 +44,22 @@ public:
     [[nodiscard]] std::uint32_t generation() const noexcept;
     // Destroys entities, invalidates their Ptr observers and creates a fresh root with ID zero.
     void clear();
+    // Creates one camera on a live entity in this scene; duplicates/foreign entities throw.
+    Camera* createCamera(Entity* entity);
+    // Creates one renderer on a live entity in this scene; duplicates/foreign entities throw.
+    MeshRenderer* createMeshRenderer(Entity* entity);
+    // Returns stable camera allocations in creation order without exposing ownership mutation.
+    std::span<const std::unique_ptr<Camera>> cameras() const noexcept { return m_cameras; }
+    // Returns stable renderer allocations in creation order without exposing ownership mutation.
+    std::span<const std::unique_ptr<MeshRenderer>> meshRenderers() const noexcept { return m_meshRenderers; }
+    // Selects a camera from this scene, or null to render only the background.
+    void setActiveCamera(Camera* camera);
+    // Returns the selected camera, if any.
+    Camera* activeCamera() noexcept { return m_activeCamera.get(); }
+    // Returns the selected camera, if any.
+    const Camera* activeCamera() const noexcept { return m_activeCamera.get(); }
+    // Refreshes world transforms; concrete components have no per-frame behavior hooks.
+    void update();
 
 private:
     // Checks ownership of a live entity pointer; does not validate dangling raw pointers.
@@ -50,6 +70,9 @@ private:
     void rebindEntitiesAfterMove() noexcept;
 
     std::vector<std::unique_ptr<Entity>> m_entities;
+    std::vector<std::unique_ptr<Camera>> m_cameras;
+    std::vector<std::unique_ptr<MeshRenderer>> m_meshRenderers;
+    Ptr<Camera> m_activeCamera;
     Entity* m_root{nullptr};
     EntityId m_nextEntityId{0};
     std::uint32_t m_generation{0};
@@ -57,7 +80,7 @@ private:
 
 // Composes translation * rotation * scale, mapping local points into parent space.
 [[nodiscard]] math::Mat4 parentFromLocal(const LocalTransform& transform) noexcept;
-// Recursively composes ancestor transforms, including the root's own transform.
+// Returns the cached composition of ancestors, including the root's own transform.
 [[nodiscard]] math::Mat4 worldFromLocal(const Entity& entity) noexcept;
 
 } // namespace ofg

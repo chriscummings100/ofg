@@ -36,11 +36,13 @@ public:
     [[nodiscard]] const std::string& error() const noexcept { return m_error; }
 
 protected:
+    // Creates an immediately ready, uncached procedural resource with an empty key.
+    Resource();
     // Starts a resource pending; constructors must not perform loading or request dependencies.
     explicit Resource(std::string key);
     // Performs bounded work: false means pending, true means ready; throw on failure.
     // Called on the application thread. Shared dependency handles belong to the concrete resource.
-    [[nodiscard]] virtual bool loadStep() = 0;
+    [[nodiscard]] virtual bool loadStep();
 
 private:
     friend class Resources;

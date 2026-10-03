@@ -1,0 +1,3 @@
+// Build-generated embedded mesh shader; the source of truth is shaders/mesh.slang.
+#pragma once
+inline constexpr const char* meshShader = R"OFG_SHADER(@MESH_SHADER@)OFG_SHADER";

@@ -1,6 +1,6 @@
 # State and scene foundations
 
-The GPU-independent `ofg-core` library contains the imported state machine, entity hierarchy, component base, observer pointers and CPU math. Both application targets link it. The separate [resource foundation](resources.md) uses shared asset ownership alongside the scene. The checkerboard does not yet exercise these systems; the native [core tests](../tests/scene-test.cpp) are the executable examples.
+The GPU-independent `ofg-core` library contains the imported state machine, entity hierarchy, component base, observer pointers and CPU math. Both application targets link it. The separate [resource foundation](resources.md) uses shared asset ownership alongside the scene. The default procedural scene exercises these systems on both hosts; the native [core tests](../tests/scene-test.cpp) and [rendering contracts](../tests/scene-rendering-test.cpp) cover their behavior.
 
 ## State flow
 
@@ -16,11 +16,11 @@ Pass actual unique ownership when spawning. Returned pointers/references are bor
 
 [Scene](../src/scene/scene.h) owns individually allocated [Entity](../src/scene/entity.h) objects, beginning with root ID zero. `createEntity(parent)` appends to its parent's child/sibling chain. Allocations remain at stable addresses as the scene grows. IDs are lookup indices within that scene generation, not globally unique or deletion-safe handles.
 
-Each entity holds position, quaternion rotation and scale. `parentFromLocal` composes translation * rotation * scale. `worldFromLocal` recursively includes every ancestor, including the root transform. Math retains the backup's float, column-vector, Y-up, left-handed, +Z-forward convention. Projection helpers use depth [0, 1]. These local transforms do not solve large-world precision; global terrain addressing remains future work. Use `packMat4` for an explicit column-major array rather than assuming named vector members form a flat C++ array.
+Each entity holds position, quaternion rotation and scale. `parentFromLocal` composes translation * rotation * scale. `worldTransform()` lazily caches every ancestor, including the root transform; `worldFromLocal` delegates to that cache. Local transform access is read-only. Use `setLocalTransform`, `setLocalPosition`, `setLocalRotation`, or `setLocalScale` to invalidate the entity and descendants. Setters reject non-finite position/scale and normalize a nonzero finite quaternion. Zero geometry scale is permitted. `Scene::update()` refreshes dirty matrices; reads are also correct before update. Math retains the backup's float, column-vector, Y-up, left-handed, +Z-forward convention. Projection helpers use depth [0, 1]. These local transforms do not solve large-world precision; global terrain addressing remains future work. Use `packMat4` for an explicit column-major array rather than assuming named vector members form a flat C++ array.
 
 `clear()` destroys entities, increments the generation counter and creates a new root with reset IDs. Moves preserve transferred entity addresses and rebind their owning scene; move assignment destroys the destination's previous entities. A moved-from scene has no root until cleared. Generation counters are local reset counters and are copied by moves, not universal lifetime tokens.
 
-There is deliberately no individual deletion, reparenting, transform cache or gameplay update loop in this import. Raw entity pointers passed to APIs must still be live; ownership checks do not make dangling raw pointers safe.
+There is no individual deletion or reparenting. Components remain passive; State drives behavior and Game calls the resource/state/scene/render phases. Raw entity pointers passed to APIs must still be live; ownership checks do not make dangling raw pointers safe.
 
 ## Observation and components
 
@@ -29,12 +29,18 @@ There is deliberately no individual deletion, reparenting, transform cache or ga
 ```cpp
 ofg::Scene scene;
 ofg::Ptr<ofg::Entity> probe{scene.createEntity(scene.getRoot())};
-probe->localTransform().position = {0.0f, 2.0f, 0.0f};
+probe->setLocalPosition({0.0f, 2.0f, 0.0f});
 scene.clear();
 // probe.get() is now null, even though the new scene reuses entity IDs.
 ```
 
-[Component](../src/scene/component.h) retains the entity-binding base contract through Ptr. All concrete components have been excluded: mesh renderer, camera, light, player and animation player, plus scene environment/terrain behavior. Consequently there is no component type enum, creation switch or component container yet. Add explicit typed scene storage and entity accessors alongside the first real component, following the previous design; do not introduce a generic ECS framework just to fill that gap. TestComponent exists only in tests to verify the base's lifetime behavior.
+[Component](../src/scene/component.h) observes its entity through Ptr. Scene owns typed vectors of unique Camera and MeshRenderer allocations; Entity provides borrowed typed accessors. `createCamera(entity)` and `createMeshRenderer(entity)` reject foreign entities and duplicates. Storage growth and scene moves preserve component addresses. Clear and move assignment destroy displaced components before entities, invalidating component observers. The existing standalone TestComponent remains a lifetime fixture.
+
+`setActiveCamera(camera)` selects a camera belonging to the scene; null deselects it. Selection uses Ptr and survives scene moves. Camera defaults to a 60-degree vertical FOV, near 0.1 and far 1000 scene units. `setPerspective` validates radians/distances, and the viewport supplies aspect ratio. Draw extraction inverts the full camera world matrix and rejects a singular view.
+
+MeshRenderer retains a shared Mesh and nullable overrides. `material(index)` resolves an override or mesh default. `makeMaterialUnique(index)` explicitly clones and installs the effective material. Assigning the same mesh preserves overrides; changing/clearing the mesh resets them. Invalid slots throw. See [resources](resources.md) for geometry, uniforms and GPU readiness.
+
+`buildDrawList(scene, camera, aspectRatio)` rejects foreign cameras and conservatively culls whole-mesh bounds in homogeneous clip space. Entries retain assets and copy world matrices; they contain no scene pointers. The current [Game frame driver](../src/game.h) updates Resources, root State and the selected Scene, then extracts/renders. No generic ECS registry or component update lifecycle is introduced.
 
 ## Provenance and deliberate adaptations
 
@@ -44,4 +50,4 @@ State behavior and Object/Ptr ownership are preserved. Adaptations are repositor
 
 ## Verification
 
-Use the `cpu-tests` configure/build/test presets after the native compiler environment setup in [DEVELOPING.md](../DEVELOPING.md). This path needs no RHI checkout, downloads, window or GPU. The native-debug preset also runs the core suite alongside the two GPU checks. Numerical tests retain their explicit doctest tolerances; lifetime and state assertions are exact. Coverage acceptance is behavioral for this import, with no measured percentage claimed. Browser support is checked by compiling the same core with Emscripten; the full C++ test suite remains native.
+Use the `cpu-tests` configure/build/test presets after the native compiler environment setup in [DEVELOPING.md](../DEVELOPING.md). This path needs no RHI checkout, downloads, window or GPU. The native-debug preset also runs the core suite alongside startup, checkerboard and scene-rendering checks. Numerical tests retain their explicit doctest tolerances; lifetime and state assertions are exact. Coverage acceptance is behavioral for this import, with no measured percentage claimed. Browser support is checked by compiling the same core with Emscripten; the full C++ test suite remains native.

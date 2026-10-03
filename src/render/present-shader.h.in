@@ -1,0 +1,4 @@
+// Generated from shaders/present.slang by CMake; do not edit this generated header.
+#pragma once
+
+inline constexpr const char* presentShader = R"slang(@PRESENT_SHADER@)slang";

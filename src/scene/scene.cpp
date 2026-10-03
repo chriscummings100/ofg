@@ -14,6 +14,9 @@ Scene::Scene()
 
 Scene::Scene(Scene&& other) noexcept
     : m_entities(std::move(other.m_entities))
+    , m_cameras(std::move(other.m_cameras))
+    , m_meshRenderers(std::move(other.m_meshRenderers))
+    , m_activeCamera(std::move(other.m_activeCamera))
     , m_root(other.m_root)
     , m_nextEntityId(other.m_nextEntityId)
     , m_generation(other.m_generation)
@@ -29,7 +32,13 @@ Scene& Scene::operator=(Scene&& other) noexcept
     {
         return *this;
     }
+    m_activeCamera.reset();
+    m_meshRenderers.clear();
+    m_cameras.clear();
     m_entities = std::move(other.m_entities);
+    m_cameras = std::move(other.m_cameras);
+    m_meshRenderers = std::move(other.m_meshRenderers);
+    m_activeCamera = std::move(other.m_activeCamera);
     m_root = other.m_root;
     m_nextEntityId = other.m_nextEntityId;
     m_generation = other.m_generation;
@@ -94,6 +103,9 @@ std::uint32_t Scene::generation() const noexcept
 
 void Scene::clear()
 {
+    m_activeCamera.reset();
+    m_meshRenderers.clear();
+    m_cameras.clear();
     m_entities.clear();
     m_root = nullptr;
     m_nextEntityId = 0;
@@ -138,13 +150,46 @@ math::Mat4 parentFromLocal(const LocalTransform& transform) noexcept
 
 math::Mat4 worldFromLocal(const Entity& entity) noexcept
 {
-    const math::Mat4 local = parentFromLocal(entity.localTransform());
-    const Entity* parent = entity.parent();
-    if (parent == nullptr)
+    return entity.worldTransform();
+}
+
+Camera* Scene::createCamera(Entity* entity)
+{
+    if (!containsCurrentEntity(entity) || entity->m_camera)
     {
-        return local;
+        throw EngineError("Camera requires an entity from this scene without a camera.");
     }
-    return math::mul(worldFromLocal(*parent), local);
+    m_cameras.push_back(std::unique_ptr<Camera>(new Camera(entity)));
+    entity->m_camera = m_cameras.back().get();
+    return entity->m_camera;
+}
+
+MeshRenderer* Scene::createMeshRenderer(Entity* entity)
+{
+    if (!containsCurrentEntity(entity) || entity->m_meshRenderer)
+    {
+        throw EngineError("MeshRenderer requires an entity from this scene without a renderer.");
+    }
+    m_meshRenderers.push_back(std::unique_ptr<MeshRenderer>(new MeshRenderer(entity)));
+    entity->m_meshRenderer = m_meshRenderers.back().get();
+    return entity->m_meshRenderer;
+}
+
+void Scene::setActiveCamera(Camera* camera)
+{
+    if (camera && (!containsCurrentEntity(camera->entity()) || camera->entity()->camera() != camera))
+    {
+        throw EngineError("Active camera must belong to this scene.");
+    }
+    m_activeCamera = camera;
+}
+
+void Scene::update()
+{
+    for (const auto& entity : m_entities)
+    {
+        (void)entity->worldTransform();
+    }
 }
 
 } // namespace ofg

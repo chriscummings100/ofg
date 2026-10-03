@@ -1,10 +1,21 @@
 // Application-thread resource transitions and loading failure publication.
 #include "resources/resource.h"
+#include "core/engine-error.h"
 
 #include <exception>
 #include <utility>
 
 namespace ofg {
+
+Resource::Resource()
+    : m_state(ResourceState::Loaded)
+{
+}
+
+bool Resource::loadStep()
+{
+    throw EngineError("This resource does not support keyed loading: " + key());
+}
 
 Resource::Resource(std::string key)
     : m_key(std::move(key))

@@ -56,7 +56,7 @@ Follow [PLANS.md](PLANS.md) for substantial work. The current bootstrap plan is 
 
 `C:\dev\ofg-old2` is a historical reference. Preserve it. Reuse useful concepts and assets with provenance, not its build system, global resource registry, or obsolete contracts wholesale.
 
-The [architecture note](docs/architecture.md) describes the current two-host/shared-renderer baseline and its verification limits. The checkerboard application is the runnable example.
+The [architecture note](docs/architecture.md) describes the current two-host/shared-renderer baseline and its verification limits. The scene-object fixture is the default runnable example; the checkerboard remains a selectable diagnostic.
 
 Project skills belong in `.agents/skills`. Use [build-native](.agents/skills/build-native/SKILL.md) for the Windows x64 build environment and native build/startup checks, and [build-web](.agents/skills/build-web/SKILL.md) for the Emscripten target and Playwright browser smoke workflow. Keep a small set of workflows grounded in real repository commands; do not copy stale skills or invent successful checks. Available skills and future candidates are described in [.agents/skills/README.md](.agents/skills/README.md).
 
@@ -72,7 +72,7 @@ Use explicit ownership and resource retirement. Unloading a tile must eventually
 
 ## Browser portability
 
-The native Windows D3D12 checkerboard and a separate browser WebGPU target are implemented. Use the native-debug and web CMake presets, with distinct build directories. The user wants the full C++ suite to remain native; use the focused Playwright browser smoke check for screenshots, console diagnostics and presentation rather than porting every test. Prove compute and ImGui on both targets as those features are introduced. Native development is the normal iteration loop. Re-run browser checks at milestone boundaries and whenever shared shaders, resource bindings, upload/readback, device lifecycle, UI/input, platform abstractions or dependencies change. Pure CPU changes need focused tests, not an automatic browser rebuild for every edit.
+Native Windows D3D12 scene rendering and a separate browser WebGPU target are implemented, with the original checkerboard retained as a diagnostic. Use the native-debug and web CMake presets, with distinct build directories. The user wants the full C++ suite to remain native; use the focused Playwright browser smoke check for screenshots, console diagnostics and presentation rather than porting every test. Prove compute and ImGui on both targets as those features are introduced. Native development is the normal iteration loop. Re-run browser checks at milestone boundaries and whenever shared shaders, resource bindings, upload/readback, device lifecycle, UI/input, platform abstractions or dependencies change. Pure CPU changes need focused tests, not an automatic browser rebuild for every edit.
 
 Design shared shaders against a documented, queried WebGPU capability baseline. Do not rely on native-only features for required behavior. Staying within GPU features is necessary but insufficient: the web path also needs asynchronous initialization/loading, a callback-driven frame loop, portable shader layouts and deliberate memory budgets. Treat unsupported backend operations as explicit failures or tested fallbacks.
 

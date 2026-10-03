@@ -1,6 +1,6 @@
 # Bootstrap a Slang RHI terrain laboratory for native and browser use
 
-This ExecPlan follows [PLANS.md](../../PLANS.md) and [AGENTS.md](../../AGENTS.md). Status: native device startup is committed as d10c9c6, and the native checkerboard window and GPU rendering check are verified. Browser checkerboard bring-up is verified with a separate CMake target/preset and a focused Playwright smoke check. UI and terrain remain future work. Keep Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective current.
+This ExecPlan follows [PLANS.md](../../PLANS.md) and [AGENTS.md](../../AGENTS.md). Status: native device startup is committed as d10c9c6, and the native checkerboard window and GPU rendering check are verified. Browser checkerboard bring-up is verified with a separate CMake target/preset and a focused Playwright smoke check. Shared scene-object rendering is now verified on both targets; UI and terrain remain future work. Keep Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective current.
 
 ## Purpose / Big Picture
 
@@ -8,7 +8,7 @@ Establish a small C++ terrain laboratory using Slang RHI in both a native Window
 
 ## Progress
 
-- [ ] Review the [cube, mesh and material plan](cube-mesh-materials.md) before implementation, as requested on 2026-10-01. This proposed slice includes procedural geometry, cloneable materials and a scene-owned MeshRenderer; implementation has not started.
+- [x] (2026-10-03) Implemented the expanded [scene-object rendering plan](../archived/scene-object-rendering.md): Camera, MeshRenderer, procedural Mesh/Material/Shader, cached transforms, DrawList, Graphics and Game. CPU/native tests and browser smoke pass; native/browser screenshots are under artifacts/scene-rendering.
 
 - [x] (2026-10-01) Added static pollable resources with shared asset ownership, weak lookup and native-only blocking convenience. All 48 core cases/878 assertions and native integration tests pass; the core compiles with Emscripten. See [resource foundation](../archived/resource-foundation.md). Concrete asset loading remains next.
 
@@ -217,3 +217,5 @@ Revision note, 2026-09-30: revised from an open framework comparison into the us
 Revision note, 2026-10-01: completed the user-requested native checkerboard before browser work, updated commands/build skill and retained the startup check. Screenshot evidence: artifacts/checkerboard/native.png, native-maximized.png, native-restored.png.
 
 Revision note, 2026-10-01: completed separate native/web CMake presets, browser checkerboard host and focused Playwright automation per user direction. Evidence is artifacts/browser-smoke/report.json and checkerboard*.png; DEVELOPING.md has exact commands and current limitations.
+
+Scene rendering completed on 2026-10-03; the [archived ExecPlan](../archived/scene-object-rendering.md) records contracts, browser presentation findings and validation evidence.
