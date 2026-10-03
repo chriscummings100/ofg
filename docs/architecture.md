@@ -23,7 +23,7 @@ DrawList construction conservatively tests the eight mesh-bound corners against 
 
 ## CPU and GPU boundaries
 
-`ofg-core` owns math, observers, State, Scene/components, resource descriptions and draw extraction. It builds and tests without RHI. `ofg-render` owns Graphics, Game, the fixture, and checkerboard rendering, and links both core and RHI. Mesh and Shader privately own forward-declared graphics data; their public headers contain no RHI types.
+`ofg-core` owns math, observers, State, Scene/components, resource descriptions and draw extraction. It builds and tests without RHI. `ofg-render` owns Graphics, Game, the fixture, and checkerboard rendering, and links both core and RHI. Mesh, Shader, Texture and Sampler privately own forward-declared graphics data; their public headers contain no RHI types.
 
 Graphics lazily creates immutable vertex/index buffers and shader programs. Weak tracking allows shutdown to reset surviving assets' GPU handles. Pipeline entries observe Shader ownership identity and distinguish color format. Expired Shader entries are pruned each rendered frame; material changes and clones reuse pipelines. Fixed settings are position/normal/UV vertices, uint32 triangle indices, single sampling, one color target, D32Float/Less depth with writes, and no blending or face culling. A newly variable setting must become part of the cache key.
 
@@ -42,7 +42,7 @@ RHI command buffers retain referenced buffers, pipelines, attachments and bindin
 | `src/render/draw-list.*` | GPU-independent culling and draw extraction. |
 | `src/render/graphics.*`, `resource-gpu-data.h` | Direct RHI preparation, binding, pipelines and GPU lifetime. |
 | `src/render/present.*`, `shaders/present.slang` | Final image-load presentation without uniform staging; needed because browser canvas images expire across yields. |
-| `src/lab/scene-fixture.*`, `shaders/mesh.slang` | Original procedural cube fixture and embedded UV checker shader. |
+| `src/lab/scene-fixture.*`, `shaders/mesh.slang` | Original cube fixture, on-demand checker image and embedded sampled-color shader. |
 | `src/checkerboard.*`, `shaders/checkerboard.slang` | Original full-screen diagnostic and exact pixel regression. |
 
 Shader sources are embedded by CMake; launch does not depend on the working directory. Native and web use separate toolchains/build directories and the same shared code. Native does not depend on Emscripten, Dawn or Python at runtime.
@@ -51,4 +51,10 @@ Shader sources are embedded by CMake; launch does not depend on the working dire
 
 CPU tests establish scene/resource/culling contracts. Native offscreen tests establish indexed draws, depth, independent uniforms, scalar/vector/matrix binding, reflected errors, pipeline reuse/separation and release after submission. Native window evidence covers presentation, resize, minimize/restore and normal close. Browser smoke covers scene structure, tint/checker regions, resize/reload, original checkerboard and missing-WebGPU messaging. Evidence and current results are recorded in the plan and DEVELOPING.md.
 
-Scene values are floats near the origin. There is one selected perspective camera and no individual entity/component removal or reparenting. File import, material textures, lighting, ImGui, compute, terrain, streaming, large-world coordinates, custom update components and multiple passes are future work. No performance or long-running residency claim is made. Emscripten's existing Asyncify/WASM-exception warning remains a portability limitation beyond exercised paths.
+Scene values are floats near the origin. There is one selected perspective camera and no individual entity/component removal or reparenting. Model import, lighting, ImGui, compute, terrain, streaming, large-world coordinates, custom update components and general multipass rendering are future work. PNG/JPEG material textures and internal GPU mip passes are implemented. No performance or long-running residency claim is made. Emscripten's existing Asyncify/WASM-exception warning remains a portability limitation beyond exercised paths.
+
+## Sampled texture preparation
+
+Texture and Sampler descriptions stay in ofg-core; TextureView retains a Texture and a mip range. Graphics owns `src/render/texture-renderer.*`, which performs base uploads, view/sampler preparation and one render pass per generated mip using `shaders/mipmaps.slang`. All preparation precedes the scene pass and, on web, precedes canvas acquisition. CPU descriptions remain ready independently of GPU compilation/allocation. Resources retain only base pixels for reinitialization.
+
+UNORM8/sRGB8 and float16/float32 in the supported channel layouts share this path. Browser fp32 is gated against the actual RHI device using the generated-source format-report adaptation in `cmake/rhi-webgpu-formats.cmake`; no dependency pin is changed. WebGPU mip attachments use Clear because this RHI maps DontCare to an undefined WebGPU load operation. The [texture contracts](resources.md#sampled-textures-views-and-samplers) describe ownership, filtering, asynchronous I/O, limits and exclusions. The [texture ExecPlan](archived/texture-support.md) records verification.

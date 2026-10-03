@@ -25,7 +25,7 @@ Run `ofg --check-device` for finite startup verification, then run the four CTes
 
 For pure state, scene or math work, use the documented `cpu-tests` configure/build/test presets. They use `build/cpu-tests` with `OFG_BUILD_APP=OFF`, and require neither the RHI submodule nor graphics downloads. This runs the same core suite as native-debug without initializing a GPU. Re-run the native integration checks when build wiring changes.
 
-For rendering changes, also inspect the window, resize/maximize it, minimize/restore it, and verify clean close. Save scene screenshots under `artifacts/scene-rendering/native`. The automated offscreen check does not prove presentation. The shared shader is embedded by CMake; editing it requires a rebuild, not runtime asset copying.
+For rendering changes, also inspect the window, resize/maximize it, minimize/restore it, and verify clean close. Save scene screenshots under `artifacts/textures/native`. The texture integration tests also verify uploads, mip reduction, samplers, views and float formats. Fixture images are copied beside the executable; check a launch from another working directory. Use a DPI-aware screenshot probe on Windows. The automated offscreen check does not prove presentation. The shared shader is embedded by CMake; editing it requires a rebuild, not runtime asset copying.
 
 The Slang DLLs and the `D3D12` runtime directory belong beside `ofg.exe`; upstream CMake copies them into the build directory. The application exports the Agility SDK selection through RHI's helper. Investigate missing output files when startup fails outside a developer shell; do not mask packaging defects by adding dependency directories to the system PATH.
 

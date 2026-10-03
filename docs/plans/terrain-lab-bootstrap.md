@@ -8,6 +8,8 @@ Establish a small C++ terrain laboratory using Slang RHI in both a native Window
 
 ## Progress
 
+- [x] (2026-10-03) Implemented and verified [sampled textures and GPU mipmaps](../archived/texture-support.md), including UNORM8/sRGB8/fp16/fp32, on-demand PNG/JPEG, views/samplers and browser fp32 gating. CPU/native CTest and extended browser smoke pass; evidence is under artifacts/textures.
+
 - [x] (2026-10-03) Implemented the expanded [scene-object rendering plan](../archived/scene-object-rendering.md): Camera, MeshRenderer, procedural Mesh/Material/Shader, cached transforms, DrawList, Graphics and Game. CPU/native tests and browser smoke pass; native/browser screenshots are under artifacts/scene-rendering.
 
 - [x] (2026-10-01) Added static pollable resources with shared asset ownership, weak lookup and native-only blocking convenience. All 48 core cases/878 assertions and native integration tests pass; the core compiles with Emscripten. See [resource foundation](../archived/resource-foundation.md). Concrete asset loading remains next.

@@ -21,6 +21,10 @@
         var Module = {
             canvas: document.getElementById('canvas'),
             frameCount: 0,
+            textureReady: false,
+            textureFrames: 0,
+            texturePath: new URLSearchParams(location.search).get('texture') || 'assets/checker.png',
+            floatBits: Number(new URLSearchParams(location.search).get('float') || 0),
             checkerboard: new URLSearchParams(location.search).get('demo') === 'checkerboard',
             failed: false,
             noInitialRun: !navigator.gpu,
@@ -34,7 +38,10 @@
             },
             // Called after a submitted frame; browser automation waits for several frames before capture.
             frameRendered() {
-                if (++this.frameCount === 1) this.setStatus(this.checkerboard ? 'WebGPU checkerboard ready' : 'WebGPU scene ready');
+                ++this.frameCount;
+                if (this.checkerboard && this.frameCount === 1) this.setStatus('WebGPU checkerboard ready');
+                else if (this.textureReady && ++this.textureFrames === 1) this.setStatus('WebGPU scene ready');
+                else if (this.frameCount === 1) this.setStatus('Loading textures...');
             },
             print: text => console.log(text),
             printErr: text => console.error(text),

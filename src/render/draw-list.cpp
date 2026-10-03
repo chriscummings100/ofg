@@ -79,7 +79,15 @@ DrawList buildDrawList(const Scene& scene, const Camera& camera, float aspectRat
             auto material = renderer->material(index);
             if (ready(*material) && ready(*material->shader()))
             {
-                list.items.push_back({mesh, index, std::move(material), world});
+                bool texturesReady = true;
+                for (const auto& [name, binding] : material->textures())
+                {
+                    texturesReady = ready(*bindingTexture(binding)) && texturesReady;
+                }
+                if (texturesReady)
+                {
+                    list.items.push_back({mesh, index, std::move(material), world});
+                }
             }
         }
     }

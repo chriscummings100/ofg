@@ -1,5 +1,8 @@
 // Native offscreen scene tests for indexed draws, uniforms, cache identity, retirement and Game ordering.
 #include "render/graphics.h"
+#include "render/texture-renderer.h"
+#include <cstring>
+#include <cmath>
 #include "render/present.h"
 #include "lab/scene-fixture.h"
 #include "game.h"
@@ -359,4 +362,377 @@ TEST_CASE("cube faces have valid outward geometry and renderer rejects unsupport
         list.items[0].subMeshIndex = 6;
         CHECK_THROWS_WITH_AS(Graphics::render(list, target), doctest::Contains("valid submesh"), EngineError);
     }
+}
+
+// Reads a texture subresource after submission and retains its padded layout for numeric checks.
+static rhi::ComPtr<ISlangBlob> readMip(
+    GraphicsFixture& fixture,
+    rhi::ITexture* texture,
+    uint32_t mip,
+    rhi::SubresourceLayout& layout
+)
+{
+    REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+    rhi::ComPtr<ISlangBlob> pixels;
+    REQUIRE(SLANG_SUCCEEDED(fixture.device->readTexture(texture, 0, mip, pixels.writeRef(), &layout)));
+    return pixels;
+}
+
+TEST_CASE("all sampled formats upload padded rows and GPU mipmaps preserve constants outside normalized range")
+{
+    GraphicsFixture fixture;
+    TextureRenderer renderer(fixture.device, fixture.queue);
+    const TextureFormat formats[]{
+        TextureFormat::R8Unorm,
+        TextureFormat::RG8Unorm,
+        TextureFormat::RGBA8Unorm,
+        TextureFormat::RGBA8UnormSrgb,
+        TextureFormat::R16Float,
+        TextureFormat::RG16Float,
+        TextureFormat::RGBA16Float,
+        TextureFormat::R32Float,
+        TextureFormat::RG32Float,
+        TextureFormat::RGBA32Float
+    };
+    for (auto format : formats)
+    {
+        CAPTURE(int(format));
+        const size_t pixelSize = texturePixelSize(format);
+        const bool half = format >= TextureFormat::R16Float && format <= TextureFormat::RGBA16Float;
+        const bool full = format >= TextureFormat::R32Float;
+        const size_t componentSize = full ? 4 : half ? 2 : 1;
+        const size_t pitch = 5 * pixelSize + 16;
+        std::vector<std::byte> bytes(pitch * 3);
+        for (size_t y = 0; y < 3; ++y)
+        {
+            for (size_t x = 0; x < 5; ++x)
+            {
+                for (size_t c = 0; c < pixelSize / componentSize; ++c)
+                {
+                    auto dst = bytes.data() + y * pitch + x * pixelSize + c * componentSize;
+                    if (full)
+                    {
+                        float v = c % 2 ? -2.f : 2.f;
+                        std::memcpy(dst, &v, 4);
+                    }
+                    else if (half)
+                    {
+                        uint16_t v = c % 2 ? 0xc000 : 0x4000;
+                        std::memcpy(dst, &v, 2);
+                    }
+                    else
+                    {
+                        *dst = std::byte{255};
+                    }
+                }
+            }
+        }
+        auto image = Texture::create({5, 3, format, TextureMipmaps::Generate}, {bytes, pitch});
+        auto view = renderer.prepare(image->defaultView());
+        CHECK(renderer.prepare(image->defaultView()) == view);
+        for (uint32_t mip = 0; mip < image->mipCount(); ++mip)
+        {
+            rhi::SubresourceLayout layout;
+            auto pixels = readMip(fixture, view->getTexture(), mip, layout);
+            const auto* data = static_cast<const std::byte*>(pixels->getBufferPointer());
+            for (uint32_t y = 0; y < std::max(1u, 3u >> mip); ++y)
+            {
+                for (uint32_t x = 0; x < std::max(1u, 5u >> mip); ++x)
+                {
+                    for (size_t c = 0; c < pixelSize / componentSize; ++c)
+                    {
+                        const auto src = data + y * layout.rowPitch + x * pixelSize + c * componentSize;
+                        if (full)
+                        {
+                            float v;
+                            std::memcpy(&v, src, 4);
+                            CHECK(v == (c % 2 ? -2.f : 2.f));
+                        }
+                        else if (half)
+                        {
+                            uint16_t v;
+                            std::memcpy(&v, src, 2);
+                            CHECK(v == (c % 2 ? 0xc000 : 0x4000));
+                        }
+                        else
+                        {
+                            CHECK(*src == std::byte{255});
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("GPU area reduction includes odd borders and one-dimensional tails")
+{
+    GraphicsFixture fixture;
+    TextureRenderer renderer(fixture.device, fixture.queue);
+    for (bool half : {false, true})
+    {
+        for (auto dimensions : {std::pair(5u, 3u), std::pair(1u, 7u), std::pair(7u, 1u)})
+        {
+            auto [width, height] = dimensions;
+            std::vector<float> expected(width * height);
+            for (uint32_t i = 0; i < expected.size(); ++i)
+            {
+                expected[i] = float(i) / 16.f;
+            }
+            std::vector<uint16_t> halfPixels(expected.size());
+            for (size_t i = 0; i < expected.size(); ++i)
+            {
+                // These nonnegative multiples of 1/16 are exactly representable as binary16.
+                int exponent = 0;
+                const float fraction = std::frexp(expected[i], &exponent);
+                halfPixels[i] =
+                    expected[i] == 0 ? 0 : uint16_t(((exponent + 14) << 10) | int((fraction * 2 - 1) * 1024));
+            }
+            auto image = Texture::create(
+                {width, height, half ? TextureFormat::R16Float : TextureFormat::R32Float, TextureMipmaps::Generate},
+                {half ? std::as_bytes(std::span(halfPixels)) : std::as_bytes(std::span(expected))}
+            );
+            auto view = renderer.prepare(image->defaultView());
+            for (uint32_t mip = 1; mip < image->mipCount(); ++mip)
+            {
+                const auto nextWidth = std::max(1u, width / 2), nextHeight = std::max(1u, height / 2);
+                std::vector<float> next(nextWidth * nextHeight);
+                // Independent CPU reference integrates overlaps of source/destination pixel rectangles.
+                for (uint32_t y = 0; y < nextHeight; ++y)
+                {
+                    for (uint32_t x = 0; x < nextWidth; ++x)
+                    {
+                        double total = 0, sum = 0;
+                        for (uint32_t sy = 0; sy < height; ++sy)
+                        {
+                            for (uint32_t sx = 0; sx < width; ++sx)
+                            {
+                                double wx = std::max(
+                                    0.,
+                                    std::min(double(sx + 1), double(x + 1) * width / nextWidth) -
+                                        std::max(double(sx), double(x) * width / nextWidth)
+                                );
+                                double wy = std::max(
+                                    0.,
+                                    std::min(double(sy + 1), double(y + 1) * height / nextHeight) -
+                                        std::max(double(sy), double(y) * height / nextHeight)
+                                );
+                                sum += expected[sy * width + sx] * wx * wy;
+                                total += wx * wy;
+                            }
+                        }
+                        next[y * nextWidth + x] = float(sum / total);
+                    }
+                }
+                rhi::SubresourceLayout layout;
+                auto pixels = readMip(fixture, view->getTexture(), mip, layout);
+                for (uint32_t y = 0; y < nextHeight; ++y)
+                {
+                    for (uint32_t x = 0; x < nextWidth; ++x)
+                    {
+                        float actual;
+                        auto address = static_cast<const std::byte*>(pixels->getBufferPointer()) + y * layout.rowPitch +
+                                       x * (half ? 2 : 4);
+                        if (half)
+                        {
+                            uint16_t bits;
+                            std::memcpy(&bits, address, 2);
+                            actual =
+                                bits == 0 ? 0.f : std::ldexp(1.f + float(bits & 1023) / 1024, int(bits >> 10) - 15);
+                        }
+                        else
+                        {
+                            std::memcpy(&actual, address, 4);
+                        }
+                        CHECK(actual == doctest::Approx(next[y * nextWidth + x]).scale(1).epsilon(half ? 1e-3 : 5e-6));
+                    }
+                }
+                expected = std::move(next);
+                width = nextWidth;
+                height = nextHeight;
+            }
+        }
+    }
+}
+
+TEST_CASE("GPU sRGB mip reduction uses linear light and straight alpha weighting")
+{
+    GraphicsFixture fixture;
+    TextureRenderer renderer(fixture.device, fixture.queue);
+    std::array<uint8_t, 8> source{0, 0, 0, 255, 255, 255, 255, 255};
+    SUBCASE("linear light average") {}
+    SUBCASE("transparent red does not contaminate opaque blue")
+    {
+        source = {255, 0, 0, 0, 0, 0, 255, 255};
+    }
+    auto texture = Texture::create(
+        {2, 1, TextureFormat::RGBA8UnormSrgb, TextureMipmaps::Generate},
+        {std::as_bytes(std::span(source))}
+    );
+    auto view = renderer.prepare(texture->createView({1, 1}));
+    rhi::SubresourceLayout layout;
+    auto result = readMip(fixture, view->getTexture(), 1, layout);
+    auto p = static_cast<const uint8_t*>(result->getBufferPointer());
+    if (source[3] == 0)
+    {
+        CHECK(p[0] <= 2);
+        CHECK(p[2] >= 253);
+        CHECK(std::abs(int(p[3]) - 128) <= 2);
+    }
+    else
+    {
+        for (int c = 0; c < 3; ++c)
+        {
+            CHECK(std::abs(int(p[c]) - 188) <= 2);
+        }
+    }
+}
+
+static const char* sampledSource = R"(
+struct DrawParameters { column_major float4x4 clipFromLocal; };
+struct MaterialParameters { float2 uv; float lod; };
+ConstantBuffer<DrawParameters> draw;
+ConstantBuffer<MaterialParameters> material;
+Texture2D<float4> image;
+SamplerState imageSampler;
+struct Input { float3 position : POSITION; float3 normal : NORMAL; float2 uv : TEXCOORD0; };
+[shader("vertex")] float4 vertexMain(Input input) : SV_Position { return mul(draw.clipFromLocal, float4(input.position, 1)); }
+[shader("fragment")] float4 fragmentMain() : SV_Target { return image.SampleLevel(imageSampler, material.uv, material.lod); }
+)";
+
+TEST_CASE("material sampling honors views filters addressing clone isolation and binding failures")
+{
+    GraphicsFixture fixture;
+    auto target = fixture.target();
+    std::array<uint8_t, 8> source{255, 0, 0, 255, 0, 0, 255, 255};
+    auto texture = Texture::create(
+        {2, 1, TextureFormat::RGBA8Unorm, TextureMipmaps::Generate},
+        {std::as_bytes(std::span(source))}
+    );
+    auto material = Material::create(Shader::create("sampling", sampledSource));
+    material->setUniform("uv", math::Vec2{0.25f, 0.5f});
+    material->setUniform("lod", 0.f);
+    material->setTexture("image", texture);
+    material->setSampler(
+        "imageSampler",
+        Sampler::create({TextureFilter::Nearest, TextureFilter::Nearest, TextureFilter::Nearest})
+    );
+    auto mesh = square(material);
+    DrawList list;
+    list.items.push_back({mesh, 0, material, math::mat4Translation({0, 0, 0.5f})});
+    list.items.push_back({mesh, 1, material, math::mat4Translation({0, 0, 0.5f})});
+    Graphics::render(list, target);
+    CHECK(fixture.pixel(target, 64, 48) == std::array<uint8_t, 4>{255, 0, 0, 255});
+    material->setUniform("uv", math::Vec2{1.25f, 0.5f});
+    Graphics::render(list, target);
+    CHECK(fixture.pixel(target, 64, 48)[0] == 255);
+    material->setSampler(
+        "imageSampler",
+        Sampler::create(
+            {TextureFilter::Nearest, TextureFilter::Nearest, TextureFilter::Nearest, TextureAddressMode::ClampToEdge}
+        )
+    );
+    Graphics::render(list, target);
+    CHECK(fixture.pixel(target, 64, 48)[2] == 255);
+    material->setUniform("uv", math::Vec2{0.5f, 0.5f});
+    material->setSampler("imageSampler", Sampler::create());
+    Graphics::render(list, target);
+    CHECK(std::abs(int(fixture.pixel(target, 64, 48)[0]) - 128) <= 2);
+    material->setUniform("uv", math::Vec2{0.25f, 0.5f});
+    material->setUniform("lod", 0.25f);
+    Graphics::render(list, target);
+    CHECK(std::abs(int(fixture.pixel(target, 64, 48)[0]) - 223) <= 2);
+    CHECK(std::abs(int(fixture.pixel(target, 64, 48)[2]) - 32) <= 2);
+    material->setSampler(
+        "imageSampler",
+        Sampler::create({TextureFilter::Linear, TextureFilter::Linear, TextureFilter::Nearest})
+    );
+    Graphics::render(list, target);
+    CHECK(fixture.pixel(target, 64, 48)[0] == 255);
+    CHECK(fixture.pixel(target, 64, 48)[2] == 0);
+    material->setUniform("uv", math::Vec2{0.5f, 0.5f});
+    material->setUniform("lod", 0.f);
+    material->setSampler("imageSampler", Sampler::create());
+    auto clone = material->clone();
+    clone->setTexture("image", texture->createView({1, 1}));
+    list.items[0].material = clone;
+    list.items[1].material = clone;
+    Graphics::render(list, target);
+    CHECK(std::abs(int(fixture.pixel(target, 64, 48)[2]) - 128) <= 2);
+    clone->setTexture("unknown", texture);
+    CHECK_THROWS_WITH_AS(Graphics::render(list, target), doctest::Contains("Texture2D"), EngineError);
+    list.items[0].material = material;
+    list.items[1].material = material;
+    REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+    Graphics::shutdown();
+    Graphics::initialize(fixture.device, fixture.queue);
+    Graphics::render(list, target);
+    CHECK(std::abs(int(fixture.pixel(target, 64, 48)[0]) - 128) <= 2);
+    // Drop every CPU owner before completion; submitted commands must retain views, textures and samplers.
+    Graphics::render(list, target);
+    list.items.clear();
+    mesh.reset();
+    material.reset();
+    clone.reset();
+    texture.reset();
+    CHECK(std::abs(int(fixture.pixel(target, 64, 48)[2]) - 128) <= 2);
+}
+
+TEST_CASE("sampled image orientation multiple bindings and missing resource contracts")
+{
+    GraphicsFixture fixture;
+    auto target = fixture.target();
+    const std::array<uint8_t, 16> colors{255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255};
+    auto texture = Texture::create({2, 2, TextureFormat::RGBA8Unorm}, {std::as_bytes(std::span(colors))});
+    auto material = Material::create(Shader::create("orientation", sampledSource));
+    material->setUniform("uv", math::Vec2{0.25f, 0.25f});
+    material->setUniform("lod", 0.f);
+    material->setTexture("image", texture);
+    material->setSampler("imageSampler", Sampler::create({TextureFilter::Nearest, TextureFilter::Nearest}));
+    auto mesh = square(material);
+    DrawList list;
+    list.items.push_back({mesh, 0, material, math::mat4Translation({0, 0, 0.5f})});
+    list.items.push_back({mesh, 1, material, math::mat4Translation({0, 0, 0.5f})});
+    for (uint32_t y = 0; y < 2; ++y)
+    {
+        for (uint32_t x = 0; x < 2; ++x)
+        {
+            material->setUniform("uv", math::Vec2{x * 0.5f + 0.25f, y * 0.5f + 0.25f});
+            Graphics::render(list, target);
+            const auto actual = fixture.pixel(target, 64, 48);
+            for (size_t c = 0; c < 4; ++c)
+            {
+                CHECK(actual[c] == colors[(y * 2 + x) * 4 + c]);
+            }
+        }
+    }
+    std::string source = sampledSource;
+    source.insert(source.find("SamplerState imageSampler;"), "Texture2D<float4> secondImage;\n");
+    source.replace(
+        source.find("return image.SampleLevel(imageSampler, material.uv, material.lod);"),
+        std::string("return image.SampleLevel(imageSampler, material.uv, material.lod);").size(),
+        "return 0.5 * (image.SampleLevel(imageSampler, material.uv, material.lod) + secondImage.Load(int3(1,0,0)));"
+    );
+    auto two = Material::create(Shader::create("two-images", source));
+    two->setUniform("uv", math::Vec2{0.25f, 0.25f});
+    two->setUniform("lod", 0.f);
+    two->setTexture("image", texture);
+    two->setSampler("imageSampler", Sampler::create());
+    list.items[0].material = list.items[1].material = two;
+    CHECK_THROWS_WITH_AS(Graphics::render(list, target), doctest::Contains("secondImage"), EngineError);
+    two->setTexture("secondImage", texture);
+    Graphics::render(list, target);
+    auto actual = fixture.pixel(target, 64, 48);
+    CHECK(std::abs(int(actual[0]) - 128) <= 2);
+    CHECK(std::abs(int(actual[1]) - 128) <= 2);
+    CHECK(actual[2] == 0);
+    auto pending = Resources::loadResourceAsync<Texture>("pending-texture.png");
+    two->setTexture("secondImage", pending);
+    CHECK_THROWS_WITH_AS(Graphics::render(list, target), doctest::Contains("not ready"), EngineError);
+    auto wrong = Material::create(Shader::create("wrong-resource", sampledSource));
+    wrong->setUniform("uv", math::Vec2{});
+    wrong->setUniform("lod", 0.f);
+    wrong->setSampler("image", Sampler::create());
+    list.items[0].material = list.items[1].material = wrong;
+    CHECK_THROWS_WITH_AS(Graphics::render(list, target), doctest::Contains("SamplerState"), EngineError);
 }

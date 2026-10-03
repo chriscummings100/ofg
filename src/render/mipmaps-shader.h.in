@@ -1,0 +1,3 @@
+// Build-time embedded mip reduction shader, shared by native and browser.
+#pragma once
+inline constexpr char mipmapsShader[] = R"ofg(@MIPMAPS_SHADER@)ofg";

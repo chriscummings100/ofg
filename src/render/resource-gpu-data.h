@@ -2,8 +2,18 @@
 #pragma once
 
 #include <slang-rhi.h>
+#include <map>
 
 namespace ofg {
+struct TextureGpuData
+{
+    rhi::ComPtr<rhi::ITexture> texture;
+    std::map<std::pair<uint32_t, uint32_t>, rhi::ComPtr<rhi::ITextureView>> views;
+};
+struct SamplerGpuData
+{
+    rhi::ComPtr<rhi::ISampler> sampler;
+};
 struct MeshGpuData
 {
     rhi::ComPtr<rhi::IBuffer> vertices;

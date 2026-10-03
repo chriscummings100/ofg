@@ -1,0 +1,1 @@
+stb_image v2.28 copied unchanged from Slang RHI revision 16324a68af477baaede620e713644f5e9613b1a2, external/stb/stb_image.h. Original project: https://github.com/nothings/stb. Dual public-domain/MIT license is preserved in the header. Independently vendored so CPU-only builds need no RHI checkout.

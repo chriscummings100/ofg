@@ -1,4 +1,4 @@
-// Serves only the browser build outputs on loopback, with the MIME type needed for streaming WASM compilation.
+// Serves allowlisted browser build outputs and fixture assets on loopback with explicit MIME types.
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
@@ -16,6 +16,9 @@ const files = {
 // Returns a listening server; callers own close(). Port zero selects an unused port for smoke runs.
 export async function startWebServer(port = 8080) {
     await stat(resolve(buildDirectory, 'index.html'));
+    // Explicit asset allowlist keeps requests inside the packaged build directory.
+    files['/assets/checker.png'] = ['assets/checker.png', 'image/png'];
+    files['/assets/checker.jpg'] = ['assets/checker.jpg', 'image/jpeg'];
     const server = createServer(async (request, response) => {
         const entry = files[new URL(request.url, 'http://localhost').pathname];
         if (!entry || !['GET', 'HEAD'].includes(request.method)) {

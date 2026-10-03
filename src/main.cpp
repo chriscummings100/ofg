@@ -2,6 +2,7 @@
 // diagnostic.
 #include "checkerboard.h"
 #include "game.h"
+#include "core/engine-error.h"
 #include "render/graphics.h"
 #include "lab/scene-fixture.h"
 #include <slang-rhi/agility-sdk.h>
@@ -15,6 +16,7 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <filesystem>
 
 SLANG_RHI_EXPORT_AGILITY_SDK
 
@@ -117,7 +119,14 @@ static Result runWindow(IDevice* device, bool checkerboard)
         else
         {
             ofg::Graphics::initialize(device, queue);
-            ofg::Game::initialize(ofg::createSceneFixture());
+            wchar_t executable[32768];
+            const auto length = GetModuleFileNameW(nullptr, executable, 32768);
+            if (!length || length == 32768)
+            {
+                throw ofg::EngineError("Cannot resolve executable asset directory.");
+            }
+            auto path = std::filesystem::path(executable).parent_path() / "assets/checker.png";
+            ofg::Game::initialize(ofg::createSceneFixture(path.string()));
         }
         renderResult = runFrames(window.get(), surface, queue, pipeline);
     } catch (const std::exception& error)

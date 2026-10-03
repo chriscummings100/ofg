@@ -1,4 +1,4 @@
-// Portable indexed mesh diagnostic: entity/camera transform and independent material tint over a UV checker.
+// Portable indexed mesh diagnostic: entity/camera transform and independent material tint over a sampled color image.
 struct DrawParameters
 {
     column_major float4x4 clipFromLocal;
@@ -9,6 +9,8 @@ struct MaterialParameters
 };
 ConstantBuffer<DrawParameters> draw;
 ConstantBuffer<MaterialParameters> material;
+Texture2D<float4> baseColor;
+SamplerState baseColorSampler;
 
 struct VertexInput
 {
@@ -23,8 +25,7 @@ struct VertexOutput
 };
 
 // Maps local vertices into the selected camera's homogeneous clip space.
-[shader("vertex")]
-VertexOutput vertexMain(VertexInput input)
+[shader("vertex")] VertexOutput vertexMain(VertexInput input)
 {
     VertexOutput output;
     output.position = mul(draw.clipFromLocal, float4(input.position, 1));
@@ -32,11 +33,9 @@ VertexOutput vertexMain(VertexInput input)
     return output;
 }
 
-// Uses UV-space cells so the diagnostic pattern follows the cube surface.
-[shader("fragment")]
-float4 fragmentMain(VertexOutput input) : SV_Target
+    // Samples decoded linear color; material clones retain independent tints.
+    [shader("fragment")] float4 fragmentMain(VertexOutput input)
+    : SV_Target
 {
-    int2 cell = int2(floor(input.uv * 6));
-    float value = ((cell.x + cell.y) & 1) == 0 ? 0.22 : 0.9;
-    return float4(value * material.tint.rgb, material.tint.a);
+    return baseColor.Sample(baseColorSampler, input.uv) * material.tint;
 }

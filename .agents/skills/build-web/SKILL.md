@@ -19,7 +19,7 @@ The browser configuration enables RHI WebGPU through `emdawnwebgpu` and excludes
 
 Install browser tooling from the checked-in lockfile with the documented npm command. The smoke script uses `playwright-core` with installed Google Chrome; it does not download a browser. Use `npm run smoke:web` after the build. It starts its own server on a free loopback port and closes its browser/server on completion. The full C++ test suite stays native.
 
-Inspect the fresh `artifacts/scene-rendering/browser/report.json` and screenshots. Success requires a successful script exit, visible checker cubes and isolated tint, original checkerboard pixels, resize/reload checks, missing-WebGPU messaging and no recorded browser errors. Report an unavailable GPU/browser as a failed or unverified check, never as a pass. Console warnings are retained separately; the documented Windows power-preference warning is not a rendering failure. Do not infer the browser's selected GPU from the native adapter.
+Inspect the fresh `artifacts/textures/browser/report.json` and screenshots. Success requires a successful script exit, visible checker cubes and isolated tint, original checkerboard pixels, resize/reload checks, missing-WebGPU messaging and no recorded browser errors. Report an unavailable GPU/browser as a failed or unverified check, never as a pass. Console warnings are retained separately; the documented Windows power-preference warning is not a rendering failure. Do not infer the browser's selected GPU from the native adapter.
 
 For interactive investigation, use `npm run serve:web` and the printed localhost URL, or the smoke script's `--headed` option. Use localhost or HTTPS rather than opening generated HTML with `file://`. Keep a useful development server available during visual work and identify it in the handoff; do not terminate unrelated servers or publish the site.
 
@@ -30,6 +30,8 @@ The Slang source is embedded by CMake, so shader edits require a rebuild. Keep J
 The WASM includes the Slang compiler (the original checkerboard baseline was about 26 MB uncompressed). Asyncify/WASM-exception settings follow the pinned RHI integration and emit a known Emscripten warning. Do not suppress it or assume all asynchronous exception paths work because the checkerboard passes. Record failures and revisit the settings when those paths change.
 
 Report build and browser-runtime results separately, with screenshot/report locations and any limitations. For changes to shared rendering or build selection, also use the native workflow to verify its affected checks. Documentation-only changes need link/skill validation, not a fresh graphics build.
+
+The texture smoke also checks delayed PNG/JPEG loading, cancellation, float16/float32 sampling and the actual-device fp32 feature gate; expected asset failures are reported separately. Assets are copied beside the build and served by an explicit allowlist.
 
 The default URL renders the scene; `?demo=checkerboard` selects the retained diagnostic. The smoke checks both. In a restricted agent shell, request build access to the installed SDK cache and temporary directory if a denied cache lock stalls linking; do not erase caches or change the toolchain. Browser launch may also require execution outside the sandbox.
 

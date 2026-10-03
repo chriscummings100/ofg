@@ -31,6 +31,9 @@ else()
     set(SLANG_RHI_ENABLE_D3D12 ON)
 endif()
 add_subdirectory(slang-rhi)
+if(EMSCRIPTEN)
+    include(${CMAKE_SOURCE_DIR}/cmake/rhi-webgpu-formats.cmake)
+endif()
 
 # Use the same GLFW revision as RHI's native examples, without building those examples.
 if(NOT EMSCRIPTEN)

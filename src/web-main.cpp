@@ -2,6 +2,8 @@
 // checkerboard.
 #include "checkerboard.h"
 #include "game.h"
+#include "resources/resources.h"
+#include "render/texture-renderer.h"
 #include "render/graphics.h"
 #include "render/present.h"
 #include "lab/scene-fixture.h"
@@ -22,6 +24,7 @@ struct BrowserApp
     ComPtr<IRenderPipeline> pipeline;
     ComPtr<IRenderPipeline> presentPipeline;
     ComPtr<ITexture> sceneTarget;
+    std::shared_ptr<ofg::Texture> texture;
     double previousTime{0};
     // Releases application and graphics state when the callback stops; browser owns submitted GPU work.
     ~BrowserApp()
@@ -61,7 +64,15 @@ static Result initializeBrowser(BrowserApp& app)
             app.presentPipeline.writeRef()
         ));
         ofg::Graphics::initialize(app.device, app.queue);
-        ofg::Game::initialize(ofg::createSceneFixture());
+        ofg::TextureRenderer formats(app.device, app.queue);
+        const bool fp32 = formats.supports(ofg::TextureFormat::RGBA32Float);
+        EM_ASM({ Module.fp32Supported = Boolean($0); }, fp32);
+        const int floatBits = EM_ASM_INT({ return Module.floatBits; });
+        app.texture =
+            floatBits
+                ? ofg::createFloatFixtureTexture(floatBits == 32)
+                : ofg::Resources::loadResourceAsync<ofg::Texture>(emscripten_run_script_string("Module.texturePath"));
+        ofg::Game::initialize(ofg::createSceneFixture(app.texture));
     }
     app.previousTime = emscripten_get_now();
     // Browsers may omit the adapter description; do not infer an identity from the native device.
@@ -124,7 +135,18 @@ static Result drawBrowserFrame(BrowserApp& app)
     // after rendering into host-owned storage; the final image-load shader has no uniforms/maps that can yield.
     if (!app.pipeline)
     {
+        if (EM_ASM_INT({ return Module.cancelTexture ? 1 : 0; }))
+        {
+            ofg::Game::setScene(std::make_unique<ofg::Scene>());
+            app.texture.reset();
+            EM_ASM({
+                Module.cancelTexture = false;
+                Module.textureCancelled = true;
+            });
+        }
         ofg::Game::frame(deltaSeconds, app.sceneTarget);
+        const bool ready = app.texture && app.texture->isLoaded();
+        EM_ASM({ Module.textureReady = Boolean($0); }, ready);
     }
     ComPtr<ITexture> image;
     SLANG_RETURN_ON_FAIL(app.surface->acquireNextImage(image.writeRef()));

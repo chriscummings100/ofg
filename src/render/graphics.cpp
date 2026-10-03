@@ -1,6 +1,7 @@
 // Direct RHI scene rendering, reflected material binding, and explicit service/asset GPU ownership.
 #include "render/graphics.h"
 #include "render/resource-gpu-data.h"
+#include "render/texture-renderer.h"
 #include "core/engine-error.h"
 #include <slang-rhi/shader-cursor.h>
 
@@ -29,6 +30,7 @@ struct GraphicsState
     std::map<std::weak_ptr<Shader>, std::vector<PipelineEntry>, std::owner_less<std::weak_ptr<Shader>>> pipelines;
     std::vector<std::weak_ptr<MeshGpuData>> meshes;
     std::vector<std::weak_ptr<ShaderGpuData>> shaders;
+    std::unique_ptr<TextureRenderer> textures;
     size_t pipelineCreations{0};
 };
 std::unique_ptr<GraphicsState> graphics;
@@ -190,6 +192,54 @@ void bindMaterial(IShaderObject* root, const Material& material)
     }
 }
 
+// Validates and binds direct sampled resources, preserving the uniform-only shader contract.
+void bindResources(IShaderObject* root, const Material& material)
+{
+    ShaderCursor cursor(root);
+    for (const auto& [name, binding] : material.textures())
+    {
+        auto field = cursor[name.c_str()];
+        auto type = field.isValid() ? field.getTypeLayout()->getType() : nullptr;
+        if (!type || type->getKind() != slang::TypeReflection::Kind::Resource ||
+            type->getResourceShape() != SLANG_TEXTURE_2D || type->getResourceAccess() != SLANG_RESOURCE_ACCESS_READ)
+        {
+            throw EngineError("Expected a read-only Texture2D binding: " + name);
+        }
+        auto result = type->getResourceResultType();
+        auto scalar = result->getScalarType();
+        if (scalar == slang::TypeReflection::ScalarType::None && result->getElementType())
+        {
+            scalar = result->getElementType()->getScalarType();
+        }
+        if (scalar != slang::TypeReflection::ScalarType::Float32)
+        {
+            throw EngineError("Texture requires float shader elements: " + name);
+        }
+        auto view = std::holds_alternative<TextureView>(binding) ? std::get<TextureView>(binding)
+                                                                 : bindingTexture(binding)->defaultView();
+        check(field.setBinding(graphics->textures->prepare(view)), "Bind texture " + name);
+    }
+    for (const auto& [name, sampler] : material.samplers())
+    {
+        auto field = cursor[name.c_str()];
+        if (!field.isValid() || field.getTypeLayout()->getKind() != slang::TypeReflection::Kind::SamplerState)
+        {
+            throw EngineError("Expected a SamplerState binding: " + name);
+        }
+        check(field.setBinding(graphics->textures->prepare(*sampler)), "Bind sampler " + name);
+    }
+    auto layout = cursor.getTypeLayout();
+    for (unsigned int index = 0; index < layout->getFieldCount(); ++index)
+    {
+        std::string name = layout->getFieldByIndex(index)->getName();
+        if (name != "draw" && name != "material" && !material.textures().contains(name) &&
+            !material.samplers().contains(name))
+        {
+            throw EngineError("Missing or unsupported shader resource binding: " + name);
+        }
+    }
+}
+
 // Creates only the fixed pipeline variants required by the shader and target format.
 IRenderPipeline* pipelineFor(const std::shared_ptr<Shader>& shader, IShaderProgram* program, Format format)
 {
@@ -242,6 +292,7 @@ void Graphics::initialize(rhi::IDevice* device, rhi::ICommandQueue* queue)
     desc.vertexStreams = &stream;
     desc.vertexStreamCount = 1;
     check(device->createInputLayout(desc, state->inputLayout.writeRef()), "Create mesh vertex layout");
+    state->textures = std::make_unique<TextureRenderer>(device, queue);
     graphics = std::move(state);
 }
 
@@ -343,7 +394,7 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
     if (!graphics->depth || graphics->depth->getDesc().size.width != target.size.width ||
         graphics->depth->getDesc().size.height != target.size.height)
     {
-        TextureDesc desc{};
+        rhi::TextureDesc desc{};
         desc.type = TextureType::Texture2D;
         desc.format = Format::D32Float;
         desc.size = target.size;
@@ -352,6 +403,30 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
         ComPtr<ITexture> depth;
         check(graphics->device->createTexture(desc, nullptr, depth.writeRef()), "Create scene depth");
         graphics->depth = depth;
+    }
+
+    // Uploads and mip generation must finish encoding before the scene render pass begins.
+    for (const auto& item : list.items)
+    {
+        if (!item.mesh || !item.material || item.subMeshIndex >= item.mesh->subMeshes().size())
+        {
+            throw EngineError("Draw item requires a mesh, valid submesh and material.");
+        }
+        for (const auto& [name, binding] : item.material->textures())
+        {
+            auto texture = bindingTexture(binding);
+            if (!texture->isLoaded())
+            {
+                throw EngineError("Draw texture is not ready: " + name + " " + texture->error());
+            }
+            auto view =
+                std::holds_alternative<TextureView>(binding) ? std::get<TextureView>(binding) : texture->defaultView();
+            graphics->textures->prepare(view);
+        }
+        for (const auto& [name, sampler] : item.material->samplers())
+        {
+            graphics->textures->prepare(*sampler);
+        }
     }
 
     ComPtr<ICommandEncoder> encoder;
@@ -386,6 +461,7 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
             "Create draw bindings"
         );
         bindMaterial(root, *item.material);
+        bindResources(root, *item.material);
         auto transform = ShaderCursor(root)["draw"]["clipFromLocal"];
         if (!transform.isValid())
         {

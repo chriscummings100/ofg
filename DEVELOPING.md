@@ -131,7 +131,7 @@ npm.cmd ci
 npm.cmd run serve:web
 ```
 
-Open `http://127.0.0.1:8080`. Stop the server with Ctrl+C. Serve the generated files over localhost or HTTPS, rather than opening the HTML with `file://`. This single-threaded build needs no cross-origin isolation headers. The small loopback server serves only the three generated files.
+Open `http://127.0.0.1:8080`. Stop the server with Ctrl+C. Serve the generated files over localhost or HTTPS, rather than opening the HTML with `file://`. This single-threaded build needs no cross-origin isolation headers. The small loopback server serves the generated HTML/JS/WASM and explicitly allowlisted fixture images from build/web/assets.
 
 In another shell, run the focused browser check:
 
@@ -162,3 +162,18 @@ In restricted agent shells, Emscripten needs write access to its installed SDK c
 Scene-object implementation verified on 2026-10-03: cpu-tests passes 55 cases/959 assertions; native-debug passes all four CTest checks (7 render cases/178 assertions). The final web build and smoke pass in Chrome 154.0.8037.95 on the browser-selected adapter (independent query: Intel gen-12lp). Native uses NVIDIA GeForce RTX 3050 Ti Laptop GPU. All six browser captures were generated; the initial/resized/reloaded scene images were inspected. The report contains no errors or validation warnings, only the documented power-preference warning. The final WASM is 27,140,650 bytes before compression. This records build size, not a performance target.
 
 The [completed scene-object plan](docs/archived/scene-object-rendering.md) records the checks, lifetime findings and limitations. The browser's final presentation uses `src/render/present.*` and `shaders/present.slang`: a resource-only image-load pass avoids both uniform staging yields and an unsupported surface copy-destination requirement. Native offscreen tests compare its output pixels. This internal presentation texture does not introduce material texture support.
+
+
+## Texture checks and assets
+
+The default scene now loads `assets/checker.png` on demand and samples it with GPU-generated mipmaps. CMake copies fixture assets to every build tree and watches them for regeneration. Native resolves assets relative to the executable, so launching from another directory remains supported. Browser assets are separate HTTP requests, not embedded WASM downloads. The original checkerboard remains selectable.
+
+Public interfaces and examples are in [resource contracts](docs/resources.md#sampled-textures-views-and-samplers). PNG/JPEG import produces RGBA8 sRGB. Procedural uploads support UNORM8, float16 and float32, with default/ranged views and shared immutable samplers. Browser fp32 requires the actual device's optional `float32-filterable` feature; unsupported requests fail explicitly. The current RHI pin remains unchanged: a generated-source WebGPU format-report correction is applied during configuration.
+
+Use the existing cpu-tests/native-debug configure/build/test presets and web build plus `npm.cmd run smoke:web`. CPU tests include real packaged PNG/JPEG loads. Native GPU tests include all ten formats, padded rows, float values outside [0,1], per-mip readback, odd-border area reduction, sRGB/alpha correctness, named texture/sampler validation and lifecycle restart. These tests execute within the existing CTest targets. Numeric tolerances are two UNORM bytes, normalized fp16 2e-3 and fp32 1e-5; exactly representable constant fixtures require exact results.
+
+Browser diagnostic URLs include `?texture=assets/checker.jpg`, `?float=16`, and `?float=32`. The smoke suite holds an image response until frames prove pending loading, verifies cancellation, tests missing/corrupt assets, and removes float32-filterable from actual device creation to check the unsupported path. Expected failure diagnostics are recorded separately from successful-render errors. It compares checker/tint regions within visible geometry because filtering changes the count of flat white pixels at smaller viewports.
+
+Current texture evidence is saved under `artifacts/textures/browser` and `artifacts/textures/native`. Native capture must account for Windows DPI scaling; the recorded probe captures the actual application window, resizes, minimizes/restores and closes it. The test process launches from the artifact directory to exercise asset-path independence. Browser images use the existing surface encoding; native/browser pixels are not asserted identical. These checks do not measure throughput or long-run residency.
+
+Texture milestone verified on 2026-10-03: CPU-only 61 cases/1016 assertions; all four native CTest checks pass, including 11 scene/texture GPU cases/825 assertions and the checkerboard regression. Native window tests ran on NVIDIA GeForce RTX 3050 Ti Laptop GPU. Web build and extended smoke pass in Chrome 154.0.8037.95 (independent adapter query: Intel gen-12lp). Success paths report no validation errors; missing/corrupt assets and unsupported fp32 report their expected failures. The existing Emscripten Asyncify/WASM-exception warning remains. WASM is 27,257,116 bytes before compression. See the [completed texture plan](docs/archived/texture-support.md) for evidence and remaining limits.

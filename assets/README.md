@@ -1,0 +1,1 @@
+Original OFG diagnostic images, authored 2026-10-03. 96x96 checker with red top-left, green top-right and blue bottom-left markers. PNG is lossless RGBA; JPEG is an RGB decoding fixture. No third-party art.

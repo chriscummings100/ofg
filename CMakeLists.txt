@@ -20,6 +20,9 @@ add_library(ofg-core STATIC
     src/math/mat.cpp
     src/math/quat.cpp
     src/math/transform.cpp
+    src/resources/texture.cpp
+    src/resources/sampler.cpp
+    src/resources/image-decoder.cpp
     src/resources/mesh.cpp
     src/resources/material.cpp
     src/resources/shader.cpp
@@ -35,9 +38,14 @@ add_library(ofg-core STATIC
 )
 target_compile_features(ofg-core PUBLIC cxx_std_20)
 target_include_directories(ofg-core PUBLIC src)
+target_include_directories(ofg-core SYSTEM PRIVATE external/stb)
+
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS assets/checker.png assets/checker.jpg assets/README.md)
+file(COPY assets DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_executable(ofg-core-test
+        tests/texture-test.cpp
         tests/core-test-main.cpp
         tests/math-test.cpp
         tests/object-ptr-test.cpp
@@ -68,7 +76,11 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/present.s
 file(READ shaders/present.slang PRESENT_SHADER)
 configure_file(src/render/present-shader.h.in generated/present-shader.h @ONLY)
 
-add_library(ofg-render STATIC src/checkerboard.cpp src/render/graphics.cpp src/render/present.cpp src/game.cpp src/lab/scene-fixture.cpp)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/mipmaps.slang)
+file(READ shaders/mipmaps.slang MIPMAPS_SHADER)
+configure_file(src/render/mipmaps-shader.h.in generated/mipmaps-shader.h @ONLY)
+
+add_library(ofg-render STATIC src/render/texture-renderer.cpp src/checkerboard.cpp src/render/graphics.cpp src/render/present.cpp src/game.cpp src/lab/scene-fixture.cpp)
 target_compile_features(ofg-render PUBLIC cxx_std_20)
 target_include_directories(ofg-render PUBLIC src PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(ofg-render PUBLIC slang-rhi ofg-core)
@@ -85,7 +97,7 @@ if(EMSCRIPTEN)
         --use-port=emdawnwebgpu
         --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
         -fwasm-exceptions --export=__cpp_exception
-        -sASSERTIONS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576
+        -sFETCH=1 -sASSERTIONS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576
         -sASYNCIFY=1 -sASYNCIFY_IGNORE_INDIRECT=1
         "-sASYNCIFY_ONLY=['*main*','*wait*','*initialize*','*create*','*map*','*readBuffer*','*ofg*','*rhi*','*Frame*','*dynCall*']"
     )
