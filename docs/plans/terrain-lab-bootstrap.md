@@ -8,6 +8,8 @@ Establish a small C++ terrain laboratory using Slang RHI in both a native Window
 
 ## Progress
 
+- [x] (2026-10-04) Completed [glTF animation and compute skinning](../archived/gltf-animation.md) in the dedicated gltf-animation worktree: preserved assets, local pose sampling/transport, validated UAL1 mapping, palette snapshots, private compute outputs, character launch modes and Animation controls. CPU/native suites and browser acceptance/regressions pass. D3D12/WebGPU captures and motion evidence demonstrate character playback and independent instances; the archived plan records results and direct-mapping limitations.
+
 - [x] (2026-10-04) Implemented the [dockable ImGui workspace](../archived/imgui-workspace.md) in the managed imgui-workspace worktree. Native/CPU CTest and browser UI/PBR/texture smoke suites pass; screenshots cover docking, settings, persistence and high DPI.
 
 - [x] (2026-10-03) Implemented the [PBR sphere laboratory](../pbr.md): fly camera, textured core/surface materials, punctual lights, matched baked IBL and HDR output on D3D12/WebGPU. CPU/native tests and PBR browser smoke pass; final regression/documentation checks are recorded in the PBR plan. UI/terrain remain separate work.

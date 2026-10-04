@@ -97,6 +97,59 @@ The web configure/build, `npm.cmd run smoke:web` and `node tools/pbr-smoke.mjs` 
 Windows powerPreference browser warning remain. Native offscreen and browser PBR overview captures were inspected;
 these are regression evidence for existing rendering, not a demonstration of glTF import or animation.
 
+## Animation bring-up
+
+The [completed animation ExecPlan](docs/archived/gltf-animation.md) records the character milestone. The preserved
+CC0 superhero/UAL1 assets live in `assets/models/character`, with byte hashes and original provenance. Model
+instantiation preserves imported node names. TRS playback, all-influence compute skinning, character launch modes and
+the Animation panel are implemented. The [character guide](docs/animation.md) describes controls and the direct-mapping
+limitation. Run the documented `cpu-tests`, `native-debug` and `web` configure/build/test workflows above, then:
+
+```powershell
+./build/native/ofg.exe --character
+./build/native/ofg.exe --character-pair
+./build/native/ofg-render-test.exe '--test-case=Compute skinning*,Animated superhero*' --no-colors
+node node_modules/playwright-core/cli.js install ffmpeg
+node tools/animation-smoke.mjs
+```
+
+The ffmpeg helper is needed only for Playwright motion recording (v1011 from the pinned Playwright CLI); it does not
+replace the installed browser or SDK. Use `npm.cmd run serve:web`, then `http://127.0.0.1:8080/?demo=character`;
+append `&instances=2` for independent instances or `&ui=0` for full-canvas viewing. Native asset lookup is relative
+to the executable; the browser server explicitly allowlists both GLBs. Build/test logs, pose sequences, PNG captures
+and browser motion video are saved under `artifacts/animation`. Re-run model/UI/PBR/texture smokes after shared changes.
+
+The first portable experiment translates a 65-vertex fixture using 64-thread compute groups, then consumes the
+72-byte output directly as a vertex stream. Its native test is included in `ofg-scene-rendering`; run it alone after
+the native build with:
+
+```powershell
+./build/native/ofg-render-test.exe '--test-case=Compute vertex*' --no-colors
+```
+
+After configuring the normal `web` preset, build the separate small RHI browser proof and inspect it with:
+
+```powershell
+cmake --build build/web --target ofg-compute-proof-web --parallel 6
+node tools/compute-vertex-smoke.mjs
+```
+
+The browser tool serves only the three `compute-proof` build outputs on a temporary loopback server and records
+left/right/left-again captures and diagnostics under `artifacts/animation/browser`. It uses the same C++ helper and
+Slang shader as native, through the pinned RHI WebGPU backend. Native captures are under `artifacts/animation/native`.
+This separate experiment tests translation/packing/queue order. Actual skinning uses `render/deformation.cpp` and
+`shaders/deformation.slang`. Test-only proof code remains in `tests/compute-vertex-*`.
+
+Verified on 2026-10-04 in the gltf-animation worktree: CPU CTest passes 104 cases/11,135 assertions and all four native
+CTest targets pass on NVIDIA GeForce RTX 3050 Ti Laptop GPU. Focused tests also pass after the final lifetime, scene
+replacement and layout fixes. Native captures cover idle, walk, sprint, a one-shot, stable pause and independent instances.
+The Emscripten build and Chrome 154.0.8037.95 animation smoke pass on the actual RHI Intel gen-12lp WebGPU adapter,
+including panel controls, scrubbing, pause/resume, independent instances, hidden viewport updates, resize/reload,
+full-canvas fly/reset and loading cancellation. Model, UI, PBR and texture/checkerboard smokes pass too. The separate
+translation proof passes on both backends. Captures and motion transitions were inspected; browser reports contain
+no errors and only the known Windows powerPreference warning. See `artifacts/animation/browser/animation-report.json`
+for checks and the recorded video path. No performance improvement is claimed.
+
 ## Formatting
 
 Use the checked-in `.clang-format`. The verified formatter is clang-format 22.1.3 from the Visual Studio C++ Clang tools. After the discovery block above, check the current source with:
@@ -240,7 +293,7 @@ dependencies are relative to the model. The default PBR mode is unchanged. Brows
 The model mode also uses the ImGui workspace. Add native `--no-ui` or browser `&ui=0` for full-canvas rendering.
 The initial camera is at (0,0,-5). Fly controls match PBR; R and F restore that model pose. Models are imported at their
 authored scale and origin, without automatic framing. The window title/browser header and console report readiness,
-resource counts and the undeformed-preview limitation. Parser warnings are reported in the console.
+resource counts and initially paused playback. Parser warnings are reported in the console.
 
 `node tools/generate-model-fixture.mjs` reproducibly writes the original cube glTF, buffer and GLB. It uses the existing
 OFG checker PNG. CMake configure copies assets to each build directory. `node tools/model-smoke.mjs` runs the browser

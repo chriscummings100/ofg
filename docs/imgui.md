@@ -1,6 +1,9 @@
 # Laboratory workspace
 
-The default native and browser applications provide a Dear ImGui docking workspace. The Window menu opens Scene, Scene Hierarchy and Render Settings, or resets their layout. Panels can dock, tab, float inside the application, resize and close. Separate OS windows are intentionally disabled.
+The default native and browser applications provide a Dear ImGui docking workspace. The Window menu opens Scene,
+Scene Hierarchy, Render Settings and Animation, or resets their layout. Panels can dock, tab, float inside the application,
+resize and close. Separate OS windows are intentionally disabled. Animation is initially tabbed beside Render Settings;
+its transport controls and direct-mapping limitations are documented in [the character guide](animation.md).
 
 Scene contains the existing PBR laboratory. Hold the right mouse button over its image and use WASD/QE/Shift to fly; release, Escape or focus loss returns to the UI. R/F and 0�4 operate when the Scene panel owns keyboard focus. Text entry in another panel must never reset the camera or change debug view. Escape does not close the workspace. Camera navigation is enabled for the PBR fixture; the original cube fixture retains its fixed inspection camera.
 
@@ -20,6 +23,10 @@ The dependency is Dear ImGui v1.92.9b-docking, commit b48d1afbe8ee8b238e2961dc36
 
 ## Persistence and diagnostics
 
-Only panel layout/visibility is persisted: native %LOCALAPPDATA%/OFG/workspace.ini on clean exit, browser localStorage key ofg.workspace.v1 when ImGui requests a save. Browser layouts are scoped to the current origin. Missing settings use defaults; unavailable storage reports a diagnostic and leaves the session usable. Render values and selection are not persisted. Window > Reset Layout restores all three panels.
+Only panel layout/visibility is persisted: native %LOCALAPPDATA%/OFG/workspace.ini on clean exit, browser localStorage
+key ofg.workspace.v1 when ImGui requests a save. Browser layouts are scoped to the current origin. Missing settings use
+defaults; unavailable storage reports a diagnostic and leaves the session usable. Render values, animation transport
+and selection are not persisted. The OFG-UI-1 header accepts an optional fourth visibility flag for Animation, defaulting
+to visible when reading older layouts. Window > Reset Layout restores all four panels.
 
 Use --no-ui or ?ui=0 for the original full-canvas scene/PBR diagnostics. --checkerboard and ?demo=checkerboard continue to bypass UI. Build and test commands are in DEVELOPING.md. The implementation plan and actual validation evidence are tracked in [the workspace ExecPlan](archived/imgui-workspace.md).

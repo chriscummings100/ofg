@@ -4,6 +4,7 @@
 #include "math/transform.h"
 
 #include <utility>
+#include <cmath>
 
 namespace ofg {
 
@@ -200,6 +201,18 @@ void Scene::setActiveCamera(Camera* camera)
         throw EngineError("Active camera must belong to this scene.");
     }
     m_activeCamera = camera;
+}
+
+void Scene::updateAnimations(double deltaSeconds)
+{
+    if (!std::isfinite(deltaSeconds) || deltaSeconds < 0)
+    {
+        throw EngineError("Scene animation delta must be finite and nonnegative.");
+    }
+    for (auto& animator : m_animators)
+    {
+        animator->update(deltaSeconds);
+    }
 }
 
 void Scene::update()

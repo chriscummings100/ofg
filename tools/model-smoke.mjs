@@ -1,4 +1,4 @@
-// Exercises actual WASM model import, held dependency fetches, cancellation and undeformed WebGPU presentation.
+// Exercises actual WASM model import, held dependency fetches, cancellation and rest-pose WebGPU presentation.
 import assert from 'node:assert/strict';
 import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';

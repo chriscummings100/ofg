@@ -99,21 +99,21 @@ four XYZW rotation components or one component per morph target. Cubic keys stor
 outgoing derivative groups and require at least two keys. Outputs and derivatives must be finite; zero quaternion
 values are rejected. The factory preserves values, signs and tangent magnitudes without normalization or resampling.
 The caller supplies semantically valid rotation keys; the factory does not enforce a unit-length tolerance.
-Node/property targets must be unique within a clip. Playback, blending and retargeting are not implemented.
+Node/property targets must be unique within a clip. Animator implements TRS playback; blending and retargeting remain deferred.
 
 `Mesh::create(vertices, indices, subMeshes, deformation)` accepts optional `MeshDeformationData` without changing the
 GPU Vertex layout. It owns all vertex-aligned joint influence sets and morph position/normal/tangent deltas. Each
 influence set contains four palette indices and four finite weights in [0,1]; all sets are retained. Individual sets
 may contain zeros, and normalization across sets is not changed by the factory. An empty morph attribute expands
 to a zero delta for each vertex. Empty default morph weights expand to one zero per target; supplied defaults must
-match the target count and be finite. Morph weights may be negative or above one to extrapolate deltas. Bounds and
-rendered geometry still describe the undeformed vertices.
+match the target count and be finite. Morph weights may be negative or above one to extrapolate deltas. Bounds describe
+undeformed vertices and are not used to reject skinned meshes. Morph deformation remains deferred.
 
 MeshRenderer retains a shared Skin and observes an instance joint palette; its morph weights copy Mesh defaults and
 can then change independently. Animator retains shared Animation resources and observes instance entities through
 source-indexed bindings. See [scene contracts](state-and-scene.md#deformation-and-animation-bindings) for assignment,
-ownership and failure behavior. These components are passive: no skinning, morph evaluation or animation playback
-occurs yet.
+ownership and failure behavior. Animator samples TRS clips; selecting weight tracks fails explicitly. Compute skinning
+uses all imported influence sets and normalizes their total weight. Morph deformation remains deferred.
 
 ## PBR resources
 

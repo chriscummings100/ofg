@@ -4,6 +4,7 @@
 #include "resources/pbr-material.h"
 #include "resources/gltf-import.h"
 #include "scene/scene.h"
+#include "scene/animation-binding.h"
 #include <ostream>
 #include <doctest.h>
 #include <json.hpp>
@@ -239,6 +240,38 @@ TEST_CASE("glTF and GLB load complete shared resources and convert coordinate do
     }
 }
 
+TEST_CASE("preserved superhero and UAL1 assets import with all 45 TRS clips")
+{
+    auto superhero = Resources::loadResource<Model>("assets/models/character/quaternius-superhero-male.glb");
+    REQUIRE_MESSAGE(superhero->isLoaded(), superhero->error());
+    CHECK(superhero->data().nodes.size() == 69);
+    CHECK(superhero->data().skins.size() == 1);
+    auto library = Resources::loadResource<Model>("assets/models/character/quaternius-ual1-standard.glb");
+    REQUIRE_MESSAGE(library->isLoaded(), library->error());
+    REQUIRE(library->data().animations.size() == 45);
+    bool idleFound = false;
+    for (const auto& clip : library->data().animations)
+    {
+        idleFound |= clip->desc().name == "Idle_Loop";
+        for (const auto& track : clip->desc().tracks)
+        {
+            CHECK(track.path != AnimationPath::Weights);
+        }
+    }
+    CHECK(idleFound);
+    Scene scene;
+    auto instance = scene.instantiateModel(superhero, scene.getRoot());
+    auto mapping = mapAnimationNodesByName(library->data(), instance);
+    auto animator = instance.animator ? instance.animator.get() : scene.createAnimator(instance.root.get());
+    animator->setBindings(library->data().animations, mapping);
+    for (size_t index = 0; index < 45; ++index)
+    {
+        animator->selectAnimation(index);
+        animator->seek(animator->durationSeconds() / 2);
+        CHECK(animator->animations()[index] == library->data().animations[index]);
+    }
+}
+
 TEST_CASE("model instances bind source indices independently and commit atomically")
 {
     auto model = Resources::loadResource<Model>("assets/models/laboratory.gltf");
@@ -256,6 +289,16 @@ TEST_CASE("model instances bind source indices independently and commit atomical
     auto a = scene.instantiateModel(model, existing), b = scene.instantiateModel(model, scene.getRoot());
     REQUIRE(a.animator);
     REQUIRE(b.animator);
+    for (size_t index = 0; index < a.nodes.size(); ++index)
+    {
+        if (a.nodes[index])
+        {
+            CHECK(a.nodes[index]->name() == model->data().nodes[index].name);
+            CHECK(b.nodes[index]->name() == model->data().nodes[index].name);
+        }
+    }
+    a.nodes[0]->setName("renamed instance");
+    CHECK(b.nodes[0]->name() == model->data().nodes[0].name);
     CHECK(a.nodes[0].get() != b.nodes[0].get());
     CHECK(a.root->firstChild() == a.nodes[2].get());
     CHECK(a.nodes[2]->firstChild() == a.nodes[0].get());

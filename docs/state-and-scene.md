@@ -20,7 +20,7 @@ Each entity holds position, quaternion rotation and scale. `parentFromLocal` com
 
 `clear()` destroys entities, increments the generation counter and creates a new root with reset IDs. Moves preserve transferred entity addresses and rebind their owning scene; move assignment destroys the destination's previous entities. A moved-from scene has no root until cleared. Generation counters are local reset counters and are copied by moves, not universal lifetime tokens.
 
-There is no individual deletion or reparenting. Components remain passive; State drives behavior and Game calls the resource/state/scene/render phases. Raw entity pointers passed to APIs must still be live; ownership checks do not make dangling raw pointers safe.
+There is no individual deletion or reparenting. State drives application behavior; Game calls resource, state, animation, world-transform and render phases. Animator has a concrete update path, without a generic component lifecycle. Raw entity pointers passed to APIs must still be live; ownership checks do not make dangling raw pointers safe.
 
 ## Observation and components
 
@@ -55,7 +55,7 @@ Invalid assignments leave the old state intact. Changing the Mesh clears Skin/jo
 and copies the new Mesh defaults; setting the same Mesh preserves all instance state. Clearing Mesh clears its weights.
 These setters do not change geometry, bounds or rendering yet.
 
-Animator is a passive scene-owned component attached to the synthetic root of an instantiated Model. Use
+Animator is a scene-owned component attached to the synthetic root of an instantiated Model. Use
 `Scene::createAnimator(root)` and `Animator::setBindings(clips, nodes)`. Clips are shared Animation resources; the
 source-indexed node map contains observed distinct entities within that root's subtree, including the root itself
 when needed. Null entries intentionally represent nodes outside the selected model scene. All clip targets must fit
@@ -71,11 +71,31 @@ renderer->setSkin(skin, {jointB, jointA}); // Separately resolved Skin palette o
 renderer->setMorphWeights({0.25f, -0.5f});
 ```
 
-Animations can affect ordinary nodes, joints or morph weights, so Animator belongs to the whole instance rather than
-one renderer. Scene::update does not evaluate tracks or modify weights. Later mesh changes can invalidate a previously
-configured morph track; callers must rebind compatible clips when changing such assets. No playback contract is
-implied yet. Scene clear/destruction releases assets and invalidates observers. Scene moves preserve bindings and
-rebind `Entity::scene()` to the destination owner.
+Animations can affect ordinary nodes and joints, so Animator belongs to the whole instance rather than one renderer.
+Weight tracks remain imported but selecting a clip containing them fails explicitly. Scene clear/destruction releases
+assets and invalidates observers. Scene moves preserve bindings and rebind `Entity::scene()` to the destination owner.
+
+Binding captures target local rest transforms and resets transport without autoplay. `selectAnimation(index)` rewinds
+and samples, preserving play/pause. `play()` resumes or restarts an ended non-looping clip; `pause()` holds; `stop()`
+pauses and samples zero. `seek(seconds)` clamps and samples immediately. Looping wraps, non-looping holds its final pose,
+and zero-duration clips stay at zero. Speed must be finite/nonnegative; zero freezes advancement. Playback time is double.
+Getters expose selection, time, duration, playing, looping and speed. Failed selection/evaluation preserves the prior pose.
+
+`AnimationPose` is ordinary local TRS in source-node order. `sampleAnimationPose` copies captured rest transforms then
+replaces authored properties, implementing STEP, LINEAR (shortest-path quaternion slerp) and time-scaled cubic Hermite
+(normalize quaternion afterward). Tracks clamp individually; invalid evaluated rotations fail before publication.
+Sampling has no entity or GPU side effects. `applyAnimationPose` validates the full pose before changing entities.
+Future blending and IK edit these local poses between sampling and application; neither changes clips or rendering.
+`Scene::updateAnimations(deltaSeconds)` runs after State and before world transforms, even when the viewport is hidden.
+
+`mapAnimationNodesByName(source, instance)` validates unique nonempty names, every animated target and corresponding
+parents, then returns source-indexed entity observers. It reuses immutable clips. This is direct mapping, not retargeting:
+matching names/hierarchy cannot compensate for different rest transforms or proportions.
+
+Draw extraction snapshots one deformation job per skinned MeshRenderer, shared by all its submeshes. Each palette is
+`inverse(meshWorld) * jointWorld * inverseBindMatrix`. Expired joints and singular mesh transforms fail contextually.
+Jobs retain mesh/skin assets and opaque instance storage, never entities. Skinned meshes bypass static AABB culling.
+Mesh replacement resets instance storage; Graphics writes private output vertices without modifying shared source data.
 
 ## Provenance and deliberate adaptations
 
@@ -110,11 +130,14 @@ zero. A Model without scenes remains inspectable but cannot instantiate. Parent 
 Scene. Instantiation stages a synthetic root, every entity, renderer, morph override, joint palette and optional
 root Animator in a temporary Scene. Only after successful validation and destination reservation does it transfer
 stable allocations, reassign IDs/owners and attach the root. Failure leaves the existing scene hierarchy and
-components unchanged. Model node names remain in ModelData; instance entities currently retain their default display names.
+components unchanged. Model node names are copied onto instance entities, including empty or duplicate names.
+Renaming one instance does not change the source Model or another instance. Names remain display data, not entity
+identity; character binding validates its stricter joint-name uniqueness separately.
 
 `ModelInstance` retains the Model and observes the synthetic root, optional Animator and source-indexed node map.
 Discarding it does not remove the scene objects. MeshRenderers retain their own shared assets; Animator retains all
 clips and a separate node map, with null entries outside the selected scene. It is created only if at least one clip
 targets an included node. Two instances share resources and have independent entities, joint palettes and morph
-weights. Scene moves rebind owners; clear/destruction invalidates all instance observers. Rendering remains an
-**undeformed preview**: no skinning, morph deformation or animation evaluation is implied.
+weights. Scene moves rebind owners; clear/destruction invalidates all instance observers. Instantiation does not autoplay;
+the character fixture explicitly selects Idle_Loop and plays. Skinning is computed when rendering; morph deformation
+remains deferred.

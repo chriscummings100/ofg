@@ -24,6 +24,7 @@ struct MeshGpuData
 {
     rhi::ComPtr<rhi::IBuffer> vertices;
     rhi::ComPtr<rhi::IBuffer> indices;
+    rhi::ComPtr<rhi::IBuffer> influences;
 };
 
 struct ShaderGpuData

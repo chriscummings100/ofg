@@ -7,6 +7,7 @@
 
 namespace ofg {
 class Scene;
+struct DeformationStorage;
 class MeshRenderer : public Component
 {
 public:
@@ -18,12 +19,14 @@ public:
     const std::shared_ptr<Mesh>& mesh() const noexcept { return m_mesh; }
     // Binds a ready Skin and unique live same-scene joints in palette order; requires a compatible Mesh.
     // Rejects absent influences, invalid palette indices and zero total vertex weight. Failure preserves bindings.
-    // A null Skin with an empty palette clears the binding. No deformation is performed yet.
+    // A null Skin with an empty palette clears the binding and instance deformation storage.
     void setSkin(std::shared_ptr<Skin> skin, std::vector<Ptr<Entity>> joints);
     // Returns the shared immutable Skin, or null for an unskinned renderer.
     const std::shared_ptr<Skin>& skin() const noexcept { return m_skin; }
     // Returns this instance's joint observers in Skin palette order.
     std::span<const Ptr<Entity>> joints() const noexcept { return m_joints; }
+    // Returns the opaque instance allocation handle; snapshots may retain it independently of this component.
+    const std::shared_ptr<DeformationStorage>& deformationStorage() const noexcept { return m_deformation; }
     // Sets finite per-instance weights matching the Mesh's target count; does not deform geometry yet.
     void setMorphWeights(std::vector<float> weights);
     // Returns current instance weights; changing these never edits the shared Mesh defaults.
@@ -48,5 +51,6 @@ private:
     std::shared_ptr<Skin> m_skin;
     std::vector<Ptr<Entity>> m_joints;
     std::vector<float> m_morphWeights;
+    std::shared_ptr<DeformationStorage> m_deformation;
 };
 } // namespace ofg

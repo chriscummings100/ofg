@@ -3,7 +3,7 @@
 #include "scene/scene.h"
 
 namespace ofg {
-// Creates the camera and lighting used for undeformed model inspection, before asset loading finishes.
+// Creates the camera and lighting used for model inspection, before asset loading finishes.
 std::unique_ptr<Scene> createModelFixtureScene();
 
 class ModelFixture
@@ -15,7 +15,7 @@ public:
     void update(Scene& scene);
     // Reports successful instantiation, rather than merely completed I/O.
     bool ready() const noexcept { return bool(m_instance.root); }
-    // Describes pending/loaded state, counts and the intentionally undeformed preview.
+    // Describes pending/loaded state, counts and the initially paused preview.
     const std::string& status() const noexcept { return m_status; }
 
 private:

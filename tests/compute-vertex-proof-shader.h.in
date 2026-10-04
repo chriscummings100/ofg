@@ -1,0 +1,3 @@
+// Embedded test-only compute proof shared by native and Emscripten RHI builds.
+#pragma once
+inline constexpr const char* computeVertexProofShader = R"shader(@COMPUTE_VERTEX_PROOF_SHADER@)shader";

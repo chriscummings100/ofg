@@ -7,6 +7,7 @@
 #include "lab/scene-fixture.h"
 #include "lab/pbr-fixture.h"
 #include "lab/model-fixture.h"
+#include "lab/character-fixture.h"
 #include "lab/fly-camera.h"
 #include "ui/workspace.h"
 #include "render/present.h"
@@ -73,6 +74,7 @@ static Result runFrames(
     IRenderPipeline* pipeline,
     bool pbr,
     ofg::ModelFixture* model,
+    ofg::CharacterFixture* character,
     ofg::Workspace* workspace,
     IRenderPipeline* presentPipeline
 )
@@ -104,6 +106,10 @@ static Result runFrames(
             }
         }
         int width = 0, height = 0;
+        if (character)
+        {
+            character->update(ofg::Game::scene());
+        }
         glfwGetFramebufferSize(window, &width, &height);
         if (width == 0 || height == 0 || glfwGetWindowAttrib(window, GLFW_ICONIFIED))
         {
@@ -124,7 +130,7 @@ static Result runFrames(
             glfwGetWindowContentScale(window, &scaleX, &scaleY);
             workspace->begin(ofg::Game::scene(), deltaSeconds, scaleX);
         }
-        if (pbr)
+        if (pbr || model || character)
         {
             const bool focused = glfwGetWindowAttrib(window, GLFW_FOCUSED);
             const bool mouse = focused && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
@@ -183,6 +189,10 @@ static Result runFrames(
             if (auto active = ofg::Game::scene().activeCamera())
             {
                 camera.update(*active->entity(), input, deltaSeconds);
+                if (character && (input.reset || input.closeup))
+                {
+                    ofg::frameCharacter(*active->entity());
+                }
             }
             previousMouse = mouse;
         }
@@ -227,7 +237,7 @@ static Result runFrames(
 }
 
 // Owns the window and presentation resources, draining GPU work before either is destroyed.
-static Result runWindow(IDevice* device, bool checkerboard, bool pbr, const char* modelPath, bool ui)
+static Result runWindow(IDevice* device, bool checkerboard, bool pbr, const char* modelPath, int characterMode, bool ui)
 {
     ui = ui && !checkerboard;
     NativeActions actions; // Lives through window destruction, including exceptions and early RHI failures.
@@ -266,6 +276,7 @@ static Result runWindow(IDevice* device, bool checkerboard, bool pbr, const char
     bool platformInitialized = false;
     Result renderResult = SLANG_OK;
     std::unique_ptr<ofg::ModelFixture> model;
+    std::unique_ptr<ofg::CharacterFixture> character;
     try
     {
         if (checkerboard)
@@ -284,7 +295,16 @@ static Result runWindow(IDevice* device, bool checkerboard, bool pbr, const char
                 throw ofg::EngineError("Cannot resolve executable asset directory.");
             }
             auto path = std::filesystem::path(executable).parent_path() / "assets/checker.png";
-            if (modelPath)
+            if (characterMode)
+            {
+                ofg::Game::initialize(ofg::createCharacterFixtureScene());
+                character = std::make_unique<ofg::CharacterFixture>(
+                    (std::filesystem::path(executable).parent_path() / "assets/models/character").string(),
+                    characterMode == 2
+                );
+                glfwSetWindowTitle(window.get(), "OFG | Animated superhero");
+            }
+            else if (modelPath)
             {
                 ofg::Game::initialize(ofg::createModelFixtureScene());
                 model = std::make_unique<ofg::ModelFixture>(modelPath);
@@ -323,8 +343,17 @@ static Result runWindow(IDevice* device, bool checkerboard, bool pbr, const char
                 throw ofg::EngineError("Create workspace presentation failed.");
             }
         }
-        renderResult =
-            runFrames(window.get(), surface, queue, pipeline, pbr, model.get(), workspace.get(), presentPipeline);
+        renderResult = runFrames(
+            window.get(),
+            surface,
+            queue,
+            pipeline,
+            pbr,
+            model.get(),
+            character.get(),
+            workspace.get(),
+            presentPipeline
+        );
     } catch (const std::exception& error)
     {
         std::fprintf(stderr, "OFG scene failed: %s\n", error.what());
@@ -366,6 +395,7 @@ static void reportWindowError(int code, const char* message)
 int main(int argc, char** argv)
 {
     bool checkDevice = false, checkerboard = false, scene = false, ui = true;
+    int character = 0;
     const char* modelPath = nullptr;
     for (int i = 1; i < argc; ++i)
     {
@@ -381,6 +411,14 @@ int main(int argc, char** argv)
         {
             scene = true;
         }
+        else if (std::strcmp(argv[i], "--character") == 0)
+        {
+            character = 1;
+        }
+        else if (std::strcmp(argv[i], "--character-pair") == 0)
+        {
+            character = 2;
+        }
         else if (std::strcmp(argv[i], "--model") == 0 && i + 1 < argc)
         {
             modelPath = argv[++i];
@@ -391,7 +429,10 @@ int main(int argc, char** argv)
         }
         else
         {
-            std::fprintf(stderr, "Usage: ofg [--check-device | --checkerboard | --scene | --model <path>] [--no-ui]\n");
+            std::fprintf(
+                stderr,
+                "Usage: ofg [--check-device | --checkerboard | --scene | --character | --model <path>] [--no-ui]\n"
+            );
             return 1;
         }
     }
@@ -417,7 +458,7 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    result = runWindow(device, checkerboard, !checkerboard && !scene, modelPath, ui);
+    result = runWindow(device, checkerboard, !checkerboard && !scene, modelPath, character, ui);
     glfwTerminate();
     if (SLANG_FAILED(result))
     {

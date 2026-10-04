@@ -80,6 +80,8 @@ try {
   assert.equal(await page.evaluate(() => Module.failed), false);
   const initial = await page.evaluate(() => ({ui : Module.uiState, camera : Module.cameraPosition}));
   const original = await capture('workspace');
+  // This regression exercises the original three-panel docking geometry; Animation has its own smoke.
+  await windowAction(85);
   await click(140, 112);
   await page.waitForFunction(() => Module.uiState.selection === 2);
   report.checks.push('named hierarchy selection');
@@ -185,7 +187,7 @@ try {
   await capture('tabbed-settings');
   await page.waitForFunction(() => Module.uiState.sceneRect.every(value => value === 0));
   report.checks.push('dock/tab interaction and floating-tool capture isolation');
-  await windowAction(85);
+  await windowAction(104);
   await frames();
   await capture('reset-layout');
   // Hide hierarchy, wait for persisted visibility, reload and verify render values reset.
@@ -197,7 +199,7 @@ try {
   assert.ok((await page.evaluate(() => localStorage.getItem('ofg.workspace.v1'))).startsWith('OFG-UI-1 1 0 1'));
   await capture('restored-layout');
   report.checks.push('layout/visibility persistence without render settings');
-  await windowAction(85);
+  await windowAction(104);
   await page.setViewportSize({width : 1100, height : 760});
   await frames(5);
   await capture('resized');

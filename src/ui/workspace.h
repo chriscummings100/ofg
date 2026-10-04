@@ -46,19 +46,24 @@ private:
     void hierarchy(Scene& scene);
     // Edits existing lighting/output parameters, committing only valid complete drafts.
     void renderSettings(Scene& scene);
+    // Selects an animator and edits its playback transport; scrub changes pause before sampling.
+    void animationPanel(Scene& scene);
     // Creates/resizes scene storage and adds the image to the dockable scene panel.
     void scenePanel();
     ImGuiContext* m_context{};
     std::unique_ptr<ImGuiRenderer> m_renderer;
     rhi::ComPtr<rhi::ITexture> m_sceneTarget, m_outputTarget;
     Ptr<Entity> m_sceneRoot, m_selected;
+    Ptr<Animator> m_animator;
     Lighting m_initialLighting;
     unsigned m_sceneEpoch = 0;
     bool m_showScene = true, m_showHierarchy = true, m_showSettings = true, m_showHelp = false;
     bool m_resetLayout = false, m_sceneVisible = false, m_sceneFocused = false;
+    bool m_showAnimation = true;
     ImVec4 m_sceneRectangle{};
     ImGuiWindow* m_sceneWindow{};
     float m_styleScale = 0;
     std::string m_editError;
+    std::string m_animationError;
 };
 } // namespace ofg

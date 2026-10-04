@@ -1,6 +1,7 @@
 // Validated per-instance material, joint and morph bindings over shared immutable mesh/skin resources.
 #include "scene/mesh-renderer.h"
 #include "scene/entity.h"
+#include "render/deformation-storage.h"
 #include "core/engine-error.h"
 #include <cmath>
 #include <unordered_set>
@@ -23,6 +24,7 @@ void MeshRenderer::setMesh(std::shared_ptr<Mesh> mesh)
     m_mesh = std::move(mesh);
     m_overrides = std::move(overrides);
     m_skin.reset();
+    m_deformation.reset();
     m_joints.clear();
     m_morphWeights = std::move(morphWeights);
 }
@@ -36,6 +38,7 @@ void MeshRenderer::setSkin(std::shared_ptr<Skin> skin, std::vector<Ptr<Entity>> 
             throw EngineError("An empty Skin requires an empty joint palette.");
         }
         m_skin.reset();
+        m_deformation.reset();
         m_joints.clear();
         return;
     }
@@ -78,8 +81,10 @@ void MeshRenderer::setSkin(std::shared_ptr<Skin> skin, std::vector<Ptr<Entity>> 
             throw EngineError("Every skinned vertex requires positive total joint weight.");
         }
     }
+    auto deformation = std::make_shared<DeformationStorage>();
     m_skin = std::move(skin);
     m_joints = std::move(joints);
+    m_deformation = std::move(deformation);
 }
 
 void MeshRenderer::setMorphWeights(std::vector<float> weights)

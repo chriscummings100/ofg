@@ -1,5 +1,6 @@
 // Native offscreen scene tests for indexed draws, uniforms, cache identity, retirement and Game ordering.
 #include "render/graphics.h"
+#include "render/deformation.h"
 #include "ui/imgui-renderer.h"
 #include "ui/workspace.h"
 #include "render/texture-renderer.h"
@@ -9,6 +10,8 @@
 #include "lab/scene-fixture.h"
 #include "lab/pbr-fixture.h"
 #include "lab/model-fixture.h"
+#include "lab/character-fixture.h"
+#include "scene/animation-binding.h"
 #include "lab/sphere.h"
 #include "resources/pbr-material.h"
 #include "game.h"
@@ -132,6 +135,167 @@ static std::shared_ptr<Mesh> square(std::shared_ptr<Material> material)
         {0, 1, 2, 0, 2, 3},
         {{0, 3, material}, {3, 3, material}}
     );
+}
+
+// Reads the private output after submitted work, never using a CPU deformation runtime fallback.
+static std::vector<Vertex> readSkinned(GraphicsFixture& fixture, const DeformationJob& job)
+{
+    REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+    rhi::ComPtr<ISlangBlob> data;
+    REQUIRE(SLANG_SUCCEEDED(fixture.device->readBuffer(
+        DeformationRenderer::vertices(*job.storage),
+        0,
+        job.mesh->vertices().size_bytes(),
+        data.writeRef()
+    )));
+    std::vector<Vertex> vertices(job.mesh->vertices().size());
+    std::memcpy(vertices.data(), data->getBufferPointer(), vertices.size() * sizeof(Vertex));
+    return vertices;
+}
+
+TEST_CASE("Compute skinning preserves attributes and uses every influence with affine normal and tangent rules")
+{
+    GraphicsFixture fixture;
+    auto target = fixture.target();
+    auto material = flatMaterial({1, 0, 0, 1});
+    std::vector<Vertex> source{
+        {{-.2f, -.2f, .5f}, {1, 1, 1}, {.2f, .7f}, {1, 1, 0, -1}, {.3f, .8f}, {.1f, .2f, .3f, .4f}},
+        {{.2f, -.2f, .5f}, {0, 0, 1}, {.1f, .9f}, {}, {.4f, .6f}, {.9f, .8f, .7f, .6f}},
+        {{0, .2f, .5f}, {1, 0, 0}, {}, {0, 1, 0, 1}, {}, {1, 1, 1, 1}}
+    };
+    MeshDeformationData deformation;
+    // All six joints contribute; total authored weight is six, deliberately not one.
+    deformation.influenceSets = {
+        std::vector<VertexJointInfluences>(3, {{0, 1, 2, 3}, {1, 1, 1, 1}}),
+        std::vector<VertexJointInfluences>(3, {{4, 5, 0, 0}, {1, 1, 0, 0}})
+    };
+    auto mesh = Mesh::create(source, {0, 1, 2, 0, 1, 2}, {{0, 3, material}, {3, 3, material}}, deformation);
+    SkinDesc skinDesc;
+    Scene scene;
+    std::vector<Ptr<Entity>> joints;
+    // The six diagonal affine matrices average to diag(-2,3,4), translation(.25,.5,-.25).
+    for (uint32_t i = 0; i < 6; ++i)
+    {
+        skinDesc.joints.push_back({i, math::mat4Identity()});
+        auto joint = scene.createEntity(scene.getRoot());
+        joint->setLocalScale({-2, 3, 4});
+        joint->setLocalPosition({float(i) * .1f, .5f, -.25f});
+        joints.push_back(joint);
+    }
+    auto renderer = scene.createMeshRenderer(scene.getRoot());
+    renderer->setMesh(mesh);
+    renderer->setSkin(Skin::create(skinDesc), joints);
+    DrawList list;
+    list.deformations.push_back(snapshotDeformation(*renderer));
+    list.items = {{mesh, 0, material, math::mat4Identity(), 0}, {mesh, 1, material, math::mat4Identity(), 0}};
+    Graphics::render(list, target);
+    auto result = readSkinned(fixture, list.deformations[0]);
+    for (size_t i = 0; i < source.size(); ++i)
+    {
+        const auto& a = source[i];
+        const auto& b = result[i];
+        CHECK(std::abs(b.position.x - (-2 * a.position.x + .25f)) < 1e-4f);
+        CHECK(std::abs(b.position.y - (3 * a.position.y + .5f)) < 1e-4f);
+        CHECK(std::abs(b.position.z - (4 * a.position.z - .25f)) < 1e-4f);
+        const double nx = -a.normal.x / 2., ny = a.normal.y / 3., nz = a.normal.z / 4.;
+        const double length = std::sqrt(nx * nx + ny * ny + nz * nz);
+        CHECK(std::abs(b.normal.x - nx / length) < 1e-4);
+        CHECK(std::abs(b.normal.y - ny / length) < 1e-4);
+        CHECK(std::abs(b.normal.z - nz / length) < 1e-4);
+        CHECK(std::memcmp(&a.uv, &b.uv, sizeof(a.uv)) == 0);
+        CHECK(std::memcmp(&a.uv1, &b.uv1, sizeof(a.uv1)) == 0);
+        CHECK(std::memcmp(&a.color, &b.color, sizeof(a.color)) == 0);
+        if (a.tangent.w == 0)
+        {
+            CHECK(std::memcmp(&a.tangent, &b.tangent, sizeof(a.tangent)) == 0);
+        }
+        else
+        {
+            const double tx = -2 * a.tangent.x, ty = 3 * a.tangent.y;
+            const double tangentLength = std::hypot(tx, ty);
+            CHECK(std::abs(b.tangent.x - tx / tangentLength) < 1e-4);
+            CHECK(std::abs(b.tangent.y - ty / tangentLength) < 1e-4);
+            CHECK(b.tangent.z == 0);
+            CHECK(b.tangent.w == -a.tangent.w);
+        }
+    }
+    // Singular blend emits zero normals for the renderer's geometric-normal path.
+    for (auto& matrix : list.deformations[0].palette)
+    {
+        matrix = math::mat4Scale({0, 3, 4});
+    }
+    Graphics::render(list, target);
+    result = readSkinned(fixture, list.deformations[0]);
+    CHECK(result[0].normal.x == 0);
+    CHECK(result[0].normal.y == 0);
+    CHECK(result[0].normal.z == 0);
+    CHECK(std::memcmp(mesh->vertices().data(), source.data(), source.size() * sizeof(Vertex)) == 0);
+}
+
+TEST_CASE("Compute skinning keeps instances and ordered frames independent through scene and graphics replacement")
+{
+    GraphicsFixture fixture;
+    auto target = fixture.target();
+    auto material = flatMaterial({1, 0, 0, 1});
+    auto base = square(material);
+    MeshDeformationData deformation;
+    deformation.influenceSets = {std::vector<VertexJointInfluences>(4, {{0, 0, 0, 0}, {1, 0, 0, 0}})};
+    auto mesh = Mesh::create(
+        {base->vertices().begin(), base->vertices().end()},
+        {base->indices().begin(), base->indices().end()},
+        {base->subMeshes().begin(), base->subMeshes().end()},
+        deformation
+    );
+    auto skin = Skin::create({"one", {{0, math::mat4Identity()}}, {}});
+    Scene scene;
+    auto camera = scene.createCamera(scene.getRoot());
+    for (float x : {-.5f, .5f})
+    {
+        auto entity = scene.createEntity(scene.getRoot());
+        entity->setLocalPosition({100, 0, 3}); // Rest AABB must not hide visible animated geometry.
+        auto joint = scene.createEntity(scene.getRoot());
+        joint->setLocalPosition({x, 0, 3});
+        auto renderer = scene.createMeshRenderer(entity);
+        renderer->setMesh(mesh);
+        renderer->setSkin(skin, {joint});
+    }
+    auto list = buildDrawList(scene, *camera, 129.f / 97);
+    REQUIRE(list.deformations.size() == 2);
+    REQUIRE(list.items.size() == 4);
+    scene.clear(); // Snapshots contain no entity observers.
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        Graphics::render(list, target);
+    }
+    CHECK(
+        DeformationRenderer::vertices(*list.deformations[0].storage) !=
+        DeformationRenderer::vertices(*list.deformations[1].storage)
+    );
+    auto first = readSkinned(fixture, list.deformations[0]);
+    auto second = readSkinned(fixture, list.deformations[1]);
+    CHECK(std::abs(first[0].position.x + 101.f) < 1e-4f);
+    CHECK(std::abs(second[0].position.x + 100.f) < 1e-4f);
+    CHECK(fixture.pixel(target, 50, 48)[0] == 255);
+    CHECK(fixture.pixel(target, 78, 48)[0] == 255);
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        list.deformations[0].palette[0][3].x = -100.5f + .1f * frame;
+        Graphics::render(list, target); // Same allocation, changing command-ordered palette uploads without waits.
+    }
+    CHECK(std::abs(readSkinned(fixture, list.deformations[0])[0].position.x + 100.7f) < 1e-4f);
+    CHECK(readSkinned(fixture, list.deformations[1])[0].position.x == second[0].position.x);
+    list.deformations[0].palette[0][3].x = -100.5f;
+    Graphics::shutdown();
+    Graphics::initialize(fixture.device, fixture.queue);
+    Graphics::render(list, target);
+    CHECK(readSkinned(fixture, list.deformations[0])[0].position.x == first[0].position.x);
+    CHECK(fixture.pixel(target, 50, 48)[0] == 255);
+    std::weak_ptr<DeformationStorage> storage = list.deformations[0].storage;
+    Graphics::render(list, target);
+    list = {};
+    CHECK(storage.expired()); // RHI commands retain allocations, without prolonging the scene/storage owner.
+    Graphics::shutdown();
+    CHECK(fixture.pixel(target, 50, 48)[0] == 255);
 }
 
 TEST_CASE("indexed submeshes use independent uniforms and depth while pipelines follow shader identity and format")
@@ -291,6 +455,13 @@ private:
         CHECK(Game::deltaSeconds() == 0.25f);
         auto scene = std::make_unique<Scene>();
         scene->getRoot()->setLocalPosition({7, 0, 0});
+        auto child = scene->createEntity(scene->getRoot());
+        auto animator = scene->createAnimator(child);
+        AnimationTrack
+            track{0, AnimationPath::Translation, AnimationInterpolation::Linear, {0, 1}, 3, {0, 0, 0, 4, 0, 0}};
+        animator->setBindings({Animation::create({"frame-order", {track}})}, {child});
+        animator->selectAnimation(0);
+        animator->play();
         Game::setScene(std::move(scene));
         CHECK_THROWS_AS(Game::frame(0, nullptr), EngineError);
         CHECK_THROWS_AS(Game::shutdown(), EngineError);
@@ -308,6 +479,8 @@ TEST_CASE("Game updates resources then state and replacement scene without requi
     Game::frame(0.25f, nullptr);
     CHECK(state.ran);
     CHECK(Game::scene().getRoot()->worldTransform()[3].x == 7);
+    CHECK(Game::scene().getRoot()->firstChild()->worldTransform()[3].x == 8);
+    CHECK(Game::scene().animators()[0]->timeSeconds() == .25);
     CHECK_THROWS_AS(Game::frame(-1, nullptr), EngineError);
     Game::shutdown();
     CHECK_THROWS_AS(Game::scene(), EngineError);
@@ -1184,7 +1357,7 @@ TEST_CASE("PBR texture channels preserve sRGB color and linear metallic roughnes
     CHECK(pixel[2] == doctest::Approx(0.5 - 1 / std::sqrt(5.0)).epsilon(0.005));
 }
 
-TEST_CASE("Imported glTF renders independent undeformed instances with front-face culling")
+TEST_CASE("Imported glTF renders independent rest-pose instances with front-face culling")
 {
     GraphicsFixture fixture;
     auto model = Resources::loadResource<Model>("assets/models/laboratory.gltf");
@@ -1229,6 +1402,107 @@ TEST_CASE("Imported glTF renders independent undeformed instances with front-fac
     auto pipelineCount = Graphics::pipelineCreationCount();
     Graphics::render(list, target);
     CHECK(Graphics::pipelineCreationCount() == pipelineCount);
+}
+
+TEST_CASE("Animated superhero renders idle walk sprint one-shot and independent paused poses")
+{
+    GraphicsFixture fixture;
+    auto model = Resources::loadResource<Model>("assets/models/character/quaternius-superhero-male.glb");
+    auto library = Resources::loadResource<Model>("assets/models/character/quaternius-ual1-standard.glb");
+    REQUIRE_MESSAGE(model->isLoaded(), model->error());
+    REQUIRE_MESSAGE(library->isLoaded(), library->error());
+    auto scene = createCharacterFixtureScene();
+    auto instance = scene->instantiateModel(model, scene->getRoot());
+    auto animator = scene->createAnimator(instance.root.get());
+    animator->setBindings(library->data().animations, mapAnimationNodesByName(library->data(), instance));
+    auto target = fixture.target(rhi::Format::RGBA8Unorm, 960, 640);
+    auto folder = std::filesystem::path(OFG_SOURCE_DIR) / "artifacts/animation/native";
+    std::filesystem::create_directories(folder);
+    // Saves tightly packed RGB evidence and returns pixels for pose stability comparisons.
+    auto capture = [&](const std::string& name)
+    {
+        scene->update();
+        Graphics::render(buildDrawList(*scene, *scene->activeCamera(), 1.5f), target);
+        REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+        rhi::ComPtr<ISlangBlob> pixels;
+        rhi::SubresourceLayout layout{};
+        REQUIRE(SLANG_SUCCEEDED(fixture.device->readTexture(target, 0, 0, pixels.writeRef(), &layout)));
+        const auto* bytes = static_cast<const char*>(pixels->getBufferPointer());
+        std::vector<char> rgb;
+        rgb.reserve(960 * 640 * 3);
+        size_t foreground = 0;
+        for (size_t y = 0; y < 640; ++y)
+        {
+            for (size_t x = 0; x < 960; ++x)
+            {
+                auto pixel = bytes + y * layout.rowPitch + x * 4;
+                rgb.insert(rgb.end(), pixel, pixel + 3);
+                if (std::abs(int(uint8_t(pixel[0])) - int(uint8_t(bytes[0]))) > 10)
+                {
+                    ++foreground;
+                }
+            }
+        }
+        CHECK(foreground > 5000);
+        std::ofstream output(folder / (name + ".ppm"), std::ios::binary);
+        output << "P6\n960 640\n255\n";
+        output.write(rgb.data(), rgb.size());
+        CHECK(bool(output));
+        return rgb;
+    };
+    for (const auto& name : {"Idle_Loop", "Walk_Loop", "Sprint_Loop", "Punch_Cross"})
+    {
+        auto clips = animator->animations();
+        auto found = std::find_if(
+            clips.begin(),
+            clips.end(),
+            [&](const auto& clip)
+            {
+                return clip->desc().name == name;
+            }
+        );
+        REQUIRE(found != clips.end());
+        animator->selectAnimation(size_t(found - clips.begin()));
+        animator->seek(animator->durationSeconds() * .2);
+        auto first = capture(std::string(name) + "-a");
+        scene->updateAnimations(10);
+        CHECK(capture(std::string(name) + "-paused") == first);
+        animator->play();
+        scene->updateAnimations(animator->durationSeconds() * .35);
+        CHECK(capture(std::string(name) + "-b") != first);
+        animator->pause();
+    }
+    animator->setLooping(false);
+    animator->play();
+    scene->updateAnimations(100);
+    CHECK_FALSE(animator->isPlaying());
+    CHECK(animator->timeSeconds() == animator->durationSeconds());
+    capture("one-shot-ended");
+    auto second = scene->instantiateModel(model, scene->getRoot());
+    auto other = scene->createAnimator(second.root.get());
+    other->setBindings(library->data().animations, mapAnimationNodesByName(library->data(), second));
+    instance.root->setLocalPosition({-.85f, 0, 0});
+    second.root->setLocalPosition({.85f, 0, 0});
+    animator->selectAnimation(44);
+    other->selectAnimation(44);
+    animator->seek(.1);
+    other->seek(.6);
+    capture("independent-pair");
+    const double held = other->timeSeconds();
+    animator->play();
+    scene->updateAnimations(.25);
+    CHECK(other->timeSeconds() == held);
+    capture("independent-pair-advanced");
+    CharacterFixture character("assets/models/character", true);
+    auto replacement = createCharacterFixtureScene();
+    character.update(*replacement);
+    REQUIRE(character.ready());
+    CHECK(replacement->animators().size() == 2);
+    replacement = createCharacterFixtureScene();
+    CHECK_FALSE(character.ready());
+    character.update(*replacement);
+    CHECK(character.ready());
+    CHECK(replacement->animators().size() == 2);
 }
 
 TEST_CASE("ImGui renders clipped textures, alpha, large vertex offsets and linear colour with retained uploads")
@@ -1324,7 +1598,11 @@ TEST_CASE("workspace layouts preserve visibility while scene replacement clears 
     CHECK(workspace.sceneTarget() == nullptr);
     workspace.finish();
     auto saved = workspace.saveLayout();
-    CHECK(saved.starts_with("OFG-UI-1 0 1 1\n"));
+    CHECK(saved.starts_with("OFG-UI-1 0 1 1 1\n"));
+    workspace.loadLayout("OFG-UI-1 0 1 1 0\n");
+    CHECK(workspace.saveLayout().starts_with("OFG-UI-1 0 1 1 0\n"));
+    workspace.loadLayout("OFG-UI-1 0 1 1\n");
+    CHECK(workspace.saveLayout().starts_with("OFG-UI-1 0 1 1 1\n"));
     scene = createSceneFixture();
     workspace.begin(*scene, 1.f / 60);
     CHECK(workspace.selection() == nullptr);
