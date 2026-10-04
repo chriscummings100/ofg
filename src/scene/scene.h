@@ -1,5 +1,5 @@
 // Scene-owned entity hierarchy, stable allocation and local-to-world transforms.
-// Typed Camera and MeshRenderer allocations stay stable and are destroyed before entities.
+// Typed component allocations stay stable and are destroyed before entities.
 #pragma once
 
 #include "math/mat.h"
@@ -7,6 +7,8 @@
 #include "scene/entity.h"
 #include "scene/camera.h"
 #include "scene/mesh-renderer.h"
+#include "scene/animator.h"
+#include "scene/model-instance.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -50,10 +52,21 @@ public:
     Camera* createCamera(Entity* entity);
     // Creates one renderer on a live entity in this scene; duplicates/foreign entities throw.
     MeshRenderer* createMeshRenderer(Entity* entity);
+    // Creates one passive Animator on a live entity in this scene; duplicates/foreign entities throw.
+    Animator* createAnimator(Entity* entity);
+    // Stages a loaded model under a live parent, selecting explicit/default/first scene.
+    // Failure leaves existing entities/components untouched. Clips and deformation remain passive.
+    ModelInstance instantiateModel(
+        std::shared_ptr<Model> model,
+        Entity* parent,
+        std::optional<uint32_t> sceneIndex = {}
+    );
     // Returns stable camera allocations in creation order without exposing ownership mutation.
     std::span<const std::unique_ptr<Camera>> cameras() const noexcept { return m_cameras; }
     // Returns stable renderer allocations in creation order without exposing ownership mutation.
     std::span<const std::unique_ptr<MeshRenderer>> meshRenderers() const noexcept { return m_meshRenderers; }
+    // Returns stable Animator allocations without exposing ownership mutation.
+    std::span<const std::unique_ptr<Animator>> animators() const noexcept { return m_animators; }
     // Selects a camera from this scene, or null to render only the background.
     void setActiveCamera(Camera* camera);
     // Returns the selected camera, if any.
@@ -74,6 +87,7 @@ private:
     std::vector<std::unique_ptr<Entity>> m_entities;
     std::vector<std::unique_ptr<Camera>> m_cameras;
     std::vector<std::unique_ptr<MeshRenderer>> m_meshRenderers;
+    std::vector<std::unique_ptr<Animator>> m_animators;
     Ptr<Camera> m_activeCamera;
     Entity* m_root{nullptr};
     EntityId m_nextEntityId{0};

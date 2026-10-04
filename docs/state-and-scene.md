@@ -34,13 +34,48 @@ scene.clear();
 // probe.get() is now null, even though the new scene reuses entity IDs.
 ```
 
-[Component](../src/scene/component.h) observes its entity through Ptr. Scene owns typed vectors of unique Camera and MeshRenderer allocations; Entity provides borrowed typed accessors. `createCamera(entity)` and `createMeshRenderer(entity)` reject foreign entities and duplicates. Storage growth and scene moves preserve component addresses. Clear and move assignment destroy displaced components before entities, invalidating component observers. The existing standalone TestComponent remains a lifetime fixture.
+[Component](../src/scene/component.h) observes its entity through Ptr. Scene owns typed vectors of unique Camera, MeshRenderer and Animator allocations; Entity provides borrowed typed accessors. `createCamera(entity)`, `createMeshRenderer(entity)` and `createAnimator(entity)` reject null/foreign entities and duplicates. Storage growth and scene moves preserve component addresses. Clear and move assignment destroy displaced components before entities, invalidating component observers. `Entity::scene()` borrows its current owner and follows Scene moves. The existing standalone TestComponent remains a lifetime fixture.
 
 `setActiveCamera(camera)` selects a camera belonging to the scene; null deselects it. Selection uses Ptr and survives scene moves. Camera defaults to a 60-degree vertical FOV, near 0.1 and far 1000 scene units. `setPerspective` validates radians/distances, and the viewport supplies aspect ratio. Draw extraction inverts the full camera world matrix and rejects a singular view.
 
 MeshRenderer retains a shared Mesh and nullable overrides. `material(index)` resolves an override or mesh default. `makeMaterialUnique(index)` explicitly clones and installs the effective material. Assigning the same mesh preserves overrides; changing/clearing the mesh resets them. Invalid slots throw. See [resources](resources.md) for geometry, uniforms and GPU readiness.
 
 `buildDrawList(scene, camera, aspectRatio)` rejects foreign cameras and conservatively culls whole-mesh bounds in homogeneous clip space. Entries retain assets and copy world matrices; they contain no scene pointers. The current [Game frame driver](../src/game.h) updates Resources, root State and the selected Scene, then extracts/renders. No generic ECS registry or component update lifecycle is introduced.
+
+## Deformation and animation bindings
+
+MeshRenderer retains an optional shared Skin, a `Ptr<Entity>` palette in Skin joint order, and instance morph weights.
+`setSkin(skin, joints)` requires a ready Skin, a Mesh with influence sets, one unique live same-scene entity per joint
+and palette indices within range (including zero-weight indices). Every skinned vertex must have positive total
+joint weight; the setter does not normalize weights. `setSkin(nullptr, {})` clears the binding. Skin source-node
+numbers and runtime EntityIds are not interchangeable: resolve source nodes into this instance's palette first.
+
+`setMorphWeights(weights)` requires a Mesh, one finite value per target and permits extrapolation outside [0,1].
+Invalid assignments leave the old state intact. Changing the Mesh clears Skin/joint bindings and material overrides
+and copies the new Mesh defaults; setting the same Mesh preserves all instance state. Clearing Mesh clears its weights.
+These setters do not change geometry, bounds or rendering yet.
+
+Animator is a passive scene-owned component attached to the synthetic root of an instantiated Model. Use
+`Scene::createAnimator(root)` and `Animator::setBindings(clips, nodes)`. Clips are shared Animation resources; the
+source-indexed node map contains observed distinct entities within that root's subtree, including the root itself
+when needed. Null entries intentionally represent nodes outside the selected model scene. All clip targets must fit
+the mapping, and mapped weight tracks must match a MeshRenderer's morph count. The caller must provide clips and
+bindings from the same source-node domain; this API does not infer names or retarget clips. Assignment validates
+before replacing either vector. `setBindings({}, {})` clears the component.
+
+```cpp
+auto animator = scene.createAnimator(instanceRoot);
+// Indices correspond to the Animation's source nodes, not runtime entity IDs.
+animator->setBindings({clip}, {nullptr, jointA, jointB});
+renderer->setSkin(skin, {jointB, jointA}); // Separately resolved Skin palette order.
+renderer->setMorphWeights({0.25f, -0.5f});
+```
+
+Animations can affect ordinary nodes, joints or morph weights, so Animator belongs to the whole instance rather than
+one renderer. Scene::update does not evaluate tracks or modify weights. Later mesh changes can invalidate a previously
+configured morph track; callers must rebind compatible clips when changing such assets. No playback contract is
+implied yet. Scene clear/destruction releases assets and invalidates observers. Scene moves preserve bindings and
+rebind `Entity::scene()` to the destination owner.
 
 ## Provenance and deliberate adaptations
 
@@ -51,3 +86,35 @@ State behavior and Object/Ptr ownership are preserved. Adaptations are repositor
 ## Verification
 
 Use the `cpu-tests` configure/build/test presets after the native compiler environment setup in [DEVELOPING.md](../DEVELOPING.md). This path needs no RHI checkout, downloads, window or GPU. The native-debug preset also runs the core suite alongside startup, checkerboard and scene-rendering checks. Numerical tests retain their explicit doctest tolerances; lifetime and state assertions are exact. Coverage acceptance is behavioral for this import, with no measured percentage claimed. Browser support is checked by compiling the same core with Emscripten; the full C++ test suite remains native.
+
+## Model instantiation
+
+```cpp
+#include "resources/model.h"
+#include "resources/resources.h"
+#include "scene/scene.h"
+
+auto model = Resources::loadResourceAsync<Model>("assets/models/laboratory.gltf");
+ModelInstance instance;
+// The host keeps pumping Resources::update(), normally through Game::frame().
+if (model->isLoaded() && !instance.root)
+{
+    instance = scene.instantiateModel(model, scene.getRoot());
+    instance.root->setLocalPosition({10, 0, 0});
+    // instance.nodes[sourceNodeIndex] observes this instance's node, or is null outside its scene.
+}
+```
+
+`Scene::instantiateModel(model, parent, optionalSceneIndex)` selects the explicit scene, declared default, or scene
+zero. A Model without scenes remains inspectable but cannot instantiate. Parent must be a live entity in the target
+Scene. Instantiation stages a synthetic root, every entity, renderer, morph override, joint palette and optional
+root Animator in a temporary Scene. Only after successful validation and destination reservation does it transfer
+stable allocations, reassign IDs/owners and attach the root. Failure leaves the existing scene hierarchy and
+components unchanged. Model node names remain in ModelData; Entity has no name field.
+
+`ModelInstance` retains the Model and observes the synthetic root, optional Animator and source-indexed node map.
+Discarding it does not remove the scene objects. MeshRenderers retain their own shared assets; Animator retains all
+clips and a separate node map, with null entries outside the selected scene. It is created only if at least one clip
+targets an included node. Two instances share resources and have independent entities, joint palettes and morph
+weights. Scene moves rebind owners; clear/destruction invalidates all instance observers. Rendering remains an
+**undeformed preview**: no skinning, morph deformation or animation evaluation is implied.

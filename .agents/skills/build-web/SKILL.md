@@ -38,3 +38,7 @@ The default URL renders the PBR sphere grid. `?demo=scene` selects texture cubes
 Scene uploads and uniform staging maps yield through Asyncify. Its allowlist must cover OFG/RHI frames and Emscripten dynCall callback thunks. Canvas textures cannot survive those yields: render into host-owned storage, then acquire and draw a resource-only image-load pass to the canvas without yielding. The smoke test rejects validation warnings as well as errors, allowing only the known power-preference warning.
 
 For PBR changes, inspect `artifacts/pbr/browser/report.json` and overview/close-up/normal screenshots. Slang WGSL derives input locations from numeric semantic indices, and derivative calls must remain in uniform control flow. The focused `node tools/pbr-shader-check.mjs` validates those constraints with the native pinned compiler and actual browser shader diagnostics before a full WASM link. It supplements the runtime smoke; it cannot replace it.
+
+Model loading is available at `?demo=model&asset=assets/models/laboratory.gltf` (or laboratory.glb).
+`node tools/model-smoke.mjs` checks both formats, embedded images, held dependency responses and cancellation, saving
+artifacts/models/browser. Reconfigure to copy regenerated assets before running it.

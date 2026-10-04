@@ -21,6 +21,11 @@ Scene uniquely owns stable Entity, Camera and MeshRenderer allocations. Entity o
 
 DrawList construction conservatively tests the eight mesh-bound corners against the six homogeneous clip planes. It emits one entry per visible submesh in creation order with shared Mesh/Material, submesh index and a copied world matrix. A list survives scene clear; materials must not change between extraction and submission. Graphics classifies PBR queues and sorts transparent object origins back-to-front. There is no spatial index or batching.
 
+The glTF resource foundation adds scene-owned passive Animator components, shared Skin and Animation resources,
+Mesh-owned CPU influence/morph arrays and instance-specific MeshRenderer skin palettes/morph weights. These data
+and bindings do not alter the draw format or evaluate deformation. The [glTF plan](plans/gltf-model-loading.md)
+records file import, hierarchy instantiation and portability validation.
+
 ## CPU and GPU boundaries
 
 `ofg-core` owns math, observers, State, Scene/components, resource descriptions and draw extraction. It builds and tests without RHI. `ofg-render` owns Graphics, Game, the fixture, and checkerboard rendering, and links both core and RHI. Mesh, Shader, Texture and Sampler privately own forward-declared graphics data; their public headers contain no RHI types.
@@ -51,7 +56,7 @@ Shader sources are embedded by CMake; launch does not depend on the working dire
 
 CPU tests establish scene/resource/culling contracts. Native offscreen tests establish indexed draws, depth, independent uniforms, scalar/vector/matrix binding, reflected errors, pipeline reuse/separation and release after submission. Native window evidence covers presentation, resize, minimize/restore and normal close. Browser smoke covers scene structure, tint/checker regions, resize/reload, original checkerboard and missing-WebGPU messaging. Evidence and current results are recorded in the plan and DEVELOPING.md.
 
-Scene values are floats near the origin. There is one selected perspective camera and no individual entity/component removal or reparenting. Model import, ImGui, compute, terrain, streaming, large-world coordinates and custom update components are future work. Lighting and an explicit PBR forward pass sequence are implemented; there is no general render graph. PNG/JPEG material textures and internal GPU mip passes are implemented. No performance or long-running residency claim is made. Emscripten's existing Asyncify/WASM-exception warning remains a portability limitation beyond exercised paths.
+Scene values are floats near the origin. There is one selected perspective camera and no individual entity/component removal or reparenting. ImGui, compute, terrain, streaming, large-world coordinates and custom update components are future work. Lighting and an explicit PBR forward pass sequence are implemented; there is no general render graph. PNG/JPEG material textures and internal GPU mip passes are implemented. No performance or long-running residency claim is made. Emscripten's existing Asyncify/WASM-exception warning remains a portability limitation beyond exercised paths.
 
 The [Khronos PBR source guide](research/khronos-pbr-reference.md) maps the downloaded reference renderer and its shader dependencies. The [PBR integration plan](plans/pbr-rendering.md) records the implementation and validation. Transmission/scattering remain deferred.
 
@@ -70,4 +75,13 @@ baked Environment resources, PBR material construction and extended mesh attribu
 ownership and weak program/resource caches, with HDR opaque lighting, output mapping, unlit/sorted-alpha composition
 and a final transfer pass. The browser still acquires the canvas only after host-owned rendering is complete. Numerical
 semantic indices keep the PBR vertex ABI consistent with the pinned RHI WebGPU layout. Texture/diagnostic paths remain
-available. Transmission/scattering and glTF import are separate follow-ups; this does not establish general glTF conformance.
+available. Transmission/scattering remain follow-ups; the model importer below does not establish general glTF conformance.
+
+## Imported model boundary
+
+Model is now an ofg-core Resource with cooperative document/dependency loading, private tinygltf parsing, immutable
+hierarchy records and shared ready child assets. Scene::instantiateModel stages allocations before attachment and
+binds Skin/Animation source node indices to each instance. The shared laboratory supports native --model and browser
+?demo=model without changing default PBR behavior. See [resource loading](resources.md#gltf-model-loading) and
+[instantiation](state-and-scene.md#model-instantiation). Skin, morph data and clips are loaded but rendering is
+undeformed; animation evaluation and GPU deformation remain separate work.

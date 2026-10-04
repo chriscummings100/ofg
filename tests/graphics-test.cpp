@@ -6,6 +6,7 @@
 #include "render/present.h"
 #include "lab/scene-fixture.h"
 #include "lab/pbr-fixture.h"
+#include "lab/model-fixture.h"
 #include "lab/sphere.h"
 #include "resources/pbr-material.h"
 #include "game.h"
@@ -1179,4 +1180,51 @@ TEST_CASE("PBR texture channels preserve sRGB color and linear metallic roughnes
     pixel = floatPixel(fixture, target);
     CHECK(pixel[0] == doctest::Approx(0.5 + 0.5 / std::sqrt(5.0)).epsilon(0.002));
     CHECK(pixel[2] == doctest::Approx(0.5 - 1 / std::sqrt(5.0)).epsilon(0.005));
+}
+
+TEST_CASE("Imported glTF renders independent undeformed instances with front-face culling")
+{
+    GraphicsFixture fixture;
+    auto model = Resources::loadResource<Model>("assets/models/laboratory.gltf");
+    REQUIRE_MESSAGE(model->isLoaded(), model->error());
+    auto scene = createModelFixtureScene();
+    auto a = scene->instantiateModel(model, scene->getRoot());
+    auto b = scene->instantiateModel(model, scene->getRoot());
+    a.root->setLocalPosition({0, .8f, 0});
+    b.root->setLocalPosition({0, -.8f, 0});
+    scene->update();
+    auto list = buildDrawList(*scene, *scene->activeCamera(), 1.5f);
+    REQUIRE(list.items.size() == 4);
+    auto target = fixture.target(rhi::Format::RGBA8Unorm, 960, 640);
+    Graphics::render(list, target);
+    REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+    rhi::ComPtr<ISlangBlob> pixels;
+    rhi::SubresourceLayout layout{};
+    REQUIRE(SLANG_SUCCEEDED(fixture.device->readTexture(target, 0, 0, pixels.writeRef(), &layout)));
+    auto folder = std::filesystem::path(OFG_SOURCE_DIR) / "artifacts/models/native";
+    std::filesystem::create_directories(folder);
+    std::ofstream output(folder / "instances.ppm", std::ios::binary);
+    output << "P6\n960 640\n255\n";
+    size_t foreground[4]{};
+    const auto* bytes = static_cast<const unsigned char*>(pixels->getBufferPointer());
+    for (size_t y = 0; y < 640; ++y)
+    {
+        for (size_t x = 0; x < 960; ++x)
+        {
+            const auto* pixel = bytes + y * layout.rowPitch + x * 4;
+            output.write(reinterpret_cast<const char*>(pixel), 3);
+            if (std::abs(int(pixel[0]) - int(bytes[0])) > 5 || std::abs(int(pixel[2]) - int(bytes[2])) > 5)
+            {
+                ++foreground[(y >= 320 ? 2 : 0) + (x >= 480 ? 1 : 0)];
+            }
+        }
+    }
+    CHECK(bool(output));
+    for (auto count : foreground)
+    {
+        CHECK(count > 1000);
+    }
+    auto pipelineCount = Graphics::pipelineCreationCount();
+    Graphics::render(list, target);
+    CHECK(Graphics::pipelineCreationCount() == pipelineCount);
 }

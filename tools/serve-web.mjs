@@ -19,6 +19,9 @@ export async function startWebServer(port = 8080) {
     // Explicit asset allowlist keeps requests inside the packaged build directory.
     files['/assets/checker.png'] = ['assets/checker.png', 'image/png'];
     files['/assets/checker.jpg'] = ['assets/checker.jpg', 'image/jpeg'];
+    for (const extension of ['gltf', 'glb', 'bin']) {
+        files['/assets/models/laboratory.' + extension] = ['assets/models/laboratory.' + extension, extension === 'gltf' ? 'model/gltf+json' : 'application/octet-stream'];
+    }
     const server = createServer(async (request, response) => {
         const entry = files[new URL(request.url, 'http://localhost').pathname];
         if (!entry || !['GET', 'HEAD'].includes(request.method)) {

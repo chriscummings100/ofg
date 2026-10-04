@@ -29,6 +29,16 @@ configure_file(src/lab/pbr-environment.h.in generated/pbr-environment.h @ONLY)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS assets/pbr-studio.bin)
 
 add_library(ofg-core STATIC
+    src/resources/model.cpp
+    src/resources/gltf-accessor.cpp
+    src/resources/gltf-transform.cpp
+    src/resources/gltf-material.cpp
+    src/resources/gltf-mesh.cpp
+    src/resources/gltf-import.cpp
+    src/scene/model-instance.cpp
+    src/resources/skin.cpp
+    src/resources/animation.cpp
+    src/scene/animator.cpp
     src/resources/pbr-material.cpp
     src/resources/environment.cpp
     src/lab/fly-camera.cpp
@@ -55,13 +65,15 @@ add_library(ofg-core STATIC
 )
 target_compile_features(ofg-core PUBLIC cxx_std_20)
 target_include_directories(ofg-core PUBLIC src PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
-target_include_directories(ofg-core SYSTEM PRIVATE external/stb)
+target_include_directories(ofg-core SYSTEM PRIVATE external/stb external/tinygltf)
 
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS assets/checker.png assets/checker.jpg assets/README.md)
 file(COPY assets DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_executable(ofg-core-test
+        tests/gltf-test.cpp
+        tests/model-resources-test.cpp
         tests/pbr-core-test.cpp
         tests/texture-test.cpp
         tests/core-test-main.cpp
@@ -73,6 +85,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         tests/state-machine-test.cpp
     )
     target_link_libraries(ofg-core-test PRIVATE ofg-core doctest)
+    target_include_directories(ofg-core-test SYSTEM PRIVATE external/tinygltf)
     add_test(NAME ofg-core COMMAND ofg-core-test)
     set_tests_properties(ofg-core PROPERTIES LABELS "cpu" TIMEOUT 30)
 endif()
@@ -105,7 +118,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/pbr/outpu
 configure_file(src/render/pbr-output-shader.h.in generated/pbr-output-shader.h @ONLY)
 
 add_library(ofg-render STATIC src/render/texture-renderer.cpp src/checkerboard.cpp src/render/graphics.cpp src/render/present.cpp src/game.cpp src/lab/scene-fixture.cpp)
-target_sources(ofg-render PRIVATE src/lab/pbr-fixture.cpp)
+target_sources(ofg-render PRIVATE src/lab/pbr-fixture.cpp src/lab/model-fixture.cpp)
 target_compile_features(ofg-render PUBLIC cxx_std_20)
 target_include_directories(ofg-render PUBLIC src PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(ofg-render PUBLIC slang-rhi ofg-core)

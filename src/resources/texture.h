@@ -51,7 +51,7 @@ size_t texturePixelSize(TextureFormat format);
 class Texture;
 class TextureRenderer;
 struct TextureGpuData;
-struct TextureLoad;
+struct AssetRead;
 class TextureView
 {
 public:
@@ -96,7 +96,7 @@ private:
     void setPixels(TextureDesc desc, TextureData data);
     TextureDesc m_desc{};
     std::vector<std::byte> m_pixels;
-    std::unique_ptr<TextureLoad> m_load;
+    std::unique_ptr<AssetRead> m_load;
     std::shared_ptr<TextureGpuData> m_gpu;
 };
 } // namespace ofg

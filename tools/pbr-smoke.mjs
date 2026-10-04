@@ -32,7 +32,9 @@ function inspect(buffer) {
 }
 // Waits for several submitted frames, then saves the actual canvas.
 async function capture(page,name) {
-    await page.waitForFunction(()=>Module.failed || Module.textureFrames>=3,null,{timeout:120000});
+    // Resizing clears the canvas before Asyncify finishes the replacement frame; lifetime totals are insufficient.
+    const before=await page.evaluate(()=>Module.frameCount);
+    await page.waitForFunction(n=>Module.failed || (Module.textureFrames>=3 && Module.frameCount>=n+3),before,{timeout:120000});
     assert.equal(await page.evaluate(()=>Module.failed),false);
     const bytes=await page.locator('#canvas').screenshot({path:`${artifacts}/${name}.png`});
     report.captures.push({name,...inspect(bytes)});return bytes;

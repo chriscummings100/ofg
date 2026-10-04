@@ -17,6 +17,7 @@ Scene::Scene(Scene&& other) noexcept
     , m_entities(std::move(other.m_entities))
     , m_cameras(std::move(other.m_cameras))
     , m_meshRenderers(std::move(other.m_meshRenderers))
+    , m_animators(std::move(other.m_animators))
     , m_activeCamera(std::move(other.m_activeCamera))
     , m_root(other.m_root)
     , m_nextEntityId(other.m_nextEntityId)
@@ -34,12 +35,14 @@ Scene& Scene::operator=(Scene&& other) noexcept
         return *this;
     }
     m_activeCamera.reset();
+    m_animators.clear();
     m_meshRenderers.clear();
     m_cameras.clear();
     lighting = std::move(other.lighting);
     m_entities = std::move(other.m_entities);
     m_cameras = std::move(other.m_cameras);
     m_meshRenderers = std::move(other.m_meshRenderers);
+    m_animators = std::move(other.m_animators);
     m_activeCamera = std::move(other.m_activeCamera);
     m_root = other.m_root;
     m_nextEntityId = other.m_nextEntityId;
@@ -107,6 +110,7 @@ void Scene::clear()
 {
     lighting = {};
     m_activeCamera.reset();
+    m_animators.clear();
     m_meshRenderers.clear();
     m_cameras.clear();
     m_entities.clear();
@@ -176,6 +180,17 @@ MeshRenderer* Scene::createMeshRenderer(Entity* entity)
     m_meshRenderers.push_back(std::unique_ptr<MeshRenderer>(new MeshRenderer(entity)));
     entity->m_meshRenderer = m_meshRenderers.back().get();
     return entity->m_meshRenderer;
+}
+
+Animator* Scene::createAnimator(Entity* entity)
+{
+    if (!containsCurrentEntity(entity) || entity->m_animator)
+    {
+        throw EngineError("Animator requires an entity from this scene without an Animator.");
+    }
+    m_animators.push_back(std::unique_ptr<Animator>(new Animator(entity)));
+    entity->m_animator = m_animators.back().get();
+    return entity->m_animator;
 }
 
 void Scene::setActiveCamera(Camera* camera)

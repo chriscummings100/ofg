@@ -51,7 +51,7 @@ Draw extraction skips pending dependencies and reports failed ones. DrawLists re
 
 `Texture::create(TextureDesc, TextureData)` copies base pixels with an explicit format and optional padded row pitch (zero means tightly packed). Supported formats are R8/RG8/RGBA8 UNORM, RGBA8 sRGB, R16/RG16/RGBA16 float and R32/RG32/RGBA32 float. Bytes are in the declared format; fp16 uses IEEE binary16 bits and fp32 uses binary32. No implicit format conversion occurs. Rows are top-to-bottom: UV (0,0) addresses the top-left image boundary. Shader loads of R/RG textures use the API's absent-component defaults; use the desired channels explicitly in the shader.
 
-`TextureMipmaps::None` is the procedural default. `Generate` allocates the full chain down to 1x1 on first rendering use and generates it with GPU render passes. Only base pixels are retained on CPU. Loaded metadata is available through `desc()` and `mipCount()`; querying a pending/failed texture throws. Samplers are immutable `Sampler::create(SamplerDesc)` resources, defaulting to linear min/mag/mip filtering and repeat U/V addressing. Nearest and clamp-to-edge are also supported.
+`TextureMipmaps::None` is the procedural default. `Generate` allocates the full chain down to 1x1 on first rendering use and generates it with GPU render passes. Only base pixels are retained on CPU. Loaded metadata is available through `desc()` and `mipCount()`; querying a pending/failed texture throws. Samplers are immutable `Sampler::create(SamplerDesc)` resources, defaulting to linear min/mag/mip filtering and repeat U/V addressing. Nearest, clamp-to-edge and mirrored-repeat are also supported; useMipmaps=false clamps to level zero.
 
 ```cpp
 auto texture = Resources::loadResourceAsync<Texture>(assetPath);
@@ -80,6 +80,41 @@ Browser fp32 use requires `float32-filterable` because the pinned RHI declares f
 
 Shutdown invalidates surviving texture/view/sampler GPU handles. Reinitialization uploads retained base bytes and regenerates mips. Native tests release the final CPU owners after submission and verify readback; RHI/backend command ownership supplies in-flight retention. Public writable textures, compute-write bindings, cubemaps, arrays, compression, blending and specialized normal/height reduction remain outside this slice.
 
+## Deformation resources (data and bindings only)
+
+`Skin::create(SkinDesc)` and `Animation::create(AnimationDesc)` create ready, uncached resources with empty keys, like
+Mesh and Material. Neither supports keyed file loading yet. They own data independently of a Model or Scene, contain
+no GPU state and never retain live entities. The [glTF plan](plans/gltf-model-loading.md) tracks the importer and
+instantiation work that populates them.
+
+Skin stores a named, nonempty palette of unique source node indices and finite affine inverse bind matrices, plus an
+optional source skeleton-root index. SkinJoint defaults its inverse bind matrix to identity. Source indices belong
+to a model-local node table, not a Scene's EntityId domain. Palette indices in Mesh influences address the Skin's
+ordered joints. Model import validates cross-resource hierarchy and scene membership before publication.
+
+Animation stores named translation, quaternion rotation, scale or morph-weight tracks with STEP, LINEAR or
+CUBICSPLINE interpolation. Times are finite, nonnegative and strictly increasing per track. Duration is the largest
+final key time; initial key times are not shifted to zero. Each key contains three translation/scale components,
+four XYZW rotation components or one component per morph target. Cubic keys store incoming derivative, value and
+outgoing derivative groups and require at least two keys. Outputs and derivatives must be finite; zero quaternion
+values are rejected. The factory preserves values, signs and tangent magnitudes without normalization or resampling.
+The caller supplies semantically valid rotation keys; the factory does not enforce a unit-length tolerance.
+Node/property targets must be unique within a clip. Playback, blending and retargeting are not implemented.
+
+`Mesh::create(vertices, indices, subMeshes, deformation)` accepts optional `MeshDeformationData` without changing the
+GPU Vertex layout. It owns all vertex-aligned joint influence sets and morph position/normal/tangent deltas. Each
+influence set contains four palette indices and four finite weights in [0,1]; all sets are retained. Individual sets
+may contain zeros, and normalization across sets is not changed by the factory. An empty morph attribute expands
+to a zero delta for each vertex. Empty default morph weights expand to one zero per target; supplied defaults must
+match the target count and be finite. Morph weights may be negative or above one to extrapolate deltas. Bounds and
+rendered geometry still describe the undeformed vertices.
+
+MeshRenderer retains a shared Skin and observes an instance joint palette; its morph weights copy Mesh defaults and
+can then change independently. Animator retains shared Animation resources and observes instance entities through
+source-indexed bindings. See [scene contracts](state-and-scene.md#deformation-and-animation-bindings) for assignment,
+ownership and failure behavior. These components are passive: no skinning, morph evaluation or animation playback
+occurs yet.
+
 ## PBR resources
 
 See [PBR contracts](pbr.md) for typed material construction, surface slots/UV transforms, render classification and
@@ -88,3 +123,52 @@ color; zero tangent W selects derivative evaluation. `Environment::fromBytes` cr
 and validates its entire cube/LUT payload before publication. `Scene::lighting` and extracted `DrawList` retain shared
 environment ownership. Graphics uploads cube faces/mips privately, tracks allocations weakly for shutdown, and lets RHI
 retain submitted references. This synchronous embedded bake path does not add an asynchronous environment-file loader.
+
+## glTF Model loading
+
+`Resources::loadResourceAsync<Model>(path)` loads glTF 2.0 JSON or GLB using pinned tinygltf v2.9.6
+(`26422192e2908a562b641175dde18489824e609e`). The implementation and matching JSON header are private to ofg-core;
+see `external/tinygltf/README.md` for provenance. No RHI/device is needed to import a model.
+
+The scheduler reads the document, discovers and deduplicates relative dependencies, then reads them one at a time.
+Native reads advance by at most 256 KiB per update. Browser fetch callbacks only record completion. Tinygltf sees
+prepared memory through read-only callbacks and never opens files itself. URI paths support percent escapes and
+parent directories; absolute dependency paths/URLs are rejected. Native roots are UTF-8 filesystem paths; browser
+roots resolve as URLs against the page. PNG/JPEG data URIs and GLB bufferView images use the same bounded decoder
+as Texture. Color-role textures use sRGB, data roles use linear RGBA8; variants share source images and samplers.
+
+Limits are 64 MiB per encoded input, 256 MiB aggregate encoded files/buffer declarations, and 512 MiB accounted
+converted payload. These exclude parser scratch, allocator overhead, generated shader programs and GPU residency.
+Parsing/decoding/conversion can still occupy one application-thread update; this is cooperative I/O, not a hard
+frame-time or total process-memory guarantee. Hierarchies deeper than 256 nodes are rejected to bound scene recursion.
+
+`Model::data()` throws until the entire import succeeds. Failure releases pending/intermediate state and preserves
+an error containing the Model key and dependency URI when applicable. Dropping the last owner cancels I/O. Releasing
+a failed Model permits retry through the usual weak lookup. A Model owns ready, uncached child resources:
+
+- `nodes`, `scenes`, `meshes`, `skins` and `animations` retain source indices; nodes retain names and local TRS.
+- `materials` and `samplers` retain source indices with one appended shared default entry.
+- `textures` lists created image/color-role variants, rather than glTF texture indices.
+- Nodes retain optional mesh/skin indices and morph-weight overrides. All animation clips are imported, including
+  clips whose targets are outside the selected scene. No resource retains live entities or a parent Model.
+
+The importer handles indexed/nonindexed triangles, strips and fans, checked strided/normalized/sparse accessors,
+UV0/UV1, colors and tangents. Each source mesh becomes one Mesh with a submesh per primitive. It preserves all paired,
+consecutive JOINTS/WEIGHTS sets and dense morph position/normal/tangent deltas. Joint weights close to one (absolute
+sum tolerance 0.02) are normalized across retained sets; influences are not pruned. Missing normals/tangents use the
+existing renderer fallback. Material-selected UV streams must exist. Point/line topology and shear are rejected.
+
+Coordinate conversion reflects Z with C=diag(1,1,-1,1). Matrices use C*M*C; XYZW quaternions become (-x,-y,z,w),
+tangent W and triangle winding flip, UV/image rows stay unchanged. Animation derivatives receive the same linear
+conversion without normalization. Matrix nodes decompose to TRS, including negative/zero scale, with recomposition
+tolerance 1e-5 times max(1, largest absolute matrix element).
+
+Materials map core metallic/roughness and the existing unlit, emissive-strength, IOR, specular, clearcoat, sheen,
+iridescence and anisotropy extensions, including per-slot KHR_texture_transform. Unknown required extensions fail;
+unknown optional extensions warn and require a usable core fallback. Mirrored-repeat wrapping is supported.
+`SamplerDesc::useMipmaps=false` clamps sampling to level zero for glTF non-mip minification filters. The existing
+12 surface-texture limit remains. Compression, KTX2, transmission, material variants and animation pointers are not
+supported. Camera/light nodes retain their transforms but omit those components with warnings.
+
+These are targeted import contracts, not full glTF validator conformance. The normative reference is the
+[Khronos glTF 2.0 specification](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html).

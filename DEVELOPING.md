@@ -76,6 +76,27 @@ This separate `build/cpu-tests` tree sets `OFG_BUILD_APP=OFF`. It builds only `o
 
 See [state and scene contracts](docs/state-and-scene.md) and [resource loading](docs/resources.md) for usage, ownership, provenance and limits. Core tests are native; browser smoke remains focused on rendering. The initial state/scene import passed 40 cases and 826 assertions, including all 16 legacy state and 11 math cases, on 2026-10-01. The resource foundation expands that suite to 48 cases and 878 assertions, all passing on the same date. No numerical coverage percentage has been measured or required for this import; behavioral acceptance is recorded in its [plan](docs/archived/import-state-and-scene.md).
 
+## glTF resource foundation checks
+
+The first [glTF milestone](docs/plans/gltf-model-loading.md) established Skin/Animation resources, Mesh deformation
+data, MeshRenderer instance bindings and passive Animators. That milestone preceded file import and instantiation;
+the Model laboratory section below describes their current implementation. Playback and deformation remain future work. Run the CPU presets above; to isolate the new contracts after building:
+
+```powershell
+.\build\cpu-tests\ofg-core-test.exe --source-file="*model-resources-test.cpp" --no-colors
+```
+
+Verified on 2026-10-04 in the `gltf-model-loading` worktree: CPU configure/build/CTest pass, with 77 cases and 1807
+assertions in the full suite. The focused file contributes 12 cases and 196 assertions covering factory validation,
+independent instance bindings, failure atomicity, passive updates, resource retention, and scene growth/moves/clear.
+The native-debug configure/build and all four CTest targets also pass. No new draw layout or deformation shader is
+introduced. Focused output is saved as `artifacts/models/resource-tests.txt`; the plan records portability evidence.
+
+The web configure/build, `npm.cmd run smoke:web` and `node tools/pbr-smoke.mjs` also pass in this worktree, in Chrome
+154.0.8037.95. Both browser reports have no recorded errors. The existing Asyncify/WASM-exception build warning and
+Windows powerPreference browser warning remain. Native offscreen and browser PBR overview captures were inspected;
+these are regression evidence for existing rendering, not a demonstration of glTF import or animation.
+
 ## Formatting
 
 Use the checked-in `.clang-format`. The verified formatter is clang-format 22.1.3 from the Visual Studio C++ Clang tools. After the discovery block above, check the current source with:
@@ -207,3 +228,30 @@ not GPU-only frame times or an FPS promise.
 
 
 PBR verified on 2026-10-03: CPU-only 65 cases/1611 assertions; all four native CTest targets pass, including 19 scene/PBR/texture cases/1009 assertions and the 22-assertion checkerboard test. Web build, shader validation, PBR smoke and the retained texture smoke pass. Native captures cover overview/close-up, fly/reset, resize, minimize/restore and Escape close. Browser captures cover the same inspection poses, pointer lock, focus-loss clearing, debug normals, resize/reload and maximum bindings. See [the PBR plan](docs/plans/pbr-rendering.md#artifacts-and-notes) for named hardware, timings, payload sizes and the remaining reference-parity/residency validation gaps.
+
+## Model laboratory
+
+After a native build, run `build/native/ofg.exe --model assets/models/laboratory.gltf` from the repository root
+(or pass an absolute model path from any directory). Relative model paths are relative to the launch directory;
+dependencies are relative to the model. The default PBR mode is unchanged. Browser mode is
+`?demo=model&asset=assets/models/laboratory.gltf`, or use `assets/models/laboratory.glb` for the embedded-image fixture.
+The initial camera is at (0,0,-5). Fly controls match PBR; R and F restore that model pose. Models are imported at their
+authored scale and origin, without automatic framing. The window title/browser header and console report readiness,
+resource counts and the undeformed-preview limitation. Parser warnings are reported in the console.
+
+`node tools/generate-model-fixture.mjs` reproducibly writes the original cube glTF, buffer and GLB. It uses the existing
+OFG checker PNG. CMake configure copies assets to each build directory. `node tools/model-smoke.mjs` runs the browser
+model check after a web build: external glTF, GLB embedded PNG, resize, frames during a held dependency response, and
+cancellation without late publication. It saves screenshots and diagnostics under `artifacts/models/browser`.
+Native `ofg-scene-rendering` includes imported-model culling and multiple-instance rendering and saves
+`artifacts/models/native/instances.ppm`. CPU cases are in `tests/gltf-test.cpp` and `tests/model-resources-test.cpp`.
+
+Model import/instantiation verified on 2026-10-04 in the same worktree: CPU suite 90 cases / 2115 assertions,
+including 13 importer cases / 308 assertions; native-debug build and all four CTest targets pass. The native model
+window loads GLB from a foreign working directory, resizes, minimizes/restores and closes cleanly. Inspected captures
+and command output are under artifacts/models/native. Broader external asset coverage remains tracked in the plan.
+
+The final web configure/build and model, texture/checkerboard and PBR smoke scripts pass in Chrome 154.0.8037.95.
+Model smoke also checks malformed-model error reporting without partial publication. Capture helpers wait for fresh
+submitted frames after resizing, avoiding a cleared-canvas screenshot race without weakening image checks.
+Reports/captures are under artifacts/models/browser, artifacts/textures/browser and artifacts/pbr/browser.

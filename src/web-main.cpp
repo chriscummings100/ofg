@@ -8,6 +8,7 @@
 #include "render/present.h"
 #include "lab/scene-fixture.h"
 #include "lab/pbr-fixture.h"
+#include "lab/model-fixture.h"
 #include "lab/fly-camera.h"
 
 #include <emscripten.h>
@@ -29,6 +30,7 @@ struct BrowserApp
     std::shared_ptr<ofg::Texture> texture;
     double previousTime{0};
     bool pbr = false;
+    std::unique_ptr<ofg::ModelFixture> model;
     ofg::FlyCamera camera;
     // Releases application and graphics state when the callback stops; browser owns submitted GPU work.
     ~BrowserApp()
@@ -72,8 +74,15 @@ static Result initializeBrowser(BrowserApp& app)
         const bool fp32 = formats.supports(ofg::TextureFormat::RGBA32Float);
         EM_ASM({ Module.fp32Supported = Boolean($0); }, fp32);
         app.pbr = EM_ASM_INT({ return Module.pbr ? 1 : 0; });
-        if (app.pbr)
+        if (EM_ASM_INT({ return Module.model ? 1 : 0; }))
+        {
+            ofg::Game::initialize(ofg::createModelFixtureScene());
+            app.model = std::make_unique<ofg::ModelFixture>(emscripten_run_script_string("Module.modelPath"));
+        }
+        else if (app.pbr)
+        {
             ofg::Game::initialize(ofg::createPbrFixture(EM_ASM_INT({ return Module.maximumLayout ? 1 : 0; })));
+        }
         else
         {
             const int floatBits = EM_ASM_INT({ return Module.floatBits; });
@@ -154,7 +163,22 @@ static Result drawBrowserFrame(BrowserApp& app)
                 Module.textureCancelled = true;
             });
         }
-        if (app.pbr)
+        if (app.model && EM_ASM_INT({ return Module.cancelModel ? 1 : 0; }))
+        {
+            app.model.reset();
+            ofg::Game::setScene(ofg::createModelFixtureScene());
+            EM_ASM({
+                Module.cancelModel = false;
+                Module.modelCancelled = true;
+            });
+        }
+        if (app.model)
+        {
+            app.model->update(ofg::Game::scene());
+            const auto& status = app.model->status();
+            EM_ASM({ Module.modelStatus = UTF8ToString($0); }, status.c_str());
+        }
+        if (app.pbr || app.model)
         {
             float values[8]{};
             EM_ASM({ Module.readFlyInput($0); }, values);
@@ -164,6 +188,10 @@ static Result drawBrowserFrame(BrowserApp& app)
             input.fast = values[5] != 0;
             input.reset = values[6] != 0;
             input.closeup = values[7] != 0;
+            if (app.model && input.reset)
+            {
+                input.closeup = true;
+            }
             auto& scene = ofg::Game::scene();
             app.camera.update(*scene.activeCamera()->entity(), input, deltaSeconds);
             scene.lighting.debugView = EM_ASM_INT({ return Module.debugView; });
@@ -171,7 +199,7 @@ static Result drawBrowserFrame(BrowserApp& app)
             EM_ASM({ Module.cameraPosition = Array($0, $1, $2); }, p.x, p.y, p.z);
         }
         ofg::Game::frame(deltaSeconds, app.sceneTarget);
-        const bool ready = app.pbr || (app.texture && app.texture->isLoaded());
+        const bool ready = app.pbr || (app.model && app.model->ready()) || (app.texture && app.texture->isLoaded());
         EM_ASM({ Module.textureReady = Boolean($0); }, ready);
     }
     ComPtr<ITexture> image;

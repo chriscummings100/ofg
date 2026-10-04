@@ -6,6 +6,7 @@
 #include "render/graphics.h"
 #include "lab/scene-fixture.h"
 #include "lab/pbr-fixture.h"
+#include "lab/model-fixture.h"
 #include "lab/fly-camera.h"
 #include <slang-rhi/agility-sdk.h>
 
@@ -65,7 +66,8 @@ static Result runFrames(
     ISurface* surface,
     ICommandQueue* queue,
     IRenderPipeline* pipeline,
-    bool pbr
+    bool pbr,
+    ofg::ModelFixture* model
 )
 {
     auto& actions = *static_cast<NativeActions*>(glfwGetWindowUserPointer(window));
@@ -85,6 +87,15 @@ static Result runFrames(
         const double now = glfwGetTime();
         const float deltaSeconds = float(now - previousTime);
         previousTime = now;
+        if (model)
+        {
+            const bool wasReady = model->ready();
+            model->update(ofg::Game::scene());
+            if (!wasReady && model->ready())
+            {
+                glfwSetWindowTitle(window, model->status().c_str());
+            }
+        }
         if (pbr)
         {
             const bool focused = glfwGetWindowAttrib(window, GLFW_FOCUSED);
@@ -112,6 +123,10 @@ static Result runFrames(
                 }
                 input.reset = std::exchange(actions.reset, false);
                 input.closeup = std::exchange(actions.closeup, false);
+                if (model && input.reset)
+                {
+                    input.closeup = true;
+                }
             }
             if (captured)
             {
@@ -181,7 +196,7 @@ static Result runFrames(
 }
 
 // Owns the window and presentation resources, draining GPU work before either is destroyed.
-static Result runWindow(IDevice* device, bool checkerboard, bool pbr)
+static Result runWindow(IDevice* device, bool checkerboard, bool pbr, const char* modelPath)
 {
     NativeActions actions; // Lives through window destruction, including exceptions and early RHI failures.
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -213,6 +228,7 @@ static Result runWindow(IDevice* device, bool checkerboard, bool pbr)
     SLANG_RETURN_ON_FAIL(device->getQueue(QueueType::Graphics, queue.writeRef()));
     ComPtr<IRenderPipeline> pipeline;
     Result renderResult = SLANG_OK;
+    std::unique_ptr<ofg::ModelFixture> model;
     try
     {
         if (checkerboard)
@@ -231,9 +247,18 @@ static Result runWindow(IDevice* device, bool checkerboard, bool pbr)
                 throw ofg::EngineError("Cannot resolve executable asset directory.");
             }
             auto path = std::filesystem::path(executable).parent_path() / "assets/checker.png";
-            ofg::Game::initialize(pbr ? ofg::createPbrFixture() : ofg::createSceneFixture(path.string()));
+            if (modelPath)
+            {
+                ofg::Game::initialize(ofg::createModelFixtureScene());
+                model = std::make_unique<ofg::ModelFixture>(modelPath);
+                glfwSetWindowTitle(window.get(), "OFG | Loading model...");
+            }
+            else
+            {
+                ofg::Game::initialize(pbr ? ofg::createPbrFixture() : ofg::createSceneFixture(path.string()));
+            }
         }
-        renderResult = runFrames(window.get(), surface, queue, pipeline, pbr);
+        renderResult = runFrames(window.get(), surface, queue, pipeline, pbr, model.get());
     } catch (const std::exception& error)
     {
         std::fprintf(stderr, "OFG scene failed: %s\n", error.what());
@@ -258,9 +283,10 @@ int main(int argc, char** argv)
     const bool checkDevice = argc == 2 && std::strcmp(argv[1], "--check-device") == 0;
     const bool checkerboard = argc == 2 && std::strcmp(argv[1], "--checkerboard") == 0;
     const bool scene = argc == 2 && std::strcmp(argv[1], "--scene") == 0;
-    if (argc != 1 && !checkDevice && !checkerboard && !scene)
+    const char* modelPath = argc == 3 && std::strcmp(argv[1], "--model") == 0 ? argv[2] : nullptr;
+    if (argc != 1 && !checkDevice && !checkerboard && !scene && !modelPath)
     {
-        std::fprintf(stderr, "Usage: ofg [--check-device | --checkerboard | --scene]\n");
+        std::fprintf(stderr, "Usage: ofg [--check-device | --checkerboard | --scene | --model <path>]\n");
         return 1;
     }
 
@@ -285,7 +311,7 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    result = runWindow(device, checkerboard, !checkerboard && !scene);
+    result = runWindow(device, checkerboard, !checkerboard && !scene, modelPath);
     glfwTerminate();
     if (SLANG_FAILED(result))
     {

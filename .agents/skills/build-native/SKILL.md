@@ -32,3 +32,7 @@ The Slang DLLs and the `D3D12` runtime directory belong beside `ofg.exe`; upstre
 Report configure, compilation and startup/test outcomes separately. Include the relevant command or first actionable error and note any check that could not run. Keep the skill and DEVELOPING.md aligned when the build layout changes.
 
 For PBR changes, use the grid legend and controls in `docs/pbr.md`. The native GPU suite includes analytic lighting, IBL/cube and alpha/output checks; its PBR test emits a 960x640 offscreen capture and debug submit-plus-wait measurements. Run `node tools/pbr-shader-check.mjs` and the web PBR smoke when changing shared PBR shader/layout code.
+
+The model mode uses `ofg --model <path>`; dependencies resolve relative to that file. Its GPU regression is included
+in ofg-scene-rendering and emits artifacts/models/native/instances.ppm. Inspect the model window, resize and close
+when changing its host integration. The Model loader itself remains covered by cpu-tests without a device.

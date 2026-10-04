@@ -16,6 +16,7 @@ namespace ofg {
 class Scene;
 class Camera;
 class MeshRenderer;
+class Animator;
 
 using EntityId = std::uint32_t;
 
@@ -36,6 +37,10 @@ public:
 
     // Returns this entity's stable id within its owning scene generation.
     [[nodiscard]] EntityId id() const noexcept;
+    // Returns the owning scene; its address is rebound when Scene storage is moved.
+    [[nodiscard]] Scene& scene() noexcept { return *m_scene; }
+    // Returns the owning scene; its address is rebound when Scene storage is moved.
+    [[nodiscard]] const Scene& scene() const noexcept { return *m_scene; }
     // Returns the local transform from this entity into its parent.
     [[nodiscard]] const LocalTransform& localTransform() const noexcept;
     // Sets finite local TRS, normalizing rotation, and invalidates descendant world matrices.
@@ -56,6 +61,10 @@ public:
     MeshRenderer* meshRenderer() noexcept { return m_meshRenderer; }
     // Returns this entity's borrowed mesh renderer, if any.
     const MeshRenderer* meshRenderer() const noexcept { return m_meshRenderer; }
+    // Returns this entity's borrowed passive animation component, if any.
+    Animator* animator() noexcept { return m_animator; }
+    // Returns this entity's borrowed passive animation component, if any.
+    const Animator* animator() const noexcept { return m_animator; }
 
     // Returns this entity's parent, or nullptr for the root.
     [[nodiscard]] Entity* parent() noexcept;
@@ -87,6 +96,7 @@ private:
     mutable bool m_worldDirty{true};
     Camera* m_camera{nullptr};
     MeshRenderer* m_meshRenderer{nullptr};
+    Animator* m_animator{nullptr};
     Entity* m_parent{nullptr};
     Entity* m_firstChild{nullptr};
     Entity* m_lastChild{nullptr};

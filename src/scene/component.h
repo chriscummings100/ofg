@@ -1,6 +1,6 @@
 // Base component contract for scene-owned entity components.
 //
-// Scene owns typed Camera and MeshRenderer storage.
+// Scene owns typed Camera, MeshRenderer and Animator storage.
 // This base only observes an entity; it never owns or extends its lifetime.
 #pragma once
 

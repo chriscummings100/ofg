@@ -187,10 +187,25 @@ rhi::ISampler* TextureRenderer::prepare(Sampler& sampler)
                                                                : rhi::TextureFilteringMode::Point;
     desc.mipFilter = source.mipFilter == TextureFilter::Linear ? rhi::TextureFilteringMode::Linear
                                                                : rhi::TextureFilteringMode::Point;
-    desc.addressU = source.addressU == TextureAddressMode::Repeat ? rhi::TextureAddressingMode::Wrap
-                                                                  : rhi::TextureAddressingMode::ClampToEdge;
-    desc.addressV = source.addressV == TextureAddressMode::Repeat ? rhi::TextureAddressingMode::Wrap
-                                                                  : rhi::TextureAddressingMode::ClampToEdge;
+    // All accepted CPU wrap modes map directly to RHI; base-only glTF filters clamp the mip selection.
+    const auto address = [](TextureAddressMode mode)
+    {
+        switch (mode)
+        {
+        case TextureAddressMode::Repeat:
+            return rhi::TextureAddressingMode::Wrap;
+        case TextureAddressMode::MirroredRepeat:
+            return rhi::TextureAddressingMode::MirrorRepeat;
+        default:
+            return rhi::TextureAddressingMode::ClampToEdge;
+        }
+    };
+    desc.addressU = address(source.addressU);
+    desc.addressV = address(source.addressV);
+    if (!source.useMipmaps)
+    {
+        desc.maxLOD = 0;
+    }
     auto data = std::make_shared<SamplerGpuData>();
     check(m_device->createSampler(desc, data->sampler.writeRef()), "Create material sampler");
     std::erase_if(

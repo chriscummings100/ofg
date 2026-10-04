@@ -14,7 +14,8 @@ std::shared_ptr<Sampler> Sampler::create(SamplerDesc desc)
     }
     for (auto address : {desc.addressU, desc.addressV})
     {
-        if (address != TextureAddressMode::Repeat && address != TextureAddressMode::ClampToEdge)
+        if (address != TextureAddressMode::Repeat && address != TextureAddressMode::ClampToEdge &&
+            address != TextureAddressMode::MirroredRepeat)
         {
             throw EngineError("Invalid texture address mode.");
         }

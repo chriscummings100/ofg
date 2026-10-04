@@ -7,18 +7,92 @@
 #include <utility>
 
 namespace ofg {
-Mesh::Mesh(std::vector<Vertex> vertices, std::vector<uint32_t> indices, std::vector<SubMesh> subMeshes, Bounds bounds)
+namespace {
+// Makes absent deltas explicit and rejects malformed or nonfinite vertex-aligned morph attributes.
+void validateMorphAttribute(std::vector<math::Vec3>& deltas, size_t vertexCount)
+{
+    if (deltas.empty())
+    {
+        deltas.resize(vertexCount);
+    }
+    if (deltas.size() != vertexCount)
+    {
+        throw EngineError("Mesh morph deltas must match the vertex count.");
+    }
+    for (const auto& delta : deltas)
+    {
+        if (!std::isfinite(delta.x) || !std::isfinite(delta.y) || !std::isfinite(delta.z))
+        {
+            throw EngineError("Mesh morph deltas must be finite.");
+        }
+    }
+}
+
+// Validates mesh-local deformation arrays; palette compatibility is checked when a renderer binds a Skin.
+void validateDeformation(MeshDeformationData& deformation, size_t vertexCount)
+{
+    for (const auto& influences : deformation.influenceSets)
+    {
+        if (influences.size() != vertexCount)
+        {
+            throw EngineError("Mesh joint influence sets must match the vertex count.");
+        }
+        for (const auto& vertex : influences)
+        {
+            for (float weight : {vertex.weights.x, vertex.weights.y, vertex.weights.z, vertex.weights.w})
+            {
+                if (!std::isfinite(weight) || weight < 0 || weight > 1)
+                {
+                    throw EngineError("Mesh joint weights must be finite and within [0,1].");
+                }
+            }
+        }
+    }
+    for (auto& target : deformation.morphTargets)
+    {
+        validateMorphAttribute(target.positions, vertexCount);
+        validateMorphAttribute(target.normals, vertexCount);
+        validateMorphAttribute(target.tangents, vertexCount);
+    }
+    if (deformation.defaultMorphWeights.empty())
+    {
+        deformation.defaultMorphWeights.resize(deformation.morphTargets.size());
+    }
+    if (deformation.defaultMorphWeights.size() != deformation.morphTargets.size())
+    {
+        throw EngineError("Mesh default morph weights must match the target count.");
+    }
+    for (float weight : deformation.defaultMorphWeights)
+    {
+        // Morph deltas can legitimately be extrapolated; unlike joint weights these are not restricted to [0,1].
+        if (!std::isfinite(weight))
+        {
+            throw EngineError("Mesh default morph weights must be finite.");
+        }
+    }
+}
+} // namespace
+
+Mesh::Mesh(
+    std::vector<Vertex> vertices,
+    std::vector<uint32_t> indices,
+    std::vector<SubMesh> subMeshes,
+    Bounds bounds,
+    MeshDeformationData deformation
+)
     : m_vertices(std::move(vertices))
     , m_indices(std::move(indices))
     , m_subMeshes(std::move(subMeshes))
     , m_bounds(bounds)
+    , m_deformation(std::move(deformation))
 {
 }
 
 std::shared_ptr<Mesh> Mesh::create(
     std::vector<Vertex> vertices,
     std::vector<uint32_t> indices,
-    std::vector<SubMesh> subMeshes
+    std::vector<SubMesh> subMeshes,
+    MeshDeformationData deformation
 )
 {
     if (vertices.empty() || indices.empty() || subMeshes.empty() || indices.size() % 3 != 0 ||
@@ -80,6 +154,9 @@ std::shared_ptr<Mesh> Mesh::create(
             throw EngineError("Submesh requires a material and a valid nonempty triangle index range.");
         }
     }
-    return std::shared_ptr<Mesh>(new Mesh(std::move(vertices), std::move(indices), std::move(subMeshes), bounds));
+    validateDeformation(deformation, vertices.size());
+    return std::shared_ptr<Mesh>(
+        new Mesh(std::move(vertices), std::move(indices), std::move(subMeshes), bounds, std::move(deformation))
+    );
 }
 } // namespace ofg

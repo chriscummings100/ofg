@@ -12,7 +12,8 @@ enum class TextureFilter
 enum class TextureAddressMode
 {
     Repeat,
-    ClampToEdge
+    ClampToEdge,
+    MirroredRepeat
 };
 struct SamplerDesc
 {
@@ -21,6 +22,7 @@ struct SamplerDesc
     TextureFilter mipFilter = TextureFilter::Linear;
     TextureAddressMode addressU = TextureAddressMode::Repeat;
     TextureAddressMode addressV = TextureAddressMode::Repeat;
+    bool useMipmaps = true;
 };
 struct SamplerGpuData;
 class TextureRenderer;
