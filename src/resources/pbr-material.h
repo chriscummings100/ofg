@@ -50,7 +50,7 @@ struct PbrMaterialDesc
     bool doubleSided = false, unlit = false;
     std::array<PbrTexture, static_cast<size_t>(PbrSlot::Count)> textures{};
 };
-// Validates factors and the portable 16-texture budget (four IBL textures), then shares a source variant.
+// Validates factors and the portable 16-texture budget (four frame textures), then shares a source variant.
 // Recreate for texture-presence/unlit changes; factor edits use the returned material's named uniforms.
 std::shared_ptr<Material> createPbrMaterial(const PbrMaterialDesc& desc = {});
 } // namespace ofg

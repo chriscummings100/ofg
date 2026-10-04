@@ -33,6 +33,7 @@ endif()
 add_subdirectory(slang-rhi)
 if(EMSCRIPTEN)
     include(${CMAKE_SOURCE_DIR}/cmake/rhi-webgpu-formats.cmake)
+    include(${CMAKE_SOURCE_DIR}/cmake/rhi-webgpu-lighting.cmake)
 endif()
 
 # Use the same GLFW revision as RHI's native examples, without building those examples.

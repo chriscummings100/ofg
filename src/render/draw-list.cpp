@@ -4,6 +4,7 @@
 #include "math/transform.h"
 #include "core/engine-error.h"
 #include <array>
+#include <algorithm>
 
 namespace ofg {
 bool boundsVisible(const Bounds& bounds, const math::Mat4& clipFromLocal) noexcept
@@ -64,6 +65,19 @@ DrawList buildDrawList(const Scene& scene, const Camera& camera, float aspectRat
     list.lighting = scene.lighting;
     const auto cameraWorld = entity->worldTransform()[3];
     list.cameraPosition = {cameraWorld.x, cameraWorld.y, cameraWorld.z};
+    list.camera =
+        {entity->worldTransform(), camera.nearDistance(), camera.farDistance(), camera.verticalFov(), aspectRatio};
+    if (list.lighting.outdoor)
+    {
+        list.outdoor = evaluateOutdoorLighting(*list.lighting.outdoor, list.cameraPosition.y);
+        auto& light = list.lighting.lights[0];
+        light.type = LightType::Directional;
+        light.direction = math::mul(list.outdoor->lightDirection, -1);
+        light.color = list.outdoor->lightColor;
+        light.intensity = list.outdoor->illuminance;
+        list.lighting.lightCount = std::max(1u, list.lighting.lightCount);
+        list.lighting.environmentRotation = 0;
+    }
     list.clipFromWorld = math::mul(camera.projectionMatrix(aspectRatio), *view);
     for (const auto& renderer : scene.meshRenderers())
     {
@@ -73,7 +87,8 @@ DrawList buildDrawList(const Scene& scene, const Camera& camera, float aspectRat
             continue;
         }
         const auto world = renderer->entity()->worldTransform();
-        if (!boundsVisible(mesh->bounds(), math::mul(list.clipFromWorld, world)))
+        bool visible = boundsVisible(mesh->bounds(), math::mul(list.clipFromWorld, world));
+        if (!visible && !list.outdoor)
         {
             continue;
         }
@@ -89,7 +104,15 @@ DrawList buildDrawList(const Scene& scene, const Camera& camera, float aspectRat
                 }
                 if (texturesReady)
                 {
-                    list.items.push_back({mesh, index, std::move(material), world});
+                    if (list.outdoor && renderer->castsShadows() &&
+                        material->renderState().alphaMode != AlphaMode::Blend)
+                    {
+                        list.shadowCasters.push_back({mesh, index, material, world});
+                    }
+                    if (visible)
+                    {
+                        list.items.push_back({mesh, index, std::move(material), world});
+                    }
                 }
             }
         }

@@ -9,6 +9,7 @@
 namespace ofg {
 struct EnvironmentGpuData;
 class Graphics;
+class EnvironmentRenderer;
 class Environment : public Resource
 {
 public:
@@ -29,6 +30,7 @@ public:
 
 private:
     friend class Graphics;
+    friend class EnvironmentRenderer;
     // Constructs validated data through fromBytes only.
     Environment() = default;
     uint32_t m_size = 0, m_mipCount = 0, m_lookupSize = 0;

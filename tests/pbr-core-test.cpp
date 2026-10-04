@@ -124,7 +124,7 @@ TEST_CASE("PBR defaults, texture specialization and cloned values have independe
     desc.textures[static_cast<size_t>(PbrSlot::Iridescence)].texture = texture;
     CHECK_THROWS_WITH(
         createPbrMaterial(desc),
-        "PBR material exceeds portable budget: at most 12 material textures plus four IBL textures."
+        "PBR material exceeds portable budget: at most 12 material textures plus four frame textures."
     );
 }
 

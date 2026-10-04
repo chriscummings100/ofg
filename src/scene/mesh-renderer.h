@@ -16,6 +16,10 @@ public:
     void setMesh(std::shared_ptr<Mesh> mesh);
     // Returns the shared mesh, or null for an empty renderer.
     const std::shared_ptr<Mesh>& mesh() const noexcept { return m_mesh; }
+    // Enables or excludes this instance from shadow caster extraction; receiving lighting is unchanged.
+    void setCastsShadows(bool enabled) noexcept { m_castsShadows = enabled; }
+    // Returns whether opaque/masked submeshes participate in shadow passes.
+    bool castsShadows() const noexcept { return m_castsShadows; }
     // Binds a ready Skin and unique live same-scene joints in palette order; requires a compatible Mesh.
     // Rejects absent influences, invalid palette indices and zero total vertex weight. Failure preserves bindings.
     // A null Skin with an empty palette clears the binding. No deformation is performed yet.
@@ -43,6 +47,7 @@ private:
     explicit MeshRenderer(Entity* entity) noexcept;
     // Rejects an index without a corresponding mesh submesh.
     void checkSlot(size_t index) const;
+    bool m_castsShadows = true;
     std::shared_ptr<Mesh> m_mesh;
     std::vector<std::shared_ptr<Material>> m_overrides;
     std::shared_ptr<Skin> m_skin;

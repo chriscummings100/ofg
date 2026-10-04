@@ -13,6 +13,7 @@ The default application renders a PBR material sphere grid with a debug fly came
 - [Terrain laboratory bootstrap plan](docs/plans/terrain-lab-bootstrap.md)
 - [ExecPlan template and conventions](PLANS.md)
 - [PBR sphere grid, controls and material contracts](docs/pbr.md)
+- [Outdoor sun/moon, procedural sky and cascaded shadows](docs/outdoor-lighting.md)
 
 
 The default native/browser application includes a [dockable ImGui workspace](docs/imgui.md): use Window to open the Scene viewport, Scene Hierarchy and Render Settings. Hold right mouse over Scene to fly; Escape returns to the UI. --no-ui / ?ui=0 retain the original full-canvas diagnostics.

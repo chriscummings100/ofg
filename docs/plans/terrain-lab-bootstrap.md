@@ -8,6 +8,9 @@ Establish a small C++ terrain laboratory using Slang RHI in both a native Window
 
 ## Progress
 
+- [x] (2026-10-04) Planned [histogram exposure, bloom and SSAO](post-processing.md), including outdoor HDR scaling, browser binding limits, inspection controls and native/browser validation. This is a proposed rendering follow-up; implementation has not started.
+- [x] (2026-10-04 16:10Z) Revised the post-processing proposal per user direction to remove outdoor exposure overrides and the imposed 16-texture budget. A standalone Chrome/Intel gen-12lp probe passed at 17 and 48 sampled textures; application changes remain planned.
+
 - [x] (2026-10-04) Implemented the [dockable ImGui workspace](../archived/imgui-workspace.md) in the managed imgui-workspace worktree. Native/CPU CTest and browser UI/PBR/texture smoke suites pass; screenshots cover docking, settings, persistence and high DPI.
 
 - [x] (2026-10-03) Implemented the [PBR sphere laboratory](../pbr.md): fly camera, textured core/surface materials, punctual lights, matched baked IBL and HDR output on D3D12/WebGPU. CPU/native tests and PBR browser smoke pass; final regression/documentation checks are recorded in the PBR plan. UI/terrain remain separate work.
@@ -60,6 +63,10 @@ Slang RHI has an Emscripten integration, including prebuilt WASM Slang compiler 
 
 ## Decision Log
 
+2026-10-04, requested planning: track post-processing in its [own proposed ExecPlan](post-processing.md). Establish explicit HDR storage/camera exposure units, then histogram adaptation, bloom and SSAO. Preserve the terrain-first direction; this planning task does not authorize effect implementation.
+
+2026-10-04, user revision: use shared manual/histogram exposure without outdoor overrides and test actual device limits instead of imposing the 16-texture profile. The browser probe supports a direct AO binding; revise the proposal to a depth/normal prepass instead of separate indirect-light color targets. Native/backend integration still requires implementation checks.
+
 2026-10-03, user PBR priority update: the main review system is a sphere grid with different materials, with basic fly-camera inspection added early. Establish core PBR, direct lights, IBL and HDR before transmission/scattering. The PBR plan now separates those follow-ups from foundation acceptance.
 
 2026-10-03, user-requested research: prepare a close-port PBR source guide and future integration plan without implementing rendering code. Keep the PBR work proposed and distinct from the still-active UI/terrain/streaming bootstrap. Its recommended architecture extends the shared forward renderer and preserves native D3D12 and browser WebGPU.
@@ -85,6 +92,8 @@ Slang RHI has an Emscripten integration, including prebuilt WASM Slang compiler 
 2026-10-01, user scope update: add a minimal native main.cpp linked to RHI and a skill explaining how to build it. A console device-startup check proves linking and runtime dependencies without introducing a window system. Use the existing CMake/Ninja setup and discover Visual Studio through vswhere; keep shell initialization in the same process as configuration/compilation.
 
 ## Outcomes & Retrospective
+
+Post-processing planning, revised 2026-10-04: the proposed effect sequence removes outdoor exposure overrides and the imposed 16-texture profile per user direction. A standalone browser draw/readback probe passed at up to 48 sampled textures. No application rebuild or effect implementation was performed; the plan records remaining native/RHI validation gates.
 
 PBR research checkpoint, 2026-10-03: downloaded and indexed the Khronos source, identified required OFG changes and prepared a staged integration proposal. Documentation validation applies to this checkpoint; no new graphics build, runtime result or PBR capability is claimed.
 

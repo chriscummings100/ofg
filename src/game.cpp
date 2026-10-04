@@ -75,6 +75,10 @@ void Game::frame(float deltaSeconds, rhi::ITexture* colorTarget)
     Resources::update();
     rootState->update();
     currentScene->update();
+    if (currentScene->lighting.outdoor)
+    {
+        advanceOutdoorLighting(*currentScene->lighting.outdoor, deltaSeconds);
+    }
     if (colorTarget)
     {
         DrawList list;

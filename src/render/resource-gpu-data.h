@@ -8,7 +8,7 @@
 namespace ofg {
 struct EnvironmentGpuData
 {
-    std::array<rhi::ComPtr<rhi::ITexture>, 3> cubes;
+    rhi::ComPtr<rhi::ITexture> cubes;
     rhi::ComPtr<rhi::ITexture> lookup;
 };
 struct TextureGpuData

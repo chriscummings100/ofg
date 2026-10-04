@@ -19,6 +19,10 @@ bool nonnegative(float value)
 
 bool applyLightingEdit(Lighting& destination, const Lighting& candidate)
 {
+    if (candidate.outdoor && !validOutdoorLighting(*candidate.outdoor))
+    {
+        return false;
+    }
     if (candidate.lightCount > candidate.lights.size() || candidate.debugView > 4 || !nonnegative(candidate.exposure) ||
         !nonnegative(candidate.environmentIntensity) || !std::isfinite(candidate.environmentRotation))
     {

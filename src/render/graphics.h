@@ -5,6 +5,15 @@
 #include <slang-rhi.h>
 
 namespace ofg {
+struct OutdoorDiagnostics
+{
+    bool ready = false;
+    double environmentAgeSeconds = 0;
+    float environmentBlend = 1;
+    uint32_t environmentSteps = 0, environmentPasses = 0, environmentPublications = 0;
+    uint32_t shadowResolution = 0;
+    std::array<float, 4> cascadeDistances{};
+};
 class Graphics
 {
 public:
@@ -20,9 +29,10 @@ public:
     // Returns retained pipeline entries, pruning expired shader owners during rendering.
     static size_t pipelineCount() noexcept;
 
+    // Returns the latest outdoor generation and cascade state without synchronizing with the GPU.
+    static OutdoorDiagnostics outdoorDiagnostics() noexcept;
+
 private:
-    // Uploads all cube faces/mips and the matched lookup atomically; weakly tracks shutdown handles.
-    static void prepareEnvironment(Environment& environment);
     // Uploads immutable geometry once; publishes only after both buffer creations succeed.
     static void prepareMesh(Mesh& mesh);
     // Compiles source/entry points once and preserves compiler diagnostics on failure.

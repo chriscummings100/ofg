@@ -16,6 +16,13 @@ public:
     // Builds the [0,1] depth projection for a positive finite width/height ratio.
     math::Mat4 projectionMatrix(float aspectRatio) const;
 
+    // Returns the vertical field of view in radians.
+    float verticalFov() const noexcept { return m_verticalFov; }
+    // Returns the near clipping distance in metres.
+    float nearDistance() const noexcept { return m_nearDistance; }
+    // Returns the far clipping distance in metres.
+    float farDistance() const noexcept { return m_farDistance; }
+
 private:
     friend class Scene;
     // Creates a 60-degree camera with near/far distances 0.1 and 1000 scene units.

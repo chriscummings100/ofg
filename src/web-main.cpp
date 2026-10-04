@@ -8,6 +8,7 @@
 #include "render/present.h"
 #include "lab/scene-fixture.h"
 #include "lab/pbr-fixture.h"
+#include "lab/outdoor-fixture.h"
 #include "lab/model-fixture.h"
 #include "lab/fly-camera.h"
 #include "ui/workspace.h"
@@ -85,6 +86,14 @@ static Result initializeBrowser(BrowserApp& app)
         {
             ofg::Game::initialize(ofg::createModelFixtureScene());
             app.model = std::make_unique<ofg::ModelFixture>(emscripten_run_script_string("Module.modelPath"));
+        }
+        else if (EM_ASM_INT({ return Module.outdoor ? 1 : 0; }))
+        {
+            auto outdoor = ofg::createOutdoorFixture();
+            outdoor->lighting.outdoor->dayCycle.timeHours = EM_ASM_DOUBLE({ return Module.outdoorHours; });
+            outdoor->lighting.outdoor->clouds.coverage = float(EM_ASM_DOUBLE({ return Module.outdoorClouds; }));
+            ofg::Game::initialize(std::move(outdoor));
+            app.camera.setResetPositions({0, 3, -15}, {0, 2, -5});
         }
         else if (app.pbr)
         {
@@ -226,6 +235,16 @@ static Result drawBrowserFrame(BrowserApp& app)
             EM_ASM({ Module.cameraPosition = Array($0, $1, $2); }, p.x, p.y, p.z);
         }
         ofg::Game::frame(deltaSeconds, app.workspace ? app.workspace->sceneTarget() : app.sceneTarget.get());
+        if (ofg::Game::scene().lighting.outdoor)
+        {
+            auto stats = ofg::Graphics::outdoorDiagnostics();
+            EM_ASM(
+                { Module.iblUpdate = ({steps : $0, passes : $1, publications : $2}); },
+                stats.environmentSteps,
+                stats.environmentPasses,
+                stats.environmentPublications
+            );
+        }
         if (app.workspace)
         {
             app.sceneTarget = app.workspace->finish();

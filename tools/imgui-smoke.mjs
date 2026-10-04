@@ -103,7 +103,7 @@ try {
   await number(1260, 95, '-1');
   assert.equal(await page.evaluate(() => Module.uiState.exposure), 2);
   await capture('invalid-edit');
-  await click(1190, 615);
+  await click(1190, 638);
   await page.waitForFunction(() => Module.uiState.exposure === 1);
   report.checks.push('live exposure, invalid edit rejection, UI colour isolation, settings reset');
   await click(1250, 175);
@@ -115,7 +115,7 @@ try {
   await page.keyboard.press('0');
   await frames();
   assert.equal(await page.evaluate(() => Module.uiState.debugView), 1);
-  await click(1190, 615);
+  await click(1190, 638);
   await page.waitForFunction(() => Module.uiState.debugView === 0);
   report.checks.push('debug combo and shortcut ownership');
   const box = await page.locator('#canvas').boundingBox();

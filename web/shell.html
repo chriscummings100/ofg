@@ -27,6 +27,9 @@
             checkerboard: new URLSearchParams(location.search).get('demo') === 'checkerboard',
             pbr: !new URLSearchParams(location.search).has('texture') && !new URLSearchParams(location.search).has('float') &&
                 !['scene','checkerboard','model'].includes(new URLSearchParams(location.search).get('demo')),
+            outdoorHours: Math.max(0, Math.min(24, Number(new URLSearchParams(location.search).get("hour") ?? 10))),
+            outdoorClouds: Math.max(0, Math.min(1, Number(new URLSearchParams(location.search).get("clouds") ?? .35))),
+            outdoor: new URLSearchParams(location.search).get("demo") === "outdoor",
             model: new URLSearchParams(location.search).get('demo') === 'model',
             modelPath: new URLSearchParams(location.search).get('asset') || 'assets/models/laboratory.gltf',
             maximumLayout: new URLSearchParams(location.search).get("pbr") === "budget",

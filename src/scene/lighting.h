@@ -3,6 +3,8 @@
 #include "math/vec.h"
 #include "resources/environment.h"
 #include <array>
+#include <optional>
+#include "scene/outdoor-lighting.h"
 namespace ofg {
 enum class LightType : uint32_t
 {
@@ -22,6 +24,7 @@ struct PunctualLight
 };
 struct Lighting
 {
+    std::optional<OutdoorLighting> outdoor;
     std::array<PunctualLight, 4> lights{};
     uint32_t lightCount = 0;
     std::shared_ptr<Environment> environment;

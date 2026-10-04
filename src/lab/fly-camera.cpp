@@ -9,7 +9,7 @@ void FlyCamera::reset(Entity& camera, bool closeup)
 {
     m_yaw = 0;
     m_pitch = 0;
-    camera.setLocalPosition(closeup ? math::Vec3{0, 0, -5} : math::Vec3{0, -1.65f, -15});
+    camera.setLocalPosition(closeup ? m_closeup : m_overview);
     camera.setLocalRotation(math::quatIdentity());
 }
 

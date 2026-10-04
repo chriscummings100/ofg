@@ -1,0 +1,5 @@
+// Embedded matched environment convolution shader.
+#pragma once
+namespace ofg {
+inline constexpr const char* environmentShader=R"OFG(@ENVIRONMENT_SHADER@)OFG";
+}

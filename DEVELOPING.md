@@ -275,3 +275,33 @@ npm.cmd run smoke:web
 The UI smoke drives real canvas mouse/keyboard events and records screenshots/diagnostics under artifacts/imgui/browser. Native window captures are under artifacts/imgui/native. Do not serve or test intermediate JS/WASM files while a web link is replacing them. The final WASM optimization can take several minutes. The existing Asyncify/WASM-exceptions toolchain warning remains; UI frame uploads finish before canvas acquisition.
 
 Workspace controls, layout persistence and ownership are documented in [docs/imgui.md](docs/imgui.md). Actual validation outcomes are recorded in the [workspace plan](docs/archived/imgui-workspace.md).
+
+## Outdoor lighting
+
+After the native build, launch `build/native/ofg.exe --outdoor` (optionally `--no-ui`). The browser URL is
+`http://localhost:8080/?demo=outdoor`, with optional `hour=18.5`, `clouds=.95` and `ui=0` query parameters.
+The existing Render Settings panel exposes time presets, clock pause, atmospheric density, clouds, EV controls
+and cascaded-shadow controls. See [outdoor lighting](docs/outdoor-lighting.md) for implementation and limitations.
+
+```powershell
+.\build\native\ofg-render-test.exe '--test-case=Outdoor*'
+node tools/pbr-shader-check.mjs
+npm.cmd run smoke:outdoor
+```
+
+The outdoor GPU test is included in the normal native CTest suite. Screenshots and diagnostics are written under
+`artifacts/lighting`. Browser smoke requests an actual device limit of 16 sampled textures per shader stage.
+The maximum PBR layout now has 16 textures and 14 samplers, including cube-array IBL and a comparison sampler.
+Full native/browser regression results and measured timing qualifications are recorded in the outdoor implementation plan.
+
+
+Outdoor IBL updates are incremental: allow 24 rendered frames for the first complete capture/filter generation.
+The Render Settings diagnostics show submitted steps and passes; browser smoke waits for `Module.iblUpdate.publications`
+rather than a fixed short delay. The focused native regression remains:
+
+```powershell
+.\build\native\ofg-render-test.exe '--test-case=Outdoor*' --no-colors
+```
+
+It checks bounded capture/filter work, every filtered face/mip of a frozen snapshot, publication atomicity and pending
+edits, in addition to outdoor image checks. See [the update contract](docs/outdoor-lighting.md#environment-generations-and-bindings).

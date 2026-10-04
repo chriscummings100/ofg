@@ -108,7 +108,7 @@ try {
     await page.reload({waitUntil:'load'});await capture(page,'reloaded');
     await page.goto(`http://127.0.0.1:${server.address().port}/?pbr=budget&ui=0`,{waitUntil:'load'});
     await capture(page,'maximum-layout');
-    assert.ok(report.messages.some(m=>m.text.includes('pbr-4095: 16 sampled textures, 13 samplers')));
+    assert.ok(report.messages.some(m=>m.text.includes('pbr-4095: 16 sampled textures, 14 samplers')));
     report.camera={capture:true,movement:true,release:true,reset:true,closeup:true,blurClears:true};
     assert.deepEqual(report.errors,[]);report.passed=true;
 } catch(error) {report.failure=error.stack??String(error);throw error;}

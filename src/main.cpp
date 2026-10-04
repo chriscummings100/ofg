@@ -6,6 +6,7 @@
 #include "render/graphics.h"
 #include "lab/scene-fixture.h"
 #include "lab/pbr-fixture.h"
+#include "lab/outdoor-fixture.h"
 #include "lab/model-fixture.h"
 #include "lab/fly-camera.h"
 #include "ui/workspace.h"
@@ -80,6 +81,10 @@ static Result runFrames(
     auto& actions = *static_cast<NativeActions*>(glfwGetWindowUserPointer(window));
     double previousTime = glfwGetTime();
     ofg::FlyCamera camera;
+    if (!pipeline && ofg::Game::scene().lighting.outdoor)
+    {
+        camera.setResetPositions({0, 3, -15}, {0, 2, -5});
+    }
     bool captured = false, previousMouse = false;
     double mouseX = 0, mouseY = 0;
     while (!glfwWindowShouldClose(window))
@@ -227,7 +232,7 @@ static Result runFrames(
 }
 
 // Owns the window and presentation resources, draining GPU work before either is destroyed.
-static Result runWindow(IDevice* device, bool checkerboard, bool pbr, const char* modelPath, bool ui)
+static Result runWindow(IDevice* device, bool checkerboard, bool pbr, const char* modelPath, bool ui, bool outdoor)
 {
     ui = ui && !checkerboard;
     NativeActions actions; // Lives through window destruction, including exceptions and early RHI failures.
@@ -292,7 +297,11 @@ static Result runWindow(IDevice* device, bool checkerboard, bool pbr, const char
             }
             else
             {
-                ofg::Game::initialize(pbr ? ofg::createPbrFixture() : ofg::createSceneFixture(path.string()));
+                ofg::Game::initialize(
+                    outdoor ? ofg::createOutdoorFixture()
+                    : pbr   ? ofg::createPbrFixture()
+                            : ofg::createSceneFixture(path.string())
+                );
             }
         }
         if (ui && !checkerboard)
@@ -365,7 +374,7 @@ static void reportWindowError(int code, const char* message)
 // window-free startup test.
 int main(int argc, char** argv)
 {
-    bool checkDevice = false, checkerboard = false, scene = false, ui = true;
+    bool checkDevice = false, checkerboard = false, scene = false, ui = true, outdoor = false;
     const char* modelPath = nullptr;
     for (int i = 1; i < argc; ++i)
     {
@@ -376,6 +385,10 @@ int main(int argc, char** argv)
         else if (std::strcmp(argv[i], "--checkerboard") == 0)
         {
             checkerboard = true;
+        }
+        else if (std::strcmp(argv[i], "--outdoor") == 0)
+        {
+            outdoor = true;
         }
         else if (std::strcmp(argv[i], "--scene") == 0)
         {
@@ -391,7 +404,10 @@ int main(int argc, char** argv)
         }
         else
         {
-            std::fprintf(stderr, "Usage: ofg [--check-device | --checkerboard | --scene | --model <path>] [--no-ui]\n");
+            std::fprintf(
+                stderr,
+                "Usage: ofg [--check-device | --checkerboard | --scene | --outdoor | --model <path>] [--no-ui]\n"
+            );
             return 1;
         }
     }
@@ -417,7 +433,7 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    result = runWindow(device, checkerboard, !checkerboard && !scene, modelPath, ui);
+    result = runWindow(device, checkerboard, !checkerboard && !scene, modelPath, ui, outdoor);
     glfwTerminate();
     if (SLANG_FAILED(result))
     {

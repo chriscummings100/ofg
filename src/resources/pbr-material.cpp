@@ -53,7 +53,9 @@ std::shared_ptr<Material> createPbrMaterial(const PbrMaterialDesc& desc)
     }
     if (std::popcount(key & 0x7fff) > 12)
     {
-        throw EngineError("PBR material exceeds portable budget: at most 12 material textures plus four IBL textures.");
+        throw EngineError(
+            "PBR material exceeds portable budget: at most 12 material textures plus four frame textures."
+        );
     }
     // All scalar/vector fields must be finite. Physical ranges are checked below.
     if (!std::isfinite(desc.baseColor.x) || desc.baseColor.x < 0)

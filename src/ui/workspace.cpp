@@ -1,5 +1,6 @@
 // Concrete laboratory panels; only docking setup/hit-testing use ImGui internals at the pinned revision.
 #include "ui/workspace.h"
+#include "ui/render-settings-panel.h"
 #include "lab/render-settings.h"
 #include "core/engine-error.h"
 #include <imgui_internal.h>
@@ -233,82 +234,7 @@ void Workspace::renderSettings(Scene& scene)
         }
         ImGui::BeginDisabled(!scene.lighting.hdr);
         auto draft = scene.lighting;
-        bool changed = false;
-        ImGui::PushItemWidth(-1);
-        ImGui::SeparatorText("Output");
-        ImGui::TextUnformatted("Exposure (multiplier)");
-        changed |= ImGui::DragFloat("##Exposure", &draft.exposure, 0.02f, 0, 0, "%.3f");
-        int mapping = draft.linearOutput ? 1 : 0;
-        ImGui::TextUnformatted("Tone mapping");
-        if (ImGui::Combo("##Tone mapping", &mapping, "PBR Neutral\0Linear diagnostic\0"))
-        {
-            draft.linearOutput = mapping == 1;
-            changed = true;
-        }
-        int view = int(draft.debugView);
-        ImGui::TextUnformatted("Debug view");
-        if (ImGui::Combo("##Debug view", &view, "Shaded\0Normals\0Roughness\0Metallic\0Base color\0"))
-        {
-            draft.debugView = view;
-            changed = true;
-        }
-        ImGui::SeparatorText("Environment");
-        ImGui::TextUnformatted("Intensity");
-        changed |= ImGui::DragFloat("##Environment intensity", &draft.environmentIntensity, 0.02f, 0, 0, "%.3f");
-        float degrees = draft.environmentRotation * 180 / std::numbers::pi_v<float>;
-        ImGui::TextUnformatted("Rotation (degrees)");
-        if (ImGui::DragFloat("##Environment rotation", &degrees, 0.5f))
-        {
-            draft.environmentRotation = degrees * std::numbers::pi_v<float> / 180;
-            changed = true;
-        }
-        for (uint32_t i = 0; i < std::min(draft.lightCount, uint32_t(draft.lights.size())); ++i)
-        {
-            ImGui::PushID(int(i));
-            auto& light = draft.lights[i];
-            const char* type = light.type == LightType::Directional ? "Directional"
-                               : light.type == LightType::Point     ? "Point"
-                                                                    : "Spot";
-            if (ImGui::TreeNodeEx("Light", ImGuiTreeNodeFlags_DefaultOpen, "%s light %u", type, i + 1))
-            {
-                ImGui::TextUnformatted("Colour (linear)");
-                changed |=
-                    ImGui::ColorEdit3("##Colour", &light.color.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
-                ImGui::TextUnformatted(
-                    light.type == LightType::Directional ? "Intensity (lux)" : "Intensity (candela)"
-                );
-                changed |= ImGui::DragFloat("##Light intensity", &light.intensity, 0.1f, 0, 0, "%.3f");
-                if (light.type != LightType::Directional)
-                {
-                    ImGui::TextUnformatted("Position (m)");
-                    changed |= ImGui::DragFloat3("##Position", &light.position.x, 0.05f);
-                    ImGui::TextUnformatted("Range (m, 0 = infinite)");
-                    changed |= ImGui::DragFloat("##Range", &light.range, 0.1f);
-                }
-                if (light.type != LightType::Point)
-                {
-                    ImGui::TextUnformatted("Travel direction");
-                    changed |= ImGui::DragFloat3("##Direction", &light.direction.x, 0.01f);
-                }
-                if (light.type == LightType::Spot)
-                {
-                    float angles[]{
-                        light.innerCone * 180 / std::numbers::pi_v<float>,
-                        light.outerCone * 180 / std::numbers::pi_v<float>
-                    };
-                    ImGui::TextUnformatted("Inner / outer cone (degrees)");
-                    if (ImGui::DragFloat2("##Cone", angles, 0.25f))
-                    {
-                        light.innerCone = angles[0] * std::numbers::pi_v<float> / 180;
-                        light.outerCone = angles[1] * std::numbers::pi_v<float> / 180;
-                        changed = true;
-                    }
-                }
-                ImGui::TreePop();
-            }
-            ImGui::PopID();
-        }
-        ImGui::PopItemWidth();
+        bool changed = drawLightingControls(draft);
         if (changed)
         {
             m_editError = applyLightingEdit(scene.lighting, draft) ? "" : "Invalid value; previous settings retained.";

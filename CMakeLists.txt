@@ -17,8 +17,9 @@ add_subdirectory(external)
 
 # PBR source modules have a fixed dependency/order list and are embedded on every target.
 set(PBR_SHADER "")
-foreach(module common brdf iridescence material lighting mesh)
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/pbr/${module}.slang)
+foreach(module common brdf iridescence material ../sky/clouds ../shadows/sampling lighting mesh)
+    get_filename_component(module_path shaders/pbr/${module}.slang ABSOLUTE)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${module_path}")
     file(READ shaders/pbr/${module}.slang source)
     string(APPEND PBR_SHADER "\n#line 1 \"pbr/${module}.slang\"\n${source}\n")
 endforeach()
@@ -29,6 +30,7 @@ configure_file(src/lab/pbr-environment.h.in generated/pbr-environment.h @ONLY)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS assets/pbr-studio.bin)
 
 add_library(ofg-core STATIC
+    src/scene/outdoor-lighting.cpp
     src/resources/model.cpp
     src/resources/gltf-accessor.cpp
     src/resources/gltf-transform.cpp
@@ -55,6 +57,7 @@ add_library(ofg-core STATIC
     src/resources/material.cpp
     src/resources/shader.cpp
     src/render/draw-list.cpp
+    src/render/shadow-cascades.cpp
     src/scene/camera.cpp
     src/scene/mesh-renderer.cpp
     src/resources/resource.cpp
@@ -73,6 +76,7 @@ file(COPY assets DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_executable(ofg-core-test
+        tests/outdoor-lighting-test.cpp
         tests/gltf-test.cpp
         tests/model-resources-test.cpp
         tests/render-settings-test.cpp
@@ -119,8 +123,32 @@ string(APPEND PBR_OUTPUT_SHADER "\n${OUTPUT_SOURCE}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/pbr/output.slang)
 configure_file(src/render/pbr-output-shader.h.in generated/pbr-output-shader.h @ONLY)
 
-add_library(ofg-render STATIC src/render/texture-renderer.cpp src/checkerboard.cpp src/render/graphics.cpp src/render/present.cpp src/game.cpp src/lab/scene-fixture.cpp)
-target_sources(ofg-render PRIVATE src/lab/pbr-fixture.cpp src/lab/model-fixture.cpp)
+set(SKY_SHADER "")
+foreach(module atmosphere clouds atmosphere-luts aerial-perspective sky)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shaders/sky/${module}.slang")
+    file(READ shaders/sky/${module}.slang source)
+    string(APPEND SKY_SHADER "\n${source}\n")
+endforeach()
+configure_file(src/render/sky-shader.h.in generated/sky-shader.h @ONLY)
+file(READ shaders/environment/filter.slang ENVIRONMENT_SHADER)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/environment/filter.slang)
+configure_file(src/render/environment-shader.h.in generated/environment-shader.h @ONLY)
+file(READ shaders/shadows/depth.slang SHADOW_SHADER)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/shadows/depth.slang)
+configure_file(src/render/shadow-shader.h.in generated/shadow-shader.h @ONLY)
+add_library(ofg-render STATIC
+    src/render/shadow-renderer.cpp
+    src/render/sky-renderer.cpp
+    src/render/lighting-pass.cpp
+    src/render/environment-renderer.cpp
+    src/render/texture-renderer.cpp
+    src/checkerboard.cpp
+    src/render/graphics.cpp
+    src/render/present.cpp
+    src/game.cpp
+    src/lab/scene-fixture.cpp
+)
+target_sources(ofg-render PRIVATE src/lab/outdoor-fixture.cpp src/lab/pbr-fixture.cpp src/lab/model-fixture.cpp)
 target_compile_features(ofg-render PUBLIC cxx_std_20)
 target_include_directories(ofg-render PUBLIC src PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(ofg-render PUBLIC slang-rhi ofg-core)
@@ -128,7 +156,7 @@ target_link_libraries(ofg-render PUBLIC slang-rhi ofg-core)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/imgui.slang)
 file(READ shaders/imgui.slang IMGUI_SHADER)
 configure_file(src/ui/imgui-shader.h.in generated/imgui-shader.h @ONLY)
-add_library(ofg-ui STATIC src/ui/imgui-renderer.cpp src/ui/workspace.cpp)
+add_library(ofg-ui STATIC src/ui/render-settings-panel.cpp src/ui/imgui-renderer.cpp src/ui/workspace.cpp)
 target_include_directories(ofg-ui PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(ofg-ui PUBLIC ofg-render imgui)
 
@@ -157,7 +185,7 @@ endif()
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_test(NAME ofg-startup COMMAND ofg --check-device)
 
-    add_executable(ofg-render-test tests/checkerboard-test.cpp tests/graphics-test.cpp)
+    add_executable(ofg-render-test tests/outdoor-rendering-test.cpp tests/checkerboard-test.cpp tests/graphics-test.cpp)
     target_link_libraries(ofg-render-test PRIVATE ofg-ui doctest)
     target_compile_definitions(ofg-render-test PRIVATE OFG_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME ofg-checkerboard COMMAND ofg-render-test "--test-case=Checkerboard*")

@@ -6,7 +6,7 @@ import { chromium } from 'playwright-core';
 import { startWebServer } from './serve-web.mjs';
 const compiler=process.argv[2] || 'build/native/_deps/slang-src/bin/slangc.exe';
 const folder='artifacts/pbr/shaders';await mkdir(folder,{recursive:true});
-const modules=['common','brdf','iridescence','material','lighting','mesh'];
+const modules=['common','brdf','iridescence','material','../sky/clouds','../shadows/sampling','lighting','mesh'];
 let source='';for(const name of modules)source+=`\n#line 1 "pbr/${name}.slang"\n`+await readFile(`shaders/pbr/${name}.slang`,'utf8');
 const textureDefines = [
     'HAS_BASE_COLOR_TEXTURE',

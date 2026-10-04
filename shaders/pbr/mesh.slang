@@ -197,7 +197,19 @@ Surface evaluateSurface(VertexOutput input, bool front)
 #ifdef UNLIT
     color = s.base;
 #else
-    color = shadeSurface(s, input.world);
+    float3 geometricNormal = safeNormal(cross(ddx(input.world), ddy(input.world)), s.normal);
+    color = shadeSurface(s, input.world, geometricNormal);
+    color = applyAerialPerspective(color, input.world, input.position.xy);
+    if (outdoor.enabledExposure.x > 0 && outdoor.shadowOptions.w == 1)
+    {
+        uint cascade = shadowCascadeIndex(input.world);
+        color = cascade == 0   ? float3(1, .1, .1)
+                : cascade == 1 ? float3(.1, 1, .1)
+                : cascade == 2 ? float3(.1, .1, 1)
+                               : float3(1, 1, .1);
+    }
+    if (outdoor.enabledExposure.x > 0 && outdoor.shadowOptions.w == 2)
+        color = float3(outdoorVisibility(input.world, geometricNormal));
     if (frame.displayOutput != 0 && frame.debugView == 0)
         color = frame.linearOutput != 0 ? color * frame.exposure : pbrNeutral(color * frame.exposure);
 #endif

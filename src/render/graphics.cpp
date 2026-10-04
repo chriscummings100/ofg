@@ -1,6 +1,9 @@
 // Direct RHI scene rendering, reflected material binding, and explicit service/asset GPU ownership.
 #include "render/graphics.h"
 #include "render/resource-gpu-data.h"
+#include "render/environment-renderer.h"
+#include "render/sky-renderer.h"
+#include "render/shadow-renderer.h"
 #include "render/texture-renderer.h"
 #include "core/engine-error.h"
 #include "math/transform.h"
@@ -36,7 +39,10 @@ struct GraphicsState
     ComPtr<ITexture> depth;
     ComPtr<ITexture> hdr, display;
     std::shared_ptr<Shader> outputShader;
-    std::vector<std::weak_ptr<EnvironmentGpuData>> environments;
+    std::unique_ptr<EnvironmentRenderer> environments;
+    std::unique_ptr<SkyRenderer> sky;
+    std::unique_ptr<ShadowRenderer> shadows;
+    ComPtr<ITexture> aerialFallback;
     ComPtr<ISampler> environmentSampler;
     // Pipeline identity includes every variable fixed-function state.
     std::map<std::weak_ptr<Shader>, std::vector<PipelineEntry>, std::owner_less<std::weak_ptr<Shader>>> pipelines;
@@ -246,8 +252,9 @@ void bindResources(IShaderObject* root, const Material& material)
         std::string name = layout->getFieldByIndex(index)->getName();
         if (name != "draw" && name != "material" &&
             !(material.renderState().pbr &&
-              (name == "frame" || name == "diffuseEnvironment" || name == "specularEnvironment" ||
-               name == "sheenEnvironment" || name == "brdfLookup" || name == "environmentSampler")) &&
+              (name == "outdoor" || name == "shadowMaps" || name == "shadowSampler" || name == "aerialPerspective" ||
+               name == "frame" || name == "filteredEnvironment" || name == "brdfLookup" ||
+               name == "environmentSampler")) &&
             !material.textures().contains(name) && !material.samplers().contains(name))
         {
             throw EngineError("Missing or unsupported shader resource binding: " + name);
@@ -323,13 +330,78 @@ int stageFor(const Material& material, bool hdr)
     }
     return material.renderState().unlit ? 1 : 0;
 }
-// Binds an immutable lighting snapshot and the four baked IBL textures to a PBR draw.
+// Binds explicit outdoor values and valid fallback resources for ordinary studio materials.
+void bindOutdoor(IShaderObject* root, const DrawList& list, uint32_t width, uint32_t height)
+{
+    auto cursor = ShaderCursor(root), o = cursor["outdoor"];
+    const auto set = [&](const char* name, math::Vec4 value)
+    {
+        bindUniform(o[name], value);
+    };
+    auto forward = math::transformDirection(list.camera.worldFromView, {0, 0, 1});
+    auto camera = list.cameraPosition;
+    set("viewPositionNear", {camera.x, camera.y, camera.z, list.camera.nearDistance});
+    set("viewForwardFar", {forward.x, forward.y, forward.z, 0});
+    set("viewport", {float(width), float(height), 0, 0});
+    set("enabledExposure", {0, 1, 0, 0});
+    set("shadowOptions", {1, .1f, 0, 0});
+    set("ibl", {0, 0, 1, 0});
+    set("iblExposure", {1, 1, 0, 0});
+    set("cloudSettings", {});
+    set("windLayers", {});
+    set("lightDirection", {0, 1, 0, 10000});
+    math::Vec4 splits{}, texels{};
+    if (list.outdoor)
+    {
+        const auto& settings = *list.lighting.outdoor;
+        const auto& shadow = settings.shadows;
+        const auto& c = settings.clouds;
+        const auto& f = *list.outdoor;
+        set("enabledExposure", {1, f.exposureMultiplier * list.lighting.exposure, shadow.depthBias, shadow.normalBias});
+        set("shadowOptions",
+            {float(shadow.resolution), shadow.transition, float(shadow.enabled), float(shadow.debugView)});
+        set("lightDirection",
+            {f.lightDirection.x, f.lightDirection.y, f.lightDirection.z, settings.atmosphere.aerialDistance});
+        set("cloudSettings", {c.coverage, c.opticalThickness, c.scale, 0});
+        float wind = float(std::fmod(settings.dayCycle.elapsedSeconds * c.windSpeed, 1000000.0));
+        set("windLayers", {std::cos(c.windAngle) * wind, std::sin(c.windAngle) * wind, c.altitude, c.secondAltitude});
+        auto blend = graphics->environments->blend();
+        set("ibl", {blend.x, blend.y, blend.z, 0});
+        auto scales = graphics->environments->exposureScales(list);
+        set("iblExposure", {scales.x, scales.y, 0, 0});
+        for (uint32_t i = 0; i < 4; ++i)
+        {
+            const auto& cascade = graphics->shadows->cascades()[i];
+            bindMatrix(o["shadowMatrices"][i], cascade.clipFromWorld);
+            splits[i] = cascade.farDistance;
+            texels[i] = cascade.texelSize;
+        }
+    }
+    else
+    {
+        for (uint32_t i = 0; i < 4; ++i)
+        {
+            bindMatrix(o["shadowMatrices"][i], math::mat4Identity());
+        }
+    }
+    set("splitDistances", splits);
+    set("texelSizes", texels);
+    check(cursor["shadowMaps"].setBinding(graphics->shadows->texture()), "Bind shadow array");
+    check(cursor["shadowSampler"].setBinding(graphics->shadows->sampler()), "Bind shadow comparisons");
+    check(
+        cursor["aerialPerspective"].setBinding(
+            list.outdoor ? graphics->sky->aerialPerspective() : graphics->aerialFallback.get()
+        ),
+        "Bind aerial perspective"
+    );
+}
+// Binds an immutable lighting snapshot, packed environment filters and the BRDF lookup to a PBR draw.
 void bindFrame(
     IShaderObject* root,
     const DrawList& list,
     const Material& material,
     bool display,
-    EnvironmentGpuData& env
+    const EnvironmentGpuData& env
 )
 {
     ShaderCursor cursor(root), frame = cursor["frame"];
@@ -364,18 +436,20 @@ void bindFrame(
         bindUniform(field["colorIntensity"], math::Vec4{light.color.x, light.color.y, light.color.z, light.intensity});
         bindUniform(field["coneCosines"], math::Vec2{std::cos(light.innerCone), std::cos(light.outerCone)});
     }
-    bindUniform(frame["environmentIntensity"], list.lighting.environmentIntensity);
+    // Until startup capture completes, render direct lighting and sky without unrelated baked studio fill.
+    bindUniform(
+        frame["environmentIntensity"],
+        list.outdoor && !graphics->environments->hasDynamic() ? 0.0f : list.lighting.environmentIntensity
+    );
     bindUniform(frame["environmentRotation"], list.lighting.environmentRotation);
-    bindUniform(frame["environmentMips"], float(list.lighting.environment->mipCount()));
-    bindUniform(frame["exposure"], list.lighting.exposure);
+    bindUniform(frame["environmentMips"], float(env.cubes->getDesc().mipCount));
+    bindUniform(frame["exposure"], list.outdoor ? 1.0f : list.lighting.exposure);
     bindUniform(frame["alphaMode"], uint32_t(material.renderState().alphaMode));
     bindUniform(frame["displayOutput"], uint32_t(display));
     bindUniform(frame["encodeSrgb"], uint32_t(0));
     bindUniform(frame["linearOutput"], uint32_t(list.lighting.linearOutput));
     bindUniform(frame["debugView"], list.lighting.debugView);
-    check(cursor["diffuseEnvironment"].setBinding(env.cubes[0]), "Bind diffuse IBL");
-    check(cursor["specularEnvironment"].setBinding(env.cubes[1]), "Bind GGX IBL");
-    check(cursor["sheenEnvironment"].setBinding(env.cubes[2]), "Bind Charlie IBL");
+    check(cursor["filteredEnvironment"].setBinding(env.cubes), "Bind filtered IBL");
     check(cursor["brdfLookup"].setBinding(env.lookup), "Bind BRDF lookup");
     check(cursor["environmentSampler"].setBinding(graphics->environmentSampler), "Bind IBL sampler");
 }
@@ -435,6 +509,7 @@ void Graphics::initialize(rhi::IDevice* device, rhi::ICommandQueue* queue)
     auto state = std::make_unique<GraphicsState>();
     state->device = device;
     state->queue = queue;
+    state->environments = std::make_unique<EnvironmentRenderer>(device, queue);
     const rhi::VertexStreamDesc stream{sizeof(Vertex), rhi::InputSlotClass::PerVertex, 0};
     rhi::InputElementDesc elements[] = {
         {"POSITION", 0, rhi::Format::RGB32Float, offsetof(Vertex, position), 0},
@@ -458,6 +533,17 @@ void Graphics::initialize(rhi::IDevice* device, rhi::ICommandQueue* queue)
     }
     check(device->createInputLayout(desc, state->pbrInputLayout.writeRef()), "Create PBR vertex layout");
     state->textures = std::make_unique<TextureRenderer>(device, queue);
+    state->sky = std::make_unique<SkyRenderer>(device, queue);
+    state->shadows = std::make_unique<ShadowRenderer>(device, queue, state->pbrInputLayout);
+    rhi::TextureDesc fallback{};
+    fallback.type = TextureType::Texture2DArray;
+    fallback.arrayLength = 1;
+    fallback.size = {1, 1, 1};
+    fallback.format = Format::RGBA16Float;
+    fallback.usage = TextureUsage::ShaderResource;
+    uint16_t zero[4]{};
+    SubresourceData fallbackPixels{zero, 8, 8};
+    check(device->createTexture(fallback, &fallbackPixels, state->aerialFallback.writeRef()), "Create aerial fallback");
     state->outputShader = Shader::create("pbr-output", pbrOutputShader);
     FormatSupport support{};
     check(device->getFormatSupport(Format::RGBA16Float, &support), "Query HDR format support");
@@ -550,52 +636,6 @@ void Graphics::prepareShader(Shader& shader)
     shader.m_gpu = std::move(data);
 }
 
-void Graphics::prepareEnvironment(Environment& environment)
-{
-    if (environment.m_gpu && environment.m_gpu->lookup)
-    {
-        return;
-    }
-    auto data = std::make_shared<EnvironmentGpuData>();
-    for (size_t i = 0; i < 3; ++i)
-    {
-        rhi::TextureDesc desc{};
-        desc.type = TextureType::TextureCube;
-        desc.size = {environment.size(), environment.size(), 1};
-        desc.format = Format::RGBA16Float;
-        desc.mipCount = environment.mipCount();
-        desc.usage = TextureUsage::ShaderResource;
-        desc.defaultState = rhi::ResourceState::ShaderResource;
-        std::vector<SubresourceData> subresources;
-        size_t offset = 0;
-        for (uint32_t face = 0; face < 6; ++face)
-        {
-            for (uint32_t mip = 0; mip < environment.mipCount(); ++mip)
-            {
-                size_t size = environment.size() >> mip;
-                subresources.push_back({environment.cube(i).data() + offset, size * 8, size * size * 8});
-                offset += size * size * 4;
-            }
-        }
-        check(graphics->device->createTexture(desc, subresources.data(), data->cubes[i].writeRef()), "Upload IBL cube");
-    }
-    rhi::TextureDesc desc{};
-    desc.size = {environment.lookupSize(), environment.lookupSize(), 1};
-    desc.format = Format::RGBA16Float;
-    desc.usage = TextureUsage::ShaderResource;
-    desc.defaultState = rhi::ResourceState::ShaderResource;
-    SubresourceData pixels{environment.lookup().data(), environment.lookupSize() * 8, environment.lookup().size() * 2};
-    check(graphics->device->createTexture(desc, &pixels, data->lookup.writeRef()), "Upload BRDF lookup");
-    std::erase_if(
-        graphics->environments,
-        [](const auto& weak)
-        {
-            return weak.expired();
-        }
-    );
-    graphics->environments.push_back(data);
-    environment.m_gpu = std::move(data);
-}
 
 void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
 {
@@ -603,6 +643,10 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
     if (!graphics || !colorTarget)
     {
         throw EngineError("Graphics::render requires initialization and a color target.");
+    }
+    if (list.outdoor && (!list.lighting.hdr || !list.lighting.outdoor || !list.lighting.environment))
+    {
+        throw EngineError("Outdoor rendering requires HDR, outdoor settings and an environment BRDF lookup.");
     }
     const auto& target = colorTarget->getDesc();
     if (target.type != TextureType::Texture2D || target.size.width == 0 || target.size.height == 0 ||
@@ -681,7 +725,7 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
     }
     if (list.lighting.environment)
     {
-        prepareEnvironment(*list.lighting.environment);
+        graphics->environments->prepare(*list.lighting.environment);
     }
     for (const auto& item : list.items)
     {
@@ -710,6 +754,29 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
             graphics->hdr = hdr;
             graphics->display = display;
         }
+    }
+    if (list.outdoor)
+    {
+        graphics->sky->update(list);
+        graphics->environments->update(list, *graphics->sky);
+        std::vector<ShadowDraw> shadowDraws;
+        for (const auto& item : list.shadowCasters)
+        {
+            prepareMesh(*item.mesh);
+            ShadowDraw draw{&item, item.mesh->m_gpu->vertices, item.mesh->m_gpu->indices};
+            if (item.material->renderState().alphaMode == AlphaMode::Mask &&
+                item.material->textures().contains("baseColorTexture"))
+            {
+                const auto& binding = item.material->textures().at("baseColorTexture");
+                auto view = std::holds_alternative<TextureView>(binding) ? std::get<TextureView>(binding)
+                                                                         : bindingTexture(binding)->defaultView();
+                draw.alphaTexture = graphics->textures->prepare(view);
+                draw.alphaSampler = graphics->textures->prepare(*item.material->samplers().at("baseColorSampler"));
+            }
+            shadowDraws.push_back(draw);
+        }
+        graphics->shadows->render(list, shadowDraws);
+        graphics->sky->drawBackground(list, graphics->hdr);
     }
     std::vector<const DrawItem*> items;
     for (const auto& item : list.items)
@@ -755,7 +822,7 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
                 graphics->outputShader->m_gpu->program,
                 graphics->hdr,
                 graphics->display,
-                list.lighting.exposure,
+                list.outdoor ? 1.0f : list.lighting.exposure,
                 list.lighting.linearOutput,
                 false,
                 list.lighting.debugView
@@ -767,7 +834,7 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
         check(graphics->queue->createCommandEncoder(encoder.writeRef()), "Create scene encoder");
         RenderPassColorAttachment color{};
         color.view = attachment->getDefaultView();
-        color.loadOp = stage == 0 ? LoadOp::Clear : LoadOp::Load;
+        color.loadOp = stage == 0 && !list.outdoor ? LoadOp::Clear : LoadOp::Load;
         color.clearValue[0] = 0.025f;
         color.clearValue[1] = 0.035f;
         color.clearValue[2] = 0.055f;
@@ -832,7 +899,15 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
                 bindMatrix(ShaderCursor(root)["draw"]["worldFromLocal"], item.worldFromLocal);
                 bindMatrix(ShaderCursor(root)["draw"]["normalFromLocal"], normal);
                 bindUniform(ShaderCursor(root)["draw"]["orientation"], mirrored ? -1.0f : 1.0f);
-                bindFrame(root, list, *item.material, stage != 0, *list.lighting.environment->m_gpu);
+                bindFrame(
+                    root,
+                    list,
+                    *item.material,
+                    stage != 0,
+                    list.outdoor && graphics->environments->hasDynamic() ? graphics->environments->dynamic()
+                                                                         : *list.lighting.environment->m_gpu
+                );
+                bindOutdoor(root, list, target.size.width, target.size.height);
             }
             pass->bindPipeline(pipeline, root);
             RenderState state{};
@@ -895,15 +970,32 @@ void Graphics::shutdown() noexcept
             data->program.setNull();
         }
     }
-    for (auto& weak : graphics->environments)
-    {
-        if (auto data = weak.lock())
-        {
-            data->cubes = {};
-            data->lookup.setNull();
-        }
-    }
     graphics.reset();
+}
+
+OutdoorDiagnostics Graphics::outdoorDiagnostics() noexcept
+{
+    OutdoorDiagnostics result;
+    if (!graphics)
+    {
+        return result;
+    }
+    result.environmentSteps = graphics->environments->completedSteps();
+    result.environmentPasses = graphics->environments->lastPassCount();
+    result.environmentPublications = graphics->environments->publicationCount();
+    if (!graphics->environments->hasDynamic())
+    {
+        return result;
+    }
+    result.ready = true;
+    result.environmentAgeSeconds = graphics->environments->ageSeconds();
+    result.environmentBlend = graphics->environments->blend().z;
+    result.shadowResolution = graphics->shadows->texture()->getDesc().size.width;
+    for (size_t i = 0; i < 4; ++i)
+    {
+        result.cascadeDistances[i] = graphics->shadows->cascades()[i].farDistance;
+    }
+    return result;
 }
 
 size_t Graphics::pipelineCreationCount() noexcept

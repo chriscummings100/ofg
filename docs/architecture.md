@@ -91,3 +91,11 @@ undeformed; animation evaluation and GPU deformation remain separate work.
 [Workspace](imgui.md) is host-owned and uses one explicit ImGui context. ofg-ui depends on ofg-render and pinned ImGui; ofg-core remains independent. Native uses the upstream GLFW platform backend, while browser input is adapted from Emscripten canvas callbacks. Menu/panel construction determines the physical scene viewport size before Game::frame. The scene renders into display-linear RGBA16F, UI composes into another full-window RGBA16F target, and the resource-only presentation shader performs destination-appropriate transfer. All yielding work precedes browser canvas acquisition.
 
 ImGuiRenderer owns its pipeline/sampler and font texture snapshots. Submitted commands retain immutable per-frame vertex/index buffers and sampled textures; 16-bit index uploads are padded to four-byte lengths for WebGPU without changing draw counts. Workspace owns layout, non-owning entity selection, and initial fixture lighting for reset. No UI API enters scene/core headers except independent Entity display-name accessors. The existing checkerboard and --no-ui / ?ui=0 paths remain diagnostic baselines.
+
+## Outdoor lighting
+
+The optional [outdoor laboratory](outdoor-lighting.md) extends the existing scene values and Render Settings panel.
+Graphics owns concrete SkyRenderer, EnvironmentRenderer and ShadowRenderer helpers. CPU extraction retains shadow
+casters independently of camera culling. Raster-generated lookups and cube arrays keep the WebGPU path within its
+16-sampled-texture baseline; no compute/storage-texture backend is required. See the outdoor note for exact resource
+layouts, the pinned WebGPU adaptations, numerical approximations and validation limits.

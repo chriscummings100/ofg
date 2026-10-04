@@ -1,0 +1,5 @@
+// Generated alpha-tested cascade depth shader.
+#pragma once
+namespace ofg {
+inline constexpr const char* shadowShader=R"OFG(@SHADOW_SHADER@)OFG";
+}

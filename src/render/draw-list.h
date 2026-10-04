@@ -1,8 +1,9 @@
-// GPU-independent visible draw extraction; entries retain assets and snapshot transforms, never scene pointers.
+// GPU-independent visible/caster extraction; entries retain assets and snapshot transforms, never scene pointers.
 #pragma once
 
 #include "resources/mesh.h"
 #include "scene/lighting.h"
+#include "render/shadow-cascades.h"
 
 namespace ofg {
 class Scene;
@@ -21,10 +22,14 @@ struct DrawList
     std::vector<DrawItem> items;
     math::Vec3 cameraPosition{};
     Lighting lighting;
+    ShadowCamera camera;
+    std::optional<OutdoorFrame> outdoor;
+    std::vector<DrawItem> shadowCasters;
 };
 
 // Conservatively tests a local AABB against the six [0,1]-depth homogeneous clip planes.
 bool boundsVisible(const Bounds& bounds, const math::Mat4& clipFromLocal) noexcept;
-// Extracts visible submeshes in creation order; foreign/singular cameras and failed assets throw.
+// Extracts visible submeshes and independent outdoor casters in creation order.
+// Foreign/singular cameras and failed assets throw; entries retain ready assets and copied transforms.
 DrawList buildDrawList(const Scene& scene, const Camera& camera, float aspectRatio);
 } // namespace ofg

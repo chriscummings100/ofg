@@ -3,6 +3,7 @@
     "private": true,
     "type": "module",
     "scripts": {
+        "smoke:outdoor": "node tools/outdoor-smoke.mjs",
         "serve:web": "node tools/serve-web.mjs",
         "smoke:web": "node tools/browser-smoke.mjs",
         "smoke:pbr": "node tools/pbr-smoke.mjs",
