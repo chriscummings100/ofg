@@ -61,6 +61,9 @@ DrawList buildDrawList(const Scene& scene, const Camera& camera, float aspectRat
         throw EngineError("Camera view: " + error);
     }
     DrawList list;
+    list.lighting = scene.lighting;
+    const auto cameraWorld = entity->worldTransform()[3];
+    list.cameraPosition = {cameraWorld.x, cameraWorld.y, cameraWorld.z};
     list.clipFromWorld = math::mul(camera.projectionMatrix(aspectRatio), *view);
     for (const auto& renderer : scene.meshRenderers())
     {

@@ -38,7 +38,7 @@ The native CPU suite covers status transitions, duplicate requests, weak lifetim
 
 Readiness means a validated CPU description exists. Graphics lazily uploads Mesh buffers and compiles Shader source on first rendering use. GPU errors propagate with operation/compiler diagnostics; readiness does not promise shader compilation succeeded. Graphics shutdown releases prepared GPU handles even when CPU resources survive, so later initialization can reprepare them.
 
-Mesh data is immutable: interleaved position/normal/UV vertices, uint32 triangle indices, and nonempty triangle-aligned submesh ranges with shared default Materials. Creation rejects non-finite attributes, invalid indices/ranges and missing materials, and computes local bounds. It retains CPU geometry for re-preparation. Mesh and Shader own private GPU state without importing RHI into core headers.
+Mesh data is immutable: interleaved position/normal/UV0/tangent/UV1/color vertices, uint32 triangle indices, and nonempty triangle-aligned submesh ranges with shared default Materials. Creation rejects non-finite attributes, invalid indices/ranges and missing materials, and computes local bounds. It retains CPU geometry for re-preparation. Mesh and Shader own private GPU state without importing RHI into core headers.
 
 Material stores a shared Shader and a map of direct field names to `UniformValue`: float, int32, uint32, Vec2/3/4 or Mat4. `setUniform` edits the shared object deliberately; `clone()` copies values into a new uncached Material sharing the Shader. No implicit copy-on-write occurs. MeshRenderer's `makeMaterialUnique(index)` installs such a clone as an override. Other submeshes/instances remain unchanged.
 
@@ -79,3 +79,12 @@ Graphics owns a TextureRenderer helper; assets own private GPU handles and the h
 Browser fp32 use requires `float32-filterable` because the pinned RHI declares float sampled bindings as filterable even for explicit loads. `cmake/rhi-webgpu-formats.cmake` adjusts a generated copy of the pinned WebGPU source to withhold ShaderSample for fp32 when the actual device lacks that feature. The submodule and pin remain unchanged. Unsupported fp32 produces a useful error before allocation/binding; there is no silent downconversion or CPU mip fallback. Float16 storage uses float shader arithmetic and does not require shader-f16.
 
 Shutdown invalidates surviving texture/view/sampler GPU handles. Reinitialization uploads retained base bytes and regenerates mips. Native tests release the final CPU owners after submission and verify readback; RHI/backend command ownership supplies in-flight retention. Public writable textures, compute-write bindings, cubemaps, arrays, compression, blending and specialized normal/height reduction remain outside this slice.
+
+## PBR resources
+
+See [PBR contracts](pbr.md) for typed material construction, surface slots/UV transforms, render classification and
+binding limits. `Material::clone` also copies alpha/cull/PBR state. `Vertex` includes optional tangent handedness, UV1 and
+color; zero tangent W selects derivative evaluation. `Environment::fromBytes` creates a ready immutable baked resource
+and validates its entire cube/LUT payload before publication. `Scene::lighting` and extracted `DrawList` retain shared
+environment ownership. Graphics uploads cube faces/mips privately, tracks allocations weakly for shutdown, and lets RHI
+retain submitted references. This synchronous embedded bake path does not add an asynchronous environment-file loader.

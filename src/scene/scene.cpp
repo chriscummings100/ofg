@@ -13,7 +13,8 @@ Scene::Scene()
 }
 
 Scene::Scene(Scene&& other) noexcept
-    : m_entities(std::move(other.m_entities))
+    : lighting(std::move(other.lighting))
+    , m_entities(std::move(other.m_entities))
     , m_cameras(std::move(other.m_cameras))
     , m_meshRenderers(std::move(other.m_meshRenderers))
     , m_activeCamera(std::move(other.m_activeCamera))
@@ -35,6 +36,7 @@ Scene& Scene::operator=(Scene&& other) noexcept
     m_activeCamera.reset();
     m_meshRenderers.clear();
     m_cameras.clear();
+    lighting = std::move(other.lighting);
     m_entities = std::move(other.m_entities);
     m_cameras = std::move(other.m_cameras);
     m_meshRenderers = std::move(other.m_meshRenderers);
@@ -103,6 +105,7 @@ std::uint32_t Scene::generation() const noexcept
 
 void Scene::clear()
 {
+    lighting = {};
     m_activeCamera.reset();
     m_meshRenderers.clear();
     m_cameras.clear();

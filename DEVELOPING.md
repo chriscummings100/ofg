@@ -153,7 +153,7 @@ Browser build and smoke passed on 2026-10-01 with Emscripten 6.0.0, Chrome 154.0
 
 `ofg-scene-rendering` runs the scene GPU/Game tests in `ofg-render-test`; `ofg-checkerboard` selects the original exact pixel test. The CPU suite now also covers transform caches, typed components, meshes/materials and draw extraction. Run the existing cpu-tests and native-debug build/test presets and `npm.cmd run smoke:web`. Uniform tests allow one byte of UNORM quantization error for fractional values; flat primary colors remain exact. Browser geometry checks avoid cross-backend edge equality.
 
-Use `.\build\native\ofg.exe` for the scene, `.\build\native\ofg.exe --checkerboard` for the diagnostic, and `--check-device` for finite startup. Browser equivalents are `http://127.0.0.1:8080/` and `http://127.0.0.1:8080/?demo=checkerboard`. Game owns application updates; hosts retain event loops and presentation. There are no camera controls in this stationary fixture.
+Use `.\build\native\ofg.exe --scene` for the retained scene, `.\build\native\ofg.exe --checkerboard` for the diagnostic, and `--check-device` for finite startup. Browser equivalents are `http://127.0.0.1:8080/?demo=scene` and `http://127.0.0.1:8080/?demo=checkerboard`. Game owns application updates; hosts retain event loops and presentation. There are no camera controls in this stationary fixture.
 
 Native presentation evidence lives under `artifacts/scene-rendering/native`: `scene.png`, `scene-resized.png`, `scene-restored.png`, stdout/stderr logs and the local `capture.ps1` probe. The probe targets the rendering window (not its console), resizes and minimizes/restores it, then requests normal close. These screenshots supplement the offscreen integration tests.
 
@@ -166,7 +166,7 @@ The [completed scene-object plan](docs/archived/scene-object-rendering.md) recor
 
 ## Texture checks and assets
 
-The default scene now loads `assets/checker.png` on demand and samples it with GPU-generated mipmaps. CMake copies fixture assets to every build tree and watches them for regeneration. Native resolves assets relative to the executable, so launching from another directory remains supported. Browser assets are separate HTTP requests, not embedded WASM downloads. The original checkerboard remains selectable.
+The retained texture scene (`--scene` / `?demo=scene`) loads `assets/checker.png` on demand and samples it with GPU-generated mipmaps. CMake copies fixture assets to every build tree and watches them for regeneration. Native resolves assets relative to the executable, so launching from another directory remains supported. Browser assets are separate HTTP requests, not embedded WASM downloads. The original checkerboard remains selectable.
 
 Public interfaces and examples are in [resource contracts](docs/resources.md#sampled-textures-views-and-samplers). PNG/JPEG import produces RGBA8 sRGB. Procedural uploads support UNORM8, float16 and float32, with default/ranged views and shared immutable samplers. Browser fp32 requires the actual device's optional `float32-filterable` feature; unsupported requests fail explicitly. The current RHI pin remains unchanged: a generated-source WebGPU format-report correction is applied during configuration.
 
@@ -177,3 +177,33 @@ Browser diagnostic URLs include `?texture=assets/checker.jpg`, `?float=16`, and 
 Current texture evidence is saved under `artifacts/textures/browser` and `artifacts/textures/native`. Native capture must account for Windows DPI scaling; the recorded probe captures the actual application window, resizes, minimizes/restores and closes it. The test process launches from the artifact directory to exercise asset-path independence. Browser images use the existing surface encoding; native/browser pixels are not asserted identical. These checks do not measure throughput or long-run residency.
 
 Texture milestone verified on 2026-10-03: CPU-only 61 cases/1016 assertions; all four native CTest checks pass, including 11 scene/texture GPU cases/825 assertions and the checkerboard regression. Native window tests ran on NVIDIA GeForce RTX 3050 Ti Laptop GPU. Web build and extended smoke pass in Chrome 154.0.8037.95 (independent adapter query: Intel gen-12lp). Success paths report no validation errors; missing/corrupt assets and unsupported fp32 report their expected failures. The existing Emscripten Asyncify/WASM-exception warning remains. WASM is 27,257,116 bytes before compression. See the [completed texture plan](docs/archived/texture-support.md) for evidence and remaining limits.
+
+## PBR laboratory
+
+The default native/browser scene is the [PBR sphere grid](docs/pbr.md). Native launch is `build/native/ofg.exe`;
+`--scene` retains the textured cubes and `--checkerboard` retains the original diagnostic. Browser equivalents are
+`?demo=scene` and `?demo=checkerboard`; no query selects PBR. The grid legend, fixed lighting, camera controls,
+material API and output policy are documented in `docs/pbr.md`.
+
+After the normal native/web build commands, run:
+
+```powershell
+node tools/pbr-shader-check.mjs
+node tools/pbr-smoke.mjs
+npm.cmd run smoke:web
+```
+
+The fast shader check uses the native preset's pinned `build/native/_deps/slang-src/bin/slangc.exe`; an optional first
+argument selects that same compiler from another build location. It checks actual Chrome WGSL diagnostics and numeric
+vertex locations. The PBR runtime smoke checks the full browser path, including `?pbr=budget`. They use the existing
+locked Playwright/Chrome tooling and serve only loopback. Reports are in `artifacts/pbr/shaders` and `artifacts/pbr/browser`.
+
+Optional environment regeneration (not a build prerequisite): `python tools/bake-pbr.py`, with NumPy 1.26.4 used for the
+committed bake. Rebuilding then embeds `assets/pbr-studio.bin` on both targets. Preserve shader/license notices under
+`shaders/pbr`. The scene GPU CTest timeout is 120 seconds to cover cold compilation of surface/texture variants; startup
+and checkerboard checks retain their 30-second timeouts. The native PBR test saves `artifacts/pbr/native/offscreen.ppm`
+and reports first-use and ten warm submit-plus-queue-wait timings at 960x640; these are debug/validation measurements,
+not GPU-only frame times or an FPS promise.
+
+
+PBR verified on 2026-10-03: CPU-only 65 cases/1611 assertions; all four native CTest targets pass, including 19 scene/PBR/texture cases/1009 assertions and the 22-assertion checkerboard test. Web build, shader validation, PBR smoke and the retained texture smoke pass. Native captures cover overview/close-up, fly/reset, resize, minimize/restore and Escape close. Browser captures cover the same inspection poses, pointer lock, focus-loss clearing, debug normals, resize/reload and maximum bindings. See [the PBR plan](docs/plans/pbr-rendering.md#artifacts-and-notes) for named hardware, timings, payload sizes and the remaining reference-parity/residency validation gaps.

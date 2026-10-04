@@ -1,10 +1,10 @@
 <!doctype html>
-<!-- Minimal browser host for the shared Slang RHI scene and checkerboard diagnostic. -->
+<!-- Browser host: explicit pointer capture, readiness diagnostics and the shared PBR/texture fixtures. -->
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>OFG | WebGPU scene objects</title>
+    <title>OFG | PBR material laboratory</title>
     <link rel="icon" href="data:,">
     <style>
         html, body { margin: 0; height: 100%; background: #202020; color: #eee; font: 14px system-ui; }
@@ -20,15 +20,26 @@
     <script>
         var Module = {
             canvas: document.getElementById('canvas'),
-            frameCount: 0,
-            textureReady: false,
-            textureFrames: 0,
+            frameCount: 0, textureReady: false, textureFrames: 0,
             texturePath: new URLSearchParams(location.search).get('texture') || 'assets/checker.png',
             floatBits: Number(new URLSearchParams(location.search).get('float') || 0),
             checkerboard: new URLSearchParams(location.search).get('demo') === 'checkerboard',
-            failed: false,
-            noInitialRun: !navigator.gpu,
-            // Keeps errors visible and exposes a small readiness signal for the browser smoke check.
+            pbr: !new URLSearchParams(location.search).has('texture') && !new URLSearchParams(location.search).has('float') &&
+                !['scene','checkerboard'].includes(new URLSearchParams(location.search).get('demo')),
+            maximumLayout: new URLSearchParams(location.search).get("pbr") === "budget",
+            debugView: 0,
+            keys: new Set(), look: [0,0], resetCamera: false, closeupCamera: false,
+            // Consumes displacement once; held movement is sampled only during pointer lock.
+            readFlyInput(pointer) {
+                const locked = document.pointerLockElement === this.canvas;
+                const key = name => locked && this.keys.has(name) ? 1 : 0;
+                HEAPF32.set([key('KeyD')-key('KeyA'),key('KeyE')-key('KeyQ'),key('KeyW')-key('KeyS'),
+                    locked ? this.look[0] : 0,locked ? this.look[1] : 0,key('ShiftLeft'),
+                    Number(this.resetCamera),Number(this.closeupCamera)],pointer/4);
+                this.look=[0,0];this.resetCamera=false;this.closeupCamera=false;
+            },
+            failed: false, noInitialRun: !navigator.gpu,
+            // Preserves the first failure and exposes readiness to browser automation.
             setStatus(text, failed = false) {
                 if (this.failed && !failed) return;
                 this.failed ||= failed;
@@ -36,17 +47,38 @@
                 status.textContent = text;
                 status.dataset.failed = String(this.failed);
             },
-            // Called after a submitted frame; browser automation waits for several frames before capture.
+            // Called after submission; smoke captures wait for multiple completed frame callbacks.
             frameRendered() {
                 ++this.frameCount;
                 if (this.checkerboard && this.frameCount === 1) this.setStatus('WebGPU checkerboard ready');
-                else if (this.textureReady && ++this.textureFrames === 1) this.setStatus('WebGPU scene ready');
+                else if (this.textureReady && ++this.textureFrames === 1)
+                    this.setStatus(this.pbr ? 'PBR spheres | roughness: left to right | metallic: bottom to top | click to fly: WASD/QE, mouse, Shift | Esc release | R reset | F close-up | 0-4 debug' : 'WebGPU scene ready');
                 else if (this.frameCount === 1) this.setStatus('Loading textures...');
             },
-            print: text => console.log(text),
-            printErr: text => console.error(text),
+            print: text => console.log(text), printErr: text => console.error(text),
             onAbort: reason => Module.setStatus(`WebAssembly stopped: ${reason}`, true)
         };
+        // Pointer lock requires a deliberate canvas gesture. Release/focus loss clears held input.
+        Module.canvas.addEventListener('click', () => { if (Module.pbr) Module.canvas.requestPointerLock(); });
+        document.addEventListener('mousemove', event => {
+            if (document.pointerLockElement === Module.canvas) {
+                Module.look[0]+=event.movementX; Module.look[1]+=event.movementY;
+            }
+        });
+        document.addEventListener('keydown', event => {
+            if (!Module.pbr || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
+            Module.keys.add(event.code);
+            if (event.code==='Escape' && document.pointerLockElement) document.exitPointerLock();
+            if (event.code==='KeyR') Module.resetCamera=true;
+            if (event.code==='KeyF') Module.closeupCamera=true;
+            if (/^Digit[0-4]$/.test(event.code)) Module.debugView=Number(event.code.slice(-1));
+        });
+        document.addEventListener('keyup', event => Module.keys.delete(event.code));
+        document.addEventListener('pointerlockchange', () => { Module.keys.clear(); Module.look=[0,0]; });
+        window.addEventListener('blur', () => {
+            Module.keys.clear(); Module.look=[0,0]; Module.resetCamera=false; Module.closeupCamera=false;
+            if (document.pointerLockElement) document.exitPointerLock();
+        });
         if (!navigator.gpu) Module.setStatus('WebGPU is unavailable. Use a supported browser on localhost or HTTPS.', true);
     </script>
     {{{ SCRIPT }}}

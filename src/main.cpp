@@ -5,6 +5,8 @@
 #include "core/engine-error.h"
 #include "render/graphics.h"
 #include "lab/scene-fixture.h"
+#include "lab/pbr-fixture.h"
+#include "lab/fly-camera.h"
 #include <slang-rhi/agility-sdk.h>
 
 #define GLFW_INCLUDE_NONE
@@ -17,19 +19,65 @@
 #include <cstring>
 #include <memory>
 #include <filesystem>
+#include <utility>
 
 SLANG_RHI_EXPORT_AGILITY_SDK
 
 using namespace rhi;
 
-// Processes events and submits frames; minimized windows sleep until events resume.
-static Result runFrames(GLFWwindow* window, ISurface* surface, ICommandQueue* queue, IRenderPipeline* pipeline)
+struct NativeActions
 {
+    bool escape = false, reset = false, closeup = false;
+};
+// Retains brief action presses without making movement keys sticky across capture/focus changes.
+static void recordKeyAction(GLFWwindow* window, int key, int, int action, int)
+{
+    if (action != GLFW_PRESS)
+    {
+        return;
+    }
+    auto& input = *static_cast<NativeActions*>(glfwGetWindowUserPointer(window));
+    if (key == GLFW_KEY_ESCAPE)
+    {
+        input.escape = true;
+    }
+    if (key == GLFW_KEY_R)
+    {
+        input.reset = true;
+    }
+    if (key == GLFW_KEY_F)
+    {
+        input.closeup = true;
+    }
+}
+// Focus loss discards queued actions; GLFW itself releases held key/button state.
+static void clearActionsOnBlur(GLFWwindow* window, int focused)
+{
+    if (!focused)
+    {
+        *static_cast<NativeActions*>(glfwGetWindowUserPointer(window)) = {};
+    }
+}
+
+// Processes events and submits frames; minimized windows sleep until events resume.
+static Result runFrames(
+    GLFWwindow* window,
+    ISurface* surface,
+    ICommandQueue* queue,
+    IRenderPipeline* pipeline,
+    bool pbr
+)
+{
+    auto& actions = *static_cast<NativeActions*>(glfwGetWindowUserPointer(window));
     double previousTime = glfwGetTime();
+    ofg::FlyCamera camera;
+    bool captured = false, previousMouse = false;
+    double mouseX = 0, mouseY = 0;
     while (!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
-        if (glfwWindowShouldClose(window) || glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        const bool escape = std::exchange(actions.escape, false);
+        if (glfwWindowShouldClose(window) || (escape && !captured))
         {
             break;
         }
@@ -37,6 +85,57 @@ static Result runFrames(GLFWwindow* window, ISurface* surface, ICommandQueue* qu
         const double now = glfwGetTime();
         const float deltaSeconds = float(now - previousTime);
         previousTime = now;
+        if (pbr)
+        {
+            const bool focused = glfwGetWindowAttrib(window, GLFW_FOCUSED);
+            const bool mouse = focused && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+            if (mouse && !previousMouse && !escape)
+            {
+                captured = true;
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                glfwGetCursorPos(window, &mouseX, &mouseY);
+            }
+            if (!focused || escape || !mouse)
+            {
+                captured = false;
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            }
+            ofg::FlyCameraInput input;
+            if (focused)
+            {
+                for (int view = 0; view <= 4; ++view)
+                {
+                    if (glfwGetKey(window, GLFW_KEY_0 + view) == GLFW_PRESS)
+                    {
+                        ofg::Game::scene().lighting.debugView = view;
+                    }
+                }
+                input.reset = std::exchange(actions.reset, false);
+                input.closeup = std::exchange(actions.closeup, false);
+            }
+            if (captured)
+            {
+                double x, y;
+                glfwGetCursorPos(window, &x, &y);
+                input.lookPixels = {float(x - mouseX), float(y - mouseY)};
+                mouseX = x;
+                mouseY = y;
+                input.movement = {
+                    float(
+                        (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) - (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+                    ),
+                    float(
+                        (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) - (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
+                    ),
+                    float(
+                        (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) - (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+                    )
+                };
+                input.fast = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
+            }
+            camera.update(*ofg::Game::scene().activeCamera()->entity(), input, deltaSeconds);
+            previousMouse = mouse;
+        }
         int width = 0;
         int height = 0;
         glfwGetFramebufferSize(window, &width, &height);
@@ -82,14 +181,17 @@ static Result runFrames(GLFWwindow* window, ISurface* surface, ICommandQueue* qu
 }
 
 // Owns the window and presentation resources, draining GPU work before either is destroyed.
-static Result runWindow(IDevice* device, bool checkerboard)
+static Result runWindow(IDevice* device, bool checkerboard, bool pbr)
 {
+    NativeActions actions; // Lives through window destruction, including exceptions and early RHI failures.
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     std::unique_ptr<GLFWwindow, decltype(&glfwDestroyWindow)> window(
         glfwCreateWindow(
             960,
             640,
-            checkerboard ? "OFG | D3D12 checkerboard" : "OFG | D3D12 scene objects",
+            checkerboard ? "OFG | D3D12 checkerboard"
+            : pbr        ? "OFG | PBR spheres - RMB + WASDQE, Shift, R reset, F close-up"
+                         : "OFG | D3D12 scene objects",
             nullptr,
             nullptr
         ),
@@ -99,8 +201,11 @@ static Result runWindow(IDevice* device, bool checkerboard)
     {
         return SLANG_FAIL;
     }
-    // Preserve brief key presses until runFrames polls them, even if release arrives in the same frame.
-    glfwSetInputMode(window.get(), GLFW_STICKY_KEYS, GLFW_TRUE);
+    // Movement keys must reflect current physical state and must not replay after focus/capture loss.
+    glfwSetInputMode(window.get(), GLFW_STICKY_KEYS, GLFW_FALSE);
+    glfwSetWindowUserPointer(window.get(), &actions);
+    glfwSetKeyCallback(window.get(), recordKeyAction);
+    glfwSetWindowFocusCallback(window.get(), clearActionsOnBlur);
 
     ComPtr<ISurface> surface;
     SLANG_RETURN_ON_FAIL(device->createSurface(getWindowHandleFromGLFW(window.get()), surface.writeRef()));
@@ -126,9 +231,9 @@ static Result runWindow(IDevice* device, bool checkerboard)
                 throw ofg::EngineError("Cannot resolve executable asset directory.");
             }
             auto path = std::filesystem::path(executable).parent_path() / "assets/checker.png";
-            ofg::Game::initialize(ofg::createSceneFixture(path.string()));
+            ofg::Game::initialize(pbr ? ofg::createPbrFixture() : ofg::createSceneFixture(path.string()));
         }
-        renderResult = runFrames(window.get(), surface, queue, pipeline);
+        renderResult = runFrames(window.get(), surface, queue, pipeline, pbr);
     } catch (const std::exception& error)
     {
         std::fprintf(stderr, "OFG scene failed: %s\n", error.what());
@@ -152,9 +257,10 @@ int main(int argc, char** argv)
 {
     const bool checkDevice = argc == 2 && std::strcmp(argv[1], "--check-device") == 0;
     const bool checkerboard = argc == 2 && std::strcmp(argv[1], "--checkerboard") == 0;
-    if (argc != 1 && !checkDevice && !checkerboard)
+    const bool scene = argc == 2 && std::strcmp(argv[1], "--scene") == 0;
+    if (argc != 1 && !checkDevice && !checkerboard && !scene)
     {
-        std::fprintf(stderr, "Usage: ofg [--check-device | --checkerboard]\n");
+        std::fprintf(stderr, "Usage: ofg [--check-device | --checkerboard | --scene]\n");
         return 1;
     }
 
@@ -179,7 +285,7 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    result = runWindow(device, checkerboard);
+    result = runWindow(device, checkerboard, !checkerboard && !scene);
     glfwTerminate();
     if (SLANG_FAILED(result))
     {

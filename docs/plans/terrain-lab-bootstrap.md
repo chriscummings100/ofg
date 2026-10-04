@@ -8,7 +8,13 @@ Establish a small C++ terrain laboratory using Slang RHI in both a native Window
 
 ## Progress
 
+- [x] (2026-10-03) Implemented the [PBR sphere laboratory](../pbr.md): fly camera, textured core/surface materials, punctual lights, matched baked IBL and HDR output on D3D12/WebGPU. CPU/native tests and PBR browser smoke pass; final regression/documentation checks are recorded in the PBR plan. UI/terrain remain separate work.
+
 - [x] (2026-10-03) Implemented and verified [sampled textures and GPU mipmaps](../archived/texture-support.md), including UNORM8/sRGB8/fp16/fp32, on-demand PNG/JPEG, views/samplers and browser fp32 gating. CPU/native CTest and extended browser smoke pass; evidence is under artifacts/textures.
+
+- [x] (2026-10-03) Revised the proposed PBR plan around a material sphere grid and early debug fly camera. A solid core PBR/IBL basis is the first review checkpoint; transmission/scattering are deferred. This is a documentation update, not a new implementation result.
+
+- [x] (2026-10-03) Completed the requested [Khronos PBR source analysis](../research/khronos-pbr-reference.md) and [proposed integration plan](pbr-rendering.md). The reference is downloaded under artifacts/reference; no rendering implementation was authorized or started in this research task.
 
 - [x] (2026-10-03) Implemented the expanded [scene-object rendering plan](../archived/scene-object-rendering.md): Camera, MeshRenderer, procedural Mesh/Material/Shader, cached transforms, DrawList, Graphics and Game. CPU/native tests and browser smoke pass; native/browser screenshots are under artifacts/scene-rendering.
 
@@ -40,6 +46,8 @@ Establish a small C++ terrain laboratory using Slang RHI in both a native Window
 
 ## Surprises & Discoveries
 
+PBR research, 2026-10-03: the inspected Khronos renderer uses shader variants, matched environment filtering and additional transmission/scattering passes. A fully textured material plus IBL can exceed baseline WebGPU binding limits. The PBR proposal makes the resource profile and cross-platform shader/layout proof an early gate; it does not change the working scene renderer or complete UI/terrain work.
+
 Browser bring-up: installed Emscripten 6.0.0 compiled the pinned RHI and Slang WASM libraries without upstream source changes. The first Chrome 154 smoke passed with UNORM gray levels 32/224, resize and reload, and no console errors. RHI exposes an empty adapter description in this browser; log a neutral fallback and retain a separate navigator.gpu adapter query in the smoke report. Emscripten warns about Asyncify plus WASM exceptions, matching upstream's flags; do not generalize checkerboard success to arbitrary exception/async paths. clang-format split a JavaScript triple-equals inside EM_ASM and caused a subsequent link failure; move that JavaScript logic to the HTML shell and keep EM_ASM to simple calls.
 
 The first native checkerboard build and pixel test passed. A final automated window interaction exposed missed brief Escape presses when press/release both arrived between frames; enabling GLFW sticky key state fixed it, and the rebuilt application exited successfully on the same brief Escape input. Launching from artifacts/checkerboard also verified working-directory-independent shader loading. The preferred presentation format can apply sRGB encoding, so visual screenshot byte values differ from the linear RGBA8 UNORM test target. Tests deliberately validate the offscreen format; they do not claim screenshot byte equality. GLFW is pinned to b00e6a8a88ad1b60c0a045e696301deb92c9a13e (the revision in RHI's examples).
@@ -49,6 +57,10 @@ The backup only renders a 160 m square of synchronous, single-resolution terrain
 Slang RHI has an Emscripten integration, including prebuilt WASM Slang compiler libraries, but the inspected upstream example only checks device/queue and buffer behavior. Its Emscripten CI builds without running tests. Indirect draws are disabled in the current RHI WASM command path. None of this proves that ordinary browser graphics or compute fail; those are precisely what this spike must establish.
 
 ## Decision Log
+
+2026-10-03, user PBR priority update: the main review system is a sphere grid with different materials, with basic fly-camera inspection added early. Establish core PBR, direct lights, IBL and HDR before transmission/scattering. The PBR plan now separates those follow-ups from foundation acceptance.
+
+2026-10-03, user-requested research: prepare a close-port PBR source guide and future integration plan without implementing rendering code. Keep the PBR work proposed and distinct from the still-active UI/terrain/streaming bootstrap. Its recommended architecture extends the shared forward renderer and preserves native D3D12 and browser WebGPU.
 
 2026-10-01, user documentation checkpoint: document the achieved architecture and keep the checkerboard as the runnable example, add a browser-build skill beside the native skill, and commit the browser milestone before expanding the application. Exact commands stay in DEVELOPING.md; the architecture note explains boundaries and limits, and skills provide agent workflow guidance.
 
@@ -71,6 +83,8 @@ Slang RHI has an Emscripten integration, including prebuilt WASM Slang compiler 
 2026-10-01, user scope update: add a minimal native main.cpp linked to RHI and a skill explaining how to build it. A console device-startup check proves linking and runtime dependencies without introducing a window system. Use the existing CMake/Ninja setup and discover Visual Studio through vswhere; keep shell initialization in the same process as configuration/compilation.
 
 ## Outcomes & Retrospective
+
+PBR research checkpoint, 2026-10-03: downloaded and indexed the Khronos source, identified required OFG changes and prepared a staged integration proposal. Documentation validation applies to this checkpoint; no new graphics build, runtime result or PBR capability is claimed.
 
 The user-requested state and component-free scene foundations now live in ofg-core. The cpu-tests preset builds without adding graphics dependencies; doctest is independently vendored. State behavior, unique ownership and auto-nulling observers are preserved. No resource system or concrete components are included. This supersedes the earlier checkpoint statements below that CPU tests were still future work.
 

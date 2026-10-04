@@ -5,6 +5,9 @@
 #include <cmath>
 #include "render/present.h"
 #include "lab/scene-fixture.h"
+#include "lab/pbr-fixture.h"
+#include "lab/sphere.h"
+#include "resources/pbr-material.h"
 #include "game.h"
 #include "resources/resources.h"
 #include "math/transform.h"
@@ -12,6 +15,9 @@
 #include <doctest.h>
 #include <atomic>
 #include <array>
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 
 using namespace ofg;
 
@@ -64,11 +70,15 @@ struct GraphicsFixture
         CHECK(diagnostics.errors == 0);
     }
     // Creates a readable offscreen color target; odd size exercises viewport and row-pitch handling.
-    rhi::ComPtr<rhi::ITexture> target(rhi::Format format = rhi::Format::RGBA8Unorm, uint32_t width = 129)
+    rhi::ComPtr<rhi::ITexture> target(
+        rhi::Format format = rhi::Format::RGBA8Unorm,
+        uint32_t width = 129,
+        uint32_t height = 97
+    )
     {
         rhi::TextureDesc desc{};
         desc.type = rhi::TextureType::Texture2D;
-        desc.size = {width, 97, 1};
+        desc.size = {width, height, 1};
         desc.format = format;
         desc.usage =
             rhi::TextureUsage::RenderTarget | rhi::TextureUsage::CopySource | rhi::TextureUsage::ShaderResource;
@@ -735,4 +745,438 @@ TEST_CASE("sampled image orientation multiple bindings and missing resource cont
     wrong->setSampler("image", Sampler::create());
     list.items[0].material = list.items[1].material = wrong;
     CHECK_THROWS_WITH_AS(Graphics::render(list, target), doctest::Contains("SamplerState"), EngineError);
+}
+
+TEST_CASE("PBR sphere grid compiles surface shaders and presents the HDR environment pipeline")
+{
+    GraphicsFixture fixture;
+    auto scene = createPbrFixture();
+    scene->update();
+    auto list = buildDrawList(*scene, *scene->activeCamera(), 960.0f / 640);
+    REQUIRE(list.items.size() == 63);
+    auto target = fixture.target(rhi::Format::RGBA8Unorm, 960, 640);
+    auto start = std::chrono::steady_clock::now();
+    Graphics::render(list, target);
+    REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+    double cold = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    auto count = Graphics::pipelineCreationCount();
+    start = std::chrono::steady_clock::now();
+    for (int frame = 0; frame < 10; ++frame)
+    {
+        Graphics::render(list, target);
+        REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+    }
+    double warm = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count() / 10;
+    CHECK(Graphics::pipelineCreationCount() == count);
+    std::printf(
+        "PBR benchmark: %s, D3D12 debug validation, 960x640, 63 spheres, 2 lights, %zu pipelines, first %.2f ms, warm "
+        "submit+wait %.2f ms.\n",
+        fixture.device->getInfo().adapterName,
+        count,
+        cold,
+        warm
+    );
+    // Durable offscreen capture has an exact viewport, independent of OS window chrome/DPI.
+    rhi::ComPtr<ISlangBlob> pixels;
+    rhi::SubresourceLayout layout{};
+    REQUIRE(SLANG_SUCCEEDED(fixture.device->readTexture(target, 0, 0, pixels.writeRef(), &layout)));
+    auto folder = std::filesystem::path(OFG_SOURCE_DIR) / "artifacts/pbr/native";
+    std::filesystem::create_directories(folder);
+    std::ofstream output(folder / "offscreen.ppm", std::ios::binary);
+    output << "P6\n960 640\n255\n";
+    for (size_t y = 0; y < 640; ++y)
+    {
+        for (size_t x = 0; x < 960; ++x)
+        {
+            output.write(static_cast<const char*>(pixels->getBufferPointer()) + y * layout.rowPitch + x * 4, 3);
+        }
+    }
+    REQUIRE(bool(output));
+}
+
+// A front-facing plane with analytic normal and identity UV coordinates for lighting/readback tests.
+static std::shared_ptr<Mesh> pbrPlane(const std::shared_ptr<Material>& material)
+{
+    return Mesh::create(
+        {{{-0.8f, -0.8f, 0}, {0, 0, -1}, {0, 1}},
+         {{0.8f, -0.8f, 0}, {0, 0, -1}, {1, 1}},
+         {{0.8f, 0.8f, 0}, {0, 0, -1}, {1, 0}},
+         {{-0.8f, 0.8f, 0}, {0, 0, -1}, {0, 0}}},
+        {0, 2, 1, 0, 3, 2},
+        {{0, 6, material}}
+    );
+}
+// Reads actual scene-linear float output; no tone mapping/transfer is used on this diagnostic target.
+static std::array<float, 4> floatPixel(GraphicsFixture& fixture, rhi::ITexture* target)
+{
+    REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+    rhi::ComPtr<ISlangBlob> pixels;
+    rhi::SubresourceLayout layout{};
+    REQUIRE(SLANG_SUCCEEDED(fixture.device->readTexture(target, 0, 0, pixels.writeRef(), &layout)));
+    std::array<float, 4> result;
+    std::memcpy(
+        result.data(),
+        static_cast<const uint8_t*>(pixels->getBufferPointer()) + 48 * layout.rowPitch + 64 * 16,
+        16
+    );
+    return result;
+}
+
+TEST_CASE("PBR direct light has analytic dielectric and metal limits with HDR emission and unlit bypass")
+{
+    GraphicsFixture fixture;
+    auto target = fixture.target(rhi::Format::RGBA32Float);
+    PbrMaterialDesc desc;
+    desc.baseColor = {0.5f, 0.5f, 0.5f, 1};
+    desc.metallic = 0;
+    desc.roughness = 1;
+    auto material = createPbrMaterial(desc);
+    auto mesh = pbrPlane(material);
+    DrawList list;
+    list.cameraPosition = {0, 0, -3};
+    list.lighting.hdr = true;
+    list.lighting.linearOutput = true;
+    list.lighting.environment = createStudioEnvironment();
+    list.lighting.environmentIntensity = 0;
+    list.lighting.lightCount = 1;
+    list.lighting.lights[0].direction = {0, 0, 1};
+    list.lighting.lights[0].intensity = 3.141592654f;
+    list.items.push_back({mesh, 0, material, math::mat4Translation({0, 0, 0.5f})});
+    Graphics::render(list, target);
+    auto pixel = floatPixel(fixture, target);
+    // At N=V=L, roughness=1: diffuse .5*.96 plus GGX .04/4, with radiance pi.
+    CHECK(pixel[0] == doctest::Approx(0.49).epsilon(0.002));
+    material->setUniform("metallic", 1.f);
+    Graphics::render(list, target);
+    pixel = floatPixel(fixture, target);
+    CHECK(pixel[0] == doctest::Approx(0.125).epsilon(0.002));
+    material->setUniform("emissive", math::Vec3{4, 2, 1});
+    Graphics::render(list, target);
+    pixel = floatPixel(fixture, target);
+    CHECK(pixel[0] == doctest::Approx(4.125).epsilon(0.002));
+    // Environment/direct lights and exposure do not alter unlit material RGB.
+    desc.unlit = true;
+    desc.baseColor = {0.25f, 0.5f, 0.75f, 1};
+    list.items[0].material = createPbrMaterial(desc);
+    list.lighting.exposure = 3;
+    list.lighting.linearOutput = false;
+    Graphics::render(list, target);
+    pixel = floatPixel(fixture, target);
+    CHECK(pixel[0] == 0.25f);
+    CHECK(pixel[1] == 0.5f);
+    CHECK(pixel[2] == 0.75f);
+    auto encoded = fixture.target();
+    Graphics::render(list, encoded);
+    CHECK(std::abs(int(fixture.pixel(encoded, 64, 48)[0]) - 137) <= 1);
+    // Two-sided shading and determinant-corrected culling preserve the same visible surface after mirroring.
+    list.items[0].worldFromLocal = math::mul(math::mat4Translation({0, 0, 0.5f}), math::mat4Scale({-1, 2, 1}));
+    Graphics::render(list, target);
+    CHECK(floatPixel(fixture, target)[0] == 0.25f);
+}
+
+TEST_CASE("PBR alpha mask and mixed lit unlit transparency compose in display-linear space")
+{
+    GraphicsFixture fixture;
+    auto target = fixture.target(rhi::Format::RGBA32Float);
+    PbrMaterialDesc lit;
+    lit.baseColor = {0, 0, 0, 1};
+    lit.metallic = 0;
+    lit.specular = 0;
+    lit.emissive = {0, 0, 0.5f};
+    auto background = createPbrMaterial(lit);
+    auto mesh = pbrPlane(background);
+    DrawList list;
+    list.cameraPosition = {0, 0, -3};
+    list.lighting.hdr = true;
+    list.lighting.linearOutput = true;
+    list.lighting.environment = createStudioEnvironment();
+    list.lighting.environmentIntensity = 0;
+    PbrMaterialDesc front;
+    front.unlit = true;
+    front.baseColor = {1, 0, 0, 0.5f};
+    front.alphaMode = AlphaMode::Blend;
+    auto overlay = createPbrMaterial(front);
+    list.items = {
+        {mesh, 0, overlay, math::mat4Translation({0, 0, 0.2f})},
+        {mesh, 0, background, math::mat4Translation({0, 0, 0.7f})}
+    };
+    Graphics::render(list, target);
+    auto pixel = floatPixel(fixture, target);
+    CHECK(pixel[0] == 0.5f);
+    CHECK(pixel[1] == 0);
+    CHECK(pixel[2] == 0.25f);
+    front.alphaMode = AlphaMode::Mask;
+    front.alphaCutoff = 0.5f;
+    list.items[0].material = createPbrMaterial(front);
+    Graphics::render(list, target);
+    CHECK(floatPixel(fixture, target)[0] == 1);
+    list.items[0].material->setUniform("baseColor", math::Vec4{1, 0, 0, 0.49f});
+    Graphics::render(list, target);
+    pixel = floatPixel(fixture, target);
+    CHECK(pixel[0] == 0);
+    CHECK(pixel[2] == 0.5f);
+}
+
+TEST_CASE("PBR surface layers preserve neutral settings and analytic normal-incidence limits")
+{
+    GraphicsFixture fixture;
+    auto target = fixture.target(rhi::Format::RGBA32Float);
+    PbrMaterialDesc desc;
+    desc.baseColor = {0.5f, 0.5f, 0.5f, 1};
+    desc.metallic = 0;
+    desc.roughness = 1;
+    auto material = createPbrMaterial(desc);
+    auto mesh = pbrPlane(material);
+    DrawList list;
+    list.cameraPosition = {0, 0, -3};
+    list.lighting.hdr = true;
+    list.lighting.linearOutput = true;
+    list.lighting.environment = createStudioEnvironment();
+    list.lighting.environmentIntensity = 0;
+    list.lighting.lightCount = 1;
+    list.lighting.lights[0].direction = {0, 0, 1};
+    list.lighting.lights[0].intensity = 3.141592654f;
+    list.items = {{mesh, 0, material, math::mat4Translation({0, 0, 0.5f})}};
+    Graphics::render(list, target);
+    const auto baseline = floatPixel(fixture, target);
+
+    // Auxiliary layer parameters must have no effect while their strengths remain zero.
+    material->setUniform("clearcoatRoughness", 0.7f);
+    material->setUniform("sheenRoughness", 0.8f);
+    material->setUniform("iridescenceIor", 2.f);
+    material->setUniform("thicknessMinimum", 400.f);
+    material->setUniform("thicknessMaximum", 400.f);
+    material->setUniform("anisotropyRotation", 1.2f);
+    Graphics::render(list, target);
+    CHECK(floatPixel(fixture, target) == baseline);
+
+    // Zero dielectric reflectance leaves Lambertian .5 under irradiance pi.
+    material->setUniform("specular", 0.f);
+    Graphics::render(list, target);
+    CHECK(floatPixel(fixture, target)[0] == doctest::Approx(0.5).epsilon(0.002));
+    material->setUniform("specular", 1.f);
+    material->setUniform("ior", 1.f);
+    Graphics::render(list, target);
+    CHECK(floatPixel(fixture, target)[0] == doctest::Approx(0.5).epsilon(0.002));
+    material->setUniform("ior", 1.5f);
+
+    // A roughness-one coat has radiance .25 and Fresnel .04: .49*.96 + .25*.04.
+    material->setUniform("clearcoat", 1.f);
+    material->setUniform("clearcoatRoughness", 1.f);
+    Graphics::render(list, target);
+    CHECK(floatPixel(fixture, target)[0] == doctest::Approx(0.4804).epsilon(0.002));
+    material->setUniform("clearcoat", 0.f);
+
+    // A zero-thickness film is neutral even at full interference strength.
+    material->setUniform("iridescence", 1.f);
+    material->setUniform("thicknessMinimum", 0.f);
+    material->setUniform("thicknessMaximum", 0.f);
+    Graphics::render(list, target);
+    CHECK(floatPixel(fixture, target) == baseline);
+    material->setUniform("thicknessMaximum", 400.f);
+    Graphics::render(list, target);
+    auto film = floatPixel(fixture, target);
+    CHECK(std::abs(film[0] - film[2]) > 0.001f);
+
+    // Layer combinations must stay finite at grazing view and the authored zero-roughness boundary.
+    material->setUniform("roughness", 0.f);
+    material->setUniform("anisotropy", 1.f);
+    material->setUniform("sheenColor", math::Vec3{0.4f, 0.1f, 0.2f});
+    material->setUniform("clearcoat", 1.f);
+    list.cameraPosition = {3, 0, 0.49f};
+    list.lighting.environmentIntensity = 1;
+    Graphics::render(list, target);
+    const auto grazing = floatPixel(fixture, target);
+    for (int channel = 0; channel < 3; ++channel)
+    {
+        CHECK(std::isfinite(grazing[channel]));
+        CHECK(grazing[channel] >= 0);
+    }
+}
+
+// Replaces studio radiance with known per-face constants while preserving its matched lookup data.
+static std::shared_ptr<Environment> constantEnvironment(bool coloredFaces)
+{
+    auto source = createStudioEnvironment();
+    std::vector<uint8_t> bytes{'O', 'F', 'G', 'I', 'B', 'L', '1', 0};
+    auto append32 = [&](uint32_t value)
+    {
+        for (int i = 0; i < 4; ++i)
+        {
+            bytes.push_back(uint8_t(value >> (i * 8)));
+        }
+    };
+    auto append16 = [&](uint16_t value)
+    {
+        bytes.push_back(uint8_t(value));
+        bytes.push_back(uint8_t(value >> 8));
+    };
+    append32(source->size());
+    append32(source->mipCount());
+    append32(source->lookupSize());
+    for (int cube = 0; cube < 3; ++cube)
+    {
+        for (int face = 0; face < 6; ++face)
+        {
+            for (uint32_t mip = 0; mip < source->mipCount(); ++mip)
+            {
+                uint32_t size = source->size() >> mip;
+                for (uint32_t texel = 0; texel < size * size; ++texel)
+                {
+                    // Face -Z is (.25,.5,1), all others are black; uncolored is the white furnace.
+                    bool visible = !coloredFaces || face == 5;
+                    append16(visible ? (coloredFaces ? 0x3400 : 0x3c00) : 0);
+                    append16(visible ? (coloredFaces ? 0x3800 : 0x3c00) : 0);
+                    append16(visible ? 0x3c00 : 0);
+                    append16(0x3c00);
+                }
+            }
+        }
+    }
+    for (auto value : source->lookup())
+    {
+        append16(value);
+    }
+    return Environment::fromBytes(bytes);
+}
+
+TEST_CASE("PBR IBL preserves a white furnace and cubemap orientation across replacement and roughness limits")
+{
+    GraphicsFixture fixture;
+    auto target = fixture.target(rhi::Format::RGBA32Float);
+    PbrMaterialDesc desc;
+    desc.baseColor = {1, 1, 1, 1};
+    desc.metallic = 1;
+    desc.roughness = 0;
+    auto material = createPbrMaterial(desc);
+    auto mesh = pbrPlane(material);
+    DrawList list;
+    list.cameraPosition = {0, 0, -3};
+    list.lighting.hdr = true;
+    list.lighting.linearOutput = true;
+    list.lighting.environment = constantEnvironment(false);
+    list.items = {{mesh, 0, material, math::mat4Translation({0, 0, 0.5f})}};
+    for (float metallic : {0.f, 1.f})
+    {
+        for (float roughness : {0.f, 0.5f, 1.f})
+        {
+            material->setUniform("metallic", metallic);
+            material->setUniform("roughness", roughness);
+            Graphics::render(list, target);
+            auto pixel = floatPixel(fixture, target);
+            for (int channel = 0; channel < 3; ++channel)
+            {
+                CHECK(pixel[channel] == doctest::Approx(1).epsilon(0.002));
+            }
+        }
+    }
+    material->setUniform("metallic", 1.f);
+    material->setUniform("roughness", 0.f);
+    Graphics::render(list, target); // Replace while the previous submitted frame still owns the old cube.
+    list.lighting.environment = constantEnvironment(true);
+    Graphics::render(list, target);
+    auto pixel = floatPixel(fixture, target);
+    CHECK(pixel[0] == doctest::Approx(0.25).epsilon(0.002));
+    CHECK(pixel[1] == doctest::Approx(0.5).epsilon(0.002));
+    CHECK(pixel[2] == doctest::Approx(1).epsilon(0.002));
+    list.lighting.environmentRotation = 3.141592654f;
+    Graphics::render(list, target);
+    pixel = floatPixel(fixture, target);
+    CHECK(pixel[2] < 0.001f);
+}
+
+TEST_CASE("PBR point and spot attenuation follow distance range and cone contracts")
+{
+    GraphicsFixture fixture;
+    auto target = fixture.target(rhi::Format::RGBA32Float);
+    PbrMaterialDesc desc;
+    desc.baseColor = {0.5f, 0.5f, 0.5f, 1};
+    desc.metallic = 0;
+    desc.roughness = 1;
+    auto material = createPbrMaterial(desc);
+    auto mesh = pbrPlane(material);
+    DrawList list;
+    list.cameraPosition = {0, 0, -3};
+    list.lighting.hdr = true;
+    list.lighting.linearOutput = true;
+    list.lighting.environment = createStudioEnvironment();
+    list.lighting.environmentIntensity = 0;
+    list.lighting.lightCount = 1;
+    auto& light = list.lighting.lights[0];
+    light.type = LightType::Point;
+    light.position = {0, 0, -1.5f};
+    light.intensity = 4 * 3.141592654f;
+    list.items = {{mesh, 0, material, math::mat4Translation({0, 0, 0.5f})}};
+    Graphics::render(list, target);
+    CHECK(floatPixel(fixture, target)[0] == doctest::Approx(0.49).epsilon(0.002));
+    light.type = LightType::Spot;
+    Graphics::render(list, target);
+    CHECK(floatPixel(fixture, target)[0] == doctest::Approx(0.49).epsilon(0.002));
+    light.direction = {1, 0, 0};
+    Graphics::render(list, target);
+    CHECK(floatPixel(fixture, target)[0] == 0);
+    light.type = LightType::Point;
+    light.range = 2;
+    Graphics::render(list, target);
+    CHECK(floatPixel(fixture, target)[0] == 0);
+}
+
+TEST_CASE("PBR maximum portable material layout uses exactly sixteen sampled textures")
+{
+    GraphicsFixture fixture;
+    auto scene = createPbrFixture(true);
+    scene->update();
+    auto list = buildDrawList(*scene, *scene->activeCamera(), 129.f / 97);
+    auto target = fixture.target();
+    Graphics::render(list, target);
+    CHECK(fixture.pixel(target, 64, 48)[3] == 255);
+}
+
+TEST_CASE("PBR texture channels preserve sRGB color and linear metallic roughness data")
+{
+    GraphicsFixture fixture;
+    auto target = fixture.target(rhi::Format::RGBA32Float);
+    std::array<std::byte, 4> bytes{std::byte{128}, std::byte{64}, std::byte{32}, std::byte{128}};
+    auto color = Texture::create({1, 1, TextureFormat::RGBA8UnormSrgb}, {bytes});
+    auto data = Texture::create({1, 1, TextureFormat::RGBA8Unorm}, {bytes});
+    PbrMaterialDesc desc;
+    desc.unlit = true;
+    desc.textures[0].texture = color;
+    auto material = createPbrMaterial(desc);
+    auto mesh = pbrPlane(material);
+    DrawList list;
+    list.cameraPosition = {0, 0, -3};
+    list.lighting.hdr = true;
+    list.lighting.environment = createStudioEnvironment();
+    list.items = {{mesh, 0, material, math::mat4Translation({0, 0, 0.5f})}};
+    Graphics::render(list, target);
+    auto pixel = floatPixel(fixture, target);
+    CHECK(pixel[0] == doctest::Approx(0.2158605).epsilon(0.002));
+    CHECK(pixel[1] == doctest::Approx(0.05126946).epsilon(0.002));
+    CHECK(pixel[2] == doctest::Approx(0.01444384).epsilon(0.002));
+    desc.unlit = false;
+    desc.roughness = 0.8f;
+    desc.metallic = 0.7f;
+    desc.textures[1].texture = data;
+    list.items[0].material = createPbrMaterial(desc);
+    list.lighting.debugView = 2;
+    Graphics::render(list, target);
+    CHECK(floatPixel(fixture, target)[0] == doctest::Approx(0.8 * 64 / 255).epsilon(0.002));
+    list.lighting.debugView = 3;
+    Graphics::render(list, target);
+    CHECK(floatPixel(fixture, target)[0] == doctest::Approx(0.7 * 32 / 255).epsilon(0.002));
+    // The actual inverse-transpose shader path must preserve a slanted normal under nonuniform scale.
+    auto n = math::Vec3{0.70710678f, 0, -0.70710678f};
+    mesh = Mesh::create(
+        {{{-0.8f, -0.8f, 0}, n, {}}, {{0.8f, -0.8f, 0}, n, {}}, {{0, 0.8f, 0}, n, {}}},
+        {0, 2, 1},
+        {{0, 3, list.items[0].material}}
+    );
+    list.items[0].mesh = mesh;
+    list.items[0].worldFromLocal = math::mul(math::mat4Translation({0, 0, 0.5f}), math::mat4Scale({2, 1, 1}));
+    list.lighting.debugView = 1;
+    Graphics::render(list, target);
+    pixel = floatPixel(fixture, target);
+    CHECK(pixel[0] == doctest::Approx(0.5 + 0.5 / std::sqrt(5.0)).epsilon(0.002));
+    CHECK(pixel[2] == doctest::Approx(0.5 - 1 / std::sqrt(5.0)).epsilon(0.005));
 }

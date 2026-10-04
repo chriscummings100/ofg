@@ -3,6 +3,7 @@
 #pragma once
 
 #include "math/mat.h"
+#include "scene/lighting.h"
 #include "scene/entity.h"
 #include "scene/camera.h"
 #include "scene/mesh-renderer.h"
@@ -17,6 +18,7 @@ namespace ofg {
 class Scene
 {
 public:
+    Lighting lighting; // Explicit scene-owned lighting, reset by clear and transferred on move.
     // Creates a scene with a single root entity.
     Scene();
     // Destroys components before their entities.

@@ -15,7 +15,24 @@ if(NOT EMSCRIPTEN)
 endif()
 add_subdirectory(external)
 
+# PBR source modules have a fixed dependency/order list and are embedded on every target.
+set(PBR_SHADER "")
+foreach(module common brdf iridescence material lighting mesh)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/pbr/${module}.slang)
+    file(READ shaders/pbr/${module}.slang source)
+    string(APPEND PBR_SHADER "\n#line 1 \"pbr/${module}.slang\"\n${source}\n")
+endforeach()
+configure_file(src/resources/pbr-shader.h.in generated/pbr-shader.h @ONLY)
+file(READ assets/pbr-studio.bin IBL_HEX HEX)
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," IBL_BYTES "${IBL_HEX}")
+configure_file(src/lab/pbr-environment.h.in generated/pbr-environment.h @ONLY)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS assets/pbr-studio.bin)
+
 add_library(ofg-core STATIC
+    src/resources/pbr-material.cpp
+    src/resources/environment.cpp
+    src/lab/fly-camera.cpp
+    src/lab/sphere.cpp
     src/core/object.cpp
     src/math/mat.cpp
     src/math/quat.cpp
@@ -37,7 +54,7 @@ add_library(ofg-core STATIC
     src/state/state.cpp
 )
 target_compile_features(ofg-core PUBLIC cxx_std_20)
-target_include_directories(ofg-core PUBLIC src)
+target_include_directories(ofg-core PUBLIC src PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_include_directories(ofg-core SYSTEM PRIVATE external/stb)
 
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS assets/checker.png assets/checker.jpg assets/README.md)
@@ -45,6 +62,7 @@ file(COPY assets DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_executable(ofg-core-test
+        tests/pbr-core-test.cpp
         tests/texture-test.cpp
         tests/core-test-main.cpp
         tests/math-test.cpp
@@ -80,7 +98,14 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/mipmaps.s
 file(READ shaders/mipmaps.slang MIPMAPS_SHADER)
 configure_file(src/render/mipmaps-shader.h.in generated/mipmaps-shader.h @ONLY)
 
+file(READ shaders/pbr/common.slang PBR_OUTPUT_SHADER)
+file(READ shaders/pbr/output.slang OUTPUT_SOURCE)
+string(APPEND PBR_OUTPUT_SHADER "\n${OUTPUT_SOURCE}")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/pbr/output.slang)
+configure_file(src/render/pbr-output-shader.h.in generated/pbr-output-shader.h @ONLY)
+
 add_library(ofg-render STATIC src/render/texture-renderer.cpp src/checkerboard.cpp src/render/graphics.cpp src/render/present.cpp src/game.cpp src/lab/scene-fixture.cpp)
+target_sources(ofg-render PRIVATE src/lab/pbr-fixture.cpp)
 target_compile_features(ofg-render PUBLIC cxx_std_20)
 target_include_directories(ofg-render PUBLIC src PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(ofg-render PUBLIC slang-rhi ofg-core)
@@ -111,7 +136,9 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 
     add_executable(ofg-render-test tests/checkerboard-test.cpp tests/graphics-test.cpp)
     target_link_libraries(ofg-render-test PRIVATE ofg-render doctest)
+    target_compile_definitions(ofg-render-test PRIVATE OFG_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME ofg-checkerboard COMMAND ofg-render-test "--test-case=Checkerboard*")
     add_test(NAME ofg-scene-rendering COMMAND ofg-render-test "--test-case-exclude=Checkerboard*")
-    set_tests_properties(ofg-startup ofg-checkerboard ofg-scene-rendering PROPERTIES LABELS "native;gpu" TIMEOUT 30)
+    set_tests_properties(ofg-startup ofg-checkerboard PROPERTIES LABELS "native;gpu" TIMEOUT 30)
+    set_tests_properties(ofg-scene-rendering PROPERTIES LABELS "native;gpu" TIMEOUT 120)
 endif()

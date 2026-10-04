@@ -37,7 +37,17 @@ std::shared_ptr<Mesh> Mesh::create(
               vertex.normal.y,
               vertex.normal.z,
               vertex.uv.x,
-              vertex.uv.y})
+              vertex.uv.y,
+              vertex.tangent.x,
+              vertex.tangent.y,
+              vertex.tangent.z,
+              vertex.tangent.w,
+              vertex.uv1.x,
+              vertex.uv1.y,
+              vertex.color.x,
+              vertex.color.y,
+              vertex.color.z,
+              vertex.color.w})
         {
             if (!std::isfinite(value))
             {

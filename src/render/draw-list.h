@@ -2,6 +2,7 @@
 #pragma once
 
 #include "resources/mesh.h"
+#include "scene/lighting.h"
 
 namespace ofg {
 class Scene;
@@ -18,6 +19,8 @@ struct DrawList
 {
     math::Mat4 clipFromWorld{math::mat4Identity()};
     std::vector<DrawItem> items;
+    math::Vec3 cameraPosition{};
+    Lighting lighting;
 };
 
 // Conservatively tests a local AABB against the six [0,1]-depth homogeneous clip planes.

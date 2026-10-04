@@ -14,6 +14,9 @@ struct Vertex
     math::Vec3 position;
     math::Vec3 normal;
     math::Vec2 uv;
+    math::Vec4 tangent{}; // W = +/-1 for authored tangents; zero requests a derivative UV0 frame.
+    math::Vec2 uv1{};
+    math::Vec4 color{1, 1, 1, 1};
 };
 
 struct SubMesh

@@ -31,6 +31,7 @@ std::shared_ptr<Material> Material::clone() const
 {
     auto result = create(m_shader);
     result->m_uniforms = m_uniforms;
+    result->m_renderState = m_renderState;
     result->m_textures = m_textures;
     result->m_samplers = m_samplers;
     return result;

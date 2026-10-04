@@ -10,6 +10,20 @@
 #include <variant>
 
 namespace ofg {
+enum class AlphaMode
+{
+    Opaque,
+    Mask,
+    Blend
+};
+struct MaterialState
+{
+    AlphaMode alphaMode = AlphaMode::Opaque;
+    bool doubleSided = true;
+    bool pbr = false;
+    bool unlit = false;
+    bool operator==(const MaterialState&) const = default;
+};
 using UniformValue = std::variant<float, int32_t, uint32_t, math::Vec2, math::Vec3, math::Vec4, math::Mat4>;
 using UniformValues = std::map<std::string, UniformValue>;
 
@@ -41,12 +55,17 @@ public:
     const std::map<std::string, std::shared_ptr<Sampler>>& samplers() const noexcept { return m_samplers; }
     // Copies values/bindings into a distinct ready resource sharing shader, textures and samplers.
     std::shared_ptr<Material> clone() const;
+    // Sets fixed-function coverage/culling classification; PBR helpers also identify their frame ABI.
+    void setRenderState(MaterialState state) { m_renderState = state; }
+    // Returns the state used for queue classification and pipeline identity.
+    const MaterialState& renderState() const noexcept { return m_renderState; }
 
 private:
     // Retains the validated shader.
     explicit Material(std::shared_ptr<Shader> shader);
     std::shared_ptr<Shader> m_shader;
     UniformValues m_uniforms;
+    MaterialState m_renderState;
     std::map<std::string, TextureBinding> m_textures;
     std::map<std::string, std::shared_ptr<Sampler>> m_samplers;
 };

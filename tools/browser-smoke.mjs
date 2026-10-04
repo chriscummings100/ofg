@@ -87,7 +87,7 @@ try {
     let releaseTexture;
     const textureGate = new Promise(resolve => { releaseTexture = resolve; });
     await page.route('**/assets/checker.png', async route => { await textureGate; await route.continue(); });
-    await page.goto(`http://127.0.0.1:${server.address().port}`, { waitUntil: 'load' });
+    await page.goto(`http://127.0.0.1:${server.address().port}/?demo=scene`, { waitUntil: 'load' });
     await page.waitForFunction(() => Module.failed || Module.frameCount >= 4);
     assert.equal(await page.evaluate(() => Module.failed || Module.textureReady), false);
     releaseTexture();
@@ -155,7 +155,7 @@ try {
         { name: 'fp32', query: '?float=32', optionalFp32: true },
         { name: 'missing', query: '?texture=assets/missing.png', error: /HTTP 404/ },
         { name: 'corrupt', query: '?texture=assets/corrupt.png', error: /Invalid PNG\/JPEG header/ },
-        { name: 'fp32-disabled-color', query: '', maskFp32: true },
+        { name: 'fp32-disabled-color', query: '?demo=scene', maskFp32: true },
         { name: 'fp32-disabled', query: '?float=32', maskFp32: true, error: /float32-filterable/ }
     ]) {
         const probe = await browser.newPage({ viewport: { width: 773, height: 517 } });
@@ -203,7 +203,7 @@ try {
         await cancelGate;
         await route.abort();
     });
-    await cancel.goto(`http://127.0.0.1:${server.address().port}`, { waitUntil: 'load' });
+    await cancel.goto(`http://127.0.0.1:${server.address().port}/?demo=scene`, { waitUntil: 'load' });
     await seen;
     await cancel.waitForFunction(() => Module.frameCount >= 3);
     await cancel.evaluate(() => { Module.cancelTexture = true; });

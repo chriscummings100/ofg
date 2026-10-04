@@ -3,8 +3,14 @@
 
 #include <slang-rhi.h>
 #include <map>
+#include <array>
 
 namespace ofg {
+struct EnvironmentGpuData
+{
+    std::array<rhi::ComPtr<rhi::ITexture>, 3> cubes;
+    rhi::ComPtr<rhi::ITexture> lookup;
+};
 struct TextureGpuData
 {
     rhi::ComPtr<rhi::ITexture> texture;

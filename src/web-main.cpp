@@ -7,6 +7,8 @@
 #include "render/graphics.h"
 #include "render/present.h"
 #include "lab/scene-fixture.h"
+#include "lab/pbr-fixture.h"
+#include "lab/fly-camera.h"
 
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -26,6 +28,8 @@ struct BrowserApp
     ComPtr<ITexture> sceneTarget;
     std::shared_ptr<ofg::Texture> texture;
     double previousTime{0};
+    bool pbr = false;
+    ofg::FlyCamera camera;
     // Releases application and graphics state when the callback stops; browser owns submitted GPU work.
     ~BrowserApp()
     {
@@ -67,12 +71,18 @@ static Result initializeBrowser(BrowserApp& app)
         ofg::TextureRenderer formats(app.device, app.queue);
         const bool fp32 = formats.supports(ofg::TextureFormat::RGBA32Float);
         EM_ASM({ Module.fp32Supported = Boolean($0); }, fp32);
-        const int floatBits = EM_ASM_INT({ return Module.floatBits; });
-        app.texture =
-            floatBits
-                ? ofg::createFloatFixtureTexture(floatBits == 32)
-                : ofg::Resources::loadResourceAsync<ofg::Texture>(emscripten_run_script_string("Module.texturePath"));
-        ofg::Game::initialize(ofg::createSceneFixture(app.texture));
+        app.pbr = EM_ASM_INT({ return Module.pbr ? 1 : 0; });
+        if (app.pbr)
+            ofg::Game::initialize(ofg::createPbrFixture(EM_ASM_INT({ return Module.maximumLayout ? 1 : 0; })));
+        else
+        {
+            const int floatBits = EM_ASM_INT({ return Module.floatBits; });
+            app.texture = floatBits ? ofg::createFloatFixtureTexture(floatBits == 32)
+                                    : ofg::Resources::loadResourceAsync<ofg::Texture>(
+                                          emscripten_run_script_string("Module.texturePath")
+                                      );
+            ofg::Game::initialize(ofg::createSceneFixture(app.texture));
+        }
     }
     app.previousTime = emscripten_get_now();
     // Browsers may omit the adapter description; do not infer an identity from the native device.
@@ -144,8 +154,24 @@ static Result drawBrowserFrame(BrowserApp& app)
                 Module.textureCancelled = true;
             });
         }
+        if (app.pbr)
+        {
+            float values[8]{};
+            EM_ASM({ Module.readFlyInput($0); }, values);
+            ofg::FlyCameraInput input;
+            input.movement = {values[0], values[1], values[2]};
+            input.lookPixels = {values[3], values[4]};
+            input.fast = values[5] != 0;
+            input.reset = values[6] != 0;
+            input.closeup = values[7] != 0;
+            auto& scene = ofg::Game::scene();
+            app.camera.update(*scene.activeCamera()->entity(), input, deltaSeconds);
+            scene.lighting.debugView = EM_ASM_INT({ return Module.debugView; });
+            const auto p = scene.activeCamera()->entity()->localTransform().position;
+            EM_ASM({ Module.cameraPosition = Array($0, $1, $2); }, p.x, p.y, p.z);
+        }
         ofg::Game::frame(deltaSeconds, app.sceneTarget);
-        const bool ready = app.texture && app.texture->isLoaded();
+        const bool ready = app.pbr || (app.texture && app.texture->isLoaded());
         EM_ASM({ Module.textureReady = Boolean($0); }, ready);
     }
     ComPtr<ITexture> image;

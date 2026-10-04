@@ -3,6 +3,11 @@
 #include "render/resource-gpu-data.h"
 #include "render/texture-renderer.h"
 #include "core/engine-error.h"
+#include "math/transform.h"
+#include "pbr-output-shader.h"
+#include <cmath>
+#include <chrono>
+#include <cstdio>
 #include <slang-rhi/shader-cursor.h>
 
 #include <algorithm>
@@ -17,6 +22,9 @@ using namespace rhi;
 struct PipelineEntry
 {
     Format colorFormat;
+    MaterialState state;
+    bool mirrored = false;
+    bool fullscreen = false;
     ComPtr<IRenderPipeline> pipeline;
 };
 
@@ -24,9 +32,13 @@ struct GraphicsState
 {
     ComPtr<IDevice> device;
     ComPtr<ICommandQueue> queue;
-    ComPtr<IInputLayout> inputLayout;
+    ComPtr<IInputLayout> inputLayout, pbrInputLayout;
     ComPtr<ITexture> depth;
-    // All pipeline settings except shader identity and color format are fixed in this implementation.
+    ComPtr<ITexture> hdr, display;
+    std::shared_ptr<Shader> outputShader;
+    std::vector<std::weak_ptr<EnvironmentGpuData>> environments;
+    ComPtr<ISampler> environmentSampler;
+    // Pipeline identity includes every variable fixed-function state.
     std::map<std::weak_ptr<Shader>, std::vector<PipelineEntry>, std::owner_less<std::weak_ptr<Shader>>> pipelines;
     std::vector<std::weak_ptr<MeshGpuData>> meshes;
     std::vector<std::weak_ptr<ShaderGpuData>> shaders;
@@ -232,8 +244,11 @@ void bindResources(IShaderObject* root, const Material& material)
     for (unsigned int index = 0; index < layout->getFieldCount(); ++index)
     {
         std::string name = layout->getFieldByIndex(index)->getName();
-        if (name != "draw" && name != "material" && !material.textures().contains(name) &&
-            !material.samplers().contains(name))
+        if (name != "draw" && name != "material" &&
+            !(material.renderState().pbr &&
+              (name == "frame" || name == "diffuseEnvironment" || name == "specularEnvironment" ||
+               name == "sheenEnvironment" || name == "brdfLookup" || name == "environmentSampler")) &&
+            !material.textures().contains(name) && !material.samplers().contains(name))
         {
             throw EngineError("Missing or unsupported shader resource binding: " + name);
         }
@@ -241,33 +256,173 @@ void bindResources(IShaderObject* root, const Material& material)
 }
 
 // Creates only the fixed pipeline variants required by the shader and target format.
-IRenderPipeline* pipelineFor(const std::shared_ptr<Shader>& shader, IShaderProgram* program, Format format)
+IRenderPipeline* pipelineFor(
+    const std::shared_ptr<Shader>& shader,
+    IShaderProgram* program,
+    Format format,
+    MaterialState state = {},
+    bool mirrored = false,
+    bool fullscreen = false
+)
 {
     auto& variants = graphics->pipelines[shader];
     for (const auto& entry : variants)
     {
-        if (entry.colorFormat == format)
+        if (entry.colorFormat == format && entry.state == state && entry.mirrored == mirrored &&
+            entry.fullscreen == fullscreen)
         {
             return entry.pipeline;
         }
     }
     ColorTargetDesc target{};
     target.format = format;
+    target.enableBlend = state.alphaMode == AlphaMode::Blend;
+    target.color = {BlendFactor::SrcAlpha, BlendFactor::InvSrcAlpha, BlendOp::Add};
+    target.alpha = {BlendFactor::One, BlendFactor::InvSrcAlpha, BlendOp::Add};
     RenderPipelineDesc desc{};
     desc.program = program;
-    desc.inputLayout = graphics->inputLayout;
+    desc.inputLayout =
+        fullscreen ? nullptr : (state.pbr ? graphics->pbrInputLayout.get() : graphics->inputLayout.get());
     desc.targets = &target;
     desc.targetCount = 1;
-    desc.depthStencil.format = Format::D32Float;
-    desc.depthStencil.depthTestEnable = true;
-    desc.depthStencil.depthWriteEnable = true;
+    desc.depthStencil.format = fullscreen ? Format::Undefined : Format::D32Float;
+    desc.depthStencil.depthTestEnable = !fullscreen;
+    desc.depthStencil.depthWriteEnable = !fullscreen && state.alphaMode != AlphaMode::Blend;
     desc.depthStencil.depthFunc = ComparisonFunc::Less;
-    desc.rasterizer.cullMode = CullMode::None;
+    desc.rasterizer.cullMode = fullscreen || state.doubleSided ? CullMode::None : CullMode::Back;
+    desc.rasterizer.frontFace = mirrored ? FrontFaceMode::CounterClockwise : FrontFaceMode::Clockwise;
     ComPtr<IRenderPipeline> pipeline;
+    auto start = std::chrono::steady_clock::now();
     check(graphics->device->createRenderPipeline(desc, pipeline.writeRef()), "Create scene pipeline");
-    variants.push_back({format, pipeline});
+    double milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    if (state.pbr || fullscreen)
+    {
+        std::printf(
+            "OFG pipeline %s: %.2f ms, format %u, alpha %u, mirrored %u.\n",
+            shader->name().c_str(),
+            milliseconds,
+            unsigned(format),
+            unsigned(state.alphaMode),
+            unsigned(mirrored)
+        );
+    }
+    variants.push_back({format, state, mirrored, fullscreen, pipeline});
     ++graphics->pipelineCreations;
     return pipeline;
+}
+// Classifies lit opaque, unlit opaque and shared sorted transparency before encoding.
+int stageFor(const Material& material, bool hdr)
+{
+    if (!hdr)
+    {
+        return 0;
+    }
+    if (material.renderState().alphaMode == AlphaMode::Blend)
+    {
+        return 2;
+    }
+    return material.renderState().unlit ? 1 : 0;
+}
+// Binds an immutable lighting snapshot and the four baked IBL textures to a PBR draw.
+void bindFrame(
+    IShaderObject* root,
+    const DrawList& list,
+    const Material& material,
+    bool display,
+    EnvironmentGpuData& env
+)
+{
+    ShaderCursor cursor(root), frame = cursor["frame"];
+    bindUniform(frame["cameraPosition"], list.cameraPosition);
+    bindUniform(frame["lightCount"], list.lighting.lightCount);
+    for (uint32_t i = 0; i < 4; ++i)
+    {
+        const auto& light = list.lighting.lights[i];
+        auto field = frame["lights"][i];
+        if (i < list.lighting.lightCount &&
+            (light.range < 0 || light.intensity < 0 || light.innerCone < 0 || light.outerCone <= 0 ||
+             light.outerCone > 1.57079633f || light.innerCone > light.outerCone || uint32_t(light.type) > 2 ||
+             !std::isfinite(
+                 light.intensity + light.range + light.innerCone + light.outerCone + light.position.x +
+                 light.position.y + light.position.z + light.direction.x + light.direction.y + light.direction.z +
+                 light.color.x + light.color.y + light.color.z
+             )))
+        {
+            throw EngineError("Invalid punctual light.");
+        }
+        float length = std::sqrt(math::lengthSquared(light.direction));
+        if (i < list.lighting.lightCount && length < 1e-6f)
+        {
+            throw EngineError("Light direction must be nonzero.");
+        }
+        auto direction = length > 0 ? math::mul(light.direction, 1.0f / length) : math::Vec3{0, 0, 1};
+        bindUniform(
+            field["positionRange"],
+            math::Vec4{light.position.x, light.position.y, light.position.z, light.range}
+        );
+        bindUniform(field["directionType"], math::Vec4{direction.x, direction.y, direction.z, float(light.type)});
+        bindUniform(field["colorIntensity"], math::Vec4{light.color.x, light.color.y, light.color.z, light.intensity});
+        bindUniform(field["coneCosines"], math::Vec2{std::cos(light.innerCone), std::cos(light.outerCone)});
+    }
+    bindUniform(frame["environmentIntensity"], list.lighting.environmentIntensity);
+    bindUniform(frame["environmentRotation"], list.lighting.environmentRotation);
+    bindUniform(frame["environmentMips"], float(list.lighting.environment->mipCount()));
+    bindUniform(frame["exposure"], list.lighting.exposure);
+    bindUniform(frame["alphaMode"], uint32_t(material.renderState().alphaMode));
+    bindUniform(frame["displayOutput"], uint32_t(display));
+    bindUniform(frame["encodeSrgb"], uint32_t(0));
+    bindUniform(frame["linearOutput"], uint32_t(list.lighting.linearOutput));
+    bindUniform(frame["debugView"], list.lighting.debugView);
+    check(cursor["diffuseEnvironment"].setBinding(env.cubes[0]), "Bind diffuse IBL");
+    check(cursor["specularEnvironment"].setBinding(env.cubes[1]), "Bind GGX IBL");
+    check(cursor["sheenEnvironment"].setBinding(env.cubes[2]), "Bind Charlie IBL");
+    check(cursor["brdfLookup"].setBinding(env.lookup), "Bind BRDF lookup");
+    check(cursor["environmentSampler"].setBinding(graphics->environmentSampler), "Bind IBL sampler");
+}
+// Runs mapping/encoding into host-owned textures before the browser acquires its canvas image.
+void outputPass(
+    const std::shared_ptr<Shader>& shader,
+    IShaderProgram* program,
+    ITexture* source,
+    ITexture* target,
+    float exposure,
+    bool linear,
+    bool encode,
+    uint32_t debug
+)
+{
+    auto pipeline = pipelineFor(shader, program, target->getDesc().format, {}, false, true);
+    ComPtr<IShaderObject> root;
+    check(graphics->device->createRootShaderObject(program, root.writeRef()), "Create output bindings");
+    ShaderCursor cursor(root);
+    check(cursor["sourceImage"].setBinding(source), "Bind HDR source");
+    bindUniform(cursor["outputSettings"]["exposure"], exposure);
+    bindUniform(cursor["outputSettings"]["linearOutput"], uint32_t(linear));
+    bindUniform(cursor["outputSettings"]["encodeSrgb"], uint32_t(encode));
+    bindUniform(cursor["outputSettings"]["debugView"], debug);
+    ComPtr<ICommandEncoder> encoder;
+    check(graphics->queue->createCommandEncoder(encoder.writeRef()), "Create output encoder");
+    RenderPassColorAttachment color{};
+    color.view = target->getDefaultView();
+    RenderPassDesc desc{};
+    desc.colorAttachments = &color;
+    desc.colorAttachmentCount = 1;
+    auto pass = encoder->beginRenderPass(desc);
+    pass->bindPipeline(pipeline, root);
+    RenderState state{};
+    auto size = target->getDesc().size;
+    state.viewports[0] = Viewport::fromSize(size.width, size.height);
+    state.viewportCount = 1;
+    state.scissorRects[0] = ScissorRect::fromSize(size.width, size.height);
+    state.scissorRectCount = 1;
+    pass->setRenderState(state);
+    DrawArguments draw{};
+    draw.vertexCount = 3;
+    pass->draw(draw);
+    pass->end();
+    ComPtr<ICommandBuffer> commands;
+    check(encoder->finish(commands.writeRef()), "Finish output commands");
+    check(graphics->queue->submit(commands), "Submit output commands");
 }
 } // namespace
 
@@ -281,18 +436,40 @@ void Graphics::initialize(rhi::IDevice* device, rhi::ICommandQueue* queue)
     state->device = device;
     state->queue = queue;
     const rhi::VertexStreamDesc stream{sizeof(Vertex), rhi::InputSlotClass::PerVertex, 0};
-    const rhi::InputElementDesc elements[] = {
+    rhi::InputElementDesc elements[] = {
         {"POSITION", 0, rhi::Format::RGB32Float, offsetof(Vertex, position), 0},
         {"NORMAL", 0, rhi::Format::RGB32Float, offsetof(Vertex, normal), 0},
-        {"TEXCOORD", 0, rhi::Format::RG32Float, offsetof(Vertex, uv), 0}
+        {"TEXCOORD", 0, rhi::Format::RG32Float, offsetof(Vertex, uv), 0},
+        {"TANGENT", 0, rhi::Format::RGBA32Float, offsetof(Vertex, tangent), 0},
+        {"TEXCOORD", 1, rhi::Format::RG32Float, offsetof(Vertex, uv1), 0},
+        {"COLOR", 0, rhi::Format::RGBA32Float, offsetof(Vertex, color), 0}
     };
     rhi::InputLayoutDesc desc{};
     desc.inputElements = elements;
-    desc.inputElementCount = 3;
+    desc.inputElementCount = 6;
     desc.vertexStreams = &stream;
     desc.vertexStreamCount = 1;
     check(device->createInputLayout(desc, state->inputLayout.writeRef()), "Create mesh vertex layout");
+    // The pinned Slang WGSL emitter derives locations from numeric semantic indices.
+    // Preserve the existing diagnostic ABI while assigning all six PBR inputs explicitly.
+    for (uint32_t i = 0; i < 6; ++i)
+    {
+        elements[i].semanticIndex = i;
+    }
+    check(device->createInputLayout(desc, state->pbrInputLayout.writeRef()), "Create PBR vertex layout");
     state->textures = std::make_unique<TextureRenderer>(device, queue);
+    state->outputShader = Shader::create("pbr-output", pbrOutputShader);
+    FormatSupport support{};
+    check(device->getFormatSupport(Format::RGBA16Float, &support), "Query HDR format support");
+    std::printf(
+        "OFG PBR device: %s, RGBA16F sampled=%u renderable=%u; portable texture/sampler budget=16/16.\n",
+        device->getInfo().adapterName ? device->getInfo().adapterName : "browser-selected",
+        unsigned((support & FormatSupport::ShaderSample) != FormatSupport::None),
+        unsigned((support & FormatSupport::RenderTarget) != FormatSupport::None)
+    );
+    rhi::SamplerDesc sampler{};
+    sampler.addressU = sampler.addressV = sampler.addressW = TextureAddressingMode::ClampToEdge;
+    check(device->createSampler(sampler, state->environmentSampler.writeRef()), "Create IBL sampler");
     graphics = std::move(state);
 }
 
@@ -351,8 +528,73 @@ void Graphics::prepareShader(Shader& shader)
     auto data = std::make_shared<ShaderGpuData>();
     const auto result = graphics->device->createShaderProgram(desc, data->program.writeRef(), diagnostics.writeRef());
     check(result, "Create shader " + shader.name() + ": " + diagnosticText(diagnostics));
+    if (shader.name().starts_with("pbr-"))
+    {
+        ComPtr<IShaderObject> root;
+        check(graphics->device->createRootShaderObject(data->program, root.writeRef()), "Reflect PBR resources");
+        auto layout = ShaderCursor(root).getTypeLayout();
+        unsigned textures = 0, samplers = 0;
+        for (unsigned i = 0; i < layout->getFieldCount(); ++i)
+        {
+            auto kind = layout->getFieldByIndex(i)->getTypeLayout()->getKind();
+            textures += kind == slang::TypeReflection::Kind::Resource;
+            samplers += kind == slang::TypeReflection::Kind::SamplerState;
+        }
+        if (textures > 16 || samplers > 16)
+        {
+            throw EngineError("Reflected PBR layout exceeds portable 16/16 resource budget.");
+        }
+        std::printf("OFG layout %s: %u sampled textures, %u samplers.\n", shader.name().c_str(), textures, samplers);
+    }
     graphics->shaders.push_back(data);
     shader.m_gpu = std::move(data);
+}
+
+void Graphics::prepareEnvironment(Environment& environment)
+{
+    if (environment.m_gpu && environment.m_gpu->lookup)
+    {
+        return;
+    }
+    auto data = std::make_shared<EnvironmentGpuData>();
+    for (size_t i = 0; i < 3; ++i)
+    {
+        rhi::TextureDesc desc{};
+        desc.type = TextureType::TextureCube;
+        desc.size = {environment.size(), environment.size(), 1};
+        desc.format = Format::RGBA16Float;
+        desc.mipCount = environment.mipCount();
+        desc.usage = TextureUsage::ShaderResource;
+        desc.defaultState = rhi::ResourceState::ShaderResource;
+        std::vector<SubresourceData> subresources;
+        size_t offset = 0;
+        for (uint32_t face = 0; face < 6; ++face)
+        {
+            for (uint32_t mip = 0; mip < environment.mipCount(); ++mip)
+            {
+                size_t size = environment.size() >> mip;
+                subresources.push_back({environment.cube(i).data() + offset, size * 8, size * size * 8});
+                offset += size * size * 4;
+            }
+        }
+        check(graphics->device->createTexture(desc, subresources.data(), data->cubes[i].writeRef()), "Upload IBL cube");
+    }
+    rhi::TextureDesc desc{};
+    desc.size = {environment.lookupSize(), environment.lookupSize(), 1};
+    desc.format = Format::RGBA16Float;
+    desc.usage = TextureUsage::ShaderResource;
+    desc.defaultState = rhi::ResourceState::ShaderResource;
+    SubresourceData pixels{environment.lookup().data(), environment.lookupSize() * 8, environment.lookup().size() * 2};
+    check(graphics->device->createTexture(desc, &pixels, data->lookup.writeRef()), "Upload BRDF lookup");
+    std::erase_if(
+        graphics->environments,
+        [](const auto& weak)
+        {
+            return weak.expired();
+        }
+    );
+    graphics->environments.push_back(data);
+    environment.m_gpu = std::move(data);
 }
 
 void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
@@ -412,6 +654,8 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
         {
             throw EngineError("Draw item requires a mesh, valid submesh and material.");
         }
+        prepareMesh(*item.mesh);
+        prepareShader(*item.material->shader());
         for (const auto& [name, binding] : item.material->textures())
         {
             auto texture = bindingTexture(binding);
@@ -429,66 +673,204 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
         }
     }
 
-    ComPtr<ICommandEncoder> encoder;
-    check(graphics->queue->createCommandEncoder(encoder.writeRef()), "Create scene encoder");
-    RenderPassColorAttachment color{};
-    color.view = colorTarget->getDefaultView();
-    color.clearValue[0] = 0.025f;
-    color.clearValue[1] = 0.035f;
-    color.clearValue[2] = 0.055f;
-    color.clearValue[3] = 1.0f;
-    RenderPassDepthStencilAttachment depth{};
-    depth.view = graphics->depth->getDefaultView();
-    RenderPassDesc passDesc{};
-    passDesc.colorAttachments = &color;
-    passDesc.colorAttachmentCount = 1;
-    passDesc.depthStencilAttachment = &depth;
-    auto pass = encoder->beginRenderPass(passDesc);
+    if (list.lighting.lightCount > 4 || !std::isfinite(list.lighting.exposure) || list.lighting.exposure < 0 ||
+        !std::isfinite(list.lighting.environmentIntensity) || list.lighting.environmentIntensity < 0 ||
+        !std::isfinite(list.lighting.environmentRotation))
+    {
+        throw EngineError("Invalid scene lighting settings.");
+    }
+    if (list.lighting.environment)
+    {
+        prepareEnvironment(*list.lighting.environment);
+    }
     for (const auto& item : list.items)
     {
-        if (!item.mesh || !item.material || item.subMeshIndex >= item.mesh->subMeshes().size())
+        if (item.material->renderState().pbr && (!list.lighting.hdr || !list.lighting.environment))
         {
-            throw EngineError("Draw item requires a mesh, valid submesh and material.");
+            throw EngineError("PBR requires an HDR scene and an explicit baked environment (intensity may be zero).");
         }
-        prepareMesh(*item.mesh);
-        auto shader = item.material->shader();
-        prepareShader(*shader);
-        auto pipeline = pipelineFor(shader, shader->m_gpu->program, target.format);
-        // Each draw gets independent uniform storage; later material edits cannot overwrite encoded draws.
-        ComPtr<IShaderObject> root;
-        check(
-            graphics->device->createRootShaderObject(shader->m_gpu->program, root.writeRef()),
-            "Create draw bindings"
-        );
-        bindMaterial(root, *item.material);
-        bindResources(root, *item.material);
-        auto transform = ShaderCursor(root)["draw"]["clipFromLocal"];
-        if (!transform.isValid())
-        {
-            throw EngineError("Shader requires draw.clipFromLocal float4x4.");
-        }
-        bindMatrix(transform, math::mul(list.clipFromWorld, item.worldFromLocal));
-        pass->bindPipeline(pipeline, root);
-        RenderState state{};
-        state.viewports[0] = Viewport::fromSize(target.size.width, target.size.height);
-        state.viewportCount = 1;
-        state.scissorRects[0] = ScissorRect::fromSize(target.size.width, target.size.height);
-        state.scissorRectCount = 1;
-        state.vertexBuffers[0].buffer = item.mesh->m_gpu->vertices;
-        state.vertexBufferCount = 1;
-        state.indexBuffer.buffer = item.mesh->m_gpu->indices;
-        state.indexFormat = IndexFormat::Uint32;
-        pass->setRenderState(state);
-        const auto& part = item.mesh->subMeshes()[item.subMeshIndex];
-        DrawArguments arguments{};
-        arguments.vertexCount = part.indexCount;
-        arguments.startIndexLocation = part.firstIndex;
-        pass->drawIndexed(arguments);
     }
-    pass->end();
-    ComPtr<ICommandBuffer> commands;
-    check(encoder->finish(commands.writeRef()), "Finish scene commands");
-    check(graphics->queue->submit(commands), "Submit scene commands");
+    if (list.lighting.hdr)
+    {
+        prepareShader(*graphics->outputShader);
+        if (!graphics->hdr || graphics->hdr->getDesc().size.width != target.size.width ||
+            graphics->hdr->getDesc().size.height != target.size.height)
+        {
+            rhi::TextureDesc desc{};
+            desc.size = target.size;
+            desc.format = Format::RGBA16Float;
+            desc.usage = TextureUsage::RenderTarget | TextureUsage::ShaderResource | TextureUsage::CopySource;
+            desc.defaultState = rhi::ResourceState::RenderTarget;
+            ComPtr<ITexture> hdr, display;
+            check(graphics->device->createTexture(desc, nullptr, hdr.writeRef()), "Create HDR scene");
+            check(
+                graphics->device->createTexture(desc, nullptr, display.writeRef()),
+                "Create display-linear composition"
+            );
+            graphics->hdr = hdr;
+            graphics->display = display;
+        }
+    }
+    std::vector<const DrawItem*> items;
+    for (const auto& item : list.items)
+    {
+        items.push_back(&item);
+    }
+    // Stable back-to-front object sorting; intersecting transparent geometry remains a known limitation.
+    std::stable_sort(
+        items.begin(),
+        items.end(),
+        [&](const auto* a, const auto* b)
+        {
+            int sa = stageFor(*a->material, list.lighting.hdr), sb = stageFor(*b->material, list.lighting.hdr);
+            if (sa != sb)
+            {
+                return sa < sb;
+            }
+            bool aBlend = a->material->renderState().alphaMode == AlphaMode::Blend;
+            bool bBlend = b->material->renderState().alphaMode == AlphaMode::Blend;
+            if (aBlend != bBlend)
+            {
+                return !aBlend;
+            }
+            if (!aBlend)
+            {
+                return false;
+            }
+            auto distance = [&](const DrawItem* item)
+            {
+                auto p = item->worldFromLocal[3];
+                return math::lengthSquared(math::sub(math::Vec3{p.x, p.y, p.z}, list.cameraPosition));
+            };
+            return distance(a) > distance(b);
+        }
+    );
+    const int stages = list.lighting.hdr ? 3 : 1;
+    for (int stage = 0; stage < stages; ++stage)
+    {
+        if (stage == 1)
+        {
+            outputPass(
+                graphics->outputShader,
+                graphics->outputShader->m_gpu->program,
+                graphics->hdr,
+                graphics->display,
+                list.lighting.exposure,
+                list.lighting.linearOutput,
+                false,
+                list.lighting.debugView
+            );
+        }
+        ITexture* attachment =
+            list.lighting.hdr ? (stage == 0 ? graphics->hdr.get() : graphics->display.get()) : colorTarget;
+        ComPtr<ICommandEncoder> encoder;
+        check(graphics->queue->createCommandEncoder(encoder.writeRef()), "Create scene encoder");
+        RenderPassColorAttachment color{};
+        color.view = attachment->getDefaultView();
+        color.loadOp = stage == 0 ? LoadOp::Clear : LoadOp::Load;
+        color.clearValue[0] = 0.025f;
+        color.clearValue[1] = 0.035f;
+        color.clearValue[2] = 0.055f;
+        color.clearValue[3] = 1;
+        RenderPassDepthStencilAttachment depth{};
+        depth.view = graphics->depth->getDefaultView();
+        depth.depthLoadOp = stage == 0 ? LoadOp::Clear : LoadOp::Load;
+        RenderPassDesc passDesc{};
+        passDesc.colorAttachments = &color;
+        passDesc.colorAttachmentCount = 1;
+        passDesc.depthStencilAttachment = &depth;
+        auto pass = encoder->beginRenderPass(passDesc);
+        for (const auto* itemPointer : items)
+        {
+            const auto& item = *itemPointer;
+            if (stage != stageFor(*item.material, list.lighting.hdr))
+            {
+                continue;
+            }
+            auto shader = item.material->shader();
+            const auto& world = item.worldFromLocal;
+            math::Vec3 x{world[0].x, world[0].y, world[0].z}, y{world[1].x, world[1].y, world[1].z},
+                z{world[2].x, world[2].y, world[2].z};
+            bool mirrored = math::dot(math::cross(x, y), z) < 0;
+            auto pipeline = pipelineFor(
+                shader,
+                shader->m_gpu->program,
+                attachment->getDesc().format,
+                item.material->renderState(),
+                mirrored
+            );
+            // Each draw gets independent uniform storage; later material edits cannot overwrite encoded draws.
+            ComPtr<IShaderObject> root;
+            check(
+                graphics->device->createRootShaderObject(shader->m_gpu->program, root.writeRef()),
+                "Create draw bindings"
+            );
+            bindMaterial(root, *item.material);
+            bindResources(root, *item.material);
+            auto transform = ShaderCursor(root)["draw"]["clipFromLocal"];
+            if (!transform.isValid())
+            {
+                throw EngineError("Shader requires draw.clipFromLocal float4x4.");
+            }
+            bindMatrix(transform, math::mul(list.clipFromWorld, item.worldFromLocal));
+            if (item.material->renderState().pbr)
+            {
+                std::string error;
+                auto inverse = math::inverseAffine(item.worldFromLocal, error);
+                if (!inverse)
+                {
+                    throw EngineError("PBR normal transform: " + error);
+                }
+                math::Mat4 normal;
+                for (size_t c = 0; c < 4; ++c)
+                {
+                    for (size_t r = 0; r < 4; ++r)
+                    {
+                        normal[c][r] = (*inverse)[r][c];
+                    }
+                }
+                bindMatrix(ShaderCursor(root)["draw"]["worldFromLocal"], item.worldFromLocal);
+                bindMatrix(ShaderCursor(root)["draw"]["normalFromLocal"], normal);
+                bindUniform(ShaderCursor(root)["draw"]["orientation"], mirrored ? -1.0f : 1.0f);
+                bindFrame(root, list, *item.material, stage != 0, *list.lighting.environment->m_gpu);
+            }
+            pass->bindPipeline(pipeline, root);
+            RenderState state{};
+            state.viewports[0] = Viewport::fromSize(target.size.width, target.size.height);
+            state.viewportCount = 1;
+            state.scissorRects[0] = ScissorRect::fromSize(target.size.width, target.size.height);
+            state.scissorRectCount = 1;
+            state.vertexBuffers[0].buffer = item.mesh->m_gpu->vertices;
+            state.vertexBufferCount = 1;
+            state.indexBuffer.buffer = item.mesh->m_gpu->indices;
+            state.indexFormat = IndexFormat::Uint32;
+            pass->setRenderState(state);
+            const auto& part = item.mesh->subMeshes()[item.subMeshIndex];
+            DrawArguments arguments{};
+            arguments.vertexCount = part.indexCount;
+            arguments.startIndexLocation = part.firstIndex;
+            pass->drawIndexed(arguments);
+        }
+
+        pass->end();
+        ComPtr<ICommandBuffer> commands;
+        check(encoder->finish(commands.writeRef()), "Finish scene commands");
+        check(graphics->queue->submit(commands), "Submit scene commands");
+    }
+    if (list.lighting.hdr)
+    {
+        bool srgb = target.format == Format::RGBA8UnormSrgb || target.format == Format::BGRA8UnormSrgb;
+        outputPass(
+            graphics->outputShader,
+            graphics->outputShader->m_gpu->program,
+            graphics->display,
+            colorTarget,
+            1,
+            true,
+            !srgb && (target.format == Format::RGBA8Unorm || target.format == Format::BGRA8Unorm),
+            1
+        );
+    }
 }
 
 void Graphics::shutdown() noexcept
@@ -511,6 +893,14 @@ void Graphics::shutdown() noexcept
         if (auto data = weak.lock())
         {
             data->program.setNull();
+        }
+    }
+    for (auto& weak : graphics->environments)
+    {
+        if (auto data = weak.lock())
+        {
+            data->cubes = {};
+            data->lookup.setNull();
         }
     }
     graphics.reset();
