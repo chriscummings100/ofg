@@ -1,6 +1,6 @@
 # Add the dockable ImGui laboratory workspace
 
-This completed ExecPlan follows [PLANS.md](../../PLANS.md). Implementation was authorized on 2026-10-04 in the managed imgui-workspace worktree. Status: complete, unmerged.
+This completed ExecPlan follows [PLANS.md](../../PLANS.md). Implementation was authorized on 2026-10-04 in the managed imgui-workspace worktree and merged into main at the user's request. Status: complete.
 
 ## Purpose / Big Picture
 
@@ -13,6 +13,7 @@ Provide a native D3D12 and browser WebGPU workspace with a menu bar, dockable Sc
 - [x] (2026-10-04) Shared ImGui renderer and platform input verified on native D3D12 and browser WebGPU.
 - [x] (2026-10-04) Docking, scene viewport, capture and persistence pass browser interaction checks; native window interaction and persistence inspected.
 - [x] (2026-10-04) Hierarchy/settings panels, CPU/native/browser regressions, screenshots, formatting and documentation complete.
+- [x] (2026-10-04) Merged commit 89e102b into main, preserving the existing PBR naming edits as uncommitted work. The only restore conflict was the appended development notes; both sections were retained.
 
 ## Surprises & Discoveries
 
@@ -21,6 +22,8 @@ Provide a native D3D12 and browser WebGPU workspace with a menu bar, dockable Sc
 2026-10-04: Initial native black output was reproduced by the GPU test. ShaderCursor must dereference a constant-buffer field (ui.scale/ui.offset); setting data on its container writes the wrong storage. Corrected and covered by GPU checks for clipping, 16-bit base-vertex overflow, alpha and gamma. Browser testing waits for the completed link: probing while output is being replaced can pair incompatible JS/WASM files.
 
 2026-10-04: ImGui gesture automation requires completed frames between hover, press and dragging, and between modifier/text-entry events. Event bursts initially missed the intended action. Waiting on the application's frame counter fixes the test; there are no arbitrary timing sleeps in the smoke. The final test asserts an inactive Scene viewport after tabbing Render Settings into its dock.
+
+2026-10-04 merge verification: the PBR smoke's resize screenshot occasionally captured the cleared canvas before the next Asyncify frame completed. Its capture helper only required three frames since startup. It now additionally waits for three fresh completed frames per capture; all pixel assertions are unchanged, and the rerun passes.
 
 Browser canvas textures expire across Asyncify yields. Finish all scene/UI rendering before acquisition, then present with a resource-only shader. PBR already renders display-linear output into float targets. Entities have IDs and lifetime-aware Ptr observers, but no names yet. Main was clean at implementation start; prior PBR work is committed.
 
@@ -95,6 +98,8 @@ Evidence from 2026-10-04:
 - Native visual inspection: scene/panels, selection, exposure/reset, maximize, minimize/restore, clean exit/relaunch and persisted layout, Escape remains open. Captures: artifacts/imgui/native/workspace.png and restarted.png.
 - WebGPU in Chrome 154.0.8037.95: UI smoke passes with zero unexpected warnings/errors. Captures include workspace, exposure, invalid-edit, normals, scene-hidden, floating-settings, docking-preview, tabbed-settings, reset-layout, restored-layout, resized and dpi-2. Canvas starts at 1440x901, resizes to 1100x721 and renders 2200x1442 at DPR 2. Report: artifacts/imgui/browser/report.json. RHI reports browser-selected adapter, not a named GPU.
 - Existing PBR and texture/checkerboard browser smoke suites pass with explicit UI bypass. Reports remain under artifacts/pbr/browser and artifacts/textures/browser. No UI performance claim is made.
+
+After merging into C:\dev\ofg with the pre-existing PBR naming edits restored, native and web configure/build passed again, as did all four native CTest targets (same case/assertion counts), the PBR WGSL shader check, and browser UI/PBR smoke. The new browser workspace screenshot was inspected. The final web link retained only the documented Asyncify/WASM-exceptions warning. Merge evidence is in artifacts/imgui/merge/native-ctest.log, artifacts/imgui/browser/report.json and artifacts/pbr/browser/report.json. The original uncommitted PBR diff is also preserved as artifacts/imgui/merge/preexisting-pbr.patch; those edits remain outside the ImGui commits.
 
 ## Interfaces and Dependencies
 

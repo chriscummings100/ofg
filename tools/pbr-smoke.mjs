@@ -33,6 +33,9 @@ function inspect(buffer) {
 // Waits for several submitted frames, then saves the actual canvas.
 async function capture(page,name) {
     await page.waitForFunction(()=>Module.failed || Module.textureFrames>=3,null,{timeout:120000});
+    // Resizing clears the canvas before Asyncify uploads complete; old startup frames do not prove new presentation.
+    const previousFrame=await page.evaluate(()=>Module.frameCount);
+    await page.waitForFunction(before=>Module.failed || Module.frameCount>=before+3,previousFrame,{timeout:120000});
     assert.equal(await page.evaluate(()=>Module.failed),false);
     const bytes=await page.locator('#canvas').screenshot({path:`${artifacts}/${name}.png`});
     report.captures.push({name,...inspect(bytes)});return bytes;
