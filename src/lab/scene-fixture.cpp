@@ -90,7 +90,9 @@ std::unique_ptr<Scene> createSceneFixture(const std::string& texturePath)
 std::unique_ptr<Scene> createSceneFixture(std::shared_ptr<Texture> texture)
 {
     auto scene = std::make_unique<Scene>();
+    scene->getRoot()->setName("Cube Laboratory");
     auto cameraEntity = scene->createEntity(scene->getRoot());
+    cameraEntity->setName("Camera");
     const math::Vec3 eye{2.4f, 1.8f, -5.0f};
     cameraEntity->setLocalPosition(eye);
     std::string error;
@@ -104,16 +106,20 @@ std::unique_ptr<Scene> createSceneFixture(std::shared_ptr<Texture> texture)
 
     auto mesh = createCubeMesh(createFixtureMaterial(std::move(texture)));
     auto parent = scene->createEntity(scene->getRoot());
+    parent->setName("Cube Group");
     parent->setLocalPosition({-0.55f, 0, 0});
     auto first = scene->createEntity(parent);
+    first->setName("Checker Cube");
     scene->createMeshRenderer(first)->setMesh(mesh);
     auto second = scene->createEntity(scene->getRoot());
+    second->setName("Tinted Cube");
     second->setLocalPosition({0.55f, 0.15f, 0.25f});
     auto renderer = scene->createMeshRenderer(second);
     renderer->setMesh(mesh);
     auto tint = renderer->makeMaterialUnique(0);
     tint->setUniform("tint", math::Vec4{0.2f, 0.8f, 1, 1});
     auto hidden = scene->createEntity(scene->getRoot());
+    hidden->setName("Culled Cube");
     hidden->setLocalPosition({100, 0, 0});
     scene->createMeshRenderer(hidden)->setMesh(mesh);
     return scene;

@@ -4,15 +4,18 @@
 #include <slang-rhi/shader-cursor.h>
 
 #include <cstdio>
+#include <string>
 
 using namespace rhi;
 
-Result createPresentationPipeline(IDevice* device, Format format, IRenderPipeline** outPipeline)
+Result createPresentationPipeline(IDevice* device, Format format, IRenderPipeline** outPipeline, bool encodeLinear)
 {
     ComPtr<slang::IBlob> diagnostics;
+    const bool encode = encodeLinear && (format == Format::RGBA8Unorm || format == Format::BGRA8Unorm);
+    const std::string source = std::string(encode ? "#define ENCODE_SRGB 1\n" : "") + presentShader;
+    const char* name = encode ? "present-encode" : "present";
     auto session = device->getSlangSession();
-    auto module =
-        session->loadModuleFromSourceString("present", "present.slang", presentShader, diagnostics.writeRef());
+    auto module = session->loadModuleFromSourceString(name, name, source.c_str(), diagnostics.writeRef());
     if (diagnostics)
     {
         std::fprintf(stderr, "%s\n", static_cast<const char*>(diagnostics->getBufferPointer()));

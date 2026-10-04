@@ -39,7 +39,7 @@ try {
     let heldRoute, announce;
     const requested=new Promise(resolve=>{announce=resolve;});
     await page.route('**/assets/models/laboratory.bin',route=>{heldRoute=route;announce();});
-    await page.goto(`${origin}/?demo=model`);
+    await page.goto(`${origin}/?ui=0&demo=model`);
     await requested;
     const before=await page.evaluate(()=>Module.frameCount);
     await page.waitForFunction(n=>Module.frameCount>=n+4,before,{timeout:120000});
@@ -47,14 +47,14 @@ try {
     report.framesDuringDependencyWait=true;
     await heldRoute.continue();await capture(page,'gltf');
     await page.unroute('**/assets/models/laboratory.bin');
-    await page.goto(`${origin}/?demo=model&asset=assets/models/laboratory.glb`);await capture(page,'glb-embedded-image');
+    await page.goto(`${origin}/?ui=0&demo=model&asset=assets/models/laboratory.glb`);await capture(page,'glb-embedded-image');
     await page.setViewportSize({width:773,height:650});
     await page.waitForFunction(()=>Module.canvas.width===773);await capture(page,'resized');
 
     let cancelledRoute, announceCancel;
     const cancelRequested=new Promise(resolve=>{announceCancel=resolve;});
     await page.route('**/assets/models/laboratory.bin',route=>{cancelledRoute=route;announceCancel();});
-    await page.goto(`${origin}/?demo=model`);await cancelRequested;
+    await page.goto(`${origin}/?ui=0&demo=model`);await cancelRequested;
     await page.evaluate(()=>{Module.cancelModel=true;});
     await page.waitForFunction(()=>Module.modelCancelled);
     await cancelledRoute.continue().catch(()=>{}); // Fetch abort may already have disposed the intercepted request.
@@ -70,12 +70,17 @@ try {
     const invalid=JSON.parse(await readFile(new URL('../assets/models/laboratory.gltf',import.meta.url),'utf8'));
     invalid.scene=999;
     await failurePage.route('**/assets/models/laboratory.gltf',route=>route.fulfill({contentType:'model/gltf+json',body:JSON.stringify(invalid)}));
-    await failurePage.goto(`${origin}/?demo=model`);
+    await failurePage.goto(`${origin}/?ui=0&demo=model`);
     await failurePage.waitForFunction(()=>Module.failed,null,{timeout:120000});
     assert.ok(report.expectedFailureMessages.some(message=>message.includes('Invalid glTF default scene index 999')));
     assert.equal(await failurePage.evaluate(()=>Module.textureReady),false);
     report.invalidModelReportedWithoutPublication=true;
     await failurePage.close();
+    await page.goto(`${origin}/?demo=model&asset=assets/models/laboratory.glb`);
+    await capture(page,'workspace');
+    const ui=await page.evaluate(()=>Module.uiState);
+    assert.ok(ui.sceneRect[2]>ui.sceneRect[0] && ui.sceneRect[3]>ui.sceneRect[1]);
+    report.workspaceModelPresented=true;
     assert.deepEqual(report.errors,[]);report.passed=true;
 } catch(error) {report.failure=error.stack??String(error);throw error;}
 finally {

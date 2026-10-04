@@ -1,6 +1,6 @@
 # Developing OFG
 
-The current application opens a resizable native Windows D3D12 window and renders two scene-owned checker cubes, one with an isolated cyan face material. A separate Emscripten/WebGPU build renders the same scene. Select the original full-screen checkerboard using `--checkerboard` natively or `?demo=checkerboard` in the browser.
+The default application opens the [dockable laboratory workspace](docs/imgui.md), with a PBR Scene viewport, Scene Hierarchy and Render Settings. Native Windows D3D12 and browser WebGPU share the UI and scene renderer. --scene / ?demo=scene retain the checker-cube fixture. Select the original full-screen checkerboard using `--checkerboard` natively or `?demo=checkerboard` in the browser.
 
 See the [architecture note](docs/architecture.md) for source responsibilities and the checkerboard reference flow. Agent workflows are documented in the [native build skill](.agents/skills/build-native/SKILL.md) and [browser build skill](.agents/skills/build-web/SKILL.md).
 
@@ -50,7 +50,7 @@ These commands work from an ordinary PowerShell; launching the built application
 ctest --test-dir build/native --output-on-failure
 ```
 
-Normal launch prints the selected adapter and opens a 960-by-640 framebuffer showing the stationary procedural scene. `ofg.exe --checkerboard` selects alternating dark/light 64-pixel squares. Resize or maximize the window: the scene projection tracks aspect ratio; the checkerboard diagnostic retains 64-pixel squares. Minimize/restore should resume rendering. Escape or the close button exits cleanly. The shader is embedded at build time from `shaders/checkerboard.slang` and `shaders/mesh.slang`, so launch does not depend on the current working directory. Editing the shader triggers CMake regeneration and recompilation on the next build.
+Normal launch prints the selected adapter and opens a 960-by-640 framebuffer showing the stationary procedural scene. `ofg.exe --checkerboard` selects alternating dark/light 64-pixel squares. Resize or maximize the window: the scene projection tracks aspect ratio; the checkerboard diagnostic retains 64-pixel squares. Minimize/restore should resume rendering. In the workspace, Escape releases camera capture; the close button exits. The --no-ui diagnostic retains its earlier Escape-to-close behavior. The shader is embedded at build time from `shaders/checkerboard.slang` and `shaders/mesh.slang`, so launch does not depend on the current working directory. Editing the shader triggers CMake regeneration and recompilation on the next build.
 
 `--check-device` creates the device, prints `OFG initialized D3D12 on <adapter name>.` and exits without a window. Failure returns nonzero. CTest runs four finite checks with a 30-second timeout. The core suite is labeled `cpu`; the others are labeled `native` and `gpu`:
 
@@ -112,7 +112,7 @@ Those optional Clang tools are needed for that formatter command, not for the MS
 
 The application configure/build, direct startup, CTest startup check and formatting check passed on 2026-10-01 with CMake 3.26.3, Ninja 1.13.2 and MSVC 19.51 in an x64 Visual Studio 2026 developer environment. Startup ran on an NVIDIA GeForce RTX 3050 Ti Laptop GPU. RHI is pinned to `16324a68af477baaede620e713644f5e9613b1a2`, using its prebuilt Slang 2026.17.1 dependency.
 
-The generated RHI configuration confirms D3D12 is enabled and all other graphics backends are disabled. The native checkerboard build and both tests passed on the same hardware on 2026-10-01. Live window inspection verified rendering, maximize/resize, minimize/restore and clean shutdown. Screenshots are saved locally under `artifacts/checkerboard/native.png`, `native-maximized.png` and `native-restored.png`. Texture sampling, compute and ImGui remain unverified; browser checkerboard validation is described below.
+The generated RHI configuration confirms D3D12 is enabled and all other graphics backends are disabled. The native checkerboard build and both tests passed on the same hardware on 2026-10-01. Live window inspection verified rendering, maximize/resize, minimize/restore and clean shutdown. Screenshots are saved locally under `artifacts/checkerboard/native.png`, `native-maximized.png` and `native-restored.png`. That checkerboard milestone did not verify texture sampling, compute or ImGui; later texture and workspace evidence is recorded below.
 
 The repository [build-native skill](.agents/skills/build-native/SKILL.md) guides agents through this workflow and its environment requirements.
 
@@ -235,6 +235,7 @@ After a native build, run `build/native/ofg.exe --model assets/models/laboratory
 (or pass an absolute model path from any directory). Relative model paths are relative to the launch directory;
 dependencies are relative to the model. The default PBR mode is unchanged. Browser mode is
 `?demo=model&asset=assets/models/laboratory.gltf`, or use `assets/models/laboratory.glb` for the embedded-image fixture.
+The model mode also uses the ImGui workspace. Add native `--no-ui` or browser `&ui=0` for full-canvas rendering.
 The initial camera is at (0,0,-5). Fly controls match PBR; R and F restore that model pose. Models are imported at their
 authored scale and origin, without automatic framing. The window title/browser header and console report readiness,
 resource counts and the undeformed-preview limitation. Parser warnings are reported in the console.
@@ -255,3 +256,20 @@ The final web configure/build and model, texture/checkerboard and PBR smoke scri
 Model smoke also checks malformed-model error reporting without partial publication. Capture helpers wait for fresh
 submitted frames after resizing, avoiding a cleared-canvas screenshot race without weakening image checks.
 Reports/captures are under artifacts/models/browser, artifacts/textures/browser and artifacts/pbr/browser.
+
+
+## ImGui workspace
+
+Initialize both pinned submodules with git submodule update --init --recursive. ImGui v1.92.9b-docking is pinned to b48d1afbe8ee8b238e2961dc363a949dd7304e23. The default application and browser page enable the workspace; --no-ui and ?ui=0 retain full-canvas rendering for image regression tests. The CPU-only preset does not configure or build ImGui.
+
+Run the existing native and cpu-tests presets as above. The native GPU suite additionally checks UI texture switching, clipping, alpha, dynamic atlas updates, more than 65,535 vertices, odd 16-bit index counts, and linear/sRGB transfer. Browser validation after a completed web build uses:
+
+```powershell
+npm.cmd run smoke:ui
+npm.cmd run smoke:pbr
+npm.cmd run smoke:web
+```
+
+The UI smoke drives real canvas mouse/keyboard events and records screenshots/diagnostics under artifacts/imgui/browser. Native window captures are under artifacts/imgui/native. Do not serve or test intermediate JS/WASM files while a web link is replacing them. The final WASM optimization can take several minutes. The existing Asyncify/WASM-exceptions toolchain warning remains; UI frame uploads finish before canvas acquisition.
+
+Workspace controls, layout persistence and ownership are documented in [docs/imgui.md](docs/imgui.md). Actual validation outcomes are recorded in the [workspace plan](docs/archived/imgui-workspace.md).

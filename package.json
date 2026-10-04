@@ -6,7 +6,8 @@
         "serve:web": "node tools/serve-web.mjs",
         "smoke:web": "node tools/browser-smoke.mjs",
         "smoke:pbr": "node tools/pbr-smoke.mjs",
-        "check:pbr-shaders": "node tools/pbr-shader-check.mjs"
+        "check:pbr-shaders": "node tools/pbr-shader-check.mjs",
+        "smoke:ui": "node tools/imgui-smoke.mjs"
     },
     "devDependencies": {
         "playwright-core": "1.61.0",

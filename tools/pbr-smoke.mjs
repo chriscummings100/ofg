@@ -32,9 +32,10 @@ function inspect(buffer) {
 }
 // Waits for several submitted frames, then saves the actual canvas.
 async function capture(page,name) {
-    // Resizing clears the canvas before Asyncify finishes the replacement frame; lifetime totals are insufficient.
-    const before=await page.evaluate(()=>Module.frameCount);
-    await page.waitForFunction(n=>Module.failed || (Module.textureFrames>=3 && Module.frameCount>=n+3),before,{timeout:120000});
+    await page.waitForFunction(()=>Module.failed || Module.textureFrames>=3,null,{timeout:120000});
+    // Resizing clears the canvas before Asyncify uploads complete; old startup frames do not prove new presentation.
+    const previousFrame=await page.evaluate(()=>Module.frameCount);
+    await page.waitForFunction(before=>Module.failed || Module.frameCount>=before+3,previousFrame,{timeout:120000});
     assert.equal(await page.evaluate(()=>Module.failed),false);
     const bytes=await page.locator('#canvas').screenshot({path:`${artifacts}/${name}.png`});
     report.captures.push({name,...inspect(bytes)});return bytes;
@@ -63,7 +64,7 @@ try {
             };return adapter;
         };
     });
-    await page.goto(`http://127.0.0.1:${server.address().port}/`,{waitUntil:'load'});
+    await page.goto(`http://127.0.0.1:${server.address().port}/?ui=0`,{waitUntil:'load'});
     await capture(page,'overview');report.device=await page.evaluate(()=>window.pbrDevice);
     // Match the native offscreen reference viewport exactly, independent of the header's wrapping.
     await page.setViewportSize({width:960,height:760});
@@ -105,7 +106,7 @@ try {
     await page.setViewportSize({width:773,height:650});
     await page.waitForFunction(()=>Module.canvas.width===773);await capture(page,'resized');
     await page.reload({waitUntil:'load'});await capture(page,'reloaded');
-    await page.goto(`http://127.0.0.1:${server.address().port}/?pbr=budget`,{waitUntil:'load'});
+    await page.goto(`http://127.0.0.1:${server.address().port}/?pbr=budget&ui=0`,{waitUntil:'load'});
     await capture(page,'maximum-layout');
     assert.ok(report.messages.some(m=>m.text.includes('pbr-4095: 16 sampled textures, 13 samplers')));
     report.camera={capture:true,movement:true,release:true,reset:true,closeup:true,blurClears:true};

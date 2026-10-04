@@ -8,6 +8,8 @@ Load glTF 2.0 JSON and GLB assets through `Resources::loadResourceAsync<Model>`,
 
 ## Progress
 
+- [x] (2026-10-04) User authorized merging into main. Separated inherited uncommitted PBR naming edits, integrated main’s ImGui workspace, and verified CPU/native checks. CPU/native and all four browser smoke suites pass on the integrated tree.
+
 - [x] (2026-10-04) Inspected existing resource, scene, PBR and platform-loading contracts; agreed public ownership and import scope with the user.
 - [x] (2026-10-04) Created attached worktree `C:/Users/Chris/.codex/worktrees/gltf-model-loading/ofg`, branch `gltf-model-loading`, from the current HEAD. Captured and applied the original checkout's pending PBR changes; the baseline patch is `artifacts/models/inherited-working-tree.patch`.
 - [x] (2026-10-04) Milestone 1 implementation: Skin/Animation resources, Mesh deformation storage, per-instance MeshRenderer palettes/weights, typed passive Animator ownership, tests and contracts.
@@ -205,3 +207,22 @@ has a separate expected-failure log and never publishes or reaches textureReady.
 screenshots were inspected. Known compiler Asyncify/WASM-exception and Chrome Windows powerPreference warnings
 remain; no new rendering validation diagnostics were recorded. Parsing and instantiation requested in this pass
 are complete. Broader external-asset/reference coverage remains the active plan follow-up.
+
+2026-10-04 merge integration: combined the glTF work with main at a6fcffa. Both hosts keep ImGui enabled for
+model inspection, retain --no-ui / ?ui=0 diagnostics, and respect workspace camera input. Model cancellation and
+instantiation happen before building the browser workspace frame. The focused model smoke now also opens the
+model inside the workspace. The existing main PBR smoke fresh-frame fix is retained unchanged.
+
+The first clean-tree CPU run exposed four importer assertions coupled to shader binding names from inherited,
+uncommitted PBR work. The test now compares texture/sampler assignments and UV transforms with createPbrMaterial
+through PbrMaterialDesc and PbrSlot. No PBR naming implementation was included in the glTF commit. Both CPU-only
+and native core suites pass (92 cases / 2174 assertions); native startup, checkerboard and scene/UI GPU checks pass.
+The native model workspace was inspected after a foreign-directory GLB launch, resize, minimize/restore and clean
+close, with an isolated LOCALAPPDATA for the final capture. Evidence: artifacts/models/merge-core-tests.txt and
+artifacts/models/native/window.png. clang-format 22.1.3 checks pass for conflict-resolved C++ files.
+
+Merge validation completed: web configure/build, node tools/model-smoke.mjs, npm.cmd run smoke:ui,
+npm.cmd run smoke:pbr and npm.cmd run smoke:web all pass in Chrome 154.0.8037.95 with no unexpected errors.
+Inspected native and browser model workspace captures; reports remain in this worktree under artifacts/models,
+artifacts/imgui, artifacts/pbr and artifacts/textures. The known Asyncify/exception and powerPreference warnings
+remain unchanged. Main’s uncommitted PBR work is preserved separately from the glTF commits.

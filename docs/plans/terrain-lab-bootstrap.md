@@ -8,6 +8,8 @@ Establish a small C++ terrain laboratory using Slang RHI in both a native Window
 
 ## Progress
 
+- [x] (2026-10-04) Implemented the [dockable ImGui workspace](../archived/imgui-workspace.md) in the managed imgui-workspace worktree. Native/CPU CTest and browser UI/PBR/texture smoke suites pass; screenshots cover docking, settings, persistence and high DPI.
+
 - [x] (2026-10-03) Implemented the [PBR sphere laboratory](../pbr.md): fly camera, textured core/surface materials, punctual lights, matched baked IBL and HDR output on D3D12/WebGPU. CPU/native tests and PBR browser smoke pass; final regression/documentation checks are recorded in the PBR plan. UI/terrain remain separate work.
 
 - [x] (2026-10-03) Implemented and verified [sampled textures and GPU mipmaps](../archived/texture-support.md), including UNORM8/sRGB8/fp16/fp32, on-demand PNG/JPEG, views/samplers and browser fp32 gating. CPU/native CTest and extended browser smoke pass; evidence is under artifacts/textures.
@@ -39,7 +41,7 @@ Establish a small C++ terrain laboratory using Slang RHI in both a native Window
 - [x] (2026-10-01) Added src/main.cpp and target ofg, linked directly to Slang RHI. It exports the Agility SDK selection, creates a D3D12 device with RHI validation, reports the adapter and exits. Native configure/build, direct startup in an ordinary PowerShell, and the GPU-labeled ofg-startup CTest check passed on an NVIDIA GeForce RTX 3050 Ti Laptop GPU.
 - [x] (2026-10-01) Added the build-native skill and documented Visual Studio discovery/x64 environment initialization in DEVELOPING.md. Skill validation and clang-format 22.1.3 checks passed. No browser or windowing code was added.
 - [ ] Pin and build a compatible native/browser dependency set.
-- [ ] Establish independently buildable doctest/CTest CPU tests and a shared ImGui renderer.
+- [x] (2026-10-04) Established independently buildable doctest/CTest CPU tests and the shared ImGui renderer.
 - [ ] Run matching terrain rendering and compute scenarios on DX12 and browser WebGPU.
 - [ ] Exercise asynchronous uploads, failure handling, retirement and bounded residency.
 - [ ] Record reproducible commands, measurements and visual evidence, and prepare the first large-terrain/character milestone.
@@ -90,7 +92,7 @@ The user-requested state and component-free scene foundations now live in ofg-co
 
 The documentation checkpoint now gives a new contributor a short source map and gives agents separate native and browser workflows. It builds on the verified checkerboard implementation without duplicating it into a second sample application. Runtime behavior is unchanged by this documentation step.
 
-The browser checkerboard now runs the same renderer and shader as native. Emscripten 6.0.0 and the pinned RHI/Slang WASM package work without submodule edits. The web preset selects only WebGPU, the native preset only D3D12; native keeps the full C++ suite. Playwright captures initial 960x641 and resized/reloaded 773x478 canvases with exact 32/224 gray levels and no console errors. A separate navigator.gpu query reports Intel gen-12lp; RHI itself leaves the adapter description empty, so do not claim it selected the native NVIDIA device. The missing-WebGPU error is verified. Local serving at http://127.0.0.1:8080 is available via npm run serve:web. The distribution includes roughly 26 MB of uncompressed WASM and the documented upstream Asyncify/exception caveat. Compute, ImGui, independent CPU tests and terrain remain future work.
+The browser checkerboard now runs the same renderer and shader as native. Emscripten 6.0.0 and the pinned RHI/Slang WASM package work without submodule edits. The web preset selects only WebGPU, the native preset only D3D12; native keeps the full C++ suite. Playwright captures initial 960x641 and resized/reloaded 773x478 canvases with exact 32/224 gray levels and no console errors. A separate navigator.gpu query reports Intel gen-12lp; RHI itself leaves the adapter description empty, so do not claim it selected the native NVIDIA device. The missing-WebGPU error is verified. Local serving at http://127.0.0.1:8080 is available via npm run serve:web. The distribution includes roughly 26 MB of uncompressed WASM and the documented upstream Asyncify/exception caveat. This was the initial browser baseline; independent CPU tests and ImGui are now implemented as recorded in Progress. Compute and terrain remain future work.
 
 The checkerboard slice now provides a native visual reference and a shared renderer for browser bring-up. src/main.cpp contains only native startup/window/event responsibilities; src/checkerboard.cpp and shaders/checkerboard.slang contain the common pipeline and draw. The shader is embedded at build time, avoiding working-directory-sensitive loading. Both CTest checks pass and the live window survives maximize and minimize/restore. That native slice preceded the browser implementation described above.
 

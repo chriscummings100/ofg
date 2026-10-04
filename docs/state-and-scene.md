@@ -110,7 +110,7 @@ zero. A Model without scenes remains inspectable but cannot instantiate. Parent 
 Scene. Instantiation stages a synthetic root, every entity, renderer, morph override, joint palette and optional
 root Animator in a temporary Scene. Only after successful validation and destination reservation does it transfer
 stable allocations, reassign IDs/owners and attach the root. Failure leaves the existing scene hierarchy and
-components unchanged. Model node names remain in ModelData; Entity has no name field.
+components unchanged. Model node names remain in ModelData; instance entities currently retain their default display names.
 
 `ModelInstance` retains the Model and observes the synthetic root, optional Animator and source-indexed node map.
 Discarding it does not remove the scene objects. MeshRenderers retain their own shared assets; Animator retains all

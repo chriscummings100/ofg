@@ -42,6 +42,7 @@ add_library(ofg-core STATIC
     src/resources/pbr-material.cpp
     src/resources/environment.cpp
     src/lab/fly-camera.cpp
+    src/lab/render-settings.cpp
     src/lab/sphere.cpp
     src/core/object.cpp
     src/math/mat.cpp
@@ -74,6 +75,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_executable(ofg-core-test
         tests/gltf-test.cpp
         tests/model-resources-test.cpp
+        tests/render-settings-test.cpp
         tests/pbr-core-test.cpp
         tests/texture-test.cpp
         tests/core-test-main.cpp
@@ -123,9 +125,17 @@ target_compile_features(ofg-render PUBLIC cxx_std_20)
 target_include_directories(ofg-render PUBLIC src PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(ofg-render PUBLIC slang-rhi ofg-core)
 
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/imgui.slang)
+file(READ shaders/imgui.slang IMGUI_SHADER)
+configure_file(src/ui/imgui-shader.h.in generated/imgui-shader.h @ONLY)
+add_library(ofg-ui STATIC src/ui/imgui-renderer.cpp src/ui/workspace.cpp)
+target_include_directories(ofg-ui PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
+target_link_libraries(ofg-ui PUBLIC ofg-render imgui)
+
 if(EMSCRIPTEN)
+    target_sources(ofg-ui PRIVATE src/ui/browser-input.cpp)
     add_executable(ofg-web src/web-main.cpp)
-    target_link_libraries(ofg-web PRIVATE ofg-render ofg-core)
+    target_link_libraries(ofg-web PRIVATE ofg-ui ofg-core)
     set_target_properties(ofg-web PROPERTIES OUTPUT_NAME index SUFFIX .html)
     set_property(TARGET ofg-web APPEND PROPERTY LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html)
     # WebGPU initialization, initial buffer uploads and uniform staging maps yield through Asyncify.
@@ -141,14 +151,14 @@ if(EMSCRIPTEN)
     )
 else()
     add_executable(ofg src/main.cpp)
-    target_link_libraries(ofg PRIVATE ofg-render ofg-core glfw)
+    target_link_libraries(ofg PRIVATE ofg-ui ofg-core glfw)
 endif()
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_test(NAME ofg-startup COMMAND ofg --check-device)
 
     add_executable(ofg-render-test tests/checkerboard-test.cpp tests/graphics-test.cpp)
-    target_link_libraries(ofg-render-test PRIVATE ofg-render doctest)
+    target_link_libraries(ofg-render-test PRIVATE ofg-ui doctest)
     target_compile_definitions(ofg-render-test PRIVATE OFG_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME ofg-checkerboard COMMAND ofg-render-test "--test-case=Checkerboard*")
     add_test(NAME ofg-scene-rendering COMMAND ofg-render-test "--test-case-exclude=Checkerboard*")

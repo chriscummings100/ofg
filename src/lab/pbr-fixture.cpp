@@ -14,7 +14,9 @@ std::shared_ptr<Environment> createStudioEnvironment()
 std::unique_ptr<Scene> createPbrFixture(bool maximumLayout)
 {
     auto scene = std::make_unique<Scene>();
+    scene->getRoot()->setName("PBR Laboratory");
     auto camera = scene->createEntity(scene->getRoot());
+    camera->setName("Inspection Camera");
     FlyCamera{}.reset(*camera);
     scene->setActiveCamera(scene->createCamera(camera));
     scene->lighting.hdr = true;
@@ -35,6 +37,7 @@ std::unique_ptr<Scene> createPbrFixture(bool maximumLayout)
         for (int column = 0; column < 7; ++column)
         {
             auto entity = scene->createEntity(scene->getRoot());
+            entity->setName("Sphere M" + std::to_string(row) + "/6 R" + std::to_string(column) + "/6");
             entity->setLocalPosition({(column - 3) * 1.65f, (row - 3) * 1.65f, 0});
             entity->setLocalScale({0.65f, 0.65f, 0.65f});
             auto renderer = scene->createMeshRenderer(entity);
@@ -82,6 +85,8 @@ std::unique_ptr<Scene> createPbrFixture(bool maximumLayout)
             swatch.baseColor = {0.1f, 0.7f, 1, 1};
         }
         auto entity = scene->createEntity(scene->getRoot());
+        const char* names[]{"Dielectric", "Clearcoat", "Sheen", "Iridescence", "Anisotropy", "Emission", "Unlit"};
+        entity->setName(names[column]);
         entity->setLocalPosition({(column - 3) * 1.65f, -6.6f, 0});
         entity->setLocalScale({0.65f, 0.65f, 0.65f});
         auto renderer = scene->createMeshRenderer(entity);
@@ -185,6 +190,7 @@ std::unique_ptr<Scene> createPbrFixture(bool maximumLayout)
             swatch.sheenColor = {0.2f, 0.1f, 0.05f};
         }
         auto entity = scene->createEntity(scene->getRoot());
+        entity->setName("Textured swatch " + std::to_string(column + 1));
         entity->setLocalPosition({(column - 3) * 1.65f, -8.25f, 0});
         entity->setLocalScale({0.65f, 0.65f, 0.65f});
         auto renderer = scene->createMeshRenderer(entity);

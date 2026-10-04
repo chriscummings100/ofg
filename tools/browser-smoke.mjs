@@ -87,7 +87,7 @@ try {
     let releaseTexture;
     const textureGate = new Promise(resolve => { releaseTexture = resolve; });
     await page.route('**/assets/checker.png', async route => { await textureGate; await route.continue(); });
-    await page.goto(`http://127.0.0.1:${server.address().port}/?demo=scene`, { waitUntil: 'load' });
+    await page.goto(`http://127.0.0.1:${server.address().port}/?demo=scene&ui=0`, { waitUntil: 'load' });
     await page.waitForFunction(() => Module.failed || Module.frameCount >= 4);
     assert.equal(await page.evaluate(() => Module.failed || Module.textureReady), false);
     releaseTexture();
@@ -174,7 +174,7 @@ try {
                 return request.call(this, { ...desc, requiredFeatures: [...(desc.requiredFeatures || [])].filter(f => f !== 'float32-filterable') });
             };
         });
-        await probe.goto(`http://127.0.0.1:${server.address().port}/${scenario.query}`, { waitUntil: 'load' });
+        await probe.goto(`http://127.0.0.1:${server.address().port}/${scenario.query}&ui=0`, { waitUntil: 'load' });
         await probe.waitForFunction(() => Module.failed || Module.textureFrames >= 3, null, { timeout: 60000 });
         const support = await probe.evaluate(() => Module.fp32Supported);
         const expectedError = scenario.error || (scenario.optionalFp32 && !support ? /float32-filterable/ : null);
@@ -203,7 +203,7 @@ try {
         await cancelGate;
         await route.abort();
     });
-    await cancel.goto(`http://127.0.0.1:${server.address().port}/?demo=scene`, { waitUntil: 'load' });
+    await cancel.goto(`http://127.0.0.1:${server.address().port}/?demo=scene&ui=0`, { waitUntil: 'load' });
     await seen;
     await cancel.waitForFunction(() => Module.frameCount >= 3);
     await cancel.evaluate(() => { Module.cancelTexture = true; });

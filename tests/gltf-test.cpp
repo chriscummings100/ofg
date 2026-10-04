@@ -1,6 +1,7 @@
 // Real file import, adversarial accessor boundaries and atomic scene instantiation without a GPU.
 #include "resources/model.h"
 #include "resources/resources.h"
+#include "resources/pbr-material.h"
 #include "resources/gltf-import.h"
 #include "scene/scene.h"
 #include <ostream>
@@ -595,13 +596,46 @@ TEST_CASE("material extensions retain factors transformed UVs and separate color
     CHECK(std::get<float>(mat->uniforms().at("sheenRoughness")) == doctest::Approx(.7));
     CHECK(std::get<float>(mat->uniforms().at("thicknessMinimum")) == 120);
     CHECK(std::get<float>(mat->uniforms().at("anisotropy")) == doctest::Approx(.9));
-    CHECK(std::get<math::Vec3>(mat->uniforms().at("baseColorTransformX")).z == .25f);
-    CHECK(
-        bindingTexture(mat->textures().at("baseColorTexture")) ==
-        bindingTexture(mat->textures().at("specularColorTexture"))
-    );
-    CHECK(bindingTexture(mat->textures().at("specularTexture"))->desc().format == TextureFormat::RGBA8Unorm);
-    CHECK(mat->samplers().at("baseColorSampler") == mat->samplers().at("specularSampler"));
+    // Compare imported bindings with the public typed PBR contract, independently of shader field naming.
+    PbrMaterialDesc expectedDesc;
+    for (auto slot : {PbrSlot::BaseColor, PbrSlot::SpecularColor, PbrSlot::Specular, PbrSlot::ClearcoatNormal})
+    {
+        const bool color = slot == PbrSlot::BaseColor || slot == PbrSlot::SpecularColor;
+        auto& binding = expectedDesc.textures[static_cast<size_t>(slot)];
+        for (const auto& texture : data.textures)
+        {
+            if (texture->desc().format == (color ? TextureFormat::RGBA8UnormSrgb : TextureFormat::RGBA8Unorm))
+            {
+                binding.texture = texture;
+            }
+        }
+        REQUIRE(binding.texture);
+        binding.sampler = data.samplers.at(0);
+    }
+    expectedDesc.textures[static_cast<size_t>(PbrSlot::BaseColor)].offset = {.25f, .5f};
+    expectedDesc.textures[static_cast<size_t>(PbrSlot::BaseColor)].scale = {2, 3};
+    const auto expected = createPbrMaterial(expectedDesc);
+    REQUIRE(mat->textures().size() == expected->textures().size());
+    for (const auto& [name, binding] : expected->textures())
+    {
+        CHECK(bindingTexture(mat->textures().at(name)) == bindingTexture(binding));
+    }
+    CHECK(mat->samplers() == expected->samplers());
+    for (const auto& [name, value] : expected->uniforms())
+    {
+        if (name.ends_with("TransformX") || name.ends_with("TransformY"))
+        {
+            const auto actual = std::get<math::Vec3>(mat->uniforms().at(name));
+            const auto transform = std::get<math::Vec3>(value);
+            CHECK(actual.x == transform.x);
+            CHECK(actual.y == transform.y);
+            CHECK(actual.z == transform.z);
+        }
+        else if (name.ends_with("UvSet"))
+        {
+            CHECK(std::get<uint32_t>(mat->uniforms().at(name)) == std::get<uint32_t>(value));
+        }
+    }
 }
 
 TEST_CASE("model cancellation retry optional extensions and no-scene inspection")
