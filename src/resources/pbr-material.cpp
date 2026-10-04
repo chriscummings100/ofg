@@ -5,7 +5,36 @@
 #include <cmath>
 #include <bit>
 #include <map>
+#include <iterator>
 namespace ofg {
+namespace {
+// Explicit property names bridge enum-indexed CPU storage and the reflected shader interface.
+struct PbrTextureBinding
+{
+    PbrSlot slot;
+    const char* propertyName;
+    const char* textureDefine;
+};
+constexpr PbrTextureBinding pbrTextureBindings[] = {
+    {PbrSlot::BaseColor, "baseColor", "HAS_BASE_COLOR_TEXTURE"},
+    {PbrSlot::MetallicRoughness, "metallicRoughness", "HAS_METALLIC_ROUGHNESS_TEXTURE"},
+    {PbrSlot::Normal, "normal", "HAS_NORMAL_TEXTURE"},
+    {PbrSlot::Occlusion, "occlusion", "HAS_OCCLUSION_TEXTURE"},
+    {PbrSlot::Emissive, "emissive", "HAS_EMISSIVE_TEXTURE"},
+    {PbrSlot::Specular, "specular", "HAS_SPECULAR_TEXTURE"},
+    {PbrSlot::SpecularColor, "specularColor", "HAS_SPECULAR_COLOR_TEXTURE"},
+    {PbrSlot::Clearcoat, "clearcoat", "HAS_CLEARCOAT_TEXTURE"},
+    {PbrSlot::ClearcoatRoughness, "clearcoatRoughness", "HAS_CLEARCOAT_ROUGHNESS_TEXTURE"},
+    {PbrSlot::ClearcoatNormal, "clearcoatNormal", "HAS_CLEARCOAT_NORMAL_TEXTURE"},
+    {PbrSlot::SheenColor, "sheenColor", "HAS_SHEEN_COLOR_TEXTURE"},
+    {PbrSlot::SheenRoughness, "sheenRoughness", "HAS_SHEEN_ROUGHNESS_TEXTURE"},
+    {PbrSlot::Iridescence, "iridescence", "HAS_IRIDESCENCE_TEXTURE"},
+    {PbrSlot::IridescenceThickness, "iridescenceThickness", "HAS_IRIDESCENCE_THICKNESS_TEXTURE"},
+    {PbrSlot::Anisotropy, "anisotropy", "HAS_ANISOTROPY_TEXTURE"}
+};
+static_assert(std::size(pbrTextureBindings) == static_cast<size_t>(PbrSlot::Count));
+} // namespace
+
 std::shared_ptr<Material> createPbrMaterial(const PbrMaterialDesc& desc)
 {
     uint32_t key = desc.unlit ? (1u << 15) : 0;
@@ -212,11 +241,11 @@ std::shared_ptr<Material> createPbrMaterial(const PbrMaterialDesc& desc)
         {
             defines += "#define UNLIT 1\n";
         }
-        for (size_t i = 0; i < desc.textures.size(); ++i)
+        for (const auto& binding : pbrTextureBindings)
         {
-            if (key & (1u << i))
+            if (key & (1u << static_cast<size_t>(binding.slot)))
             {
-                defines += "#define SLOT" + std::to_string(i) + " 1\n";
+                defines += std::string("#define ") + binding.textureDefine + " 1\n";
             }
         }
         shader = Shader::create("pbr-" + std::to_string(key), defines + pbrShader);
@@ -246,14 +275,14 @@ std::shared_ptr<Material> createPbrMaterial(const PbrMaterialDesc& desc)
     material->setUniform("anisotropy", desc.anisotropy);
     material->setUniform("anisotropyRotation", desc.anisotropyRotation);
     material->setUniform("alphaCutoff", desc.alphaCutoff);
-    for (size_t i = 0; i < desc.textures.size(); ++i)
+    for (const auto& binding : pbrTextureBindings)
     {
-        const auto& slot = desc.textures[i];
+        const auto& slot = desc.textures[static_cast<size_t>(binding.slot)];
         if (!slot.texture)
         {
             continue;
         }
-        std::string name = "slot" + std::to_string(i);
+        std::string name = binding.propertyName;
         material->setTexture(name + "Texture", slot.texture);
         material->setSampler(name + "Sampler", slot.sampler ? slot.sampler : Sampler::create());
         float c = std::cos(slot.rotation), s = std::sin(slot.rotation);

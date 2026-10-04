@@ -1144,7 +1144,7 @@ TEST_CASE("PBR texture channels preserve sRGB color and linear metallic roughnes
     auto data = Texture::create({1, 1, TextureFormat::RGBA8Unorm}, {bytes});
     PbrMaterialDesc desc;
     desc.unlit = true;
-    desc.textures[0].texture = color;
+    desc.textures[static_cast<size_t>(PbrSlot::BaseColor)].texture = color;
     auto material = createPbrMaterial(desc);
     auto mesh = pbrPlane(material);
     DrawList list;
@@ -1160,7 +1160,7 @@ TEST_CASE("PBR texture channels preserve sRGB color and linear metallic roughnes
     desc.unlit = false;
     desc.roughness = 0.8f;
     desc.metallic = 0.7f;
-    desc.textures[1].texture = data;
+    desc.textures[static_cast<size_t>(PbrSlot::MetallicRoughness)].texture = data;
     list.items[0].material = createPbrMaterial(desc);
     list.lighting.debugView = 2;
     Graphics::render(list, target);

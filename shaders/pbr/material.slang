@@ -23,230 +23,230 @@ struct MaterialParameters
     float anisotropy;
     float anisotropyRotation;
     float alphaCutoff;
-#ifdef SLOT0
-    float3 slot0TransformX;
-    float3 slot0TransformY;
-    uint slot0UvSet;
+#ifdef HAS_BASE_COLOR_TEXTURE
+    float3 baseColorTransformX;
+    float3 baseColorTransformY;
+    uint baseColorUvSet;
 #endif
-#ifdef SLOT1
-    float3 slot1TransformX;
-    float3 slot1TransformY;
-    uint slot1UvSet;
+#ifdef HAS_METALLIC_ROUGHNESS_TEXTURE
+    float3 metallicRoughnessTransformX;
+    float3 metallicRoughnessTransformY;
+    uint metallicRoughnessUvSet;
 #endif
-#ifdef SLOT2
-    float3 slot2TransformX;
-    float3 slot2TransformY;
-    uint slot2UvSet;
+#ifdef HAS_NORMAL_TEXTURE
+    float3 normalTransformX;
+    float3 normalTransformY;
+    uint normalUvSet;
 #endif
-#ifdef SLOT3
-    float3 slot3TransformX;
-    float3 slot3TransformY;
-    uint slot3UvSet;
+#ifdef HAS_OCCLUSION_TEXTURE
+    float3 occlusionTransformX;
+    float3 occlusionTransformY;
+    uint occlusionUvSet;
 #endif
-#ifdef SLOT4
-    float3 slot4TransformX;
-    float3 slot4TransformY;
-    uint slot4UvSet;
+#ifdef HAS_EMISSIVE_TEXTURE
+    float3 emissiveTransformX;
+    float3 emissiveTransformY;
+    uint emissiveUvSet;
 #endif
-#ifdef SLOT5
-    float3 slot5TransformX;
-    float3 slot5TransformY;
-    uint slot5UvSet;
+#ifdef HAS_SPECULAR_TEXTURE
+    float3 specularTransformX;
+    float3 specularTransformY;
+    uint specularUvSet;
 #endif
-#ifdef SLOT6
-    float3 slot6TransformX;
-    float3 slot6TransformY;
-    uint slot6UvSet;
+#ifdef HAS_SPECULAR_COLOR_TEXTURE
+    float3 specularColorTransformX;
+    float3 specularColorTransformY;
+    uint specularColorUvSet;
 #endif
-#ifdef SLOT7
-    float3 slot7TransformX;
-    float3 slot7TransformY;
-    uint slot7UvSet;
+#ifdef HAS_CLEARCOAT_TEXTURE
+    float3 clearcoatTransformX;
+    float3 clearcoatTransformY;
+    uint clearcoatUvSet;
 #endif
-#ifdef SLOT8
-    float3 slot8TransformX;
-    float3 slot8TransformY;
-    uint slot8UvSet;
+#ifdef HAS_CLEARCOAT_ROUGHNESS_TEXTURE
+    float3 clearcoatRoughnessTransformX;
+    float3 clearcoatRoughnessTransformY;
+    uint clearcoatRoughnessUvSet;
 #endif
-#ifdef SLOT9
-    float3 slot9TransformX;
-    float3 slot9TransformY;
-    uint slot9UvSet;
+#ifdef HAS_CLEARCOAT_NORMAL_TEXTURE
+    float3 clearcoatNormalTransformX;
+    float3 clearcoatNormalTransformY;
+    uint clearcoatNormalUvSet;
 #endif
-#ifdef SLOT10
-    float3 slot10TransformX;
-    float3 slot10TransformY;
-    uint slot10UvSet;
+#ifdef HAS_SHEEN_COLOR_TEXTURE
+    float3 sheenColorTransformX;
+    float3 sheenColorTransformY;
+    uint sheenColorUvSet;
 #endif
-#ifdef SLOT11
-    float3 slot11TransformX;
-    float3 slot11TransformY;
-    uint slot11UvSet;
+#ifdef HAS_SHEEN_ROUGHNESS_TEXTURE
+    float3 sheenRoughnessTransformX;
+    float3 sheenRoughnessTransformY;
+    uint sheenRoughnessUvSet;
 #endif
-#ifdef SLOT12
-    float3 slot12TransformX;
-    float3 slot12TransformY;
-    uint slot12UvSet;
+#ifdef HAS_IRIDESCENCE_TEXTURE
+    float3 iridescenceTransformX;
+    float3 iridescenceTransformY;
+    uint iridescenceUvSet;
 #endif
-#ifdef SLOT13
-    float3 slot13TransformX;
-    float3 slot13TransformY;
-    uint slot13UvSet;
+#ifdef HAS_IRIDESCENCE_THICKNESS_TEXTURE
+    float3 iridescenceThicknessTransformX;
+    float3 iridescenceThicknessTransformY;
+    uint iridescenceThicknessUvSet;
 #endif
-#ifdef SLOT14
-    float3 slot14TransformX;
-    float3 slot14TransformY;
-    uint slot14UvSet;
+#ifdef HAS_ANISOTROPY_TEXTURE
+    float3 anisotropyTransformX;
+    float3 anisotropyTransformY;
+    uint anisotropyUvSet;
 #endif
 };
 ConstantBuffer<MaterialParameters> material;
-#ifdef SLOT0
-Texture2D<float4> slot0Texture;
-SamplerState slot0Sampler;
+#ifdef HAS_BASE_COLOR_TEXTURE
+Texture2D<float4> baseColorTexture;
+SamplerState baseColorSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
-float2 uv0(float2 uv0, float2 uv1)
+float2 baseColorUv(float2 uv0, float2 uv1)
 {
-    float3 uv = float3(material.slot0UvSet == 0 ? uv0 : uv1, 1);
-    return float2(dot(material.slot0TransformX, uv), dot(material.slot0TransformY, uv));
+    float3 uv = float3(material.baseColorUvSet == 0 ? uv0 : uv1, 1);
+    return float2(dot(material.baseColorTransformX, uv), dot(material.baseColorTransformY, uv));
 }
 #endif
-#ifdef SLOT1
-Texture2D<float4> slot1Texture;
-SamplerState slot1Sampler;
+#ifdef HAS_METALLIC_ROUGHNESS_TEXTURE
+Texture2D<float4> metallicRoughnessTexture;
+SamplerState metallicRoughnessSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
-float2 uv1(float2 uv0, float2 uv1)
+float2 metallicRoughnessUv(float2 uv0, float2 uv1)
 {
-    float3 uv = float3(material.slot1UvSet == 0 ? uv0 : uv1, 1);
-    return float2(dot(material.slot1TransformX, uv), dot(material.slot1TransformY, uv));
+    float3 uv = float3(material.metallicRoughnessUvSet == 0 ? uv0 : uv1, 1);
+    return float2(dot(material.metallicRoughnessTransformX, uv), dot(material.metallicRoughnessTransformY, uv));
 }
 #endif
-#ifdef SLOT2
-Texture2D<float4> slot2Texture;
-SamplerState slot2Sampler;
+#ifdef HAS_NORMAL_TEXTURE
+Texture2D<float4> normalTexture;
+SamplerState normalSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
-float2 uv2(float2 uv0, float2 uv1)
+float2 normalUv(float2 uv0, float2 uv1)
 {
-    float3 uv = float3(material.slot2UvSet == 0 ? uv0 : uv1, 1);
-    return float2(dot(material.slot2TransformX, uv), dot(material.slot2TransformY, uv));
+    float3 uv = float3(material.normalUvSet == 0 ? uv0 : uv1, 1);
+    return float2(dot(material.normalTransformX, uv), dot(material.normalTransformY, uv));
 }
 #endif
-#ifdef SLOT3
-Texture2D<float4> slot3Texture;
-SamplerState slot3Sampler;
+#ifdef HAS_OCCLUSION_TEXTURE
+Texture2D<float4> occlusionTexture;
+SamplerState occlusionSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
-float2 uv3(float2 uv0, float2 uv1)
+float2 occlusionUv(float2 uv0, float2 uv1)
 {
-    float3 uv = float3(material.slot3UvSet == 0 ? uv0 : uv1, 1);
-    return float2(dot(material.slot3TransformX, uv), dot(material.slot3TransformY, uv));
+    float3 uv = float3(material.occlusionUvSet == 0 ? uv0 : uv1, 1);
+    return float2(dot(material.occlusionTransformX, uv), dot(material.occlusionTransformY, uv));
 }
 #endif
-#ifdef SLOT4
-Texture2D<float4> slot4Texture;
-SamplerState slot4Sampler;
+#ifdef HAS_EMISSIVE_TEXTURE
+Texture2D<float4> emissiveTexture;
+SamplerState emissiveSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
-float2 uv4(float2 uv0, float2 uv1)
+float2 emissiveUv(float2 uv0, float2 uv1)
 {
-    float3 uv = float3(material.slot4UvSet == 0 ? uv0 : uv1, 1);
-    return float2(dot(material.slot4TransformX, uv), dot(material.slot4TransformY, uv));
+    float3 uv = float3(material.emissiveUvSet == 0 ? uv0 : uv1, 1);
+    return float2(dot(material.emissiveTransformX, uv), dot(material.emissiveTransformY, uv));
 }
 #endif
-#ifdef SLOT5
-Texture2D<float4> slot5Texture;
-SamplerState slot5Sampler;
+#ifdef HAS_SPECULAR_TEXTURE
+Texture2D<float4> specularTexture;
+SamplerState specularSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
-float2 uv5(float2 uv0, float2 uv1)
+float2 specularUv(float2 uv0, float2 uv1)
 {
-    float3 uv = float3(material.slot5UvSet == 0 ? uv0 : uv1, 1);
-    return float2(dot(material.slot5TransformX, uv), dot(material.slot5TransformY, uv));
+    float3 uv = float3(material.specularUvSet == 0 ? uv0 : uv1, 1);
+    return float2(dot(material.specularTransformX, uv), dot(material.specularTransformY, uv));
 }
 #endif
-#ifdef SLOT6
-Texture2D<float4> slot6Texture;
-SamplerState slot6Sampler;
+#ifdef HAS_SPECULAR_COLOR_TEXTURE
+Texture2D<float4> specularColorTexture;
+SamplerState specularColorSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
-float2 uv6(float2 uv0, float2 uv1)
+float2 specularColorUv(float2 uv0, float2 uv1)
 {
-    float3 uv = float3(material.slot6UvSet == 0 ? uv0 : uv1, 1);
-    return float2(dot(material.slot6TransformX, uv), dot(material.slot6TransformY, uv));
+    float3 uv = float3(material.specularColorUvSet == 0 ? uv0 : uv1, 1);
+    return float2(dot(material.specularColorTransformX, uv), dot(material.specularColorTransformY, uv));
 }
 #endif
-#ifdef SLOT7
-Texture2D<float4> slot7Texture;
-SamplerState slot7Sampler;
+#ifdef HAS_CLEARCOAT_TEXTURE
+Texture2D<float4> clearcoatTexture;
+SamplerState clearcoatSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
-float2 uv7(float2 uv0, float2 uv1)
+float2 clearcoatUv(float2 uv0, float2 uv1)
 {
-    float3 uv = float3(material.slot7UvSet == 0 ? uv0 : uv1, 1);
-    return float2(dot(material.slot7TransformX, uv), dot(material.slot7TransformY, uv));
+    float3 uv = float3(material.clearcoatUvSet == 0 ? uv0 : uv1, 1);
+    return float2(dot(material.clearcoatTransformX, uv), dot(material.clearcoatTransformY, uv));
 }
 #endif
-#ifdef SLOT8
-Texture2D<float4> slot8Texture;
-SamplerState slot8Sampler;
+#ifdef HAS_CLEARCOAT_ROUGHNESS_TEXTURE
+Texture2D<float4> clearcoatRoughnessTexture;
+SamplerState clearcoatRoughnessSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
-float2 uv8(float2 uv0, float2 uv1)
+float2 clearcoatRoughnessUv(float2 uv0, float2 uv1)
 {
-    float3 uv = float3(material.slot8UvSet == 0 ? uv0 : uv1, 1);
-    return float2(dot(material.slot8TransformX, uv), dot(material.slot8TransformY, uv));
+    float3 uv = float3(material.clearcoatRoughnessUvSet == 0 ? uv0 : uv1, 1);
+    return float2(dot(material.clearcoatRoughnessTransformX, uv), dot(material.clearcoatRoughnessTransformY, uv));
 }
 #endif
-#ifdef SLOT9
-Texture2D<float4> slot9Texture;
-SamplerState slot9Sampler;
+#ifdef HAS_CLEARCOAT_NORMAL_TEXTURE
+Texture2D<float4> clearcoatNormalTexture;
+SamplerState clearcoatNormalSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
-float2 uv9(float2 uv0, float2 uv1)
+float2 clearcoatNormalUv(float2 uv0, float2 uv1)
 {
-    float3 uv = float3(material.slot9UvSet == 0 ? uv0 : uv1, 1);
-    return float2(dot(material.slot9TransformX, uv), dot(material.slot9TransformY, uv));
+    float3 uv = float3(material.clearcoatNormalUvSet == 0 ? uv0 : uv1, 1);
+    return float2(dot(material.clearcoatNormalTransformX, uv), dot(material.clearcoatNormalTransformY, uv));
 }
 #endif
-#ifdef SLOT10
-Texture2D<float4> slot10Texture;
-SamplerState slot10Sampler;
+#ifdef HAS_SHEEN_COLOR_TEXTURE
+Texture2D<float4> sheenColorTexture;
+SamplerState sheenColorSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
-float2 uv10(float2 uv0, float2 uv1)
+float2 sheenColorUv(float2 uv0, float2 uv1)
 {
-    float3 uv = float3(material.slot10UvSet == 0 ? uv0 : uv1, 1);
-    return float2(dot(material.slot10TransformX, uv), dot(material.slot10TransformY, uv));
+    float3 uv = float3(material.sheenColorUvSet == 0 ? uv0 : uv1, 1);
+    return float2(dot(material.sheenColorTransformX, uv), dot(material.sheenColorTransformY, uv));
 }
 #endif
-#ifdef SLOT11
-Texture2D<float4> slot11Texture;
-SamplerState slot11Sampler;
+#ifdef HAS_SHEEN_ROUGHNESS_TEXTURE
+Texture2D<float4> sheenRoughnessTexture;
+SamplerState sheenRoughnessSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
-float2 uv11(float2 uv0, float2 uv1)
+float2 sheenRoughnessUv(float2 uv0, float2 uv1)
 {
-    float3 uv = float3(material.slot11UvSet == 0 ? uv0 : uv1, 1);
-    return float2(dot(material.slot11TransformX, uv), dot(material.slot11TransformY, uv));
+    float3 uv = float3(material.sheenRoughnessUvSet == 0 ? uv0 : uv1, 1);
+    return float2(dot(material.sheenRoughnessTransformX, uv), dot(material.sheenRoughnessTransformY, uv));
 }
 #endif
-#ifdef SLOT12
-Texture2D<float4> slot12Texture;
-SamplerState slot12Sampler;
+#ifdef HAS_IRIDESCENCE_TEXTURE
+Texture2D<float4> iridescenceTexture;
+SamplerState iridescenceSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
-float2 uv12(float2 uv0, float2 uv1)
+float2 iridescenceUv(float2 uv0, float2 uv1)
 {
-    float3 uv = float3(material.slot12UvSet == 0 ? uv0 : uv1, 1);
-    return float2(dot(material.slot12TransformX, uv), dot(material.slot12TransformY, uv));
+    float3 uv = float3(material.iridescenceUvSet == 0 ? uv0 : uv1, 1);
+    return float2(dot(material.iridescenceTransformX, uv), dot(material.iridescenceTransformY, uv));
 }
 #endif
-#ifdef SLOT13
-Texture2D<float4> slot13Texture;
-SamplerState slot13Sampler;
+#ifdef HAS_IRIDESCENCE_THICKNESS_TEXTURE
+Texture2D<float4> iridescenceThicknessTexture;
+SamplerState iridescenceThicknessSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
-float2 uv13(float2 uv0, float2 uv1)
+float2 iridescenceThicknessUv(float2 uv0, float2 uv1)
 {
-    float3 uv = float3(material.slot13UvSet == 0 ? uv0 : uv1, 1);
-    return float2(dot(material.slot13TransformX, uv), dot(material.slot13TransformY, uv));
+    float3 uv = float3(material.iridescenceThicknessUvSet == 0 ? uv0 : uv1, 1);
+    return float2(dot(material.iridescenceThicknessTransformX, uv), dot(material.iridescenceThicknessTransformY, uv));
 }
 #endif
-#ifdef SLOT14
-Texture2D<float4> slot14Texture;
-SamplerState slot14Sampler;
+#ifdef HAS_ANISOTROPY_TEXTURE
+Texture2D<float4> anisotropyTexture;
+SamplerState anisotropySampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
-float2 uv14(float2 uv0, float2 uv1)
+float2 anisotropyUv(float2 uv0, float2 uv1)
 {
-    float3 uv = float3(material.slot14UvSet == 0 ? uv0 : uv1, 1);
-    return float2(dot(material.slot14TransformX, uv), dot(material.slot14TransformY, uv));
+    float3 uv = float3(material.anisotropyUvSet == 0 ? uv0 : uv1, 1);
+    return float2(dot(material.anisotropyTransformX, uv), dot(material.anisotropyTransformY, uv));
 }
 #endif

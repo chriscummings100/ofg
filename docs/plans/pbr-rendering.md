@@ -14,6 +14,8 @@ The first acceptance checkpoint is the sphere grid with fly-camera inspection, t
 
 ## Progress
 
+- [x] (2026-10-04) User-requested naming cleanup: replaced numbered texture defines, bindings, uniforms and UV helpers with material-property names; updated the explicit CPU mapping, enum-based fixture/test assignments and documentation. Native CTest, WGSL checks and browser PBR smoke pass; both fixed-pose renders are pixel-identical to their saved pre-change images.
+
 - [x] (2026-10-03) User authorized implementation of milestones 0-5; inspected the completed texture foundation and preserved its uncommitted changes.
 
 - [x] (2026-10-03) Downloaded Sample Renderer revision `cc27919cacbb235d2f58a0c0203387efce9375f8` into `artifacts/reference/glTF-Sample-Renderer` and inspected the PBR shaders and their host dependencies.
@@ -36,6 +38,8 @@ Deferred follow-ups A–C below are outside these completion gates, not unfinish
 
 ## Surprises & Discoveries
 
+Naming review, 2026-10-04: numbered texture names exposed CPU array order despite fixed property semantics; numbered UV helpers also obscured their distinction from geometry UV sets. The renamed shader tokens preserve the exact computations.
+
 Scope refinement, 2026-10-03: a procedural sphere grid can expose the material response and support repeatable review before a glTF importer or transmission/scattering passes exist. Free camera movement is useful early, but automated comparisons need a fixed reset pose and deterministic lighting.
 
 Khronos already uses compile-time material/geometry/pass variants. Its WebGL2 renderer is not a drop-in WebGPU pipeline. The filtering shaders needed for IBL live in `source/shaders`, outside the directory highlighted in the request. The current reference has a final tone-map pass, transmission background rendering and a diffuse-scattering prepass.
@@ -47,6 +51,8 @@ The current snapshot includes RC retroreflection and draft volume scattering. Sp
 Browser ABI finding, 2026-10-03: the pinned RHI WebGPU input layout maps attributes by sequential location and the pinned Slang WGSL emitter derives locations from numeric semantic indices. Adding UV1 implicitly shifted normal/UV0/tangent locations. Vulkan location attributes did not change WGSL output. A dedicated PBR input layout with matching explicit numeric semantics fixes the demonstrated mismatch without changing diagnostic shader contracts. Emitted WGSL is retained under `artifacts/pbr/shaders`; the corrected normal-view regression and captures are under `artifacts/pbr/browser`.
 
 ## Decision Log
+
+2026-10-04, shader maintainability: property identities are fixed, so shader defines, texture/sampler bindings and per-property UV metadata use semantic names. Keep enum-indexed CPU storage and bitmask cache keys internally, with one explicit C++ mapping to names; no generic binding framework or compatibility aliases are needed. This changes the named material interface without changing lighting equations or the portable texture budget.
 
 2026-10-03, research recommendation: port the recognizable BRDF/material/IBL functions closely and record every intentional mathematical deviation. Preserve upstream provenance. Do not port JavaScript/WebGL resource management or import viewer/physics/interactivity infrastructure.
 
@@ -67,6 +73,8 @@ Browser ABI finding, 2026-10-03: the pinned RHI WebGPU input layout maps attribu
 2026-10-03, implemented geometry decision: the procedural sphere has analytic seam-split tangents with V-down handedness. W=0 denotes missing authored tangents and requests a derivative UV0 frame; each normal map uses its own transformed UV derivative frame, including UV1. Zero normals use a geometric derivative normal. No MikkTSpace dependency or importer is introduced. GGX/Charlie evaluation clamps perceptual roughness to 0.045 for finite pixel-scale lobes while retaining authored zero in material data.
 
 ## Outcomes & Retrospective
+
+Naming cleanup, 2026-10-04: all fifteen texture properties now have descriptive shader defines, bindings and UV helpers. The C++ mapping is explicit and fixtures use named enum values. Native and browser fixed-pose output is unchanged; the existing extended-validation gaps below remain open.
 
 The default runnable application is now a 63-sphere PBR laboratory on D3D12 and WebGPU. The 7x7 metallic/roughness grid, fourteen identified supplementary swatches, fly camera and debug views make the foundation reviewable. Core direct/IBL shading, HDR output, texture transforms, alpha modes and the selected surface extension equations are implemented; transmission/scattering remain deferred. See [the delivered contracts and controls](../pbr.md).
 
@@ -249,6 +257,10 @@ Measure shader compilation latency/variant count, frame CPU/GPU cost where suppo
 Coverage policy: test every new CPU contract and failure path; shader/upload/pass behavior requires GPU integration. Keep a table mapping supported features to fixtures. No numerical coverage threshold is inherited and no coverage percentage is claimed. Select coverage tooling only if useful for the new CPU importer/material logic; record exclusions and any measured result honestly.
 
 ## Milestone Review
+
+Commit review after glTF/ImGui integration, 2026-10-04: the combined main checkout passed native-debug configure/build and all four CTest targets after restoring these PBR edits. The core suite now contains 92 cases / 2174 assertions. A token comparison against HEAD confirms both shader files change only the fifteen property identifiers and whitespace; formatting and whitespace checks pass. The combined tree also passes web configure/build, `node tools/pbr-shader-check.mjs`, `node tools/pbr-smoke.mjs` and `node tools/model-smoke.mjs`. Fresh PBR and model-workspace screenshots were inspected; browser reports contain no unexpected errors. The known Asyncify/exception and Windows powerPreference warnings remain. No further code fixes were needed after the merge integration.
+
+Naming review, 2026-10-04: native and web incremental builds pass; native CTest passes all four targets (65 core cases/1611 assertions, 19 scene/PBR/texture cases/1009 assertions, checkerboard 22 assertions). `node tools/pbr-shader-check.mjs` passes core/all-texture/unlit WGSL checks; `node tools/pbr-smoke.mjs` passes presentation, camera, normal-view and maximum-layout checks in Chrome 154.0.8037.95. Native window resize/minimize/restore/close passes. Inspected fresh native/browser captures and verified both 960x640 fixed-pose images match their pre-change pixels exactly; evidence is in `artifacts/pbr/naming/comparison.json`. Source comparison confirms the shaders changed only property names and whitespace. No lighting or resource-budget changes were introduced. clang-format 22.1.3 and `git diff --check` pass. Existing Emscripten Asyncify/exception and Chrome power-preference warnings remain.
 
 Implementation review, 2026-10-03: inspected material ownership, private GPU publication, weak shutdown tracking, submission retention, cache keys, alpha classification, culling, transfer functions, numeric guards, source comments and provenance. Removed redundant draw preparation and corrected a non-strict generic transparent-sort comparator. Native action callbacks retain brief reset/close keys without sticky movement. CPU/native tests, native window capture, WGSL validation and both browser smoke suites pass. The existing Asyncify/WASM-exception compiler warning and Chrome Windows power-preference warning remain recorded. clang-format 22.1.3 verification, 71 local Markdown links/code fences and `git diff --check` pass. The final WASM is 27,616,935 bytes before compression. Current extended-validation limits are stated in Progress and Outcomes; the earlier entries below are historical research checks.
 

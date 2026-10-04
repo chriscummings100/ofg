@@ -8,11 +8,28 @@ const compiler=process.argv[2] || 'build/native/_deps/slang-src/bin/slangc.exe';
 const folder='artifacts/pbr/shaders';await mkdir(folder,{recursive:true});
 const modules=['common','brdf','iridescence','material','lighting','mesh'];
 let source='';for(const name of modules)source+=`\n#line 1 "pbr/${name}.slang"\n`+await readFile(`shaders/pbr/${name}.slang`,'utf8');
+const textureDefines = [
+    'HAS_BASE_COLOR_TEXTURE',
+    'HAS_METALLIC_ROUGHNESS_TEXTURE',
+    'HAS_NORMAL_TEXTURE',
+    'HAS_OCCLUSION_TEXTURE',
+    'HAS_EMISSIVE_TEXTURE',
+    'HAS_SPECULAR_TEXTURE',
+    'HAS_SPECULAR_COLOR_TEXTURE',
+    'HAS_CLEARCOAT_TEXTURE',
+    'HAS_CLEARCOAT_ROUGHNESS_TEXTURE',
+    'HAS_CLEARCOAT_NORMAL_TEXTURE',
+    'HAS_SHEEN_COLOR_TEXTURE',
+    'HAS_SHEEN_ROUGHNESS_TEXTURE',
+    'HAS_IRIDESCENCE_TEXTURE',
+    'HAS_IRIDESCENCE_THICKNESS_TEXTURE',
+    'HAS_ANISOTROPY_TEXTURE'
+];
 const server=await startWebServer(0);let browser;const report=[];
 try {
     browser=await chromium.launch({channel:'chrome',headless:true});const page=await browser.newPage();
     await page.goto(`http://127.0.0.1:${server.address().port}/?demo=checkerboard`);
-    for(const [name,defines] of [['core',''],['textured',Array.from({length:15},(_,i)=>`#define SLOT${i} 1\n`).join('')],['unlit','#define UNLIT 1\n']]) {
+    for(const [name,defines] of [['core',''],['textured',textureDefines.map(name=>`#define ${name} 1\n`).join('')],['unlit','#define UNLIT 1\n']]) {
         const file=`${folder}/${name}.slang`;await writeFile(file,'#define MATERIAL_ANISOTROPY 1\n'+defines+source);
         for(const stage of ['vertex','fragment']) {
             const output=`${folder}/${name}-${stage}.wgsl`;

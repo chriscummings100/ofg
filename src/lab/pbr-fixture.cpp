@@ -124,55 +124,55 @@ std::unique_ptr<Scene> createPbrFixture(bool maximumLayout)
         swatch.metallic = 0;
         swatch.roughness = 0.4f;
         // Per-slot transforms apply independently even when AO/MR share one image allocation.
-        swatch.textures[0].texture = color;
+        swatch.textures[static_cast<size_t>(PbrSlot::BaseColor)].texture = color;
         if (column == 0)
         {
-            swatch.textures[1].texture = data;
-            swatch.textures[3].texture = data;
+            swatch.textures[static_cast<size_t>(PbrSlot::MetallicRoughness)].texture = data;
+            swatch.textures[static_cast<size_t>(PbrSlot::Occlusion)].texture = data;
         }
         if (column == 1)
         {
-            swatch.textures[2].texture = normal;
-            swatch.textures[2].rotation = 0.7f;
+            swatch.textures[static_cast<size_t>(PbrSlot::Normal)].texture = normal;
+            swatch.textures[static_cast<size_t>(PbrSlot::Normal)].rotation = 0.7f;
         }
         if (column == 2)
         {
             swatch.ior = 1.8f;
             swatch.specularColor = {0.4f, 0.7f, 1};
-            swatch.textures[5].texture = data;
-            swatch.textures[6].texture = color;
+            swatch.textures[static_cast<size_t>(PbrSlot::Specular)].texture = data;
+            swatch.textures[static_cast<size_t>(PbrSlot::SpecularColor)].texture = color;
         }
         if (column == 3)
         {
             swatch.clearcoat = 1;
-            swatch.textures[7].texture = data;
-            swatch.textures[8].texture = data;
-            swatch.textures[9].texture = normal;
-            swatch.textures[9].rotation = -0.5f;
-            swatch.textures[9].uvSet = 1;
+            swatch.textures[static_cast<size_t>(PbrSlot::Clearcoat)].texture = data;
+            swatch.textures[static_cast<size_t>(PbrSlot::ClearcoatRoughness)].texture = data;
+            swatch.textures[static_cast<size_t>(PbrSlot::ClearcoatNormal)].texture = normal;
+            swatch.textures[static_cast<size_t>(PbrSlot::ClearcoatNormal)].rotation = -0.5f;
+            swatch.textures[static_cast<size_t>(PbrSlot::ClearcoatNormal)].uvSet = 1;
         }
         if (column == 4)
         {
             swatch.sheenColor = {0.8f, 0.8f, 0.8f};
             swatch.sheenRoughness = 0.6f;
-            swatch.textures[10].texture = color;
-            swatch.textures[11].texture = data;
+            swatch.textures[static_cast<size_t>(PbrSlot::SheenColor)].texture = color;
+            swatch.textures[static_cast<size_t>(PbrSlot::SheenRoughness)].texture = data;
         }
         if (column == 5)
         {
             swatch.iridescence = 1;
             swatch.anisotropy = 0.8f;
             swatch.metallic = 1;
-            swatch.textures[12].texture = data;
-            swatch.textures[13].texture = data;
-            swatch.textures[14].texture = normal;
+            swatch.textures[static_cast<size_t>(PbrSlot::Iridescence)].texture = data;
+            swatch.textures[static_cast<size_t>(PbrSlot::IridescenceThickness)].texture = data;
+            swatch.textures[static_cast<size_t>(PbrSlot::Anisotropy)].texture = normal;
         }
         if (column == 6)
         {
             swatch.alphaMode = AlphaMode::Mask;
             swatch.doubleSided = true;
             swatch.emissive = {0.1f, 0.1f, 0.1f};
-            swatch.textures[4].texture = color;
+            swatch.textures[static_cast<size_t>(PbrSlot::Emissive)].texture = color;
         }
         if (maximumLayout && column == 0)
         {
@@ -184,8 +184,8 @@ std::unique_ptr<Scene> createPbrFixture(bool maximumLayout)
             {
                 swatch.textures[slot].texture = color;
             }
-            swatch.textures[2].texture = normal;
-            swatch.textures[9].texture = normal;
+            swatch.textures[static_cast<size_t>(PbrSlot::Normal)].texture = normal;
+            swatch.textures[static_cast<size_t>(PbrSlot::ClearcoatNormal)].texture = normal;
             swatch.clearcoat = 0.5f;
             swatch.sheenColor = {0.2f, 0.1f, 0.05f};
         }

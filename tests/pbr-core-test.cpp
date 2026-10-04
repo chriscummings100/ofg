@@ -100,19 +100,19 @@ TEST_CASE("PBR defaults, texture specialization and cloned values have independe
     desc.thicknessMaximum = 10;
     CHECK_THROWS_AS(createPbrMaterial(desc), EngineError);
     desc = {};
-    desc.textures[0].uvSet = 2;
+    desc.textures[static_cast<size_t>(PbrSlot::BaseColor)].uvSet = 2;
     CHECK_THROWS_AS(createPbrMaterial(desc), EngineError);
     std::array<std::byte, 4> white{std::byte{255}, std::byte{255}, std::byte{255}, std::byte{255}};
     auto texture = Texture::create({1, 1, TextureFormat::RGBA8Unorm}, {white});
     desc = {};
-    desc.textures[0].texture = texture;
-    desc.textures[0].rotation = 1.570796327f;
-    desc.textures[0].scale = {2, 3};
-    desc.textures[0].offset = {0.25f, 0.5f};
+    desc.textures[static_cast<size_t>(PbrSlot::BaseColor)].texture = texture;
+    desc.textures[static_cast<size_t>(PbrSlot::BaseColor)].rotation = 1.570796327f;
+    desc.textures[static_cast<size_t>(PbrSlot::BaseColor)].scale = {2, 3};
+    desc.textures[static_cast<size_t>(PbrSlot::BaseColor)].offset = {0.25f, 0.5f};
     auto textured = createPbrMaterial(desc);
     CHECK(textured->shader() != a->shader());
-    auto x = std::get<math::Vec3>(textured->uniforms().at("slot0TransformX"));
-    auto y = std::get<math::Vec3>(textured->uniforms().at("slot0TransformY"));
+    auto x = std::get<math::Vec3>(textured->uniforms().at("baseColorTransformX"));
+    auto y = std::get<math::Vec3>(textured->uniforms().at("baseColorTransformY"));
     CHECK(x.y == doctest::Approx(-3));
     CHECK(y.x == doctest::Approx(2));
     CHECK(x.z == 0.25f);
@@ -121,7 +121,7 @@ TEST_CASE("PBR defaults, texture specialization and cloned values have independe
         desc.textures[i].texture = texture;
     }
     CHECK_NOTHROW(createPbrMaterial(desc));
-    desc.textures[12].texture = texture;
+    desc.textures[static_cast<size_t>(PbrSlot::Iridescence)].texture = texture;
     CHECK_THROWS_WITH(
         createPbrMaterial(desc),
         "PBR material exceeds portable budget: at most 12 material textures plus four IBL textures."

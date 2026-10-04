@@ -229,6 +229,8 @@ not GPU-only frame times or an FPS promise.
 
 PBR verified on 2026-10-03: CPU-only 65 cases/1611 assertions; all four native CTest targets pass, including 19 scene/PBR/texture cases/1009 assertions and the 22-assertion checkerboard test. Web build, shader validation, PBR smoke and the retained texture smoke pass. Native captures cover overview/close-up, fly/reset, resize, minimize/restore and Escape close. Browser captures cover the same inspection poses, pointer lock, focus-loss clearing, debug normals, resize/reload and maximum bindings. See [the PBR plan](docs/plans/pbr-rendering.md#artifacts-and-notes) for named hardware, timings, payload sizes and the remaining reference-parity/residency validation gaps.
 
+The property-naming revision was verified on 2026-10-04 with native/web incremental builds, all four native CTest targets, `node tools/pbr-shader-check.mjs` and `node tools/pbr-smoke.mjs`. Native window inspection and fixed-pose pixel comparisons passed; native and browser captures match their respective pre-change images exactly. Evidence is under `artifacts/pbr/naming`. The material interface now uses descriptive names documented in `docs/pbr.md`.
+
 ## Model laboratory
 
 After a native build, run `build/native/ofg.exe --model assets/models/laboratory.gltf` from the repository root
