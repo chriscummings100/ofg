@@ -10,6 +10,8 @@
 #include "math/vec.h"
 
 #include <cstdint>
+#include <string>
+#include <utility>
 
 namespace ofg {
 
@@ -36,6 +38,10 @@ public:
 
     // Returns this entity's stable id within its owning scene generation.
     [[nodiscard]] EntityId id() const noexcept;
+    // Returns the optional display name; names do not participate in entity identity.
+    const std::string& name() const noexcept { return m_name; }
+    // Copies or moves a display name; duplicate and empty names are permitted.
+    void setName(std::string name) { m_name = std::move(name); }
     // Returns the local transform from this entity into its parent.
     [[nodiscard]] const LocalTransform& localTransform() const noexcept;
     // Sets finite local TRS, normalizing rotation, and invalidates descendant world matrices.
@@ -82,6 +88,7 @@ private:
 
     Scene* m_scene{nullptr};
     EntityId m_id{0};
+    std::string m_name;
     LocalTransform m_localTransform;
     mutable math::Mat4 m_worldTransform{math::mat4Identity()};
     mutable bool m_worldDirty{true};

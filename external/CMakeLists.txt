@@ -48,3 +48,11 @@ if(NOT EMSCRIPTEN)
     )
     FetchContent_MakeAvailable(glfw)
 endif()
+
+# ImGui's docking revision is pinned by the submodule, independently of platform renderer APIs.
+add_library(imgui STATIC imgui/imgui.cpp imgui/imgui_draw.cpp imgui/imgui_tables.cpp imgui/imgui_widgets.cpp)
+target_include_directories(imgui SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
+if(NOT EMSCRIPTEN)
+    target_sources(imgui PRIVATE imgui/backends/imgui_impl_glfw.cpp)
+    target_link_libraries(imgui PRIVATE glfw)
+endif()

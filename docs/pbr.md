@@ -1,6 +1,6 @@
 # PBR material laboratory
 
-Run `build/native/ofg.exe` for the sphere grid. Native: hold the right mouse button to look and move with WASD; Q/E move down/up, Shift increases speed, R resets the overview, F selects the close-up, and 0–4 select shaded/normals/roughness/metallic/base-color views. Escape releases capture; when uncaptured it closes the native window. Focus loss releases capture. In the browser, click the canvas to capture instead of holding RMB; Escape releases pointer lock. Keyboard movement only applies while captured. No ImGui layer exists yet.
+Run `build/native/ofg.exe` for the sphere grid. Native: hold the right mouse button to look and move with WASD; Q/E move down/up, Shift increases speed, R resets the overview, F selects the close-up, and 0–4 select shaded/normals/roughness/metallic/base-color views. Escape releases capture; when uncaptured it closes the native window. Focus loss releases capture. In the browser, click the canvas to capture instead of holding RMB; Escape releases pointer lock. Keyboard movement only applies while captured. The default [ImGui workspace](imgui.md) exposes these settings and a dockable Scene viewport. Its camera uses held RMB on both targets, and Escape releases capture without closing the application. The preceding legacy capture controls apply to --no-ui / ?ui=0.
 
 `--scene` and `?demo=scene` retain the textured cube diagnostic. `--checkerboard` and `?demo=checkerboard` retain the original checkerboard. `?pbr=budget` exercises the maximum supported material binding layout.
 

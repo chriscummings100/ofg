@@ -10,16 +10,17 @@
         html, body { margin: 0; height: 100%; background: #202020; color: #eee; font: 14px system-ui; }
         body { display: flex; flex-direction: column; }
         header { padding: 10px 16px; }
-        canvas { display: block; width: 100%; flex: 1; min-height: 0; }
+        canvas { outline: none; display: block; width: 100%; flex: 1; min-height: 0; }
         [data-failed="true"] { color: #ff9b9b; }
     </style>
 </head>
 <body>
     <header id="status" role="status">Loading WebGPU scene...</header>
-    <canvas id="canvas" width="960" height="640" aria-label="Slang RHI scene"></canvas>
+    <canvas id="canvas" width="960" height="640" aria-label="OFG laboratory workspace" tabindex="0"></canvas>
     <script>
         var Module = {
             canvas: document.getElementById('canvas'),
+            ui: new URLSearchParams(location.search).get("ui") !== "0",
             frameCount: 0, textureReady: false, textureFrames: 0,
             texturePath: new URLSearchParams(location.search).get('texture') || 'assets/checker.png',
             floatBits: Number(new URLSearchParams(location.search).get('float') || 0),
@@ -38,6 +39,13 @@
                     Number(this.resetCamera),Number(this.closeupCamera)],pointer/4);
                 this.look=[0,0];this.resetCamera=false;this.closeupCamera=false;
             },
+            // Persistence is optional; private/storage-restricted browsing still runs the workspace.
+            loadUiLayout() { try { return localStorage.getItem('ofg.workspace.v1') || ''; } catch (error) { console.warn('OFG layout storage unavailable:', String(error)); return ''; } },
+            saveUiLayout(value) { try { localStorage.setItem('ofg.workspace.v1', value); } catch (error) { console.warn('OFG layout save failed:', String(error)); } },
+            setUiCursor(cursor) { this.canvas.style.cursor = ['default','text','move','ns-resize','ew-resize','nesw-resize','nwse-resize','pointer','not-allowed'][cursor] || 'default'; },
+            uiFrame(x0,y0,x1,y1,exposure,debugView,selection) {
+                this.uiState = {sceneRect:[x0,y0,x1,y1],exposure,debugView,selection};
+            },
             failed: false, noInitialRun: !navigator.gpu,
             // Preserves the first failure and exposes readiness to browser automation.
             setStatus(text, failed = false) {
@@ -52,21 +60,22 @@
                 ++this.frameCount;
                 if (this.checkerboard && this.frameCount === 1) this.setStatus('WebGPU checkerboard ready');
                 else if (this.textureReady && ++this.textureFrames === 1)
-                    this.setStatus(this.pbr ? 'PBR spheres | roughness: left to right | metallic: bottom to top | click to fly: WASD/QE, mouse, Shift | Esc release | R reset | F close-up | 0-4 debug' : 'WebGPU scene ready');
+                    this.setStatus(this.ui ? 'OFG | Terrain Laboratory' : this.pbr ? 'PBR spheres | roughness: left to right | metallic: bottom to top | click to fly: WASD/QE, mouse, Shift | Esc release | R reset | F close-up | 0-4 debug' : 'WebGPU scene ready');
                 else if (this.frameCount === 1) this.setStatus('Loading textures...');
             },
             print: text => console.log(text), printErr: text => console.error(text),
             onAbort: reason => Module.setStatus(`WebAssembly stopped: ${reason}`, true)
         };
         // Pointer lock requires a deliberate canvas gesture. Release/focus loss clears held input.
-        Module.canvas.addEventListener('click', () => { if (Module.pbr) Module.canvas.requestPointerLock(); });
+        Module.canvas.addEventListener('contextmenu', event => { if (Module.ui) event.preventDefault(); });
+        Module.canvas.addEventListener('click', () => { if (Module.pbr && !Module.ui) Module.canvas.requestPointerLock(); });
         document.addEventListener('mousemove', event => {
-            if (document.pointerLockElement === Module.canvas) {
+            if (!Module.ui && document.pointerLockElement === Module.canvas) {
                 Module.look[0]+=event.movementX; Module.look[1]+=event.movementY;
             }
         });
         document.addEventListener('keydown', event => {
-            if (!Module.pbr || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
+            if (Module.ui || !Module.pbr || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
             Module.keys.add(event.code);
             if (event.code==='Escape' && document.pointerLockElement) document.exitPointerLock();
             if (event.code==='KeyR') Module.resetCamera=true;

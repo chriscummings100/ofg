@@ -9,6 +9,8 @@
 #include "lab/scene-fixture.h"
 #include "lab/pbr-fixture.h"
 #include "lab/fly-camera.h"
+#include "ui/workspace.h"
+#include "ui/browser-input.h"
 
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -30,9 +32,13 @@ struct BrowserApp
     double previousTime{0};
     bool pbr = false;
     ofg::FlyCamera camera;
+    std::unique_ptr<ofg::Workspace> workspace;
+    std::unique_ptr<ofg::BrowserInput> input;
     // Releases application and graphics state when the callback stops; browser owns submitted GPU work.
     ~BrowserApp()
     {
+        input.reset();
+        workspace.reset();
         ofg::Game::shutdown();
         ofg::Graphics::shutdown();
     }
@@ -65,7 +71,8 @@ static Result initializeBrowser(BrowserApp& app)
         SLANG_RETURN_ON_FAIL(createPresentationPipeline(
             app.device,
             app.surface->getInfo().preferredFormat,
-            app.presentPipeline.writeRef()
+            app.presentPipeline.writeRef(),
+            EM_ASM_INT({ return Module.ui ? 1 : 0; }) != 0
         ));
         ofg::Graphics::initialize(app.device, app.queue);
         ofg::TextureRenderer formats(app.device, app.queue);
@@ -73,7 +80,9 @@ static Result initializeBrowser(BrowserApp& app)
         EM_ASM({ Module.fp32Supported = Boolean($0); }, fp32);
         app.pbr = EM_ASM_INT({ return Module.pbr ? 1 : 0; });
         if (app.pbr)
+        {
             ofg::Game::initialize(ofg::createPbrFixture(EM_ASM_INT({ return Module.maximumLayout ? 1 : 0; })));
+        }
         else
         {
             const int floatBits = EM_ASM_INT({ return Module.floatBits; });
@@ -83,6 +92,12 @@ static Result initializeBrowser(BrowserApp& app)
                                       );
             ofg::Game::initialize(ofg::createSceneFixture(app.texture));
         }
+    }
+    if (!app.pipeline && EM_ASM_INT({ return Module.ui ? 1 : 0; }))
+    {
+        app.workspace = std::make_unique<ofg::Workspace>(app.device, app.queue);
+        app.workspace->loadLayout(emscripten_run_script_string("Module.loadUiLayout()"));
+        app.input = std::make_unique<ofg::BrowserInput>(*app.workspace);
     }
     app.previousTime = emscripten_get_now();
     // Browsers may omit the adapter description; do not infer an identity from the native device.
@@ -129,7 +144,7 @@ static Result drawBrowserFrame(BrowserApp& app)
         resized.height = height;
         resized.format = app.surface->getInfo().preferredFormat;
         SLANG_RETURN_ON_FAIL(app.surface->configure(resized));
-        if (!app.pipeline)
+        if (!app.pipeline && !app.workspace)
         {
             TextureDesc target{};
             target.type = TextureType::Texture2D;
@@ -145,6 +160,13 @@ static Result drawBrowserFrame(BrowserApp& app)
     // after rendering into host-owned storage; the final image-load shader has no uniforms/maps that can yield.
     if (!app.pipeline)
     {
+        if (app.workspace)
+        {
+            auto& io = ImGui::GetIO();
+            io.DisplaySize = ImVec2(float(cssWidth), float(cssHeight));
+            io.DisplayFramebufferScale = ImVec2(float(width / cssWidth), float(height / cssHeight));
+            app.workspace->begin(ofg::Game::scene(), deltaSeconds);
+        }
         if (EM_ASM_INT({ return Module.cancelTexture ? 1 : 0; }))
         {
             ofg::Game::setScene(std::make_unique<ofg::Scene>());
@@ -156,21 +178,49 @@ static Result drawBrowserFrame(BrowserApp& app)
         }
         if (app.pbr)
         {
-            float values[8]{};
-            EM_ASM({ Module.readFlyInput($0); }, values);
-            ofg::FlyCameraInput input;
-            input.movement = {values[0], values[1], values[2]};
-            input.lookPixels = {values[3], values[4]};
-            input.fast = values[5] != 0;
-            input.reset = values[6] != 0;
-            input.closeup = values[7] != 0;
             auto& scene = ofg::Game::scene();
+            ofg::FlyCameraInput input;
+            if (app.input)
+            {
+                input = app.input->cameraInput(scene);
+            }
+            else
+            {
+                float values[8]{};
+                EM_ASM({ Module.readFlyInput($0); }, values);
+                input.movement = {values[0], values[1], values[2]};
+                input.lookPixels = {values[3], values[4]};
+                input.fast = values[5] != 0;
+                input.reset = values[6] != 0;
+                input.closeup = values[7] != 0;
+                scene.lighting.debugView = EM_ASM_INT({ return Module.debugView; });
+            }
             app.camera.update(*scene.activeCamera()->entity(), input, deltaSeconds);
-            scene.lighting.debugView = EM_ASM_INT({ return Module.debugView; });
             const auto p = scene.activeCamera()->entity()->localTransform().position;
             EM_ASM({ Module.cameraPosition = Array($0, $1, $2); }, p.x, p.y, p.z);
         }
-        ofg::Game::frame(deltaSeconds, app.sceneTarget);
+        ofg::Game::frame(deltaSeconds, app.workspace ? app.workspace->sceneTarget() : app.sceneTarget.get());
+        if (app.workspace)
+        {
+            app.sceneTarget = app.workspace->finish();
+            if (ImGui::GetIO().WantSaveIniSettings)
+            {
+                const auto settings = app.workspace->saveLayout();
+                EM_ASM({ Module.saveUiLayout(UTF8ToString($0)); }, settings.c_str());
+            }
+            auto rect = app.workspace->sceneRectangle();
+            auto selected = app.workspace->selection();
+            EM_ASM(
+                { Module.uiFrame($0, $1, $2, $3, $4, $5, $6); },
+                rect.x,
+                rect.y,
+                rect.z,
+                rect.w,
+                ofg::Game::scene().lighting.exposure,
+                ofg::Game::scene().lighting.debugView,
+                selected ? int(selected->id()) : -1
+            );
+        }
         const bool ready = app.pbr || (app.texture && app.texture->isLoaded());
         EM_ASM({ Module.textureReady = Boolean($0); }, ready);
     }

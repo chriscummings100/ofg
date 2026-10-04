@@ -61,7 +61,7 @@ try {
             };return adapter;
         };
     });
-    await page.goto(`http://127.0.0.1:${server.address().port}/`,{waitUntil:'load'});
+    await page.goto(`http://127.0.0.1:${server.address().port}/?ui=0`,{waitUntil:'load'});
     await capture(page,'overview');report.device=await page.evaluate(()=>window.pbrDevice);
     // Match the native offscreen reference viewport exactly, independent of the header's wrapping.
     await page.setViewportSize({width:960,height:760});
@@ -103,7 +103,7 @@ try {
     await page.setViewportSize({width:773,height:650});
     await page.waitForFunction(()=>Module.canvas.width===773);await capture(page,'resized');
     await page.reload({waitUntil:'load'});await capture(page,'reloaded');
-    await page.goto(`http://127.0.0.1:${server.address().port}/?pbr=budget`,{waitUntil:'load'});
+    await page.goto(`http://127.0.0.1:${server.address().port}/?pbr=budget&ui=0`,{waitUntil:'load'});
     await capture(page,'maximum-layout');
     assert.ok(report.messages.some(m=>m.text.includes('pbr-4095: 16 sampled textures, 13 samplers')));
     report.camera={capture:true,movement:true,release:true,reset:true,closeup:true,blurClears:true};

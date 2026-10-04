@@ -7,6 +7,11 @@
 #include "lab/scene-fixture.h"
 #include "lab/pbr-fixture.h"
 #include "lab/fly-camera.h"
+#include "ui/workspace.h"
+#include "render/present.h"
+#include <backends/imgui_impl_glfw.h>
+#include <fstream>
+#include <cstdlib>
 #include <slang-rhi/agility-sdk.h>
 
 #define GLFW_INCLUDE_NONE
@@ -65,7 +70,9 @@ static Result runFrames(
     ISurface* surface,
     ICommandQueue* queue,
     IRenderPipeline* pipeline,
-    bool pbr
+    bool pbr,
+    ofg::Workspace* workspace,
+    IRenderPipeline* presentPipeline
 )
 {
     auto& actions = *static_cast<NativeActions*>(glfwGetWindowUserPointer(window));
@@ -77,7 +84,7 @@ static Result runFrames(
     {
         glfwPollEvents();
         const bool escape = std::exchange(actions.escape, false);
-        if (glfwWindowShouldClose(window) || (escape && !captured))
+        if (glfwWindowShouldClose(window) || (escape && !captured && !workspace))
         {
             break;
         }
@@ -85,23 +92,47 @@ static Result runFrames(
         const double now = glfwGetTime();
         const float deltaSeconds = float(now - previousTime);
         previousTime = now;
+        int width = 0, height = 0;
+        glfwGetFramebufferSize(window, &width, &height);
+        if (width == 0 || height == 0 || glfwGetWindowAttrib(window, GLFW_ICONIFIED))
+        {
+            if (!pipeline)
+            {
+                ofg::Game::frame(deltaSeconds, nullptr);
+            }
+            captured = false;
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            glfwWaitEvents();
+            previousTime = glfwGetTime();
+            continue;
+        }
+        if (workspace)
+        {
+            ImGui_ImplGlfw_NewFrame();
+            float scaleX = 1, scaleY = 1;
+            glfwGetWindowContentScale(window, &scaleX, &scaleY);
+            workspace->begin(ofg::Game::scene(), deltaSeconds, scaleX);
+        }
         if (pbr)
         {
             const bool focused = glfwGetWindowAttrib(window, GLFW_FOCUSED);
             const bool mouse = focused && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
-            if (mouse && !previousMouse && !escape)
+            double cursorX = 0, cursorY = 0;
+            glfwGetCursorPos(window, &cursorX, &cursorY);
+            if (mouse && !previousMouse && !escape &&
+                (!workspace || workspace->canCaptureAt(float(cursorX), float(cursorY))))
             {
                 captured = true;
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                 glfwGetCursorPos(window, &mouseX, &mouseY);
             }
-            if (!focused || escape || !mouse)
+            if (!focused || escape || !mouse || (workspace && !workspace->sceneTarget()))
             {
                 captured = false;
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
             }
             ofg::FlyCameraInput input;
-            if (focused)
+            if (focused && (!workspace || captured || workspace->cameraKeyboardAllowed()))
             {
                 for (int view = 0; view <= 4; ++view)
                 {
@@ -113,6 +144,7 @@ static Result runFrames(
                 input.reset = std::exchange(actions.reset, false);
                 input.closeup = std::exchange(actions.closeup, false);
             }
+            actions.reset = actions.closeup = false;
             if (captured)
             {
                 double x, y;
@@ -133,23 +165,12 @@ static Result runFrames(
                 };
                 input.fast = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
             }
-            camera.update(*ofg::Game::scene().activeCamera()->entity(), input, deltaSeconds);
+            if (auto active = ofg::Game::scene().activeCamera())
+            {
+                camera.update(*active->entity(), input, deltaSeconds);
+            }
             previousMouse = mouse;
         }
-        int width = 0;
-        int height = 0;
-        glfwGetFramebufferSize(window, &width, &height);
-        if (width == 0 || height == 0 || glfwGetWindowAttrib(window, GLFW_ICONIFIED))
-        {
-            if (!pipeline)
-            {
-                ofg::Game::frame(deltaSeconds, nullptr);
-            }
-            glfwWaitEvents();
-            previousTime = glfwGetTime();
-            continue;
-        }
-
         const auto config = surface->getConfig();
         if (!config || config->width != uint32_t(width) || config->height != uint32_t(height))
         {
@@ -162,9 +183,15 @@ static Result runFrames(
             SLANG_RETURN_ON_FAIL(surface->configure(resized));
         }
 
+        ITexture* composition = nullptr;
+        if (workspace)
+        {
+            ofg::Game::frame(deltaSeconds, workspace->sceneTarget());
+            composition = workspace->finish();
+        }
         ComPtr<ITexture> image;
         SLANG_RETURN_ON_FAIL(surface->acquireNextImage(image.writeRef()));
-        if (!pipeline)
+        if (!pipeline && !workspace)
         {
             ofg::Game::frame(deltaSeconds, image);
         }
@@ -174,6 +201,10 @@ static Result runFrames(
             {
                 SLANG_RETURN_ON_FAIL(drawCheckerboard(queue, pipeline, image));
             }
+            if (composition)
+            {
+                SLANG_RETURN_ON_FAIL(drawPresentation(queue, presentPipeline, composition, image));
+            }
             SLANG_RETURN_ON_FAIL(surface->present());
         }
     }
@@ -181,15 +212,18 @@ static Result runFrames(
 }
 
 // Owns the window and presentation resources, draining GPU work before either is destroyed.
-static Result runWindow(IDevice* device, bool checkerboard, bool pbr)
+static Result runWindow(IDevice* device, bool checkerboard, bool pbr, bool ui)
 {
+    ui = ui && !checkerboard;
     NativeActions actions; // Lives through window destruction, including exceptions and early RHI failures.
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_SCALE_TO_MONITOR, ui ? GLFW_TRUE : GLFW_FALSE);
     std::unique_ptr<GLFWwindow, decltype(&glfwDestroyWindow)> window(
         glfwCreateWindow(
-            960,
-            640,
+            ui ? 1280 : 960,
+            ui ? 800 : 640,
             checkerboard ? "OFG | D3D12 checkerboard"
+            : ui         ? "OFG | Terrain Laboratory"
             : pbr        ? "OFG | PBR spheres - RMB + WASDQE, Shift, R reset, F close-up"
                          : "OFG | D3D12 scene objects",
             nullptr,
@@ -211,7 +245,10 @@ static Result runWindow(IDevice* device, bool checkerboard, bool pbr)
     SLANG_RETURN_ON_FAIL(device->createSurface(getWindowHandleFromGLFW(window.get()), surface.writeRef()));
     ComPtr<ICommandQueue> queue;
     SLANG_RETURN_ON_FAIL(device->getQueue(QueueType::Graphics, queue.writeRef()));
-    ComPtr<IRenderPipeline> pipeline;
+    ComPtr<IRenderPipeline> pipeline, presentPipeline;
+    std::unique_ptr<ofg::Workspace> workspace;
+    std::filesystem::path layoutPath;
+    bool platformInitialized = false;
     Result renderResult = SLANG_OK;
     try
     {
@@ -233,14 +270,61 @@ static Result runWindow(IDevice* device, bool checkerboard, bool pbr)
             auto path = std::filesystem::path(executable).parent_path() / "assets/checker.png";
             ofg::Game::initialize(pbr ? ofg::createPbrFixture() : ofg::createSceneFixture(path.string()));
         }
-        renderResult = runFrames(window.get(), surface, queue, pipeline, pbr);
+        if (ui && !checkerboard)
+        {
+            workspace = std::make_unique<ofg::Workspace>(device, queue);
+            if (!ImGui_ImplGlfw_InitForOther(window.get(), true))
+            {
+                throw ofg::EngineError("Initialize ImGui GLFW input failed.");
+            }
+            platformInitialized = true;
+            if (auto local = std::getenv("LOCALAPPDATA"))
+            {
+                layoutPath = std::filesystem::path(local) / "OFG" / "workspace.ini";
+                std::ifstream file(layoutPath);
+                if (file)
+                {
+                    workspace->loadLayout(std::string(std::istreambuf_iterator<char>(file), {}));
+                }
+            }
+            auto result = createPresentationPipeline(
+                device,
+                surface->getInfo().preferredFormat,
+                presentPipeline.writeRef(),
+                true
+            );
+            if (SLANG_FAILED(result))
+            {
+                throw ofg::EngineError("Create workspace presentation failed.");
+            }
+        }
+        renderResult = runFrames(window.get(), surface, queue, pipeline, pbr, workspace.get(), presentPipeline);
     } catch (const std::exception& error)
     {
         std::fprintf(stderr, "OFG scene failed: %s\n", error.what());
         renderResult = SLANG_FAIL;
     }
+    if (workspace && !layoutPath.empty())
+    {
+        std::error_code error;
+        std::filesystem::create_directories(layoutPath.parent_path(), error);
+        std::ofstream file(layoutPath);
+        if (!error && file)
+        {
+            file << workspace->saveLayout();
+        }
+        if (error || !file)
+        {
+            std::fprintf(stderr, "Could not save OFG UI layout.\n");
+        }
+    }
+    if (platformInitialized)
+    {
+        ImGui_ImplGlfw_Shutdown();
+    }
     ofg::Game::shutdown();
     const Result idleResult = queue->waitOnHost();
+    workspace.reset();
     ofg::Graphics::shutdown();
     return SLANG_FAILED(renderResult) ? renderResult : idleResult;
 }
@@ -255,13 +339,30 @@ static void reportWindowError(int code, const char* message)
 // window-free startup test.
 int main(int argc, char** argv)
 {
-    const bool checkDevice = argc == 2 && std::strcmp(argv[1], "--check-device") == 0;
-    const bool checkerboard = argc == 2 && std::strcmp(argv[1], "--checkerboard") == 0;
-    const bool scene = argc == 2 && std::strcmp(argv[1], "--scene") == 0;
-    if (argc != 1 && !checkDevice && !checkerboard && !scene)
+    bool checkDevice = false, checkerboard = false, scene = false, ui = true;
+    for (int i = 1; i < argc; ++i)
     {
-        std::fprintf(stderr, "Usage: ofg [--check-device | --checkerboard | --scene]\n");
-        return 1;
+        if (std::strcmp(argv[i], "--check-device") == 0)
+        {
+            checkDevice = true;
+        }
+        else if (std::strcmp(argv[i], "--checkerboard") == 0)
+        {
+            checkerboard = true;
+        }
+        else if (std::strcmp(argv[i], "--scene") == 0)
+        {
+            scene = true;
+        }
+        else if (std::strcmp(argv[i], "--no-ui") == 0)
+        {
+            ui = false;
+        }
+        else
+        {
+            std::fprintf(stderr, "Usage: ofg [--check-device | --checkerboard | --scene] [--no-ui]\n");
+            return 1;
+        }
     }
 
     DeviceDesc deviceDesc = {};
@@ -285,7 +386,7 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    result = runWindow(device, checkerboard, !checkerboard && !scene);
+    result = runWindow(device, checkerboard, !checkerboard && !scene, ui);
     glfwTerminate();
     if (SLANG_FAILED(result))
     {

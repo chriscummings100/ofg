@@ -1,5 +1,7 @@
 // Native offscreen scene tests for indexed draws, uniforms, cache identity, retirement and Game ordering.
 #include "render/graphics.h"
+#include "ui/imgui-renderer.h"
+#include "ui/workspace.h"
 #include "render/texture-renderer.h"
 #include <cstring>
 #include <cmath>
@@ -1179,4 +1181,106 @@ TEST_CASE("PBR texture channels preserve sRGB color and linear metallic roughnes
     pixel = floatPixel(fixture, target);
     CHECK(pixel[0] == doctest::Approx(0.5 + 0.5 / std::sqrt(5.0)).epsilon(0.002));
     CHECK(pixel[2] == doctest::Approx(0.5 - 1 / std::sqrt(5.0)).epsilon(0.005));
+}
+
+
+TEST_CASE("ImGui renders clipped textures, alpha, large vertex offsets and linear colour with retained uploads")
+{
+    GraphicsFixture fixture;
+    auto context = ImGui::CreateContext();
+    {
+        ImGuiRenderer renderer(fixture.device, fixture.queue);
+        auto& io = ImGui::GetIO();
+        io.IniFilename = nullptr;
+        io.DisplaySize = {128, 96};
+        io.DisplayFramebufferScale = {2, 2};
+        auto target = renderer.createTarget(256, 192);
+        auto output = fixture.target(rhi::Format::RGBA8Unorm, 256, 192);
+        rhi::ComPtr<rhi::IRenderPipeline> present;
+        REQUIRE(SLANG_SUCCEEDED(
+            createPresentationPipeline(fixture.device, rhi::Format::RGBA8Unorm, present.writeRef(), true)
+        ));
+        rhi::TextureDesc desc{};
+        desc.size = {1, 1, 1};
+        desc.format = rhi::Format::RGBA8Unorm;
+        desc.usage = rhi::TextureUsage::ShaderResource;
+        desc.defaultState = rhi::ResourceState::ShaderResource;
+        const uint8_t white[]{255, 255, 255, 255}, blue[]{0, 0, 255, 255};
+        rhi::SubresourceData whitePixels{white, 4, 4}, bluePixels{blue, 4, 4};
+        rhi::ComPtr<rhi::ITexture> whiteTexture, blueTexture;
+        REQUIRE(SLANG_SUCCEEDED(fixture.device->createTexture(desc, &whitePixels, whiteTexture.writeRef())));
+        REQUIRE(SLANG_SUCCEEDED(fixture.device->createTexture(desc, &bluePixels, blueTexture.writeRef())));
+        for (int frame = 0; frame < 3; ++frame)
+        {
+            io.DeltaTime = 1.f / 60;
+            ImGui::NewFrame();
+            auto draw = ImGui::GetBackgroundDrawList();
+            // Cross the 16-bit local index limit; the visible draws must still use their actual base vertex.
+            for (int i = 0; i < 17000; ++i)
+            {
+                draw->AddRectFilled({-20, -20}, {-10, -10}, IM_COL32_WHITE);
+            }
+            draw->AddImage(
+                ImTextureRef(ImGuiRenderer::textureId(whiteTexture)),
+                {0, 0},
+                {128, 96},
+                {0, 0},
+                {1, 1},
+                IM_COL32(128, 128, 128, 255)
+            );
+            draw->PushClipRect({10, 10}, {40, 40}, true);
+            draw->AddImage(ImTextureRef(ImGuiRenderer::textureId(blueTexture)), {0, 0}, {80, 80});
+            draw->PopClipRect();
+            draw->AddImage(
+                ImTextureRef(ImGuiRenderer::textureId(whiteTexture)),
+                {60, 10},
+                {90, 40},
+                {0, 0},
+                {1, 1},
+                IM_COL32(255, 0, 0, 128)
+            );
+            // A larger font bake on the second frame exercises the dynamic atlas update lifecycle.
+            ImGui::GetForegroundDrawList()
+                ->AddText(nullptr, frame == 0 ? 13.f : 24.f, {4, 60}, IM_COL32_WHITE, "Atlas 0123");
+            draw->Flags &= ~ImDrawListFlags_AntiAliasedFill;
+            draw->AddTriangleFilled({-30, -30}, {-25, -30}, {-25, -25}, IM_COL32_WHITE);
+            ImGui::Render();
+            REQUIRE(ImGui::GetDrawData()->TotalIdxCount % 2 == 1);
+            renderer.render(*ImGui::GetDrawData(), target);
+        }
+        whiteTexture.setNull();
+        blueTexture.setNull(); // GPU submissions, not the source variables, keep these images alive.
+        REQUIRE(SLANG_SUCCEEDED(drawPresentation(fixture.queue, present, target, output)));
+        const auto gray = fixture.pixel(output, 8, 8);
+        CHECK(std::abs(int(gray[0]) - 128) <= 1);
+        CHECK(gray[0] == gray[1]);
+        CHECK(fixture.pixel(output, 30, 30) == std::array<uint8_t, 4>{0, 0, 255, 255});
+        CHECK(std::abs(int(fixture.pixel(output, 84, 30)[0]) - 128) <= 1); // Outside clip.
+        auto blended = fixture.pixel(output, 140, 30);
+        // Linear blend of red and decoded 128 gray, followed by one sRGB transfer.
+        CHECK(std::abs(int(blended[0]) - 205) <= 2);
+        CHECK(std::abs(int(blended[1]) - 92) <= 2);
+        CHECK(blended[3] == 255);
+    }
+    ImGui::DestroyContext(context);
+}
+
+TEST_CASE("workspace layouts preserve visibility while scene replacement clears observer selection")
+{
+    GraphicsFixture fixture;
+    Workspace workspace(fixture.device, fixture.queue);
+    auto scene = createPbrFixture();
+    auto& io = ImGui::GetIO();
+    io.DisplaySize = {960, 640};
+    workspace.loadLayout("OFG-UI-1 0 1 1\n");
+    workspace.begin(*scene, 1.f / 60);
+    CHECK(workspace.sceneTarget() == nullptr);
+    workspace.finish();
+    auto saved = workspace.saveLayout();
+    CHECK(saved.starts_with("OFG-UI-1 0 1 1\n"));
+    scene = createSceneFixture();
+    workspace.begin(*scene, 1.f / 60);
+    CHECK(workspace.selection() == nullptr);
+    workspace.finish();
+    REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
 }

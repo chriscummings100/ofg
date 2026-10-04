@@ -1,0 +1,3 @@
+// CMake embeds the shared UI shader so runtime does not depend on a source checkout.
+#pragma once
+inline constexpr const char* imguiShader = R"OFG(@IMGUI_SHADER@)OFG";

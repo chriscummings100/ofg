@@ -51,7 +51,7 @@ Shader sources are embedded by CMake; launch does not depend on the working dire
 
 CPU tests establish scene/resource/culling contracts. Native offscreen tests establish indexed draws, depth, independent uniforms, scalar/vector/matrix binding, reflected errors, pipeline reuse/separation and release after submission. Native window evidence covers presentation, resize, minimize/restore and normal close. Browser smoke covers scene structure, tint/checker regions, resize/reload, original checkerboard and missing-WebGPU messaging. Evidence and current results are recorded in the plan and DEVELOPING.md.
 
-Scene values are floats near the origin. There is one selected perspective camera and no individual entity/component removal or reparenting. Model import, ImGui, compute, terrain, streaming, large-world coordinates and custom update components are future work. Lighting and an explicit PBR forward pass sequence are implemented; there is no general render graph. PNG/JPEG material textures and internal GPU mip passes are implemented. No performance or long-running residency claim is made. Emscripten's existing Asyncify/WASM-exception warning remains a portability limitation beyond exercised paths.
+Scene values are floats near the origin. There is one selected perspective camera and no individual entity/component removal or reparenting. Model import, compute, terrain, streaming, large-world coordinates and custom update components are future work. The dockable ImGui workspace is described below. Lighting and an explicit PBR forward pass sequence are implemented; there is no general render graph. PNG/JPEG material textures and internal GPU mip passes are implemented. No performance or long-running residency claim is made. Emscripten's existing Asyncify/WASM-exception warning remains a portability limitation beyond exercised paths.
 
 The [Khronos PBR source guide](research/khronos-pbr-reference.md) maps the downloaded reference renderer and its shader dependencies. The [PBR integration plan](plans/pbr-rendering.md) records the implementation and validation. Transmission/scattering remain deferred.
 
@@ -71,3 +71,10 @@ ownership and weak program/resource caches, with HDR opaque lighting, output map
 and a final transfer pass. The browser still acquires the canvas only after host-owned rendering is complete. Numerical
 semantic indices keep the PBR vertex ABI consistent with the pinned RHI WebGPU layout. Texture/diagnostic paths remain
 available. Transmission/scattering and glTF import are separate follow-ups; this does not establish general glTF conformance.
+
+
+## Laboratory UI
+
+[Workspace](imgui.md) is host-owned and uses one explicit ImGui context. ofg-ui depends on ofg-render and pinned ImGui; ofg-core remains independent. Native uses the upstream GLFW platform backend, while browser input is adapted from Emscripten canvas callbacks. Menu/panel construction determines the physical scene viewport size before Game::frame. The scene renders into display-linear RGBA16F, UI composes into another full-window RGBA16F target, and the resource-only presentation shader performs destination-appropriate transfer. All yielding work precedes browser canvas acquisition.
+
+ImGuiRenderer owns its pipeline/sampler and font texture snapshots. Submitted commands retain immutable per-frame vertex/index buffers and sampled textures; 16-bit index uploads are padded to four-byte lengths for WebGPU without changing draw counts. Workspace owns layout, non-owning entity selection, and initial fixture lighting for reset. No UI API enters scene/core headers except independent Entity display-name accessors. The existing checkerboard and --no-ui / ?ui=0 paths remain diagnostic baselines.
