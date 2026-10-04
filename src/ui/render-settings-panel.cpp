@@ -141,7 +141,12 @@ bool drawLightingControls(Lighting& draft)
             changed |= ImGui::SliderFloat("Aerosol density", &s.atmosphere.mie, 0, 8);
             changed |= ImGui::SliderFloat("Ozone density", &s.atmosphere.ozone, 0, 4);
             changed |= ImGui::SliderFloat("Ground albedo", &s.atmosphere.groundAlbedo, 0, 1);
-            changed |= ImGui::SliderFloat("Haze distance (m)", &s.atmosphere.aerialDistance, 100, 20000);
+            changed |= ImGui::Checkbox("Haze (aerial perspective)", &s.atmosphere.aerialPerspective);
+            changed |= ImGui::SliderFloat("Haze lookup range (m)", &s.atmosphere.aerialDistance, 100, 20000);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Maximum lookup distance. Haze starts at the camera; density controls its strength.");
+            }
             changed |= ImGui::SliderFloat("Cloud coverage", &s.clouds.coverage, 0, 1);
             changed |= ImGui::SliderFloat("Cloud optical thickness", &s.clouds.opticalThickness, 0, 10);
             changed |= ImGui::SliderFloat("Wind speed (m/s)", &s.clouds.windSpeed, 0, 100);

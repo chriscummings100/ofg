@@ -116,12 +116,16 @@ float3 integrateAtmosphere(
         scatteredFraction += throughput * scattering * integral;
         throughput *= stepT;
     }
+#if SKY_PASS != 3
+    // Aerial perspective contains only the medium. Ground surface radiance belongs in sky/closure lookups;
+    // adding it to the camera volume projects a second lit ground surface onto nearby scene geometry.
     if (ground > 0 && ground <= maxDistance)
     {
         float3 p = origin + direction * ground;
         radiance += throughput * transmission(p + normalize(p) * .01, light) * max(dot(normalize(p), light), 0) *
                     sky.atmosphere.w / SKY_PI;
     }
+#endif
     return radiance;
 }
 #endif

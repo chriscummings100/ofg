@@ -14,6 +14,7 @@ struct AtmosphereSettings
     float rayleigh = 1, mie = 1, ozone = 1, groundAlbedo = 0.15f;
     float sunIlluminance = 120000, moonIlluminance = 0.25f;
     float aerialDistance = 10000;
+    bool aerialPerspective = true; // Composition toggle; the sky and environment remain atmospheric.
 };
 struct CloudSettings
 {

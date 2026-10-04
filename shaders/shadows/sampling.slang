@@ -12,7 +12,7 @@ struct OutdoorParameters
     float4 shadowOptions;
     float4 ibl;
     float4 iblExposure; // Old/new generation exposure compensation during incremental updates.
-    float4 viewport;
+    float4 viewport; // Width, height, aerial-perspective enabled, reserved.
     column_major float4x4 shadowMatrices[4];
 };
 ConstantBuffer<OutdoorParameters> outdoor;
@@ -80,11 +80,22 @@ float3 applyAerialPerspective(float3 color, float3 position, float2 pixel)
     {
         return color;
     }
-    float slice = sqrt(saturate(length(position - outdoor.viewPositionNear.xyz) / outdoor.lightDirection.w)) * 31;
+    if (outdoor.viewport.z == 0)
+    {
+        return min(color * outdoor.enabledExposure.y, float3(65504));
+    }
+    float distance = min(length(position - outdoor.viewPositionNear.xyz), outdoor.lightDirection.w);
+    float slice = sqrt(distance / outdoor.lightDirection.w) * 31;
+    float lower = min(floor(slice), 30), upper = lower + 1;
+    float nearDistance = lower * lower / (31 * 31) * outdoor.lightDirection.w;
+    float farDistance = upper * upper / (31 * 31) * outdoor.lightDirection.w;
+    // Samples store integrals at quadratic distances. Interpolate in metres, not fractional slice index;
+    // otherwise the first interval incorrectly grows as sqrt(distance), exaggerating foreground haze.
+    float weight = saturate((distance - nearDistance) / (farDistance - nearDistance));
     float2 uv = pixel / outdoor.viewport.xy;
-    float4 a = aerialPerspective.SampleLevel(environmentSampler, float3(uv, floor(slice)), 0);
-    float4 b = aerialPerspective.SampleLevel(environmentSampler, float3(uv, min(floor(slice) + 1, 31)), 0);
-    float4 fog = lerp(a, b, frac(slice));
+    float4 a = aerialPerspective.SampleLevel(environmentSampler, float3(uv, lower), 0);
+    float4 b = aerialPerspective.SampleLevel(environmentSampler, float3(uv, upper), 0);
+    float4 fog = lerp(a, b, weight);
     // Physical lux and manual exposure can exceed FP16; clipping here avoids infinities in tone mapping.
     return min((color * (1 - fog.a) + fog.rgb) * outdoor.enabledExposure.y, float3(65504));
 }

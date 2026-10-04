@@ -4,6 +4,7 @@
 #include "render/sky-renderer.h"
 #include "render/environment-renderer.h"
 #include "render/resource-gpu-data.h"
+#include "render/lighting-pass.h"
 #include "math/quat.h"
 #include <doctest.h>
 #include <filesystem>
@@ -11,6 +12,7 @@
 #include <atomic>
 #include <chrono>
 #include <algorithm>
+#include <iterator>
 namespace {
 struct LightingDiagnostics : rhi::IDebugCallback
 {
@@ -30,6 +32,98 @@ struct LightingDiagnostics : rhi::IDebugCallback
     }
 };
 } // namespace
+TEST_CASE("Aerial sampling interpolates physical distances and keeps exposure when disabled")
+{
+    rhi::DeviceDesc deviceDesc{};
+    deviceDesc.deviceType = rhi::DeviceType::D3D12;
+    rhi::ComPtr<rhi::IDevice> device;
+    rhi::ComPtr<rhi::ICommandQueue> queue;
+    REQUIRE(SLANG_SUCCEEDED(rhi::getRHI()->createDevice(deviceDesc, device.writeRef())));
+    REQUIRE(SLANG_SUCCEEDED(device->getQueue(rhi::QueueType::Graphics, queue.writeRef())));
+    // Compile the actual production composition function, with a synthetic linear-in-distance volume.
+    std::string source;
+    for (const char* path : {"shaders/sky/clouds.slang", "shaders/shadows/sampling.slang"})
+    {
+        std::ifstream file(std::filesystem::path(OFG_SOURCE_DIR) / path);
+        REQUIRE(file.good());
+        source.append(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+        source += '\n';
+    }
+    source += R"(
+// Fullscreen diagnostic: the left half covers 0..10 metres, the right half 0..10000 metres.
+[shader("vertex")] float4 vertexMain(uint id : SV_VertexID) : SV_Position
+{
+    float2 uv = float2((id << 1) & 2, id & 2);
+    return float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);
+}
+// A linear radiance ramp must remain linear after reconstructing quadratic depth slices.
+[shader("fragment")] float4 fragmentMain(float4 pixel : SV_Position) : SV_Target
+{
+    float distance = pixel.x < 32 ? pixel.x / 32 * 10 : (pixel.x - 32) / 32 * 10000;
+    return float4(applyAerialPerspective(float3(2), float3(0, 0, distance), pixel.xy), 1);
+}
+)";
+    auto program = ofg::lightingProgram(device, source.c_str(), "aerial-sampling-regression");
+    auto pipeline = ofg::lightingPipeline(device, program, rhi::Format::RGBA32Float);
+    std::array<std::array<float, 4>, 32> pixels{};
+    std::array<rhi::SubresourceData, 32> subresources{};
+    for (uint32_t slice = 0; slice < 32; ++slice)
+    {
+        float distance = float(slice * slice) / (31 * 31) * 10000;
+        pixels[slice] = {distance, distance, distance, 0};
+        subresources[slice] = {pixels[slice].data(), 16, 16};
+    }
+    rhi::TextureDesc desc{};
+    desc.type = rhi::TextureType::Texture2DArray;
+    desc.arrayLength = 32;
+    desc.size = {1, 1, 1};
+    desc.format = rhi::Format::RGBA32Float;
+    desc.usage = rhi::TextureUsage::ShaderResource;
+    rhi::ComPtr<rhi::ITexture> volume, target;
+    REQUIRE(SLANG_SUCCEEDED(device->createTexture(desc, subresources.data(), volume.writeRef())));
+    desc.type = rhi::TextureType::Texture2D;
+    desc.arrayLength = 1;
+    desc.size = {64, 1, 1};
+    desc.usage = rhi::TextureUsage::RenderTarget | rhi::TextureUsage::CopySource;
+    REQUIRE(SLANG_SUCCEEDED(device->createTexture(desc, nullptr, target.writeRef())));
+    rhi::SamplerDesc samplerDesc{};
+    samplerDesc.minFilter = samplerDesc.magFilter = rhi::TextureFilteringMode::Point;
+    rhi::ComPtr<rhi::ISampler> sampler;
+    REQUIRE(SLANG_SUCCEEDED(device->createSampler(samplerDesc, sampler.writeRef())));
+    for (bool enabled : {true, false})
+    {
+        rhi::ComPtr<rhi::IShaderObject> root;
+        REQUIRE(SLANG_SUCCEEDED(device->createRootShaderObject(program, root.writeRef())));
+        auto cursor = rhi::ShaderCursor(root);
+        const float exposure[]{1, 2, 0, 0}, camera[]{0, 0, 0, 0}, range[]{0, 1, 0, 10000};
+        const float viewport[]{64, 1, float(enabled), 0};
+        REQUIRE(SLANG_SUCCEEDED(cursor["outdoor"]["enabledExposure"].setData(exposure, sizeof(exposure))));
+        REQUIRE(SLANG_SUCCEEDED(cursor["outdoor"]["viewPositionNear"].setData(camera, sizeof(camera))));
+        REQUIRE(SLANG_SUCCEEDED(cursor["outdoor"]["lightDirection"].setData(range, sizeof(range))));
+        REQUIRE(SLANG_SUCCEEDED(cursor["outdoor"]["viewport"].setData(viewport, sizeof(viewport))));
+        REQUIRE(SLANG_SUCCEEDED(cursor["aerialPerspective"].setBinding(volume)));
+        REQUIRE(SLANG_SUCCEEDED(cursor["environmentSampler"].setBinding(sampler)));
+        rhi::ComPtr<rhi::ICommandEncoder> encoder;
+        REQUIRE(SLANG_SUCCEEDED(queue->createCommandEncoder(encoder.writeRef())));
+        ofg::drawLightingPass(encoder, pipeline, root, target->getDefaultView(), 64, 1);
+        ofg::submitLighting(queue, encoder);
+        REQUIRE(SLANG_SUCCEEDED(queue->waitOnHost()));
+        rhi::ComPtr<slang::IBlob> result;
+        rhi::SubresourceLayout layout{};
+        REQUIRE(SLANG_SUCCEEDED(device->readTexture(target, 0, 0, result.writeRef(), &layout)));
+        auto values = static_cast<const float*>(result->getBufferPointer());
+        float maxError = 0;
+        for (uint32_t x = 0; x < 64; ++x)
+        {
+            float distance = x < 32 ? (x + .5f) / 32 * 10 : (x - 32 + .5f) / 32 * 10000;
+            float expected = enabled ? (2 + distance) * 2 : 4;
+            maxError = std::max(maxError, std::abs(values[x * 4] - expected));
+        }
+        INFO("Haze enabled: ", enabled, ", maximum error: ", maxError);
+        // 0.005 allows FP32 arithmetic at 20,000 output units; the old weighting errs by about 5 units.
+        CHECK(maxError < .005f);
+    }
+}
 TEST_CASE("Outdoor renders noon twilight and moon with real atmosphere IBL and shadows")
 {
     LightingDiagnostics diagnostics;
@@ -323,5 +417,33 @@ TEST_CASE("Outdoor renders noon twilight and moon with real atmosphere IBL and s
     CHECK(finite);
     auto center = reinterpret_cast<const uint16_t*>(data + 32 * solarLayout.rowPitch) + 32 * 4;
     CHECK(center[0] == 0x7bff);
+    // A vacuum has neither haze radiance nor opacity, even where a view ray intersects the planet.
+    solarFrame.camera.worldFromView = ofg::math::mat4Identity();
+    solarFrame.cameraPosition = {0, 3, 0};
+    auto& vacuum = *solarFrame.lighting.outdoor;
+    vacuum.dayCycle.timeHours = 12;
+    vacuum.atmosphere.rayleigh = vacuum.atmosphere.mie = vacuum.atmosphere.ozone = 0;
+    vacuum.atmosphere.groundAlbedo = 1;
+    solarFrame.outdoor = ofg::evaluateOutdoorLighting(vacuum, 3);
+    sky.update(solarFrame);
+    REQUIRE(SLANG_SUCCEEDED(queue->waitOnHost()));
+    for (uint32_t slice : {0u, 1u, 2u, 16u, 31u})
+    {
+        rhi::ComPtr<slang::IBlob> haze;
+        rhi::SubresourceLayout hazeLayout{};
+        REQUIRE(SLANG_SUCCEEDED(device->readTexture(sky.aerialPerspective(), slice, 0, haze.writeRef(), &hazeLayout)));
+        auto bytes = static_cast<const std::byte*>(haze->getBufferPointer());
+        size_t nonzero = 0;
+        for (uint32_t y = 0; y < 32; ++y)
+        {
+            auto row = reinterpret_cast<const uint16_t*>(bytes + y * hazeLayout.rowPitch);
+            for (uint32_t x = 0; x < 32 * 4; ++x)
+            {
+                nonzero += (row[x] & 0x7fff) != 0;
+            }
+        }
+        INFO("Vacuum aerial slice ", slice);
+        CHECK(nonzero == 0);
+    }
     CHECK(diagnostics.errors == 0);
 }

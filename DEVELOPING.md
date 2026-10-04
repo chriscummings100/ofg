@@ -305,3 +305,13 @@ rather than a fixed short delay. The focused native regression remains:
 
 It checks bounded capture/filter work, every filtered face/mip of a frozen snapshot, publication atomicity and pending
 edits, in addition to outdoor image checks. See [the update contract](docs/outdoor-lighting.md#environment-generations-and-bindings).
+
+For haze regressions, the focused native command is:
+
+```powershell
+.\build\native\ofg-render-test.exe '--test-case=Aerial*,Outdoor*' --no-colors
+```
+
+The GPU checks require zero haze in a vacuum and physical-distance interpolation of a synthetic linear volume;
+disabling haze must retain scene exposure. Render Settings includes a haze toggle and a **Haze lookup range** control.
+The range sets lookup coverage, not the distance where haze starts. Before/after evidence is in `artifacts/lighting/haze`.

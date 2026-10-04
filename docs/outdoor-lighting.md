@@ -48,13 +48,25 @@ Two procedural horizontal cloud layers share world-space noise, wind and optical
 environment capture and direct-light cloud shadows. Cloud color is approximate sky fill plus attenuated direct light.
 Near-horizontal unresolved detail blends toward a mean density. There is no volumetric cloud traversal, cloud self-shadow
 transport, precipitation or weather simulation. The aerial lookup stores RGB in-scattering and a scalar mean transmission;
-colored extinction and very coarse distance interpolation are approximations.
+colored extinction and coarse spatial sampling remain approximations. The camera volume stores only atmospheric
+scattering: the lit planet surface is included in sky/closure lookups, never composited as fog onto scene geometry.
+Quadratically spaced slices are interpolated by physical distance, preserving the near-camera zero-scattering limit.
+
+The **Haze (aerial perspective)** checkbox disables only scene haze; exposure, sky and IBL remain active. **Haze lookup
+range (m)** sets the furthest represented distance, not a start distance or density. At 10,000 m the first nonzero
+slice is about 10.4 m away, but correct interpolation makes foreground haze proportional to the short ray length.
+Use Rayleigh/aerosol density to control atmospheric strength. The [haze correction](archived/fix-aerial-perspective-banding.md) records the reproduced bugs and validation.
+Beyond the lookup range, composition reuses the final slice, so attenuation does not continue with distance.
+Extending coverage and adding height fog are deferred. The pervasive magenta twilight remains an unresolved visual
+issue; its cause has not been isolated.
 
 Visible sun/moon disks use their solid angle and RGB atmospheric transmission. Capture omits both disks, so direct
 illumination is supplied once by the directional light; atmospheric scattering and clouds remain in IBL. Exposure is
 applied before writing visible HDR radiance to float16. Values beyond finite float16 range saturate before storage
 to prevent solar-disk/specular overflow from producing infinities in tone mapping. Automatic EV transitions between day 15, horizon 10 and night -3;
 manual EV and the existing exposure multiplier remain available. The night value deliberately supports inspection.
+This is a clock-driven exposure curve, not scene-metered auto exposure: increasing moon lux does not change exposure.
+Scene-metered auto exposure is planned for later; the current moon intensity and exposure defaults remain unchanged.
 
 ## Environment generations and bindings
 
@@ -119,7 +131,9 @@ transmission boundaries, cascade receiver/caster coverage, snapping and offscree
 masked cards, verifies all 126 face/mip subresources against a frozen reference while live sky inputs change,
 checks partial publication and latest-edit coalescing, and compares direct and indirect lighting with shadows
 enabled/disabled. Readback allows one 8-bit level for the indirect comparison; it does not require identical pixels between backends. A solar-disk regression
-checks the brightest allowed sun at low manual exposure for finite float16 storage.
+checks the brightest allowed sun at low manual exposure for finite float16 storage. Vacuum-volume readback rejects
+ground radiance leaking into fog; a synthetic GPU volume linear in metres tests foreground/far-distance interpolation
+and exposure preservation when haze is disabled.
 
 Run `npm run smoke:outdoor` after the web build. It saves noon/sunset/twilight/night/overcast/settings/resize captures and
 actual device diagnostics, including the ImGui midnight preset and running clock, under `artifacts/lighting/browser`, with a 16-texture device limit. Native evidence is in

@@ -357,6 +357,7 @@ void bindOutdoor(IShaderObject* root, const DrawList& list, uint32_t width, uint
         const auto& shadow = settings.shadows;
         const auto& c = settings.clouds;
         const auto& f = *list.outdoor;
+        set("viewport", {float(width), float(height), float(settings.atmosphere.aerialPerspective), 0});
         set("enabledExposure", {1, f.exposureMultiplier * list.lighting.exposure, shadow.depthBias, shadow.normalBias});
         set("shadowOptions",
             {float(shadow.resolution), shadow.transition, float(shadow.enabled), float(shadow.debugView)});

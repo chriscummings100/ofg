@@ -69,6 +69,22 @@ try {
         if(name==='settings') {
             // Coordinates come from the inspected 1440x901 canvas; exercise real ImGui preset and clock input.
             const canvas=await page.locator('#canvas').boundingBox();
+            // Compare haze on/off through the real settings checkbox; toggling composition must not rebake IBL.
+            const hazePublications=await page.evaluate(()=>Module.iblUpdate.publications);
+            await page.mouse.click(canvas.x+1125,canvas.y+716);
+            const hazeFrame=await page.evaluate(()=>Module.frameCount);
+            await page.waitForFunction(n=>Module.failed || Module.frameCount>=n+3,hazeFrame,{timeout:60000});
+            const withoutHaze=PNG.sync.read(await page.locator('#canvas').screenshot({path:`${directory}/haze-off.png`}));
+            assert.equal(await page.evaluate(()=>Module.iblUpdate.publications),hazePublications);
+            let foregroundDifference=0, foregroundSamples=0;
+            for(let y=700;y<800;y+=3)for(let x=400;x<1000;x+=3) {
+                const i=(y*withoutHaze.width+x)*4;
+                for(let c=0;c<3;c++)foregroundDifference+=Math.abs(withoutHaze.data[i+c]-png.data[i+c]);
+                foregroundSamples+=3;
+            }
+            report.foregroundHazeDifference=foregroundDifference/foregroundSamples;
+            assert.ok(report.foregroundHazeDifference<3,'Metres of foreground air must not substantially brighten the ground');
+            await page.mouse.click(canvas.x+1125,canvas.y+716);
             const publications=await page.evaluate(()=>Module.iblUpdate.publications);
             await page.mouse.click(canvas.x+1320,canvas.y+491);
             await page.waitForFunction(n=>Module.failed || (Module.iblUpdate.publications===n && Module.iblUpdate.steps>=3),publications,{timeout:60000});
