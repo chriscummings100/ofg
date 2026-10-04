@@ -40,7 +40,7 @@ void ModelFixture::update(Scene& scene)
     m_status = "Model ready | " + std::to_string(data.nodes.size()) + " nodes, " + std::to_string(data.meshes.size()) +
                " meshes, " + std::to_string(data.materials.size() - 1) + " materials, " +
                std::to_string(data.skins.size()) + " skins, " + std::to_string(data.animations.size()) +
-               " clips | Undeformed preview; animation is not playing";
+               " clips | Rest pose; animation is not playing";
     std::printf("%s\n", m_status.c_str());
     for (const auto& warning : m_model->warnings())
     {

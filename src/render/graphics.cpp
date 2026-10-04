@@ -5,6 +5,7 @@
 #include "render/sky-renderer.h"
 #include "render/shadow-renderer.h"
 #include "render/texture-renderer.h"
+#include "render/deformation.h"
 #include "core/engine-error.h"
 #include "math/transform.h"
 #include "pbr-output-shader.h"
@@ -49,6 +50,7 @@ struct GraphicsState
     std::vector<std::weak_ptr<MeshGpuData>> meshes;
     std::vector<std::weak_ptr<ShaderGpuData>> shaders;
     std::unique_ptr<TextureRenderer> textures;
+    std::unique_ptr<DeformationRenderer> deformation;
     size_t pipelineCreations{0};
 };
 std::unique_ptr<GraphicsState> graphics;
@@ -511,6 +513,7 @@ void Graphics::initialize(rhi::IDevice* device, rhi::ICommandQueue* queue)
     state->device = device;
     state->queue = queue;
     state->environments = std::make_unique<EnvironmentRenderer>(device, queue);
+    state->deformation = std::make_unique<DeformationRenderer>(device, queue);
     const rhi::VertexStreamDesc stream{sizeof(Vertex), rhi::InputSlotClass::PerVertex, 0};
     rhi::InputElementDesc elements[] = {
         {"POSITION", 0, rhi::Format::RGB32Float, offsetof(Vertex, position), 0},
@@ -570,6 +573,10 @@ void Graphics::prepareMesh(Mesh& mesh)
     rhi::BufferDesc desc{};
     desc.size = mesh.vertices().size_bytes();
     desc.usage = rhi::BufferUsage::VertexBuffer;
+    if (!mesh.deformation().influenceSets.empty())
+    {
+        desc.usage |= rhi::BufferUsage::ShaderResource;
+    }
     desc.defaultState = rhi::ResourceState::VertexBuffer;
     check(
         graphics->device->createBuffer(desc, mesh.vertices().data(), data->vertices.writeRef()),
@@ -692,6 +699,31 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
         graphics->depth = depth;
     }
 
+    for (const auto& job : list.deformations)
+    {
+        if (!job.mesh)
+        {
+            throw EngineError("Deformation job requires a mesh.");
+        }
+        prepareMesh(*job.mesh);
+    }
+    graphics->deformation->deform(list.deformations);
+
+    // Scene and shadow passes consume the same per-instance output from this extraction snapshot.
+    const auto drawVertices = [&](const DrawItem& item) -> IBuffer*
+    {
+        if (!item.deformationJob)
+        {
+            return item.mesh->m_gpu->vertices;
+        }
+        if (*item.deformationJob >= list.deformations.size() ||
+            list.deformations[*item.deformationJob].mesh != item.mesh)
+        {
+            throw EngineError("Draw item references an invalid deformation job.");
+        }
+        return DeformationRenderer::vertices(*list.deformations[*item.deformationJob].storage);
+    };
+
     // Uploads and mip generation must finish encoding before the scene render pass begins.
     for (const auto& item : list.items)
     {
@@ -764,7 +796,7 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
         for (const auto& item : list.shadowCasters)
         {
             prepareMesh(*item.mesh);
-            ShadowDraw draw{&item, item.mesh->m_gpu->vertices, item.mesh->m_gpu->indices};
+            ShadowDraw draw{&item, drawVertices(item), item.mesh->m_gpu->indices};
             if (item.material->renderState().alphaMode == AlphaMode::Mask &&
                 item.material->textures().contains("baseColorTexture"))
             {
@@ -916,7 +948,7 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
             state.viewportCount = 1;
             state.scissorRects[0] = ScissorRect::fromSize(target.size.width, target.size.height);
             state.scissorRectCount = 1;
-            state.vertexBuffers[0].buffer = item.mesh->m_gpu->vertices;
+            state.vertexBuffers[0].buffer = drawVertices(item);
             state.vertexBufferCount = 1;
             state.indexBuffer.buffer = item.mesh->m_gpu->indices;
             state.indexFormat = IndexFormat::Uint32;
@@ -961,6 +993,7 @@ void Graphics::shutdown() noexcept
         if (auto data = weak.lock())
         {
             data->vertices.setNull();
+            data->influences.setNull();
             data->indices.setNull();
         }
     }

@@ -38,6 +38,7 @@ ModelInstance Scene::instantiateModel(std::shared_ptr<Model> model, Entity* pare
         pending.pop_back();
         const auto& node = data.nodes[index];
         auto* entity = staging.createEntity(parentEntity);
+        entity->setName(node.name);
         entity->setLocalTransform(node.localTransform);
         instance.nodes[index] = entity;
         for (auto child = node.children.rbegin(); child != node.children.rend(); ++child)

@@ -9,6 +9,7 @@
 namespace ofg {
 struct MeshGpuData;
 class Graphics;
+class DeformationRenderer;
 
 struct Vertex
 {
@@ -79,6 +80,7 @@ public:
 
 private:
     friend class Graphics;
+    friend class DeformationRenderer;
     // Stores validated immutable geometry and its computed bounds.
     Mesh(
         std::vector<Vertex> vertices,

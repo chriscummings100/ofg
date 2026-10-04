@@ -41,6 +41,8 @@ add_library(ofg-core STATIC
     src/resources/skin.cpp
     src/resources/animation.cpp
     src/scene/animator.cpp
+    src/scene/animation-pose.cpp
+    src/scene/animation-binding.cpp
     src/resources/pbr-material.cpp
     src/resources/environment.cpp
     src/lab/fly-camera.cpp
@@ -78,6 +80,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_executable(ofg-core-test
         tests/outdoor-lighting-test.cpp
         tests/gltf-test.cpp
+        tests/animation-test.cpp
         tests/model-resources-test.cpp
         tests/render-settings-test.cpp
         tests/pbr-core-test.cpp
@@ -149,6 +152,11 @@ add_library(ofg-render STATIC
     src/lab/scene-fixture.cpp
 )
 target_sources(ofg-render PRIVATE src/lab/outdoor-fixture.cpp src/lab/pbr-fixture.cpp src/lab/model-fixture.cpp)
+file(READ shaders/deformation.slang DEFORMATION_SHADER)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/deformation.slang)
+configure_file(src/render/deformation-shader.h.in generated/deformation-shader.h @ONLY)
+target_sources(ofg-render PRIVATE src/render/deformation.cpp)
+target_sources(ofg-render PRIVATE src/lab/character-fixture.cpp)
 target_compile_features(ofg-render PUBLIC cxx_std_20)
 target_include_directories(ofg-render PUBLIC src PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(ofg-render PUBLIC slang-rhi ofg-core)
@@ -156,9 +164,17 @@ target_link_libraries(ofg-render PUBLIC slang-rhi ofg-core)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/imgui.slang)
 file(READ shaders/imgui.slang IMGUI_SHADER)
 configure_file(src/ui/imgui-shader.h.in generated/imgui-shader.h @ONLY)
-add_library(ofg-ui STATIC src/ui/render-settings-panel.cpp src/ui/imgui-renderer.cpp src/ui/workspace.cpp)
+add_library(ofg-ui STATIC src/ui/render-settings-panel.cpp src/ui/imgui-renderer.cpp src/ui/workspace.cpp src/ui/animation-panel.cpp)
 target_include_directories(ofg-ui PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(ofg-ui PUBLIC ofg-render imgui)
+
+# Small shared-backend compute-to-vertex regression, separate from application skinning.
+file(READ shaders/compute-vertex-proof.slang COMPUTE_VERTEX_PROOF_SHADER)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/compute-vertex-proof.slang)
+configure_file(tests/compute-vertex-proof-shader.h.in generated/compute-vertex-proof-shader.h @ONLY)
+add_library(ofg-compute-proof STATIC tests/compute-vertex-proof.cpp)
+target_include_directories(ofg-compute-proof PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
+target_link_libraries(ofg-compute-proof PUBLIC ofg-render)
 
 if(EMSCRIPTEN)
     target_sources(ofg-ui PRIVATE src/ui/browser-input.cpp)
@@ -177,6 +193,17 @@ if(EMSCRIPTEN)
         -sASYNCIFY=1 -sASYNCIFY_IGNORE_INDIRECT=1
         "-sASYNCIFY_ONLY=['*main*','*wait*','*initialize*','*create*','*map*','*readBuffer*','*ofg*','*rhi*','*Frame*','*dynCall*']"
     )
+    add_executable(ofg-compute-proof-web tests/compute-vertex-web.cpp)
+    target_link_libraries(ofg-compute-proof-web PRIVATE ofg-compute-proof)
+    set_target_properties(ofg-compute-proof-web PROPERTIES OUTPUT_NAME compute-proof SUFFIX .html)
+    set_property(TARGET ofg-compute-proof-web APPEND PROPERTY LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/compute-vertex-shell.html)
+    target_link_options(ofg-compute-proof-web PRIVATE
+        --use-port=emdawnwebgpu --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/tests/compute-vertex-shell.html
+        -fwasm-exceptions --export=__cpp_exception
+        -sASSERTIONS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576
+        -sASYNCIFY=1 -sASYNCIFY_IGNORE_INDIRECT=1
+        "-sASYNCIFY_ONLY=['*main*','*frame*','*wait*','*initialize*','*create*','*map*','*readBuffer*','*ofg*','*rhi*','*dynCall*']"
+    )
 else()
     add_executable(ofg src/main.cpp)
     target_link_libraries(ofg PRIVATE ofg-ui ofg-core glfw)
@@ -185,8 +212,8 @@ endif()
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_test(NAME ofg-startup COMMAND ofg --check-device)
 
-    add_executable(ofg-render-test tests/outdoor-rendering-test.cpp tests/checkerboard-test.cpp tests/graphics-test.cpp)
-    target_link_libraries(ofg-render-test PRIVATE ofg-ui doctest)
+    add_executable(ofg-render-test tests/outdoor-rendering-test.cpp tests/checkerboard-test.cpp tests/graphics-test.cpp tests/compute-vertex-test.cpp)
+    target_link_libraries(ofg-render-test PRIVATE ofg-ui ofg-compute-proof doctest)
     target_compile_definitions(ofg-render-test PRIVATE OFG_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME ofg-checkerboard COMMAND ofg-render-test "--test-case=Checkerboard*")
     add_test(NAME ofg-scene-rendering COMMAND ofg-render-test "--test-case-exclude=Checkerboard*")

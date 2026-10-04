@@ -54,6 +54,16 @@ void Workspace::loadLayout(const std::string& settings)
     m_showScene = scene != 0;
     m_showHierarchy = hierarchy != 0;
     m_showSettings = render != 0;
+    // The optional fourth visibility field preserves compatibility with saved OFG-UI-1 layouts.
+    std::string remainder;
+    std::getline(input, remainder);
+    std::istringstream flags(remainder);
+    int animation = 1;
+    m_showAnimation = true;
+    if ((flags >> animation) && (animation == 0 || animation == 1))
+    {
+        m_showAnimation = animation != 0;
+    }
     auto newline = settings.find('\n');
     if (newline != std::string::npos)
     {
@@ -64,7 +74,7 @@ void Workspace::loadLayout(const std::string& settings)
 std::string Workspace::saveLayout()
 {
     std::string header = "OFG-UI-1 " + std::to_string(m_showScene) + " " + std::to_string(m_showHierarchy) + " " +
-                         std::to_string(m_showSettings) + "\n";
+                         std::to_string(m_showSettings) + " " + std::to_string(m_showAnimation) + "\n";
     header += ImGui::SaveIniSettingsToMemory();
     ImGui::GetIO().WantSaveIniSettings = false;
     return header;
@@ -79,11 +89,13 @@ void Workspace::menu()
             bool changed = ImGui::MenuItem("Scene", nullptr, &m_showScene);
             changed |= ImGui::MenuItem("Scene Hierarchy", nullptr, &m_showHierarchy);
             changed |= ImGui::MenuItem("Render Settings", nullptr, &m_showSettings);
+            changed |= ImGui::MenuItem("Animation", nullptr, &m_showAnimation);
             ImGui::Separator();
             if (ImGui::MenuItem("Reset Layout"))
             {
                 m_resetLayout = true;
                 m_showScene = m_showHierarchy = m_showSettings = true;
+                m_showAnimation = true;
                 changed = true;
             }
             if (changed)
@@ -126,6 +138,7 @@ void Workspace::buildDockspace()
         auto right = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.30f, nullptr, &centre);
         ImGui::DockBuilderDockWindow("Scene Hierarchy", left);
         ImGui::DockBuilderDockWindow("Render Settings", right);
+        ImGui::DockBuilderDockWindow("Animation", right);
         ImGui::DockBuilderDockWindow("Scene", centre);
         ImGui::DockBuilderFinish(id);
         m_resetLayout = false;
@@ -304,18 +317,23 @@ void Workspace::begin(Scene& scene, float deltaSeconds, float styleScale)
     {
         m_sceneRoot = scene.getRoot();
         m_selected.reset();
+        m_animator.reset();
+        m_animationError.clear();
         m_initialLighting = scene.lighting;
         m_editError.clear();
         ++m_sceneEpoch;
     }
     ImGui::NewFrame();
-    const int visibility = int(m_showScene) | (int(m_showHierarchy) << 1) | (int(m_showSettings) << 2);
+    const int visibility =
+        int(m_showScene) | (int(m_showHierarchy) << 1) | (int(m_showSettings) << 2) | (int(m_showAnimation) << 3);
     menu();
     buildDockspace();
     hierarchy(scene);
     renderSettings(scene);
+    animationPanel(scene);
     scenePanel();
-    if (visibility != (int(m_showScene) | (int(m_showHierarchy) << 1) | (int(m_showSettings) << 2)))
+    if (visibility !=
+        (int(m_showScene) | (int(m_showHierarchy) << 1) | (int(m_showSettings) << 2) | (int(m_showAnimation) << 3)))
     {
         io.WantSaveIniSettings = true;
     }

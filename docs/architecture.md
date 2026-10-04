@@ -6,7 +6,7 @@ OFG renders the [PBR sphere laboratory](pbr.md) through shared C++ and Slang on 
 
 ```mermaid
 flowchart TD
-    Host[Native GLFW host / browser callback] --> Game[Game: resources, State, Scene update]
+    Host[Native GLFW host / browser callback] --> Game[Game: resources, State, animation, world transforms]
     Game --> Extract[Camera culling and DrawList]
     Extract --> Graphics[Graphics: preparation, pipelines, indexed draws]
     Graphics --> RHI[Slang RHI: D3D12 / WebGPU]
@@ -21,10 +21,11 @@ Scene uniquely owns stable Entity, Camera and MeshRenderer allocations. Entity o
 
 DrawList construction conservatively tests the eight mesh-bound corners against the six homogeneous clip planes. It emits one entry per visible submesh in creation order with shared Mesh/Material, submesh index and a copied world matrix. A list survives scene clear; materials must not change between extraction and submission. Graphics classifies PBR queues and sorts transparent object origins back-to-front. There is no spatial index or batching.
 
-The glTF resource foundation adds scene-owned passive Animator components, shared Skin and Animation resources,
-Mesh-owned CPU influence/morph arrays and instance-specific MeshRenderer skin palettes/morph weights. These data
-and bindings do not alter the draw format or evaluate deformation. The [glTF plan](plans/gltf-model-loading.md)
-records file import, hierarchy instantiation and portability validation.
+Scene owns Animator transport and source-domain local poses. Shared Skin/Animation resources retain no entities.
+MeshRenderer owns joint observers and opaque private deformation storage. Each skinned renderer contributes one
+palette snapshot and output buffer shared by its submeshes and outdoor shadow passes; static bounds are bypassed
+for animated geometry in both view and cascade culling.
+The [glTF plan](plans/gltf-model-loading.md) records the preceding import foundation.
 
 ## CPU and GPU boundaries
 
@@ -83,8 +84,20 @@ Model is now an ofg-core Resource with cooperative document/dependency loading, 
 hierarchy records and shared ready child assets. Scene::instantiateModel stages allocations before attachment and
 binds Skin/Animation source node indices to each instance. The shared laboratory supports native --model and browser
 ?demo=model without changing default PBR behavior. See [resource loading](resources.md#gltf-model-loading) and
-[instantiation](state-and-scene.md#model-instantiation). Skin, morph data and clips are loaded but rendering is
-undeformed; animation evaluation and GPU deformation remain separate work.
+[instantiation](state-and-scene.md#model-instantiation). Imported clips remain paused until explicitly selected/played.
+Morph data is retained but morph playback remains deferred.
+
+The [completed animation plan](archived/gltf-animation.md) records the follow-up implementation. Imported node names
+survive instantiation. A test-only compute-to-vertex proof established the portable backend boundary first.
+`render/deformation.cpp` and `shaders/deformation.slang` now perform all-influence affine skinning before scene passes.
+Source vertices/influences upload once per shared mesh; palette uploads use command-owned staging. Output allocations
+belong to each MeshRenderer's opaque handle. RHI retains submitted buffers; no per-frame GPU waits are added.
+The shader uses byte-address storage with asserted 72-byte vertex, 32-byte influence and 64-byte palette layouts.
+Normals use inverse transpose, tangent handedness follows determinant sign, and degenerate normals become zero.
+The four-storage-buffer/64-thread profile uses queried dispatch/buffer limits and a conservative 128 MiB storage-binding
+cap because pinned RHI does not expose that WebGPU limit. This matches the [WebGPU default storage binding limit](https://www.w3.org/TR/webgpu/#limits).
+Unsupported sizes fail explicitly, without CPU fallback.
+See [character operation and limitations](animation.md) and [commands](../DEVELOPING.md#animation-bring-up).
 
 ## Laboratory UI
 

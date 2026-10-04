@@ -68,9 +68,9 @@ public:
     MeshRenderer* meshRenderer() noexcept { return m_meshRenderer; }
     // Returns this entity's borrowed mesh renderer, if any.
     const MeshRenderer* meshRenderer() const noexcept { return m_meshRenderer; }
-    // Returns this entity's borrowed passive animation component, if any.
+    // Returns this entity's borrowed animation component, if any.
     Animator* animator() noexcept { return m_animator; }
-    // Returns this entity's borrowed passive animation component, if any.
+    // Returns this entity's borrowed animation component, if any.
     const Animator* animator() const noexcept { return m_animator; }
 
     // Returns this entity's parent, or nullptr for the root.

@@ -10,6 +10,7 @@
 #include "lab/pbr-fixture.h"
 #include "lab/outdoor-fixture.h"
 #include "lab/model-fixture.h"
+#include "lab/character-fixture.h"
 #include "lab/fly-camera.h"
 #include "ui/workspace.h"
 #include "ui/browser-input.h"
@@ -34,6 +35,7 @@ struct BrowserApp
     double previousTime{0};
     bool pbr = false;
     std::unique_ptr<ofg::ModelFixture> model;
+    std::unique_ptr<ofg::CharacterFixture> character;
     ofg::FlyCamera camera;
     std::unique_ptr<ofg::Workspace> workspace;
     std::unique_ptr<ofg::BrowserInput> input;
@@ -82,7 +84,16 @@ static Result initializeBrowser(BrowserApp& app)
         const bool fp32 = formats.supports(ofg::TextureFormat::RGBA32Float);
         EM_ASM({ Module.fp32Supported = Boolean($0); }, fp32);
         app.pbr = EM_ASM_INT({ return Module.pbr ? 1 : 0; });
-        if (EM_ASM_INT({ return Module.model ? 1 : 0; }))
+        if (EM_ASM_INT({ return Module.character ? 1 : 0; }))
+        {
+            ofg::Game::initialize(ofg::createCharacterFixtureScene());
+            app.character =
+                std::make_unique<ofg::CharacterFixture>("assets/models/character", EM_ASM_INT({
+                                                                                       return Module.characterPair ? 1
+                                                                                                                   : 0;
+                                                                                   }) != 0);
+        }
+        else if (EM_ASM_INT({ return Module.model ? 1 : 0; }))
         {
             ofg::Game::initialize(ofg::createModelFixtureScene());
             app.model = std::make_unique<ofg::ModelFixture>(emscripten_run_script_string("Module.modelPath"));
@@ -200,6 +211,20 @@ static Result drawBrowserFrame(BrowserApp& app)
             const auto& status = app.model->status();
             EM_ASM({ Module.modelStatus = UTF8ToString($0); }, status.c_str());
         }
+        if (app.character && EM_ASM_INT({ return Module.cancelCharacter ? 1 : 0; }))
+        {
+            app.character.reset();
+            ofg::Game::setScene(ofg::createCharacterFixtureScene());
+            EM_ASM({
+                Module.cancelCharacter = false;
+                Module.characterCancelled = true;
+            });
+        }
+        if (app.character)
+        {
+            app.character->update(ofg::Game::scene());
+            EM_ASM({ Module.characterReady = Boolean($0); }, app.character->ready());
+        }
         if (app.workspace)
         {
             auto& io = ImGui::GetIO();
@@ -207,7 +232,7 @@ static Result drawBrowserFrame(BrowserApp& app)
             io.DisplayFramebufferScale = ImVec2(float(width / cssWidth), float(height / cssHeight));
             app.workspace->begin(ofg::Game::scene(), deltaSeconds);
         }
-        if (app.pbr || app.model)
+        if (app.pbr || app.model || app.character)
         {
             auto& scene = ofg::Game::scene();
             ofg::FlyCameraInput input;
@@ -231,6 +256,10 @@ static Result drawBrowserFrame(BrowserApp& app)
                 input.closeup = true;
             }
             app.camera.update(*scene.activeCamera()->entity(), input, deltaSeconds);
+            if (app.character && (input.reset || input.closeup))
+            {
+                ofg::frameCharacter(*scene.activeCamera()->entity());
+            }
             const auto p = scene.activeCamera()->entity()->localTransform().position;
             EM_ASM({ Module.cameraPosition = Array($0, $1, $2); }, p.x, p.y, p.z);
         }
@@ -244,6 +273,36 @@ static Result drawBrowserFrame(BrowserApp& app)
                 stats.environmentPasses,
                 stats.environmentPublications
             );
+        }
+        if (app.character && app.character->ready())
+        {
+            // Read-only smoke diagnostics; playback input goes through the actual workspace controls.
+            EM_ASM({ Module.animations = []; });
+            for (const auto& animator : ofg::Game::scene().animators())
+            {
+                const auto selected = animator->selectedAnimation();
+                const char* name = selected ? animator->animations()[*selected]->desc().name.c_str() : "";
+                EM_ASM(
+                    {
+                        Module.animations.push({
+                            name : UTF8ToString($0),
+                            index : $1,
+                            time : $2,
+                            duration : $3,
+                            playing : Boolean($4),
+                            looping : Boolean($5),
+                            speed : $6
+                        });
+                    },
+                    name,
+                    selected ? int(*selected) : -1,
+                    animator->timeSeconds(),
+                    animator->durationSeconds(),
+                    animator->isPlaying(),
+                    animator->isLooping(),
+                    animator->playbackSpeed()
+                );
+            }
         }
         if (app.workspace)
         {
@@ -266,7 +325,8 @@ static Result drawBrowserFrame(BrowserApp& app)
                 selected ? int(selected->id()) : -1
             );
         }
-        const bool ready = app.pbr || (app.model && app.model->ready()) || (app.texture && app.texture->isLoaded());
+        const bool ready = app.pbr || (app.model && app.model->ready()) || (app.character && app.character->ready()) ||
+                           (app.texture && app.texture->isLoaded());
         EM_ASM({ Module.textureReady = Boolean($0); }, ready);
     }
     ComPtr<ITexture> image;

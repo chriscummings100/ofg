@@ -205,3 +205,68 @@ TEST_CASE("camera motion and scaled parented bounds change visibility without a 
     cameraEntity->setLocalRotation(*turn);
     CHECK(buildDrawList(scene, *camera, 1).items.empty());
 }
+
+TEST_CASE("skin palettes cancel placement and mesh transforms and share one snapshot across submeshes")
+{
+    Scene scene;
+    auto camera = scene.createCamera(scene.getRoot());
+    auto base = testMesh();
+    MeshDeformationData deformation;
+    deformation.influenceSets = {std::vector<VertexJointInfluences>(3, {{0, 0, 0, 0}, {1, 0, 0, 0}})};
+    auto mesh = Mesh::create(
+        {base->vertices().begin(), base->vertices().end()},
+        {base->indices().begin(), base->indices().end()},
+        {base->subMeshes().begin(), base->subMeshes().end()},
+        deformation
+    );
+    auto skin = Skin::create({"joint", {{0, math::mat4Translation({-1, 0, 0})}}, {}});
+    MeshRenderer* first = nullptr;
+    for (float placement : {100.f, -100.f})
+    {
+        auto root = scene.createEntity(scene.getRoot());
+        root->setLocalPosition({placement, 0, 3});
+        root->setLocalScale({2, 3, 4});
+        auto entity = scene.createEntity(root);
+        entity->setLocalPosition({2, 0, 0});
+        entity->setLocalScale({2, 1, 1});
+        auto parent = scene.createEntity(root);
+        parent->setLocalPosition({3, 0, 0});
+        auto joint = scene.createEntity(parent);
+        joint->setLocalPosition({4, 0, 0});
+        auto renderer = scene.createMeshRenderer(entity);
+        renderer->setMesh(mesh);
+        renderer->setSkin(skin, {joint});
+        if (!first)
+        {
+            first = renderer;
+        }
+        auto palette = snapshotDeformation(*renderer).palette;
+        // Mesh inverse takes x from root domain to (x - 2)/2; joint +7 and bind -1 give x/2 +2.
+        CHECK(palette[0][0].x == .5f);
+        CHECK(palette[0][3].x == 2);
+        CHECK(palette[0][3].y == 0);
+        CHECK(palette[0][3].z == 0);
+    }
+    auto list = buildDrawList(scene, *camera, 1);
+    REQUIRE(list.deformations.size() == 2);
+    REQUIRE(list.items.size() == 4); // Both static bounds are outside the view.
+    CHECK(list.items[0].deformationJob == list.items[1].deformationJob);
+    CHECK(list.items[2].deformationJob == list.items[3].deformationJob);
+    CHECK(list.deformations[0].storage != list.deformations[1].storage);
+    scene.lighting.outdoor = OutdoorLighting{};
+    auto outdoor = buildDrawList(scene, *camera, 1);
+    REQUIRE(outdoor.shadowCasters.size() == 4);
+    REQUIRE(outdoor.deformations.size() == 2);
+    for (size_t index = 0; index < outdoor.items.size(); ++index)
+    {
+        CHECK(outdoor.shadowCasters[index].deformationJob == outdoor.items[index].deformationJob);
+    }
+    auto storage = first->deformationStorage();
+    first->entity()->setLocalScale({0, 1, 1});
+    CHECK_THROWS_AS(snapshotDeformation(*first), EngineError);
+    first->setMesh(testMesh());
+    CHECK_FALSE(first->deformationStorage());
+    scene.clear();
+    CHECK(list.deformations[0].palette[0][3].x == 2);
+    CHECK(list.deformations[0].storage == storage);
+}

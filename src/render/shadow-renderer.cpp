@@ -99,7 +99,8 @@ void ShadowRenderer::render(const DrawList& frame, std::span<const ShadowDraw> d
         {
             const auto& item = *draw.item;
             auto clip = math::mul(m_cascades[layer].clipFromWorld, item.worldFromLocal);
-            if (!boundsVisible(item.mesh->bounds(), clip))
+            // Rest bounds cannot reject a caster whose vertices were moved by skinning.
+            if (!item.deformationJob && !boundsVisible(item.mesh->bounds(), clip))
             {
                 continue;
             }

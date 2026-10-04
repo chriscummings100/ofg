@@ -1,0 +1,3 @@
+// Embedded compute skinning shader; native and browser use the same explicit byte layout.
+#pragma once
+inline constexpr const char* deformationShader = R"shader(@DEFORMATION_SHADER@)shader";

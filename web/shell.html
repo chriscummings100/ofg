@@ -26,7 +26,9 @@
             floatBits: Number(new URLSearchParams(location.search).get('float') || 0),
             checkerboard: new URLSearchParams(location.search).get('demo') === 'checkerboard',
             pbr: !new URLSearchParams(location.search).has('texture') && !new URLSearchParams(location.search).has('float') &&
-                !['scene','checkerboard','model'].includes(new URLSearchParams(location.search).get('demo')),
+                !['scene','checkerboard','model','character'].includes(new URLSearchParams(location.search).get('demo')),
+            character: new URLSearchParams(location.search).get('demo') === 'character',
+            characterPair: new URLSearchParams(location.search).get('instances') === '2',
             outdoorHours: Math.max(0, Math.min(24, Number(new URLSearchParams(location.search).get("hour") ?? 10))),
             outdoorClouds: Math.max(0, Math.min(1, Number(new URLSearchParams(location.search).get("clouds") ?? .35))),
             outdoor: new URLSearchParams(location.search).get("demo") === "outdoor",
@@ -65,22 +67,22 @@
                 ++this.frameCount;
                 if (this.checkerboard && this.frameCount === 1) this.setStatus('WebGPU checkerboard ready');
                 else if (this.textureReady && ++this.textureFrames === 1)
-                    this.setStatus(this.model ? this.modelStatus + (this.ui ? ' | RMB in Scene to fly' : ' | click to fly: WASD/QE, mouse | R reset') : this.ui ? 'OFG | Terrain Laboratory' : this.pbr ? 'PBR spheres | roughness: left to right | metallic: bottom to top | click to fly: WASD/QE, mouse, Shift | Esc release | R reset | F close-up | 0-4 debug' : 'WebGPU scene ready');
-                else if (this.frameCount === 1) this.setStatus(this.model ? 'Loading model...' : 'Loading textures...');
+                    this.setStatus(this.character ? 'Animated superhero | 45 clips | direct UAL1 mapping' : this.model ? this.modelStatus + (this.ui ? ' | RMB in Scene to fly' : ' | click to fly: WASD/QE, mouse | R reset') : this.ui ? 'OFG | Terrain Laboratory' : this.pbr ? 'PBR spheres | roughness: left to right | metallic: bottom to top | click to fly: WASD/QE, mouse, Shift | Esc release | R reset | F close-up | 0-4 debug' : 'WebGPU scene ready');
+                else if (this.frameCount === 1) this.setStatus(this.character ? 'Loading superhero and UAL1...' : this.model ? 'Loading model...' : 'Loading textures...');
             },
             print: text => console.log(text), printErr: text => console.error(text),
             onAbort: reason => Module.setStatus(`WebAssembly stopped: ${reason}`, true)
         };
         // Pointer lock requires a deliberate canvas gesture. Release/focus loss clears held input.
         Module.canvas.addEventListener('contextmenu', event => { if (Module.ui) event.preventDefault(); });
-        Module.canvas.addEventListener('click', () => { if ((Module.pbr || Module.model) && !Module.ui) Module.canvas.requestPointerLock(); });
+        Module.canvas.addEventListener('click', () => { if ((Module.pbr || Module.model || Module.character) && !Module.ui) Module.canvas.requestPointerLock(); });
         document.addEventListener('mousemove', event => {
             if (!Module.ui && document.pointerLockElement === Module.canvas) {
                 Module.look[0]+=event.movementX; Module.look[1]+=event.movementY;
             }
         });
         document.addEventListener('keydown', event => {
-            if (Module.ui || (!Module.pbr && !Module.model) || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
+            if (Module.ui || (!Module.pbr && !Module.model && !Module.character) || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
             Module.keys.add(event.code);
             if (event.code==='Escape' && document.pointerLockElement) document.exitPointerLock();
             if (event.code==='KeyR') Module.resetCamera=true;

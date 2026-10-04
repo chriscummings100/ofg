@@ -23,7 +23,7 @@ public:
     static State& state();
     // Returns the most recently supplied frame interval in seconds.
     static float deltaSeconds() noexcept;
-    // Updates resources, state, scene, then renders; a null target advances updates only.
+    // Updates resources, state, animations and world transforms, then renders; null target still advances updates.
     static void frame(float deltaSeconds, rhi::ITexture* colorTarget);
     // Releases state and scene without synthesizing leave hooks; may be called repeatedly outside a frame.
     static void shutdown();

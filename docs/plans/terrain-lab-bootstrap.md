@@ -8,8 +8,11 @@ Establish a small C++ terrain laboratory using Slang RHI in both a native Window
 
 ## Progress
 
+- [x] (2026-10-04) Integrated glTF animation with main's outdoor lighting. Scene and shadow passes share compute output and skip skinned rest-bound culling. CPU/native tests and browser animation/outdoor/UI acceptance pass; the [animation record](../archived/gltf-animation.md) contains merge evidence.
+
 - [x] (2026-10-04) Planned [histogram exposure, bloom and SSAO](post-processing.md), including outdoor HDR scaling, browser binding limits, inspection controls and native/browser validation. This is a proposed rendering follow-up; implementation has not started.
 - [x] (2026-10-04 16:10Z) Revised the post-processing proposal per user direction to remove outdoor exposure overrides and the imposed 16-texture budget. A standalone Chrome/Intel gen-12lp probe passed at 17 and 48 sampled textures; application changes remain planned.
+- [x] (2026-10-04) Completed [glTF animation and compute skinning](../archived/gltf-animation.md) in the dedicated gltf-animation worktree: preserved assets, local pose sampling/transport, validated UAL1 mapping, palette snapshots, private compute outputs, character launch modes and Animation controls. CPU/native suites and browser acceptance/regressions pass. D3D12/WebGPU captures and motion evidence demonstrate character playback and independent instances; the archived plan records results and direct-mapping limitations.
 
 - [x] (2026-10-04) Implemented the [dockable ImGui workspace](../archived/imgui-workspace.md) in the managed imgui-workspace worktree. Native/CPU CTest and browser UI/PBR/texture smoke suites pass; screenshots cover docking, settings, persistence and high DPI.
 

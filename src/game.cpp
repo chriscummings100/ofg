@@ -74,6 +74,7 @@ void Game::frame(float deltaSeconds, rhi::ITexture* colorTarget)
     frameSeconds = deltaSeconds;
     Resources::update();
     rootState->update();
+    currentScene->updateAnimations(deltaSeconds);
     currentScene->update();
     if (currentScene->lighting.outdoor)
     {

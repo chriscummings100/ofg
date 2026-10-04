@@ -5,8 +5,46 @@
 #include "core/engine-error.h"
 #include <array>
 #include <algorithm>
+#include <cmath>
 
 namespace ofg {
+DeformationJob snapshotDeformation(const MeshRenderer& renderer)
+{
+    const auto context = "Skin palette for entity '" + renderer.entity()->name() + "': ";
+    if (!renderer.mesh() || !renderer.skin() || !renderer.deformationStorage())
+    {
+        throw EngineError(context + "requires a mesh and skin binding.");
+    }
+    std::string error;
+    auto inverse = math::inverseAffine(renderer.entity()->worldTransform(), error);
+    if (!inverse)
+    {
+        throw EngineError(context + error);
+    }
+    DeformationJob job{renderer.mesh(), renderer.skin(), renderer.deformationStorage(), {}};
+    for (size_t index = 0; index < renderer.joints().size(); ++index)
+    {
+        const auto& joint = renderer.joints()[index];
+        if (!joint)
+        {
+            throw EngineError(context + "joint " + std::to_string(index) + " has expired.");
+        }
+        const auto matrix = math::mul(
+            math::mul(*inverse, joint->worldTransform()),
+            renderer.skin()->desc().joints[index].inverseBindMatrix
+        );
+        for (float value : math::packMat4(matrix))
+        {
+            if (!std::isfinite(value))
+            {
+                throw EngineError(context + "joint " + std::to_string(index) + " produced a non-finite matrix.");
+            }
+        }
+        job.palette.push_back(matrix);
+    }
+    return job;
+}
+
 bool boundsVisible(const Bounds& bounds, const math::Mat4& clipFromLocal) noexcept
 {
     std::array<bool, 6> outside{true, true, true, true, true, true};
@@ -87,10 +125,16 @@ DrawList buildDrawList(const Scene& scene, const Camera& camera, float aspectRat
             continue;
         }
         const auto world = renderer->entity()->worldTransform();
-        bool visible = boundsVisible(mesh->bounds(), math::mul(list.clipFromWorld, world));
+        const bool visible = renderer->skin() || boundsVisible(mesh->bounds(), math::mul(list.clipFromWorld, world));
         if (!visible && !list.outdoor)
         {
             continue;
+        }
+        std::optional<size_t> deformation;
+        if (renderer->skin())
+        {
+            deformation = list.deformations.size();
+            list.deformations.push_back(snapshotDeformation(*renderer));
         }
         for (uint32_t index = 0; index < mesh->subMeshes().size(); ++index)
         {
@@ -107,11 +151,11 @@ DrawList buildDrawList(const Scene& scene, const Camera& camera, float aspectRat
                     if (list.outdoor && renderer->castsShadows() &&
                         material->renderState().alphaMode != AlphaMode::Blend)
                     {
-                        list.shadowCasters.push_back({mesh, index, material, world});
+                        list.shadowCasters.push_back({mesh, index, material, world, deformation});
                     }
                     if (visible)
                     {
-                        list.items.push_back({mesh, index, std::move(material), world});
+                        list.items.push_back({mesh, index, std::move(material), world, deformation});
                     }
                 }
             }

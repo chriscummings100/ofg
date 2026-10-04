@@ -52,10 +52,10 @@ public:
     Camera* createCamera(Entity* entity);
     // Creates one renderer on a live entity in this scene; duplicates/foreign entities throw.
     MeshRenderer* createMeshRenderer(Entity* entity);
-    // Creates one passive Animator on a live entity in this scene; duplicates/foreign entities throw.
+    // Creates one initially unbound Animator on a live entity; duplicates/foreign entities throw.
     Animator* createAnimator(Entity* entity);
     // Stages a loaded model under a live parent, selecting explicit/default/first scene.
-    // Failure leaves existing entities/components untouched. Clips and deformation remain passive.
+    // Failure leaves existing entities/components untouched. Animation is initially unselected and paused.
     ModelInstance instantiateModel(
         std::shared_ptr<Model> model,
         Entity* parent,
@@ -75,6 +75,9 @@ public:
     const Camera* activeCamera() const noexcept { return m_activeCamera.get(); }
     // Refreshes world transforms; concrete components have no per-frame behavior hooks.
     void update();
+    // Advances all animators after state updates and before world-transform resolution, even without rendering.
+    // Rejects non-finite or negative elapsed seconds.
+    void updateAnimations(double deltaSeconds);
 
 private:
     // Checks ownership of a live entity pointer; does not validate dangling raw pointers.
