@@ -23,21 +23,21 @@ within 1e-5 of sample spacing and check edge incidence, including six faces and 
 
 ## State and publication
 
-A nonexistent child group is unloaded. Existing slots are Pending, Loading, Loaded or Failed. Loading includes CPU
+A nonexistent child group is unloaded. Each node has one build slot: Pending, Loading, Loaded or Failed. Loading includes CPU
 work and incremental GPU preparation. Visibility is membership in the published cut, not another mutable node flag.
-A loaded node can be hidden by descendants, waiting for sibling/boundary preparation, or retained until retirement.
+A loaded node can be hidden by descendants, waiting for sibling preparation, or retained until retirement.
 Empty output is a successful payload. Only a conservative emptiness certificate suppresses further subdivision.
 
 | Event | Build state and observable result |
 | --- | --- |
-| Create root or complete child group | New base slots are Pending; the current cut is unchanged. |
-| Reserve a missing sibling base group or boundary variant | Pending slots become Loading with fresh request identities; dispatch follows reservation. |
+| Create root or complete child group | New node slots are Pending; the current cut is unchanged. |
+| Reserve a missing sibling group | Pending slots become Loading with fresh request identities; dispatch follows reservation. |
 | Accept validated CPU geometry | Remains Loading while bounded GPU preparation advances. |
 | Accept prepared geometry or explicit empty result | Becomes Loaded; publication still waits for the complete compatible replacement. |
 | Generation or upload fails | Becomes Failed; existing displayed coverage remains. Explicit retry returns the slot to Pending. |
 | Demand becomes obsolete | Invalidate the request owner; keep its job charged until terminal acknowledgement and retain submitted data until completion. |
 | Candidate is complete and still required | Atomically replace the display cut; build states remain Loaded. |
-| Prune unused content | Remove complete unused groups/variants; payload ownership transfers to retirement where necessary. |
+| Prune unused content | Remove complete unused groups; payload ownership transfers to retirement where necessary. |
 
 Loaded and visible are therefore separate facts. An empty selected payload participates in coverage without issuing a
 draw. A parent can remain Loaded throughout child generation, publication and later coarsening.
@@ -57,7 +57,7 @@ while (!uploads.empty() && uploadAllowance >= 4)
     const bool ready = Graphics::prepareStreamingMesh(*upload.payload->mesh, uploadAllowance);
     if (before != uploadAllowance)
     {
-        stream.submitted({{upload.request.key, upload.payload}}, completion.mark());
+        stream.submitted({{upload.request.address, upload.payload}}, completion.mark());
     }
     if (!ready) break;
     stream.complete(upload.request.id, upload.payload);
@@ -73,19 +73,26 @@ Failure is terminal until explicit retry. Worker callbacks enqueue values and ne
 ```text
 for a proposed split, merge, root admission or withdrawal:
     reconstruct a candidate from the current published cut
-    balance coarse neighbors and derive all fine-side transition masks
-    require candidate variants and every retained ancestor base
-    wait for each node's parent base to become Loaded before dispatching the node
-    reserve each missing sibling base group together; build a large boundary closure in bounded waves
-    publish only after every dependency is Loaded
+    balance coarse neighbors to at most a 2:1 spacing ratio
+    require missing candidate nodes and their retained ancestors
+    wait for each node's parent to become Loaded before dispatching the node
+    reserve each missing sibling group together; build larger balanced replacements in bounded waves
+    once all required nodes are Loaded, derive the active faces from the candidate topology
     allocate the next snapshot before changing admission flags
-    swap the complete snapshot, then prune obsolete content
+    swap nodes and their face masks together, then prune obsolete content
 ```
 
-All eight sibling bases are created and reserved together; their parent base is prepared before dispatch. After publication, one sibling may refine independently.
-Merges proceed bottom-up and reuse retained parent bases. Changing a neighbor may require new transition variants;
-existing visible variants remain owned until the replacement is ready. A newly admitted root also prepares compatible
-neighbors before appearing. Culling affects draw extraction only, never spatial coverage or demand.
+All eight siblings are created and reserved together; their parent is prepared before dispatch. After publication, one sibling may refine independently.
+Merges proceed bottom-up and reuse retained parents. Every generated payload contains regular triangles followed by
+all six transition faces in a shared vertex/index buffer. Eight offsets delimit seven contiguous ranges, including empty
+ranges. Nonempty ranges map to existing Mesh submeshes; no shader or graphics wrapper is needed. The request identity
+contains only the node address and epoch/sequence, never a neighbor mask. CPU/GPU readiness covers the entire payload.
+
+The cut stores a six-bit face mask separately from payload ownership. A change of neighbors updates that mask at atomic
+publication and reuses the same payload; it creates no mesh variant, generation job or upload. Color and shadow draws
+select the same regular/active-face submeshes. All faces are generated even if currently unused; this deliberately trades
+some upfront geometry/storage for simpler switching. An entirely empty result has seven empty ranges and no Mesh.
+A newly admitted root still waits for balanced neighboring node coverage before appearing. Culling affects draw extraction only, never spatial coverage or demand.
 
 Distance uses the observer-to-AABB metric: below two node widths requests children; above 2.5 widths requests the
 parent. Equality and the intervening band preserve demand. Root demand is 4096 metres with 5120-metre retention.
@@ -112,7 +119,7 @@ The runtime reserves up to 4 MiB for each of at most 32 outstanding payloads. CP
 another 128 MiB is an allowance for worker storage, scratch, transport and metadata. These counters are not process RSS
 or exact allocator/driver residency. Each job's scratch allocator has a hard 16 MiB limit, and each browser worker heap
 has a 48 MiB maximum. GPU payloads have a 256 MiB budget. Upload submission is limited to 4 MiB per frame
-and 16 MiB of incomplete staging. Counts include retained ancestors, variants, cancelled requests and retired payloads.
+and 16 MiB of incomplete staging. Counts include retained ancestors, cancelled requests and retired payloads.
 Driver allocation alignment and the preexisting renderer's lighting resources are outside the terrain payload ledger.
 
 `Graphics::prepareStreamingMesh` creates immutable destination buffers and submits aligned chunks. Rendering rejects
@@ -152,3 +159,5 @@ The implementation is a terrain laboratory, and the explicit metadata/worker all
 process memory accounting. Shared-edge tests establish the defined geometric tolerance, not pixel identity across GPUs.
 
 The [streaming repair plan](archived/terrain-streaming-repair.md) records the subsequent priority, LOD-band and frame-cost fixes.
+
+The [completed prebuilt transition plan](archived/terrain-prebuilt-transitions.md) records the node-owned seven-part mesh simplification.

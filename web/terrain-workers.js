@@ -62,8 +62,8 @@ globalThis.TerrainWorkerPool = class {
         }
     }
     release() {
-        for (const job of this.queue) new DataView(job.wire.buffer).setUint32(100,
-            new DataView(job.wire.buffer).getUint32(100,true) & ~1, true);
+        for (const job of this.queue) new DataView(job.wire.buffer).setUint32(96,
+            new DataView(job.wire.buffer).getUint32(96,true) & ~1, true);
         for (const slot of this.workers) slot.worker.postMessage({type:'release'});
     }
     failWorker(slot, error) {

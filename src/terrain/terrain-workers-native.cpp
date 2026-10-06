@@ -66,12 +66,7 @@ struct TerrainWorkers::State
                     {
                         throw EngineError("Injected terrain generation failure.");
                     }
-                    TerrainMesher mesher(
-                        task->request.key.address,
-                        task->request.key.transitionFaces,
-                        task->generator,
-                        task->request.byteLimit
-                    );
+                    TerrainMesher mesher(task->request.address, task->generator, task->request.byteLimit);
                     while (!task->cancelled && !mesher.step(256))
                     {
                     }

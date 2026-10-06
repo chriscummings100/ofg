@@ -60,7 +60,7 @@ private:
     std::deque<Upload> m_uploads;
     std::deque<std::pair<uint64_t, size_t>> m_staging;
     std::vector<terrain::CutEntry> m_snapshot;
-    std::vector<terrain::ContentKey> m_failures;
+    std::vector<terrain::NodeAddress> m_failures;
     std::shared_ptr<Material> m_material;
     std::array<std::shared_ptr<Material>, 7> m_lodMaterials;
     bool m_freeze = false, m_lodColors = false, m_holdNext = false, m_failNext = false, m_bounds = false;

@@ -17,9 +17,9 @@ try {
         window.packet=(sequence,flags=0)=>{
             const bytes=new Uint8Array(104),view=new DataView(bytes.buffer);
             view.setBigUint64(0,1n,true);view.setBigUint64(8,BigInt(sequence),true);
-            view.setBigUint64(40,1n,true);view.setUint32(68,32,true);
-            view.setFloat64(72,1024,true);view.setFloat64(80,24,true);view.setFloat64(88,180,true);
-            view.setUint32(96,4*1024*1024,true);view.setUint32(100,flags,true);
+            view.setBigUint64(40,1n,true);view.setUint32(88,32,true);
+            view.setFloat64(64,1024,true);view.setFloat64(72,24,true);view.setFloat64(80,180,true);
+            view.setUint32(92,4*1024*1024,true);view.setUint32(96,flags,true);
             return bytes;
         };
         window.heartbeat=0;
@@ -28,8 +28,15 @@ try {
     });
     await page.waitForFunction(()=>pool.results.length===1&&heartbeat>=3,null,{timeout:30000});
     report.independent=await page.evaluate(()=>({worker:pool.results[0].worker,outcome:pool.results[0].outcome,
-        vertices:pool.results[0].vertices.length,held:pool.workers.find(w=>w.job)?.index,heartbeat}));
+        error:pool.results[0].error,vertices:pool.results[0].vertices?.length,indices:pool.results[0].indices?.length/4,
+        parts:pool.results[0].partOffsets ? Array.from(pool.results[0].partOffsets) : [],
+        held:pool.workers.find(w=>w.job)?.index,heartbeat}));
     assert.equal(report.independent.outcome,0);assert.ok(report.independent.vertices>0);
+    assert.equal(report.independent.parts.length,8);
+    assert.equal(report.independent.parts[0],0);
+    assert.equal(report.independent.parts[7],report.independent.indices);
+    for(let i=1;i<8;++i){assert.ok(report.independent.parts[i]>=report.independent.parts[i-1]);assert.equal(report.independent.parts[i]%3,0);}
+    assert.ok(report.independent.parts[7]>report.independent.parts[1]);
     assert.notEqual(report.independent.worker,report.independent.held);
     await page.evaluate(()=>pool.cancel(packet(1)));
     await page.waitForFunction(()=>pool.results.length===2,null,{timeout:30000});

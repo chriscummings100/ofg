@@ -1719,6 +1719,60 @@ TEST_CASE("Terrain GPU preparation stays bounded and draws only complete geometr
     CHECK(pixel[1] > pixel[0]);
 }
 
+TEST_CASE("Terrain GPU prebuilt parts toggle without further mesh uploads")
+{
+    GraphicsFixture fixture;
+    auto material = flatMaterial({0, 1, 0, 1});
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
+    std::vector<SubMesh> parts;
+    // Seven disjoint patches make each selected range independently observable in the readback.
+    for (uint32_t part = 0; part < 7; ++part)
+    {
+        const float x = -0.75f + part * 0.25f;
+        const auto firstVertex = uint32_t(vertices.size());
+        vertices.insert(
+            vertices.end(),
+            {{{x - .08f, -.2f, .5f}, {}, {}},
+             {{x + .08f, -.2f, .5f}, {}, {}},
+             {{x + .08f, .2f, .5f}, {}, {}},
+             {{x - .08f, .2f, .5f}, {}, {}}}
+        );
+        parts.push_back({uint32_t(indices.size()), 6, material});
+        for (uint32_t index : {0u, 1u, 2u, 0u, 2u, 3u})
+        {
+            indices.push_back(firstVertex + index);
+        }
+    }
+    auto mesh = Mesh::create(std::move(vertices), std::move(indices), std::move(parts));
+    size_t allowance = 1 << 20;
+    REQUIRE(Graphics::prepareStreamingMesh(*mesh, allowance));
+    const auto allocated = Graphics::streamingMeshGpuBytes(*mesh);
+    auto target = fixture.target(rhi::Format::RGBA8Unorm, 128, 96);
+    for (unsigned mask : {0u, 21u, 42u, 63u, 0u})
+    {
+        DrawList draws;
+        draws.items.push_back({mesh, 0, material, math::mat4Identity(), {}});
+        for (unsigned face = 0; face < 6; ++face)
+        {
+            if (mask & (1u << face))
+            {
+                draws.items.push_back({mesh, face + 1, material, math::mat4Identity(), {}});
+            }
+        }
+        allowance = 0;
+        CHECK(Graphics::prepareStreamingMesh(*mesh, allowance));
+        Graphics::render(draws, target);
+        for (unsigned part = 0; part < 7; ++part)
+        {
+            const auto pixel = fixture.pixel(target, 16 + part * 16, 48);
+            const bool selected = part == 0 || (mask & (1u << (part - 1)));
+            CHECK((pixel[1] > 200 && pixel[0] < 10) == selected);
+        }
+        CHECK(Graphics::streamingMeshGpuBytes(*mesh) == allocated);
+    }
+}
+
 TEST_CASE("Terrain laboratory renders asynchronously generated native geometry")
 {
     GraphicsFixture fixture;
@@ -1899,7 +1953,7 @@ TEST_CASE("Terrain stationary profile" * doctest::skip())
         size_t triangles = 0;
         for (const auto& item : list.items)
         {
-            triangles += item.mesh->indices().size() / 3;
+            triangles += item.mesh->subMeshes()[item.subMeshIndex].indexCount / 3;
         }
         report << elapsed << ',' << updateMs << ',' << extractMs << ',' << renderMs << ',' << waitMs << ','
                << d.selected << ',' << d.jobs << ',' << d.residentCpuBytes << ',' << d.budgetBlocked << ','

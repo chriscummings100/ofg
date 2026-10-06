@@ -10,16 +10,35 @@
 using namespace ofg::terrain;
 
 namespace {
-// Builds a small fixture using bounded steps, as the production worker does.
+// Builds all seven parts, then selects the requested faces as the renderer does for the topology oracle.
 TerrainGeometry mesh(NodeAddress node, uint8_t mask, GeneratorSettings settings)
 {
-    TerrainMesher mesher(node, mask, settings, 16 << 20);
+    TerrainMesher mesher(node, settings, 16 << 20);
     size_t steps = 0;
     while (!mesher.step(37))
     {
         REQUIRE(++steps < 100000);
     }
-    return mesher.takeGeometry();
+    auto geometry = mesher.takeGeometry();
+    std::vector<uint32_t> selected;
+    for (unsigned part = 0; part < 7; ++part)
+    {
+        if (part == 0 || (mask & (1u << (part - 1))))
+        {
+            selected.insert(
+                selected.end(),
+                geometry.indices.begin() + geometry.partOffsets[part],
+                geometry.indices.begin() + geometry.partOffsets[part + 1]
+            );
+        }
+    }
+    if (mask != 63)
+    {
+        geometry.indices = std::move(selected);
+        geometry.partOffsets.fill(uint32_t(geometry.indices.size()));
+        geometry.partOffsets[0] = 0;
+    }
+    return geometry;
 }
 
 using Point = std::array<int64_t, 3>;
@@ -172,13 +191,14 @@ TEST_SUITE("terrain-fast")
         s.heightOffset = 4;
         s.amplitude = 3;
         auto a = mesh({}, 63, s);
-        TerrainMesher mesher({}, 63, s, 16 << 20);
+        TerrainMesher mesher({}, s, 16 << 20);
         while (!mesher.step(1))
         {
         }
         auto b = mesher.takeGeometry();
         REQUIRE(a.vertices.size() == b.vertices.size());
         CHECK(a.indices == b.indices);
+        CHECK(a.partOffsets == b.partOffsets);
         for (size_t i = 0; i < a.vertices.size(); ++i)
         {
             CHECK(a.vertices[i].position.x == b.vertices[i].position.x);
@@ -228,8 +248,11 @@ TEST_SUITE("terrain-fast")
         TerrainGeometry geometry;
         geometry.vertices.resize(3);
         geometry.indices = {0, 1, 3};
+        geometry.partOffsets.fill(3);
+        geometry.partOffsets[0] = 0;
         CHECK_THROWS(validateGeometry(geometry, 8, 4096));
         geometry.indices[2] = 2;
+        CHECK_NOTHROW(validateGeometry(geometry, 8, 4096));
         geometry.vertices[0].position.x = 9;
         CHECK_THROWS(validateGeometry(geometry, 8, 4096));
         geometry.vertices[0].position.x = std::numeric_limits<float>::quiet_NaN();
@@ -238,6 +261,43 @@ TEST_SUITE("terrain-fast")
         CHECK_THROWS(validateGeometry(geometry, 8, 1));
         geometry.certifiedEmpty = true;
         CHECK_THROWS(validateGeometry(geometry, 8, 4096));
+    }
+}
+
+TEST_SUITE("terrain-fast")
+{
+    TEST_CASE("Prebuilt face ranges partition one buffer and reject malformed boundaries")
+    {
+        GeneratorSettings settings;
+        settings.rootWidth = 8;
+        settings.intervals = 8;
+        settings.heightOffset = 4;
+        settings.amplitude = 9;
+        auto geometry = mesh({}, 63, settings);
+        REQUIRE_NOTHROW(validateGeometry(geometry, 8, 16 << 20));
+        REQUIRE(geometry.partOffsets[1] > 0);
+        REQUIRE(geometry.partOffsets.back() > geometry.partOffsets[1]);
+        for (unsigned face = 0; face < 6; ++face)
+        {
+            for (size_t i = geometry.partOffsets[face + 1]; i < geometry.partOffsets[face + 2]; ++i)
+            {
+                const auto p = geometry.vertices[geometry.indices[i]].position;
+                const float coordinate = face / 2 == 0 ? p.x : face / 2 == 1 ? p.y : p.z;
+                CHECK(coordinate == (face & 1 ? 8.f : 0.f));
+            }
+        }
+        const auto offsets = geometry.partOffsets;
+        geometry.partOffsets[0] = 3;
+        CHECK_THROWS(validateGeometry(geometry, 8, 16 << 20));
+        geometry.partOffsets = offsets;
+        geometry.partOffsets[2] = offsets[1] - 3;
+        CHECK_THROWS(validateGeometry(geometry, 8, 16 << 20));
+        geometry.partOffsets = offsets;
+        geometry.partOffsets[2] = offsets[1] + 1;
+        CHECK_THROWS(validateGeometry(geometry, 8, 16 << 20));
+        geometry.partOffsets = offsets;
+        geometry.partOffsets[7] += 3;
+        CHECK_THROWS(validateGeometry(geometry, 8, 16 << 20));
     }
 }
 

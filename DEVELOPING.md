@@ -449,3 +449,11 @@ frame rate, terrain-update time, finest surface cell width, remaining refinement
 
 The [completed streaming repair](docs/archived/terrain-streaming-repair.md) records the seven-band convergence tests,
 native timing comparisons, browser checks and remaining limitations verified on 2026-10-05.
+
+Terrain nodes now generate a regular mesh and all six transition faces in one job. The published cut selects face
+submeshes without rebuilding or reuploading a node when neighbors change. The worker WASM, worker scripts and main
+browser application must be deployed together because the result protocol includes eight index-range boundaries.
+`Terrain GPU prebuilt parts*` in the native rendering suite checks draw-range toggling without further uploads;
+the CPU terrain-fast suite checks payload identity, no regeneration, range validation and six-face/corner continuity.
+The [completed prebuilt transition plan](docs/archived/terrain-prebuilt-transitions.md) records native and browser
+validation on 2026-10-06, lower payload residency and the unresolved increase in measured frame cost.

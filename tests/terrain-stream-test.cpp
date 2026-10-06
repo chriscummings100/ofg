@@ -53,16 +53,16 @@ bool coverageValid(
     std::map<CellAddress, std::vector<unsigned>> grids;
     for (const auto& entry : snapshot)
     {
-        if (entry.key.address.depth > maximumDepth || !expectedRoots.contains(entry.key.address.cell))
+        if (entry.address.depth > maximumDepth || !expectedRoots.contains(entry.address.cell))
         {
             return false;
         }
-        auto& grid = grids[entry.key.address.cell];
+        auto& grid = grids[entry.address.cell];
         if (grid.empty())
         {
             grid.resize(side * side * side);
         }
-        const auto& a = entry.key.address;
+        const auto& a = entry.address;
         if (a.x >= (1u << a.depth) || a.y >= (1u << a.depth) || a.z >= (1u << a.depth))
         {
             return false;
@@ -102,7 +102,7 @@ void checkCoverage(const TerrainStream& stream, unsigned maximumDepth = 3)
     std::set<CellAddress> roots;
     for (const auto& entry : stream.cut())
     {
-        roots.insert(entry.key.address.cell);
+        roots.insert(entry.address.cell);
     }
     REQUIRE(coverageValid(stream.cut(), roots, maximumDepth));
     CHECK(roots.size() == stream.diagnostics().admittedRoots);
@@ -218,10 +218,10 @@ TEST_SUITE("terrain-fast")
         }
         stream.update();
         REQUIRE(stream.cut().size() == 8);
-        stream.setRefinement(jobs[0].key.address, true);
+        stream.setRefinement(jobs[0].address, true);
         stream.update();
         CHECK(stream.takeRequests().empty());
-        stream.setRefinement(jobs[1].key.address, true);
+        stream.setRefinement(jobs[1].address, true);
         stream.update();
         CHECK_FALSE(stream.takeRequests().empty());
         checkCoverage(stream);
@@ -237,23 +237,10 @@ TEST_SUITE("terrain-fast")
             finish(stream, job);
         }
         stream.update();
-        auto first = jobs[0].key.address;
-        split(stream, first); // Fetching requests transfers ownership, so complete the retained identities below.
-        // Newly requested variants include seams on neighboring siblings as well as the eight child bases.
-        for (const auto& child : childAddresses(first))
+        auto first = jobs[0].address;
+        for (const auto& job : split(stream, first))
         {
-            stream.setRefinement(child, false);
-        }
-        // Restart this independent phase by explicitly completing every current slot identity.
-        for (const auto& child : childAddresses(first))
-        {
-            for (uint8_t mask = 0; mask < 64; ++mask)
-            {
-                if (auto request = stream.request({child, mask}))
-                {
-                    finish(stream, {*request, {child, mask}, 8});
-                }
-            }
+            finish(stream, job);
         }
         settle(stream);
         CHECK(stream.cut().size() == 15);
@@ -263,8 +250,8 @@ TEST_SUITE("terrain-fast")
         stream.setRefinement(parent, false);
         settle(stream);
         REQUIRE(stream.cut().size() == 1);
-        CHECK(stream.cut()[0].key.address == parent);
-        CHECK(stream.state({parent, 0}) == BuildState::Loaded);
+        CHECK(stream.cut()[0].address == parent);
+        CHECK(stream.state(parent) == BuildState::Loaded);
     }
 
     TEST_CASE("S14 S15 S16 S19 cancellation incarnation duplicate and retry")
@@ -319,9 +306,9 @@ TEST_SUITE("terrain-fast")
             }
             stream.update();
             REQUIRE(stream.cut().size() == 1);
-            CHECK(stream.cut()[0].key.address == parent);
+            CHECK(stream.cut()[0].address == parent);
             CHECK(stream.takeRequests().empty());
-            stream.retry(jobs[failed].key);
+            stream.retry(jobs[failed].address);
             settle(stream);
             CHECK(stream.cut().size() == 8);
         }
@@ -462,7 +449,7 @@ TEST_SUITE("terrain-fast")
         CHECK(stream.diagnostics().jobs == 0);
     }
 
-    TEST_CASE("S20 S21 S22 cross root refinement waits for balancing and correct boundary variants")
+    TEST_CASE("S20 S21 S22 cross root refinement waits for balanced siblings then selects prebuilt boundaries")
     {
         TerrainStream stream(settings(8192));
         auto a = root(stream);
@@ -481,27 +468,15 @@ TEST_SUITE("terrain-fast")
 
         auto rightChild = childAddresses(a)[1];
         const auto jobs = split(stream, rightChild);
-        REQUIRE(jobs.size() >= 16); // Neighbor's full sibling group plus the requested child group.
-        std::vector<BuildRequest> boundaries;
-        for (const auto& job : jobs)
+        REQUIRE(jobs.size() == 16); // Both sibling groups; boundary selection needs no additional jobs.
+        for (size_t i = 0; i + 1 < jobs.size(); ++i)
         {
-            if (job.key.transitionFaces)
-            {
-                boundaries.push_back(job);
-            }
-            else
-            {
-                finish(stream, job);
-            }
+            finish(stream, jobs[i]);
         }
-        REQUIRE_FALSE(boundaries.empty());
         stream.update();
         CHECK(stream.cut().size() == 9);
         checkCoverage(stream);
-        for (const auto& job : boundaries)
-        {
-            finish(stream, job);
-        }
+        finish(stream, jobs.back());
         settle(stream);
         CHECK(stream.cut().size() == 23);
         checkCoverage(stream);
@@ -509,15 +484,80 @@ TEST_SUITE("terrain-fast")
         // New neighbor demand can replace previously valid masks; the oracle checks actual adjacency each frame.
         for (const auto& entry : stream.cut())
         {
-            if (entry.key.address.depth == 2)
+            if (entry.address.depth == 2)
             {
-                stream.setRefinement(parentAddress(entry.key.address), false);
+                stream.setRefinement(parentAddress(entry.address), false);
             }
         }
         stream.setRefinement(a, false);
         stream.setRefinement(b, false);
         settle(stream);
         CHECK(stream.cut().size() == 2);
+    }
+
+    TEST_CASE("Neighbor refinement and coarsening toggle prebuilt faces without rebuilding loaded nodes")
+    {
+        TerrainStream stream(settings());
+        const auto a = root(stream);
+        const auto b = root(stream, {1, 0, 0});
+        for (const auto& job : split(stream, a))
+        {
+            finish(stream, job);
+        }
+        settle(stream);
+        const auto initial = stream.cut();
+        size_t faces = 0;
+        for (const auto& entry : initial)
+        {
+            if (entry.address.cell == a.cell && entry.address.x == 1)
+            {
+                CHECK(entry.transitionFaces == 2);
+                ++faces;
+            }
+        }
+        REQUIRE(faces == 4);
+        const auto jobs = split(stream, b);
+        REQUIRE(jobs.size() == 8);
+        for (size_t i = 0; i < jobs.size(); ++i)
+        {
+            CHECK(jobs[i].address.cell == b.cell);
+            finish(stream, jobs[i]);
+            stream.update();
+            if (i + 1 < jobs.size())
+            {
+                CHECK(stream.cut().size() == 9);
+            }
+        }
+        REQUIRE(stream.cut().size() == 16);
+        CHECK(stream.takeRequests().empty());
+        for (const auto& entry : stream.cut())
+        {
+            CHECK(entry.transitionFaces == 0);
+            if (entry.address.cell == a.cell)
+            {
+                const auto original = std::find_if(
+                    initial.begin(),
+                    initial.end(),
+                    [&](const auto& value)
+                    {
+                        return value.address == entry.address;
+                    }
+                );
+                REQUIRE(original != initial.end());
+                CHECK(entry.payload == original->payload);
+            }
+        }
+        stream.setRefinement(b, false);
+        stream.update();
+        REQUIRE(stream.cut().size() == initial.size());
+        CHECK(stream.takeRequests().empty());
+        for (size_t i = 0; i < initial.size(); ++i)
+        {
+            CHECK(stream.cut()[i].address == initial[i].address);
+            CHECK(stream.cut()[i].payload == initial[i].payload);
+            CHECK(stream.cut()[i].transitionFaces == initial[i].transitionFaces);
+        }
+        checkCoverage(stream);
     }
 
     TEST_CASE("S23 S25 S26 independent coverage progresses while another split is held")
@@ -543,7 +583,7 @@ TEST_SUITE("terrain-fast")
             CHECK_FALSE(stream.complete(job.id, payload(true)));
         }
         REQUIRE(stream.cut().size() == 1);
-        CHECK(stream.cut()[0].key.address.cell == destination);
+        CHECK(stream.cut()[0].address.cell == destination);
         checkCoverage(stream);
     }
 }
@@ -599,7 +639,7 @@ TEST_SUITE("terrain-randomized")
             root(stream, {1, 0, 0});
             std::map<RequestId, ExternalJob> jobs;
             std::set<NodeAddress> touched{{}, NodeAddress{{1, 0, 0}}};
-            std::set<ContentKey> failures;
+            std::set<NodeAddress> failures;
             std::vector<RequestId> cancelled;
             for (unsigned operation = 0; operation < 5000; ++operation)
             {
@@ -608,7 +648,7 @@ TEST_SUITE("terrain-randomized")
                 trace << operation << " choice " << choice;
                 if (choice < 2 && !stream.cut().empty())
                 {
-                    auto address = stream.cut()[random() % stream.cut().size()].key.address;
+                    auto address = stream.cut()[random() % stream.cut().size()].address;
                     trace << " node " << address.cell.x << ',' << address.cell.y << ',' << address.cell.z << '/'
                           << unsigned(address.depth) << '/' << address.x << ',' << address.y << ',' << address.z;
                     if (choice == 0 && address.depth < 3 && stream.cut().size() < 40)
@@ -643,7 +683,7 @@ TEST_SUITE("terrain-randomized")
                     }
                     else if (choice == 3)
                     {
-                        failures.insert(job.request.key);
+                        failures.insert(job.request.address);
                         stream.fail(
                             job.request.id,
                             "seeded failure",
@@ -703,7 +743,7 @@ TEST_SUITE("terrain-randomized")
             }
             for (const auto& [id, job] : jobs)
             {
-                if (stream.request(job.request.key) == id)
+                if (stream.request(job.request.address) == id)
                 {
                     if (job.generated || stream.acceptGenerated(id, 1))
                     {
@@ -757,7 +797,7 @@ TEST_SUITE("terrain-fast")
         const auto jobs = split(stream, a);
         auto partial = payload();
         REQUIRE(stream.acceptGenerated(jobs[0].id, partial->cpuBytes));
-        stream.submitted({{jobs[0].key, partial}}, 1);
+        stream.submitted({{jobs[0].address, partial}}, 1);
         stream.failUpload(jobs[0].id, partial, "injected partial upload allocation failure");
         stream.failUpload(jobs[0].id, partial, "duplicate upload failure");
         partial.reset();
@@ -801,9 +841,9 @@ TEST_SUITE("terrain-fast")
         REQUIRE_FALSE(admission.empty());
         for (const auto& job : admission)
         {
-            if (job.key.address.cell == CellAddress{1, 0, 0})
+            if (job.address.cell == CellAddress{1, 0, 0})
             {
-                CHECK(job.key.address.depth == 0);
+                CHECK(job.address.depth == 0);
             }
         }
         for (size_t i = 0; i < admission.size(); ++i)
@@ -834,7 +874,7 @@ TEST_SUITE("terrain-fast")
         std::vector<CutEntry> snapshot;
         for (const auto& child : childAddresses({}))
         {
-            snapshot.push_back({{child}, payload()});
+            snapshot.push_back({child, payload()});
         }
         REQUIRE(coverageValid(snapshot, expected, 3));
         auto broken = snapshot;
@@ -847,7 +887,7 @@ TEST_SUITE("terrain-fast")
         CHECK_FALSE(coverageValid(broken, expected, 3));
         CHECK_FALSE(coverageValid({}, expected, 3));
         broken = snapshot;
-        broken.front().key.address.x = 2;
+        broken.front().address.x = 2;
         CHECK_FALSE(coverageValid(broken, expected, 3));
         CHECK_FALSE(coverageValid(snapshot, {{1, 0, 0}}, 3));
     }
@@ -870,7 +910,7 @@ TEST_SUITE("terrain-fast")
         stream.setRefinement({{1000000000, 0, 0}}, false);
         settle(stream);
         CHECK(stream.cut().size() == 1);
-        CHECK(stream.cut().front().key.address.cell.x == 1000000000);
+        CHECK(stream.cut().front().address.cell.x == 1000000000);
     }
 }
 
@@ -896,7 +936,7 @@ TEST_SUITE("terrain-fast")
             stream.update();
             for (const auto& request : stream.takeRequests())
             {
-                const auto distance = distanceToNode(request.key.address, observer, config.rootWidth);
+                const auto distance = distanceToNode(request.address, observer, config.rootWidth);
                 CHECK(distance >= previous);
                 previous = distance;
                 ++dispatched;
@@ -940,8 +980,8 @@ TEST_SUITE("terrain-fast")
             }
             for (const auto& request : requests)
             {
-                REQUIRE(request.key.address.depth == 1);
-                const auto distance = distanceToNode(parentAddress(request.key.address), observer, config.rootWidth);
+                REQUIRE(request.address.depth == 1);
+                const auto distance = distanceToNode(parentAddress(request.address), observer, config.rootWidth);
                 CHECK(distance >= previous);
                 previous = distance;
                 ++dispatched;
@@ -1007,7 +1047,7 @@ TEST_SUITE("terrain-fast")
         stream.update();
         const auto requests = stream.takeRequests();
         REQUIRE(requests.size() == 1);
-        CHECK(requests[0].key.address.cell == CellAddress{10, 0, 0});
+        CHECK(requests[0].address.cell == CellAddress{10, 0, 0});
     }
 }
 

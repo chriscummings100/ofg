@@ -151,14 +151,14 @@ void TerrainLaboratory::receiveResults()
         if (result.outcome == terrain::WorkerOutcome::Failed)
         {
             m_error = result.error;
-            m_failures.push_back(result.request.key);
+            m_failures.push_back(result.request.address);
             m_stream.fail(result.request.id, result.error);
             continue;
         }
         try
         {
-            const auto& key = result.request.key;
-            terrain::validateGeometry(result.geometry, 1024.0 / (1u << key.address.depth), result.request.byteLimit);
+            const auto& address = result.request.address;
+            terrain::validateGeometry(result.geometry, 1024.0 / (1u << address.depth), result.request.byteLimit);
             auto payload = std::make_shared<terrain::PreparedPayload>();
             payload->empty = result.geometry.indices.empty();
             payload->certifiedEmpty = result.geometry.certifiedEmpty;
@@ -174,17 +174,24 @@ void TerrainLaboratory::receiveResults()
             {
                 continue;
             }
-            const auto count = uint32_t(result.geometry.indices.size());
-            payload->mesh = Mesh::create(
-                std::move(result.geometry.vertices),
-                std::move(result.geometry.indices),
-                {{0, count, m_material}}
-            );
+            std::vector<SubMesh> parts;
+            for (size_t part = 0; part < 7; ++part)
+            {
+                const auto first = result.geometry.partOffsets[part];
+                const auto count = result.geometry.partOffsets[part + 1] - first;
+                if (count)
+                {
+                    payload->partSubMeshes[part] = int8_t(parts.size());
+                    parts.push_back({first, count, m_material});
+                }
+            }
+            payload->mesh =
+                Mesh::create(std::move(result.geometry.vertices), std::move(result.geometry.indices), std::move(parts));
             m_uploads.push_back({result.request, std::move(payload)});
         } catch (const std::exception& error)
         {
             m_error = error.what();
-            m_failures.push_back(result.request.key);
+            m_failures.push_back(result.request.address);
             m_stream.fail(result.request.id, m_error, terrain::FailureStage::Upload);
         }
     }
@@ -206,7 +213,7 @@ void TerrainLaboratory::upload()
     size_t allowance = std::min(size_t(4 << 20), size_t(16 << 20) - staging);
     for (auto i = m_uploads.begin(); i != m_uploads.end();)
     {
-        if (m_stream.request(i->request.key) != i->request.id)
+        if (m_stream.request(i->request.address) != i->request.id)
         {
             i->payload->gpuBytes = Graphics::streamingMeshGpuBytes(*i->payload->mesh);
             m_stream.complete(i->request.id, i->payload); // Obsolete payload enters retirement, never the cut.
@@ -231,14 +238,14 @@ void TerrainLaboratory::upload()
         if (before != allowance)
         {
             i->payload->lastSubmission = m_completion.mark();
-            m_stream.submitted({{i->request.key, i->payload}}, i->payload->lastSubmission);
+            m_stream.submitted({{i->request.address, i->payload}}, i->payload->lastSubmission);
             m_staging.push_back({i->payload->lastSubmission, before - allowance});
         }
         if (!error.empty())
         {
             i->payload->gpuBytes = Graphics::streamingMeshGpuBytes(*i->payload->mesh);
             m_error = error;
-            m_failures.push_back(i->request.key);
+            m_failures.push_back(i->request.address);
             m_stream.failUpload(i->request.id, i->payload, error);
             i = m_uploads.erase(i);
         }
@@ -323,20 +330,25 @@ void TerrainLaboratory::append(DrawList& list)
         {
             continue;
         }
-        const auto minimum = terrain::relativeMinimum(entry.key.address, m_camera, 1024);
+        const auto minimum = terrain::relativeMinimum(entry.address, m_camera, 1024);
         auto transform = math::mat4Identity();
         transform[3] = {float(minimum[0]), float(minimum[1]), float(minimum[2]), 1};
-        DrawItem item{
-            entry.payload->mesh,
-            0,
-            m_lodColors ? m_lodMaterials[entry.key.address.depth] : m_material,
-            transform,
-            {}
-        };
-        list.shadowCasters.push_back(item);
-        if (boundsVisible(item.mesh->bounds(), math::mul(list.clipFromWorld, transform)))
+        DrawItem
+            item{entry.payload->mesh, 0, m_lodColors ? m_lodMaterials[entry.address.depth] : m_material, transform, {}};
+        const bool visible = boundsVisible(item.mesh->bounds(), math::mul(list.clipFromWorld, transform));
+        for (unsigned part = 0; part < 7; ++part)
         {
-            list.items.push_back(item);
+            const auto subMesh = entry.payload->partSubMeshes[part];
+            if (subMesh < 0 || (part && !(entry.transitionFaces & (1u << (part - 1)))))
+            {
+                continue;
+            }
+            item.subMeshIndex = uint32_t(subMesh);
+            list.shadowCasters.push_back(item);
+            if (visible)
+            {
+                list.items.push_back(item);
+            }
         }
     }
 }

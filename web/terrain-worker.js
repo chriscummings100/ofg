@@ -24,8 +24,10 @@ function finish(outcome, error = '') {
         const ip = module._terrainIndices(), ib = module._terrainIndexBytes();
         message.vertices = module.HEAPU8.slice(vp, vp + vb);
         message.indices = module.HEAPU8.slice(ip, ip + ib);
+        const parts = module._terrainPartOffsets();
+        message.partOffsets = new Uint32Array(module.HEAPU8.slice(parts, parts + 32).buffer);
         message.certifiedEmpty = Boolean(module._terrainCertifiedEmpty());
-        transfer.push(message.vertices.buffer, message.indices.buffer);
+        transfer.push(message.vertices.buffer, message.indices.buffer, message.partOffsets.buffer);
     }
     module._terrainDiscard();
     current = undefined;
@@ -61,7 +63,7 @@ function step() {
 onmessage = ({data}) => {
     if (data.type === 'build') {
         if (current) throw new Error('Terrain worker received overlapping requests.');
-        const flags = new DataView(data.wire.buffer).getUint32(100, true);
+        const flags = new DataView(data.wire.buffer).getUint32(96, true);
         current = { ...data, held: Boolean(flags & 1), fail: Boolean(flags & 2), started: false };
         schedule();
     } else if (data.type === 'cancel' && current?.key === data.key) {

@@ -35,14 +35,14 @@ TEST_SUITE("terrain-bands")
             // Check the entire dispatch before completing anything: ordering within one batch cannot hide a violation.
             for (const auto& request : requests)
             {
-                if (request.key.address.depth)
+                if (request.address.depth)
                 {
-                    REQUIRE(stream.state({parentAddress(request.key.address), 0}) == BuildState::Loaded);
+                    REQUIRE(stream.state(parentAddress(request.address)) == BuildState::Loaded);
                 }
             }
             for (const auto& request : requests)
             {
-                const auto& a = request.key.address;
+                const auto& a = request.address;
                 const double width = std::ldexp(1024., -a.depth);
                 const double y = a.y * width;
                 const bool empty = y > surfaceY || y + width < surfaceY;
@@ -79,7 +79,7 @@ TEST_SUITE("terrain-bands")
             {
                 continue;
             }
-            const auto& a = entry.key.address;
+            const auto& a = entry.address;
             const double width = std::ldexp(1024., -a.depth);
             depths.insert(a.depth);
             output << double(a.cell.x) * 1024 + a.x * width << ',' << double(a.cell.z) * 1024 + a.z * width << ','
@@ -98,7 +98,7 @@ TEST_SUITE("terrain-bands")
                 unsigned matches = 0, actualDepth = 0;
                 for (const auto& entry : stream.cut())
                 {
-                    const auto& a = entry.key.address;
+                    const auto& a = entry.address;
                     if (a.cell != point.cell)
                     {
                         continue;

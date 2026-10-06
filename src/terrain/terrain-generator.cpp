@@ -154,6 +154,17 @@ double terrainHeight(CellAddress cell, double x, double z, const GeneratorSettin
 
 void validateGeometry(const TerrainGeometry& geometry, double width, size_t limit)
 {
+    if (geometry.partOffsets.front() != 0 || geometry.partOffsets.back() != geometry.indices.size())
+    {
+        throw EngineError("Terrain parts must cover the complete index buffer.");
+    }
+    for (size_t i = 1; i < geometry.partOffsets.size(); ++i)
+    {
+        if (geometry.partOffsets[i] < geometry.partOffsets[i - 1] || geometry.partOffsets[i] % 3)
+        {
+            throw EngineError("Terrain parts must be ordered triangle ranges.");
+        }
+    }
     if (!std::isfinite(width) || width <= 0 || geometry.allocatedBytes() > limit || geometry.indices.size() % 3)
     {
         throw EngineError("Invalid terrain geometry dimensions, output size or triangle count.");
@@ -191,7 +202,6 @@ struct TerrainMesher::Work
     NodeAddress address;
     GeneratorSettings settings;
     size_t byteLimit;
-    uint8_t faces;
     int n;
     double width, spacing;
     std::array<double, 3> origin;
@@ -204,11 +214,10 @@ struct TerrainMesher::Work
     bool done = false, taken = false;
 
     // Creates one bounded sample lattice; conservative global height bounds certify empty volumes.
-    Work(NodeAddress a, uint8_t mask, GeneratorSettings s, size_t limit)
+    Work(NodeAddress a, GeneratorSettings s, size_t limit)
         : address(a)
         , settings(s)
         , byteLimit(limit)
-        , faces(mask)
         , n(int(s.intervals))
         , width(std::ldexp(s.rootWidth, -a.depth))
         , spacing(width / s.intervals)
@@ -401,16 +410,16 @@ struct TerrainMesher::Work
     }
 };
 
-TerrainMesher::TerrainMesher(NodeAddress address, uint8_t faces, GeneratorSettings settings, size_t byteLimit)
+TerrainMesher::TerrainMesher(NodeAddress address, GeneratorSettings settings, size_t byteLimit)
 {
     validateAddress(address);
     if (!std::isfinite(settings.rootWidth) || settings.rootWidth <= 0 || !std::isfinite(settings.heightOffset) ||
         !std::isfinite(settings.amplitude) || settings.amplitude < 0 || settings.intervals < 2 ||
-        settings.intervals > 64 || (settings.intervals & (settings.intervals - 1)) || faces > 63 || byteLimit < 1024)
+        settings.intervals > 64 || (settings.intervals & (settings.intervals - 1)) || byteLimit < 1024)
     {
         throw EngineError("Invalid terrain generator settings.");
     }
-    m_work = std::make_unique<Work>(address, faces, settings, byteLimit);
+    m_work = std::make_unique<Work>(address, settings, byteLimit);
 }
 
 TerrainMesher::~TerrainMesher() = default;
@@ -425,16 +434,13 @@ bool TerrainMesher::step(uint32_t budget)
             w.regular(w.cell++);
             if (w.cell == uint32_t(w.n * w.n * w.n))
             {
+                w.geometry.partOffsets[1] = uint32_t(w.geometry.indices.size());
                 w.face = 0;
                 w.cell = 0;
             }
         }
         else
         {
-            while (w.face < 6 && !(w.faces & (1u << w.face)))
-            {
-                ++w.face;
-            }
             if (w.face == 6)
             {
                 w.done = true;
@@ -443,6 +449,7 @@ bool TerrainMesher::step(uint32_t budget)
             w.transition(w.cell++);
             if (w.cell == uint32_t(w.n * w.n / 4))
             {
+                w.geometry.partOffsets[w.face + 2] = uint32_t(w.geometry.indices.size());
                 ++w.face;
                 w.cell = 0;
             }

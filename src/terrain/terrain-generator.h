@@ -20,6 +20,8 @@ struct TerrainGeometry
 {
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
+    // Eight boundaries delimit regular triangles, then -X,+X,-Y,+Y,-Z,+Z; empty parts repeat an offset.
+    std::array<uint32_t, 8> partOffsets{};
     bool certifiedEmpty = false;
     // Counts allocated output storage, including unused vector capacity.
     size_t allocatedBytes() const noexcept;
@@ -33,8 +35,8 @@ void validateGeometry(const TerrainGeometry& geometry, double nodeWidth, size_t 
 class TerrainMesher
 {
 public:
-    // Starts one immutable node/face-mask build; scratch/output remain owned by this task.
-    TerrainMesher(NodeAddress address, uint8_t transitionFaces, GeneratorSettings settings, size_t byteLimit);
+    // Builds the regular mesh and all six faces once; scratch/output remain owned by this task.
+    TerrainMesher(NodeAddress address, GeneratorSettings settings, size_t byteLimit);
     // Releases scratch and unclaimed output; cancellation is destruction between step calls.
     ~TerrainMesher();
     TerrainMesher(const TerrainMesher&) = delete;

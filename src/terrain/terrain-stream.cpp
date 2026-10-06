@@ -72,6 +72,20 @@ std::optional<NodeAddress> faceNeighbor(NodeAddress a, unsigned face, const Leaf
         a = parentAddress(a);
     }
 }
+// Selects prebuilt fine-to-coarse faces using only the topology being published.
+uint8_t transitionFaces(NodeAddress address, const LeafSet& leaves)
+{
+    uint8_t mask = 0;
+    for (unsigned face = 0; face < 6; ++face)
+    {
+        const auto neighbor = faceNeighbor(address, face, leaves);
+        if (neighbor && address.depth == neighbor->depth + 1)
+        {
+            mask |= uint8_t(1u << face);
+        }
+    }
+    return mask;
+}
 } // namespace
 
 struct TerrainStream::Slot
@@ -85,7 +99,7 @@ struct TerrainStream::Slot
 struct TerrainStream::Node
 {
     NodeAddress address;
-    std::map<uint8_t, Slot> content{{0, {}}};
+    Slot content;
     std::array<std::unique_ptr<Node>, 8> children;
     bool distanceWantsChildren = false;
     bool admitted = false;
@@ -100,8 +114,8 @@ struct TerrainStream::Job
 
 struct TerrainStream::Plan
 {
-    std::vector<ContentKey> candidate;
-    std::set<ContentKey> required;
+    std::vector<NodeAddress> candidate;
+    std::set<NodeAddress> required;
     std::optional<CellAddress> admitting, removing;
 };
 
@@ -225,14 +239,14 @@ bool TerrainStream::createChildren(Node& node)
     return true;
 }
 
-TerrainStream::Slot& TerrainStream::slot(ContentKey key)
+TerrainStream::Slot& TerrainStream::slot(NodeAddress address)
 {
-    auto* node = find(key.address);
+    auto* node = find(address);
     if (!node)
     {
         throw EngineError("Terrain content owner does not exist.");
     }
-    return node->content[key.transitionFaces];
+    return node->content;
 }
 
 TerrainStream::Slot* TerrainStream::owner(RequestId id)
@@ -242,22 +256,17 @@ TerrainStream::Slot* TerrainStream::owner(RequestId id)
     {
         return nullptr;
     }
-    auto* node = find(job->second.request.key.address);
-    if (!node)
+    auto* node = find(job->second.request.address);
+    if (!node || node->content.request != id || node->content.state != BuildState::Loading)
     {
         return nullptr;
     }
-    const auto entry = node->content.find(job->second.request.key.transitionFaces);
-    if (entry == node->content.end() || entry->second.request != id || entry->second.state != BuildState::Loading)
-    {
-        return nullptr;
-    }
-    return &entry->second;
+    return &node->content;
 }
 
 bool TerrainStream::wantsChildren(const Node& node) const
 {
-    const auto& base = node.content.at(0);
+    const auto& base = node.content;
     if (node.address.depth >= m_settings.maximumDepth || (base.payload && base.payload->certifiedEmpty))
     {
         return false;
@@ -266,43 +275,22 @@ bool TerrainStream::wantsChildren(const Node& node) const
     return override == m_overrides.end() ? node.distanceWantsChildren : override->second;
 }
 
-std::vector<ContentKey> TerrainStream::boundaryKeys(const std::vector<NodeAddress>& addresses)
-{
-    const LeafSet leaves(addresses.begin(), addresses.end());
-    std::vector<ContentKey> result;
-    result.reserve(addresses.size());
-    for (const auto& a : addresses)
-    {
-        uint8_t mask = 0;
-        for (unsigned face = 0; face < 6; ++face)
-        {
-            const auto neighbor = faceNeighbor(a, face, leaves);
-            if (neighbor && a.depth == neighbor->depth + 1)
-            {
-                mask |= uint8_t(1u << face);
-            }
-        }
-        result.push_back({a, mask});
-    }
-    std::sort(result.begin(), result.end());
-    return result;
-}
-
-std::optional<TerrainStream::Plan> TerrainStream::makePlan(NodeAddress seed, int operation)
+std::optional<TerrainStream::Plan> TerrainStream::makePlan(NodeAddress seed, Operation operation)
 {
     auto* node = find(seed);
-    if (!node || (operation == 0 && node->admitted) || (operation == 1 && !wantsChildren(*node)) ||
-        (operation == 2 && (!node->children[0] || wantsChildren(*node))))
+    if (!node || (operation == Operation::Admit && node->admitted) ||
+        (operation == Operation::Split && !wantsChildren(*node)) ||
+        (operation == Operation::Merge && (!node->children[0] || wantsChildren(*node))))
     {
         return {};
     }
     std::vector<NodeAddress> addresses;
     for (const auto& entry : m_cut)
     {
-        addresses.push_back(entry.key.address);
+        addresses.push_back(entry.address);
     }
 
-    if (operation == 0) // Admit a root, possibly with a refined initial boundary.
+    if (operation == Operation::Admit) // Admit a root, possibly with a refined initial boundary.
     {
         if (std::any_of(
                 addresses.begin(),
@@ -317,7 +305,7 @@ std::optional<TerrainStream::Plan> TerrainStream::makePlan(NodeAddress seed, int
         }
         addresses.push_back(seed);
     }
-    else if (operation == 1) // Replace one leaf by all eight children.
+    else if (operation == Operation::Split) // Replace one leaf by all eight children.
     {
         const auto selected = std::find(addresses.begin(), addresses.end(), seed);
         if (selected == addresses.end() || !wantsChildren(*node))
@@ -334,7 +322,7 @@ std::optional<TerrainStream::Plan> TerrainStream::makePlan(NodeAddress seed, int
             addresses.push_back(child->address);
         }
     }
-    else if (operation == 2) // Merge exactly one level, never skip displayed descendants.
+    else if (operation == Operation::Merge) // Merge exactly one level, never skip displayed descendants.
     {
         if (!node->children[0] || wantsChildren(*node))
         {
@@ -386,7 +374,7 @@ std::optional<TerrainStream::Plan> TerrainStream::makePlan(NodeAddress seed, int
                 {
                     break;
                 }
-                if (operation == 2)
+                if (operation == Operation::Merge)
                 {
                     return {}; // A merge must wait rather than undo itself.
                 }
@@ -417,33 +405,34 @@ std::optional<TerrainStream::Plan> TerrainStream::makePlan(NodeAddress seed, int
     );
 
     Plan plan;
-    if (operation == 0)
+    if (operation == Operation::Admit)
     {
         plan.admitting = seed.cell;
     }
-    if (operation == 3)
+    if (operation == Operation::Withdraw)
     {
         plan.removing = seed.cell;
     }
-    plan.candidate = boundaryKeys(addresses);
+    std::sort(addresses.begin(), addresses.end());
+    plan.candidate = std::move(addresses);
     size_t current = 0;
     for (const auto& key : plan.candidate)
     {
-        while (current < m_cut.size() && m_cut[current].key < key)
+        while (current < m_cut.size() && m_cut[current].address < key)
         {
             ++current;
         }
-        if (current < m_cut.size() && m_cut[current].key == key)
+        if (current < m_cut.size() && m_cut[current].address == key)
         {
             continue;
         }
         // Unchanged cut entries and their ancestors are already prepared and retained by the cut itself.
         // Only changed entries need asynchronous dependencies; retain unchanged entries through the existing cut.
         plan.required.insert(key);
-        auto address = key.address;
+        auto address = key;
         for (;;)
         {
-            plan.required.insert({address, 0});
+            plan.required.insert(address);
             if (!address.depth)
             {
                 break;
@@ -456,7 +445,7 @@ std::optional<TerrainStream::Plan> TerrainStream::makePlan(NodeAddress seed, int
 
 bool TerrainStream::schedule(Plan& plan)
 {
-    std::vector<ContentKey> missing;
+    std::vector<NodeAddress> missing;
     for (const auto& key : plan.required)
     {
         auto& content = slot(key);
@@ -474,14 +463,17 @@ bool TerrainStream::schedule(Plan& plan)
         return true;
     }
 
-    // A balanced replacement may span many sibling groups and seam variants. Reserve each sibling base
-    // group together, but build the closure in waves; completed small payloads release their worst-case reserve.
+    // A balanced replacement may span many sibling groups. Reserve each group together,
+    // but build the closure in waves; completed small payloads release their worst-case reserve.
     // Reserving the entire closure at once can permanently block it even when the final meshes easily fit.
-    std::map<std::pair<NodeAddress, bool>, std::vector<ContentKey>> groups;
+    std::map<NodeAddress, std::vector<NodeAddress>> groups;
     for (const auto& key : missing)
     {
-        const bool siblings = !key.transitionFaces && key.address.depth;
-        groups[{siblings ? parentAddress(key.address) : key.address, siblings}].push_back(key);
+        if (key.depth && slot(parentAddress(key)).state != BuildState::Loaded)
+        {
+            continue; // Parent completion precedes dispatch, including roots admitted beside detailed terrain.
+        }
+        groups[key.depth ? parentAddress(key) : key].push_back(key);
     }
     const auto counts = diagnostics();
     size_t cpu = counts.residentCpuBytes + counts.retiredCpuBytes + counts.reservedCpuBytes;
@@ -490,11 +482,6 @@ bool TerrainStream::schedule(Plan& plan)
     missing.clear();
     for (const auto& [identity, group] : groups)
     {
-        const auto address = group.front().address;
-        if (address.depth && slot({parentAddress(address), 0}).state != BuildState::Loaded)
-        {
-            continue; // Generate coarse ancestors before their finer payloads, including balancing dependencies.
-        }
         if (cpu > m_settings.cpuBudget || gpu > m_settings.gpuBudget ||
             group.size() > (m_settings.cpuBudget - cpu) / m_settings.maximumPayloadBytes ||
             group.size() > (m_settings.gpuBudget - gpu) / m_settings.maximumPayloadBytes ||
@@ -526,7 +513,7 @@ bool TerrainStream::schedule(Plan& plan)
     m_jobs.merge(jobs);
     for (const auto& request : dispatch)
     {
-        auto& content = slot(request.key);
+        auto& content = slot(request.address);
         content.state = BuildState::Loading;
         content.request = request.id;
         content.error.clear();
@@ -547,7 +534,7 @@ bool TerrainStream::publish(const Plan& plan)
     bool same = plan.candidate.size() == m_cut.size();
     for (size_t i = 0; same && i < m_cut.size(); ++i)
     {
-        same = m_cut[i].key == plan.candidate[i];
+        same = m_cut[i].address == plan.candidate[i];
     }
     if (same)
     {
@@ -556,21 +543,10 @@ bool TerrainStream::publish(const Plan& plan)
 
     std::vector<CutEntry> next;
     next.reserve(plan.candidate.size());
-    size_t current = 0;
-    for (const auto& key : plan.candidate)
+    const LeafSet leaves(plan.candidate.begin(), plan.candidate.end());
+    for (const auto& address : plan.candidate)
     {
-        while (current < m_cut.size() && m_cut[current].key < key)
-        {
-            ++current;
-        }
-        if (current < m_cut.size() && m_cut[current].key == key)
-        {
-            next.push_back(m_cut[current]);
-        }
-        else
-        {
-            next.push_back({key, slot(key).payload});
-        }
+        next.push_back({address, slot(address).payload, transitionFaces(address, leaves)});
     }
     if (plan.admitting)
     {
@@ -586,11 +562,11 @@ bool TerrainStream::publish(const Plan& plan)
     return true;
 }
 
-void TerrainStream::cancelUnused(const std::set<ContentKey>& required)
+void TerrainStream::cancelUnused(const std::set<NodeAddress>& required)
 {
     for (auto& [id, job] : m_jobs)
     {
-        if (job.cancelled || required.contains(job.request.key))
+        if (job.cancelled || required.contains(job.request.address))
         {
             continue;
         }
@@ -612,12 +588,12 @@ void TerrainStream::retire(Slot& content)
     }
 }
 
-void TerrainStream::prune(const std::set<ContentKey>& required)
+void TerrainStream::prune(const std::set<NodeAddress>& required)
 {
     // Visit children before parents so a discarded branch transfers each allocation exactly once.
     std::function<bool(Node&)> visit = [&](Node& node)
     {
-        bool retain = required.contains({node.address, 0});
+        bool retain = required.contains(node.address);
         bool retainChildren = false;
         for (auto& child : node.children)
         {
@@ -633,18 +609,9 @@ void TerrainStream::prune(const std::set<ContentKey>& required)
                 child.reset();
             }
         }
-        for (auto i = node.content.begin(); i != node.content.end();)
+        if (!retain)
         {
-            if (!required.contains({node.address, i->first}))
-            {
-                retire(i->second);
-                if (i->first)
-                {
-                    i = node.content.erase(i);
-                    continue;
-                }
-            }
-            ++i;
+            retire(node.content);
         }
         return retain || retainChildren;
     };
@@ -714,19 +681,19 @@ void TerrainStream::reconcile()
         invalidatePlans();
     }
 
-    std::vector<std::pair<NodeAddress, int>> operations;
+    std::vector<std::pair<NodeAddress, Operation>> operations;
     for (const auto& [cell, root] : m_roots)
     {
         if (!m_wantedRoots.contains(cell))
         {
-            operations.push_back({root->address, 3});
+            operations.push_back({root->address, Operation::Withdraw});
         }
     }
     for (const auto& cell : m_wantedRoots)
     {
         if (!find(NodeAddress{cell})->admitted)
         {
-            operations.push_back({NodeAddress{cell}, 0});
+            operations.push_back({NodeAddress{cell}, Operation::Admit});
         }
     }
 
@@ -734,13 +701,13 @@ void TerrainStream::reconcile()
     LeafSet selected;
     for (const auto& entry : m_cut)
     {
-        selected.insert(entry.key.address);
+        selected.insert(entry.address);
     }
     for (const auto& entry : m_cut)
     {
-        if (entry.key.address.depth)
+        if (entry.address.depth)
         {
-            parents.insert(parentAddress(entry.key.address));
+            parents.insert(parentAddress(entry.address));
         }
     }
     for (const auto& parent : parents)
@@ -757,15 +724,15 @@ void TerrainStream::reconcile()
                     }
                 ))
             {
-                operations.push_back({parent, 2});
+                operations.push_back({parent, Operation::Merge});
             }
         }
     }
     for (const auto& entry : m_cut)
     {
-        if (m_wantedRoots.contains(entry.key.address.cell) && wantsChildren(*find(entry.key.address)))
+        if (m_wantedRoots.contains(entry.address.cell) && wantsChildren(*find(entry.address)))
         {
-            operations.push_back({entry.key.address, 1});
+            operations.push_back({entry.address, Operation::Split});
         }
     }
 
@@ -774,7 +741,7 @@ void TerrainStream::reconcile()
     // around a high camera could monopolize workers before visible ground has any coarse coverage.
     struct OrderedOperation
     {
-        std::pair<NodeAddress, int> identity;
+        std::pair<NodeAddress, Operation> identity;
         int priority;
         double distance;
     };
@@ -784,9 +751,9 @@ void TerrainStream::reconcile()
     {
         ordered.push_back(
             {operation,
-             operation.second >= 2   ? 0
-             : operation.second == 0 ? 1
-                                     : 2,
+             (operation.second == Operation::Merge || operation.second == Operation::Withdraw) ? 0
+             : operation.second == Operation::Admit                                            ? 1
+                                                                                               : 2,
              distanceToNode(operation.first, m_observer, m_settings.rootWidth)}
         );
     }
@@ -813,8 +780,8 @@ void TerrainStream::reconcile()
     }
     // Try each operation once per change to demand, topology, readiness or capacity. Held/failed/budget-blocked
     // operations yield to the next nearest region; unchanged blocked plans do not consume every future frame.
-    std::set<ContentKey> required;
-    const std::set<std::pair<NodeAddress, int>> eligible(operations.begin(), operations.end());
+    std::set<NodeAddress> required;
+    const std::set<std::pair<NodeAddress, Operation>> eligible(operations.begin(), operations.end());
     std::erase_if(
         m_pendingRequirements,
         [&](const auto& value)
@@ -851,11 +818,11 @@ void TerrainStream::reconcile()
     }
     for (const auto& entry : m_cut)
     {
-        required.insert(entry.key);
-        auto address = entry.key.address;
+        required.insert(entry.address);
+        auto address = entry.address;
         for (;;)
         {
-            required.insert({address, 0});
+            required.insert(address);
             if (!address.depth)
             {
                 break;
@@ -865,7 +832,7 @@ void TerrainStream::reconcile()
     }
     for (const auto& cell : m_wantedRoots)
     {
-        required.insert({NodeAddress{cell}, 0});
+        required.insert(NodeAddress{cell});
     }
     for (auto& [identity, dependencies] : m_pendingRequirements)
     {
@@ -908,8 +875,8 @@ std::vector<BuildRequest> TerrainStream::takeRequests()
         result.end(),
         [&](const auto& a, const auto& b)
         {
-            return distanceToNode(a.key.address, m_observer, m_settings.rootWidth) <
-                   distanceToNode(b.key.address, m_observer, m_settings.rootWidth);
+            return distanceToNode(a.address, m_observer, m_settings.rootWidth) <
+                   distanceToNode(b.address, m_observer, m_settings.rootWidth);
         }
     );
     return result;
@@ -1019,19 +986,14 @@ void TerrainStream::acknowledgeCancellation(RequestId id)
     }
 }
 
-void TerrainStream::retry(ContentKey key)
+void TerrainStream::retry(NodeAddress address)
 {
-    auto* node = find(key.address);
-    if (!node)
+    auto* node = find(address);
+    if (node && node->content.state == BuildState::Failed)
     {
-        return;
-    }
-    const auto entry = node->content.find(key.transitionFaces);
-    if (entry != node->content.end() && entry->second.state == BuildState::Failed)
-    {
-        entry->second.state = BuildState::Pending;
+        node->content.state = BuildState::Pending;
+        node->content.error.clear();
         invalidatePlans();
-        entry->second.error.clear();
     }
 }
 
@@ -1097,7 +1059,7 @@ StreamDiagnostics TerrainStream::diagnostics() const
     std::function<void(const Node&)> visit = [&](const Node& node)
     {
         ++result.nodes;
-        for (const auto& [mask, content] : node.content)
+        const auto& content = node.content;
         {
             switch (content.state)
             {
@@ -1136,11 +1098,11 @@ StreamDiagnostics TerrainStream::diagnostics() const
     std::set<CellAddress> admitted;
     for (const auto& entry : m_cut)
     {
-        admitted.insert(entry.key.address.cell);
-        result.unresolvedRefinements += wantsChildren(*find(entry.key.address));
+        admitted.insert(entry.address.cell);
+        result.unresolvedRefinements += wantsChildren(*find(entry.address));
         if (!entry.payload->empty)
         {
-            result.deepestSurfaceDepth = std::max(result.deepestSurfaceDepth, entry.key.address.depth);
+            result.deepestSurfaceDepth = std::max(result.deepestSurfaceDepth, entry.address.depth);
         }
     }
     for (const auto& cell : m_wantedRoots)
@@ -1166,26 +1128,16 @@ StreamDiagnostics TerrainStream::diagnostics() const
     return result;
 }
 
-std::optional<BuildState> TerrainStream::state(ContentKey key) const
+std::optional<BuildState> TerrainStream::state(NodeAddress address) const
 {
-    const auto* node = find(key.address);
-    if (!node)
-    {
-        return {};
-    }
-    const auto entry = node->content.find(key.transitionFaces);
-    return entry == node->content.end() ? std::optional<BuildState>{} : entry->second.state;
+    const auto* node = find(address);
+    return node ? std::optional<BuildState>{node->content.state} : std::nullopt;
 }
 
-std::optional<RequestId> TerrainStream::request(ContentKey key) const
+std::optional<RequestId> TerrainStream::request(NodeAddress address) const
 {
-    const auto* node = find(key.address);
-    if (!node)
-    {
-        return {};
-    }
-    const auto entry = node->content.find(key.transitionFaces);
-    return entry == node->content.end() ? std::optional<RequestId>{} : entry->second.request;
+    const auto* node = find(address);
+    return node ? node->content.request : std::nullopt;
 }
 
 void TerrainStream::validate() const
@@ -1194,17 +1146,17 @@ void TerrainStream::validate() const
     std::vector<NodeAddress> addresses;
     for (const auto& entry : m_cut)
     {
-        const auto* node = find(entry.key.address);
-        if (!node || !entry.payload || state(entry.key) != BuildState::Loaded)
+        const auto* node = find(entry.address);
+        if (!node || !entry.payload || state(entry.address) != BuildState::Loaded)
         {
             throw EngineError("Terrain cut contains unprepared content.");
         }
-        coverage[entry.key.address.cell] += std::ldexp(1.0, -3 * entry.key.address.depth);
-        addresses.push_back(entry.key.address);
-        auto address = entry.key.address;
+        coverage[entry.address.cell] += std::ldexp(1.0, -3 * entry.address.depth);
+        addresses.push_back(entry.address);
+        auto address = entry.address;
         for (;;)
         {
-            if (state({address, 0}) != BuildState::Loaded)
+            if (state(address) != BuildState::Loaded)
             {
                 throw EngineError("Terrain cut lost a retained ancestor base.");
             }
@@ -1245,10 +1197,10 @@ void TerrainStream::validate() const
             }
         }
     }
-    const auto keys = boundaryKeys(addresses);
-    for (size_t i = 0; i < keys.size(); ++i)
+    const LeafSet leaves(addresses.begin(), addresses.end());
+    for (const auto& entry : m_cut)
     {
-        if (keys[i] != m_cut[i].key)
+        if (transitionFaces(entry.address, leaves) != entry.transitionFaces)
         {
             throw EngineError("Terrain cut has stale boundary geometry.");
         }

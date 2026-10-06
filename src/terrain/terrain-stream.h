@@ -31,18 +31,12 @@ struct RequestId
     auto operator<=>(const RequestId&) const = default;
 };
 
-struct ContentKey
-{
-    NodeAddress address;
-    uint8_t transitionFaces = 0;
-    // Distinguishes geometry variants by the six coarse-neighbor faces.
-    auto operator<=>(const ContentKey&) const = default;
-};
-
 struct PreparedPayload
 {
     std::shared_ptr<Mesh> mesh;
     size_t cpuBytes = 0, gpuBytes = 0;
+    // Nonempty parts map to Mesh submeshes; -1 means this regular/face part has no triangles.
+    std::array<int8_t, 7> partSubMeshes{-1, -1, -1, -1, -1, -1, -1};
     bool empty = false;
     bool certifiedEmpty = false;
     uint64_t lastSubmission = 0;
@@ -51,14 +45,15 @@ struct PreparedPayload
 struct BuildRequest
 {
     RequestId id;
-    ContentKey key;
+    NodeAddress address;
     size_t byteLimit = 0;
 };
 
 struct CutEntry
 {
-    ContentKey key;
+    NodeAddress address;
     std::shared_ptr<PreparedPayload> payload;
+    uint8_t transitionFaces = 0; // Draw selection only; never part of a build identity.
 };
 
 struct StreamSettings
@@ -104,7 +99,7 @@ public:
     // Explicit laboratory demand override; null restores distance demand for this node.
     void setRefinement(NodeAddress node, std::optional<bool> refine);
     // Clears a terminal content failure; future dispatch receives a fresh request ID.
-    void retry(ContentKey key);
+    void retry(NodeAddress address);
     // Withdraws all coverage, invalidates requests and advances the terrain epoch.
     void reset();
     // Reconciles demand, cancellation, complete-group reservations and prepared cut publication.
@@ -123,7 +118,7 @@ public:
     void failUpload(RequestId request, std::shared_ptr<PreparedPayload> payload, std::string error);
     // Finalizes a cancelled job; repeated acknowledgement is harmless.
     void acknowledgeCancellation(RequestId request);
-    // Returns a retaining snapshot; view culling must not change its spatial coverage.
+    // Returns the selected cut; copy its entries to retain a render snapshot independently of later updates.
     const std::vector<CutEntry>& cut() const noexcept;
     // Records actual use of a retaining snapshot; submissions must be monotonically numbered.
     void submitted(const std::vector<CutEntry>& snapshot, uint64_t serial);
@@ -131,14 +126,21 @@ public:
     void completedSubmission(uint64_t serial);
     // Reports live content, reservations and retirement without counting the same allocation twice.
     StreamDiagnostics diagnostics() const;
-    // Observes an existing slot; absent node/content returns nullopt.
-    std::optional<BuildState> state(ContentKey key) const;
+    // Observes a node's build state; an absent node returns nullopt.
+    std::optional<BuildState> state(NodeAddress address) const;
     // Returns a slot's currently accepted identity, if any.
-    std::optional<RequestId> request(ContentKey key) const;
+    std::optional<RequestId> request(NodeAddress address) const;
     // Validates coverage, ancestry, readiness, balance and accounting; throws on broken invariants.
     void validate() const;
 
 private:
+    enum class Operation
+    {
+        Admit,
+        Split,
+        Merge,
+        Withdraw
+    };
     struct Slot;
     struct Node;
     struct Job;
@@ -149,26 +151,24 @@ private:
     Node* find(NodeAddress address) const;
     // Allocates all eight children together and derives their initial distance demand.
     bool createChildren(Node& node);
-    // Returns a content slot, allocating only a requested boundary variant.
-    Slot& slot(ContentKey key);
+    // Returns the single build slot of an existing node.
+    Slot& slot(NodeAddress address);
     // Finds a matching live owner; cancelled/obsolete identities do not resolve.
     Slot* owner(RequestId request);
     // Computes effective distance/override demand; a certificate or depth cap forbids splitting.
     bool wantsChildren(const Node& node) const;
-    // Builds a complete candidate and its changed boundary dependencies for one local operation.
-    std::optional<Plan> makePlan(NodeAddress seed, int operation);
+    // Builds a balanced candidate and its missing node/ancestor dependencies for one local operation.
+    std::optional<Plan> makePlan(NodeAddress seed, Operation operation);
     // Dispatches bounded dependency groups; sibling bases reserve together and publication still waits for all.
     bool schedule(Plan& plan);
     // Commits a prepared plan against the current cut; publication uses a no-throw swap.
     bool publish(const Plan& plan);
     // Invalidates work outside required content, retaining cancelled job accounting.
-    void cancelUnused(const std::set<ContentKey>& required);
-    // Retires unused variants and entire child groups after cut/dependency ownership is established.
-    void prune(const std::set<ContentKey>& required);
+    void cancelUnused(const std::set<NodeAddress>& required);
+    // Retires unused payloads and entire child groups after cut/dependency ownership is established.
+    void prune(const std::set<NodeAddress>& required);
     // Transfers a payload to retirement; a snapshot may still retain it.
     void retire(Slot& slot);
-    // Calculates transition masks for a candidate using exact integer face adjacency.
-    static std::vector<ContentKey> boundaryKeys(const std::vector<NodeAddress>& addresses);
 
     StreamSettings m_settings;
     WorldPosition m_observer;
@@ -180,10 +180,10 @@ private:
     std::vector<RequestId> m_cancellations;
     std::vector<CutEntry> m_cut;
     std::vector<std::shared_ptr<PreparedPayload>> m_retired;
-    std::map<std::pair<NodeAddress, int>, std::set<ContentKey>> m_pendingRequirements;
+    std::map<std::pair<NodeAddress, Operation>, std::set<NodeAddress>> m_pendingRequirements;
     // Wakes blocked/held planning after an input changes, preserving nearest-first order on every new pass.
     void invalidatePlans() noexcept;
-    std::set<std::pair<NodeAddress, int>> m_attemptedOperations;
+    std::set<std::pair<NodeAddress, Operation>> m_attemptedOperations;
     uint64_t m_epoch = 1, m_sequence = 0, m_publications = 0, m_staleResults = 0;
     uint64_t m_completedSubmission = 0, m_lastSubmission = 0;
     bool m_budgetBlocked = false;

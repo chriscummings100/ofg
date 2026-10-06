@@ -11,8 +11,9 @@ struct ResultHeader
 {
     WorkerWire request;
     uint32_t vertices, indices, outcome, certifiedEmpty, errorBytes, worker;
+    std::array<uint32_t, 8> partOffsets;
 };
-static_assert(sizeof(ResultHeader) == 128);
+static_assert(sizeof(ResultHeader) == 160);
 static_assert(sizeof(Vertex) == 72);
 
 // Copies bounded counts and request identity before the application allocates result storage.
@@ -26,6 +27,7 @@ EM_JS(int, peekResult, (void* pointer), {
     result.errorData = new TextEncoder().encode(String(result.error || "")).slice(0, 4096);
     HEAPU32.set([result.vertices?.byteLength / 72 || 0, result.indices?.byteLength / 4 || 0,
         result.outcome, result.certifiedEmpty ? 1 : 0, result.errorData.byteLength, result.worker || 0], (pointer + 104) / 4);
+    HEAPU32.set(result.partOffsets || new Uint32Array(8), (pointer + 128) / 4);
     return 1;
 });
 
@@ -70,7 +72,7 @@ void TerrainWorkers::submit(BuildRequest r, GeneratorSettings s, bool hold, bool
     {
         throw EngineError("Browser terrain request exceeds the worker output limit.");
     }
-    const auto& a = r.key.address;
+    const auto& a = r.address;
     WorkerWire wire{
         r.id.epoch,
         r.id.sequence,
@@ -82,11 +84,10 @@ void TerrainWorkers::submit(BuildRequest r, GeneratorSettings s, bool hold, bool
         a.y,
         a.z,
         a.depth,
-        r.key.transitionFaces,
-        s.intervals,
         s.rootWidth,
         s.heightOffset,
         s.amplitude,
+        s.intervals,
         uint32_t(r.byteLimit),
         unsigned(hold) | (unsigned(fail) << 1)
     };
@@ -116,14 +117,12 @@ std::vector<WorkerResult> TerrainWorkers::takeResults()
             throw EngineError("Browser terrain worker returned oversized transport data.");
         }
         WorkerResult result;
-        result.request = {
-            {r.epoch, r.sequence},
-            {{{r.cellX, r.cellY, r.cellZ}, r.x, r.y, r.z, uint8_t(r.depth)}, uint8_t(r.faces)},
-            r.byteLimit
-        };
+        result.request =
+            {{r.epoch, r.sequence}, {{r.cellX, r.cellY, r.cellZ}, r.x, r.y, r.z, uint8_t(r.depth)}, r.byteLimit};
         result.geometry.vertices.resize(header.vertices);
         result.geometry.indices.resize(header.indices);
         result.geometry.certifiedEmpty = header.certifiedEmpty != 0;
+        result.geometry.partOffsets = header.partOffsets;
         result.outcome = WorkerOutcome(header.outcome);
         result.worker = header.worker;
         result.error.resize(header.errorBytes);

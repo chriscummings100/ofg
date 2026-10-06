@@ -21,7 +21,7 @@ extern "C"
         error.clear();
         try
         {
-            if (wire->depth > 16 || wire->faces > 63 || wire->byteLimit > (16u << 20))
+            if (wire->depth > 16 || wire->byteLimit > (16u << 20))
             {
                 throw ofg::EngineError("Invalid terrain worker packet.");
             }
@@ -39,7 +39,6 @@ extern "C"
                     wire->z,
                     uint8_t(wire->depth)
                 },
-                uint8_t(wire->faces),
                 settings,
                 wire->byteLimit
             );
@@ -100,6 +99,11 @@ extern "C"
     EMSCRIPTEN_KEEPALIVE uint32_t terrainIndexBytes()
     {
         return uint32_t(geometry.indices.size() * sizeof(uint32_t));
+    }
+    // Exposes the eight index boundaries for the regular mesh and six prebuilt transition faces.
+    EMSCRIPTEN_KEEPALIVE const uint32_t* terrainPartOffsets()
+    {
+        return geometry.partOffsets.data();
     }
     // Reports the conservative empty-space certificate separately from a sampled-empty result.
     EMSCRIPTEN_KEEPALIVE int terrainCertifiedEmpty()

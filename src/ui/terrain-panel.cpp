@@ -98,8 +98,8 @@ void TerrainLaboratory::boundsOverlay(math::Vec4 rectangle)
     draw->PushClipRect({rectangle.x, rectangle.y}, {rectangle.z, rectangle.w});
     for (const auto& entry : m_snapshot)
     {
-        const auto origin = terrain::relativeMinimum(entry.key.address, m_camera, 1024);
-        const float width = 1024.f / float(1u << entry.key.address.depth);
+        const auto origin = terrain::relativeMinimum(entry.address, m_camera, 1024);
+        const float width = 1024.f / float(1u << entry.address.depth);
         std::array<math::Vec4, 8> corners;
         for (unsigned i = 0; i < 8; ++i)
         {
@@ -113,7 +113,7 @@ void TerrainLaboratory::boundsOverlay(math::Vec4 rectangle)
                 }
             );
         }
-        const auto color = ImGui::ColorConvertFloat4ToU32(ImColor::HSV(entry.key.address.depth / 6.f, .8f, 1.f));
+        const auto color = ImGui::ColorConvertFloat4ToU32(ImColor::HSV(entry.address.depth / 6.f, .8f, 1.f));
         for (unsigned i = 0; i < 8; ++i)
         {
             for (unsigned bit : {1u, 2u, 4u})
