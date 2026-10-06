@@ -3,6 +3,8 @@
 #include "ui/render-settings-panel.h"
 #include "lab/render-settings.h"
 #include "core/engine-error.h"
+#include "game.h"
+#include "lab/terrain-laboratory.h"
 #include <imgui_internal.h>
 #include <algorithm>
 #include <cstdio>
@@ -332,6 +334,16 @@ void Workspace::begin(Scene& scene, float deltaSeconds, float styleScale)
     renderSettings(scene);
     animationPanel(scene);
     scenePanel();
+    if (Game::terrain())
+    {
+        Game::terrain()->panel();
+        if (m_sceneVisible)
+        {
+            Game::terrain()->boundsOverlay(
+                {m_sceneRectangle.x, m_sceneRectangle.y, m_sceneRectangle.z, m_sceneRectangle.w}
+            );
+        }
+    }
     if (visibility !=
         (int(m_showScene) | (int(m_showHierarchy) << 1) | (int(m_showSettings) << 2) | (int(m_showAnimation) << 3)))
     {

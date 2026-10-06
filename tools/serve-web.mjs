@@ -7,6 +7,10 @@ import { resolve } from 'node:path';
 
 const buildDirectory = fileURLToPath(new URL('../build/web/', import.meta.url));
 const files = {
+    '/terrain-workers.js': ['terrain-workers.js', 'text/javascript'],
+    '/terrain-worker.js': ['terrain-worker.js', 'text/javascript'],
+    '/terrain-generator.mjs': ['terrain-generator.mjs', 'text/javascript'],
+    '/terrain-generator.wasm': ['terrain-generator.wasm', 'application/wasm'],
     '/': ['index.html', 'text/html'],
     '/index.html': ['index.html', 'text/html'],
     '/index.js': ['index.js', 'text/javascript'],

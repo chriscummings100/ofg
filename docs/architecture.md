@@ -112,3 +112,16 @@ Graphics owns concrete SkyRenderer, EnvironmentRenderer and ShadowRenderer helpe
 casters independently of camera culling. Raster-generated lookups and cube arrays keep the WebGPU path within its
 16-sampled-texture baseline; no compute/storage-texture backend is required. See the outdoor note for exact resource
 layouts, the pinned WebGPU adaptations, numerical approximations and validation limits.
+
+## Terrain streaming
+
+The [terrain laboratory](terrain-streaming.md) adds a GPU-independent octree controller and deterministic volume
+mesher to `ofg-core`, a concrete preparation/retirement adapter to `ofg-render`, and diagnostics to `ofg-ui`.
+`Game` owns the optional terrain mode. Native generation uses two threads; browser generation uses two dedicated
+workers running a separate small WASM module. The graphics WASM remains single-threaded. Terrain draws and shadow
+casters use the same camera-relative transforms, while physical atmosphere altitude remains independent.
+
+Atomic cuts, immutable request identities and retained ancestors protect visible coverage. Explicit upload preparation
+prevents lazy mesh allocation from being mistaken for readiness. Actual GPU completion protects retired buffers; the
+browser uses WebGPU queue completion callbacks because the pinned RHI fence only tracks submission there. See the
+terrain contract and its validation evidence before extending generation or interpreting residency counters.

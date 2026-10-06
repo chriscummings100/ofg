@@ -33,6 +33,7 @@ struct DrawList
     math::Mat4 clipFromWorld{math::mat4Identity()};
     std::vector<DrawItem> items;
     math::Vec3 cameraPosition{};
+    float atmosphereHeight = 0; // Physical altitude in metres, separate from a rebased render origin.
     Lighting lighting;
     ShadowCamera camera;
     std::optional<OutdoorFrame> outdoor;

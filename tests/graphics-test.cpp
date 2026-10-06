@@ -5,6 +5,7 @@
 #include "ui/workspace.h"
 #include "render/texture-renderer.h"
 #include <cstring>
+#include <cstdlib>
 #include <cmath>
 #include "render/present.h"
 #include "lab/scene-fixture.h"
@@ -12,6 +13,8 @@
 #include "lab/model-fixture.h"
 #include "lab/character-fixture.h"
 #include "lab/outdoor-fixture.h"
+#include "lab/terrain-laboratory.h"
+#include "render/queue-completion.h"
 #include "scene/animation-binding.h"
 #include "lab/sphere.h"
 #include "resources/pbr-material.h"
@@ -1687,4 +1690,247 @@ TEST_CASE("workspace layouts preserve visibility while scene replacement clears 
     CHECK(workspace.selection() == nullptr);
     workspace.finish();
     REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+}
+
+TEST_CASE("Terrain GPU preparation stays bounded and draws only complete geometry")
+{
+    GraphicsFixture fixture;
+    QueueCompletion completion(fixture.device, fixture.queue);
+    auto mesh = square(flatMaterial({.2f, .8f, .3f, 1}));
+    CHECK(Graphics::streamingMeshGpuBytes(*mesh) == 0);
+    size_t allowance = 4;
+    CHECK_FALSE(Graphics::prepareStreamingMesh(*mesh, allowance));
+    CHECK(allowance == 0);
+    CHECK(Graphics::streamingMeshGpuBytes(*mesh) == mesh->vertices().size_bytes() + mesh->indices().size_bytes());
+    const auto uploadSerial = completion.mark();
+    DrawList list;
+    list.items.push_back({mesh, 0, mesh->subMeshes()[0].material, math::mat4Identity(), {}});
+    auto target = fixture.target();
+    CHECK_THROWS(Graphics::render(list, target));
+    allowance = mesh->vertices().size_bytes() + mesh->indices().size_bytes() - 4;
+    CHECK(Graphics::prepareStreamingMesh(*mesh, allowance));
+    CHECK(allowance == 0);
+    Graphics::render(list, target);
+    const auto drawSerial = completion.mark();
+    CHECK(drawSerial > uploadSerial);
+    REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+    CHECK(completion.completed() == drawSerial);
+    auto pixel = fixture.pixel(target, 64, 48);
+    CHECK(pixel[1] > pixel[0]);
+}
+
+TEST_CASE("Terrain laboratory renders asynchronously generated native geometry")
+{
+    GraphicsFixture fixture;
+    Game::initialize(createTerrainScene());
+    Game::setTerrain(std::make_unique<TerrainLaboratory>(fixture.device, fixture.queue));
+    auto target = fixture.target(rhi::Format::RGBA8Unorm, 960, 640);
+    auto start = std::chrono::steady_clock::now();
+    size_t frames = 0;
+    do
+    {
+        const auto before = std::chrono::steady_clock::now();
+        Game::frame(1.f / 60, target);
+        ++frames;
+        const double milliseconds =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - before).count();
+        if (frames % 10 == 0)
+        {
+            const auto d = Game::terrain()->diagnostics();
+            std::printf(
+                "Terrain frame %zu: %.1f ms, %zu roots, %zu cut, %zu jobs\n",
+                frames,
+                milliseconds,
+                d.admittedRoots,
+                d.selected,
+                d.jobs
+            );
+        }
+    }
+    while (Game::terrain()->diagnostics().selected < 200 &&
+           std::chrono::steady_clock::now() - start < std::chrono::seconds(90));
+    const auto d = Game::terrain()->diagnostics();
+    CHECK(d.admittedRoots > 0);
+    CHECK(d.selected > d.admittedRoots);
+    CHECK(d.failed == 0);
+    // Frustum extraction changes only draws; the admitted spatial cut and its shadow casters remain intact.
+    DrawList visible;
+    Game::terrain()->append(visible);
+    DrawList culled;
+    culled.clipFromWorld = {};
+    culled.clipFromWorld[3].w = -1;
+    Game::terrain()->append(culled);
+    CHECK(culled.items.empty());
+    CHECK(culled.shadowCasters.size() == visible.shadowCasters.size());
+    CHECK(Game::terrain()->diagnostics().selected == d.selected);
+    CHECK(Game::terrain()->diagnostics().publications == d.publications);
+    REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+    rhi::ComPtr<ISlangBlob> pixels;
+    rhi::SubresourceLayout layout{};
+    REQUIRE(SLANG_SUCCEEDED(fixture.device->readTexture(target, 0, 0, pixels.writeRef(), &layout)));
+    auto folder = std::filesystem::path(OFG_SOURCE_DIR) / "artifacts/terrain/native";
+    std::filesystem::create_directories(folder);
+    std::ofstream output(folder / "terrain.ppm", std::ios::binary);
+    output << "P6\n960 640\n255\n";
+    for (size_t y = 0; y < 640; ++y)
+    {
+        for (size_t x = 0; x < 960; ++x)
+        {
+            output.write(static_cast<const char*>(pixels->getBufferPointer()) + y * layout.rowPitch + x * 4, 3);
+        }
+    }
+    REQUIRE(bool(output));
+}
+
+TEST_CASE("Terrain ten minute traversal retires obsolete allocations" * doctest::skip())
+{
+    GraphicsFixture fixture;
+    Game::initialize(createTerrainScene());
+    Game::setTerrain(std::make_unique<TerrainLaboratory>(fixture.device, fixture.queue));
+    auto target = fixture.target(rhi::Format::RGBA8Unorm, 960, 640);
+    const auto directory = std::filesystem::path(OFG_SOURCE_DIR) / "artifacts/terrain/native";
+    std::filesystem::create_directories(directory);
+    std::ofstream report(directory / "traversal.csv");
+    report << "seconds,frames,roots,selected,jobs,cpu_bytes,gpu_bytes,retired_bytes,failed\n";
+    const auto start = std::chrono::steady_clock::now();
+    double elapsed = 0, nextReport = 0;
+    uint64_t frames = 0;
+    do
+    {
+        Game::terrain()->traverse(elapsed);
+        Game::frame(1.f / 60, target);
+        ++frames;
+        elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        const auto d = Game::terrain()->diagnostics();
+        REQUIRE(d.failed == 0);
+        REQUIRE(d.residentCpuBytes + d.reservedCpuBytes + d.retiredCpuBytes <= (256ull << 20));
+        REQUIRE(d.residentGpuBytes + d.reservedGpuBytes + d.retiredGpuBytes <= (256ull << 20));
+        if (elapsed >= nextReport)
+        {
+            report << elapsed << ',' << frames << ',' << d.admittedRoots << ',' << d.selected << ',' << d.jobs << ','
+                   << d.residentCpuBytes + d.reservedCpuBytes + d.retiredCpuBytes << ','
+                   << d.residentGpuBytes + d.reservedGpuBytes + d.retiredGpuBytes << ',' << d.retiredGpuBytes << ','
+                   << d.failed << '\n';
+            report.flush();
+            nextReport += 5;
+        }
+    }
+    while (elapsed < 600);
+    Game::terrain()->teleport({{0, 1000000, 0}, {}});
+    const auto drainStart = std::chrono::steady_clock::now();
+    for (;;)
+    {
+        Game::frame(1.f / 60, target);
+        const auto d = Game::terrain()->diagnostics();
+        if (!d.nodes && !d.jobs && !d.retiredCpuBytes && !d.retiredGpuBytes)
+        {
+            break;
+        }
+        REQUIRE(std::chrono::steady_clock::now() - drainStart < std::chrono::seconds(120));
+    }
+    REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+    report << "drained," << frames << ",0,0,0,0,0,0,0\n";
+    CHECK(bool(report));
+    std::printf(
+        "Terrain traversal: %s, D3D12 Debug validation, 960x640, %llu frames in %.2f seconds; all terrain allocations "
+        "drained.\n",
+        fixture.device->getInfo().adapterName,
+        (unsigned long long)frames,
+        elapsed
+    );
+}
+
+// Repeatable diagnostic workload; phase timings are evidence, not machine-dependent unit-test thresholds.
+TEST_CASE("Terrain stationary profile" * doctest::skip())
+{
+    GraphicsFixture fixture;
+    Game::initialize(createTerrainScene());
+    Game::setTerrain(std::make_unique<TerrainLaboratory>(fixture.device, fixture.queue));
+    auto target = fixture.target(rhi::Format::RGBA8Unorm, 1440, 1200);
+    auto& scene = Game::scene();
+    auto& terrain = *Game::terrain();
+    const auto directory = std::filesystem::path(OFG_SOURCE_DIR) / "artifacts/terrain/profile";
+    std::filesystem::create_directories(directory);
+    const bool moving = std::getenv("OFG_TERRAIN_PROFILE_ROUTE") != nullptr;
+    std::ofstream report(directory / (moving ? "moving.csv" : "stationary.csv"));
+    report << "seconds,update_ms,extract_ms,render_ms,wait_ms,cut,jobs,cpu,blocked,draws,triangles,finest_depth,"
+              "unresolved,idle\n";
+    const auto start = std::chrono::steady_clock::now();
+    double elapsed = 0, nextReport = 0;
+    double nearestSurfaceDistance = 0;
+    do
+    {
+        const auto before = std::chrono::steady_clock::now();
+        if (moving)
+        {
+            terrain.traverse(elapsed);
+        }
+        terrain.update(scene);
+        const auto updated = std::chrono::steady_clock::now();
+        scene.update();
+        auto list = buildDrawList(scene, *scene.activeCamera(), 1440.f / 1200);
+        terrain.append(list);
+        nearestSurfaceDistance = 1e30;
+        for (const auto& item : list.shadowCasters)
+        {
+            const auto bounds = item.mesh->bounds();
+            const auto translation = item.worldFromLocal[3];
+            const double dx =
+                std::max({double(bounds.minimum.x + translation.x), -double(bounds.maximum.x + translation.x), 0.});
+            const double dy =
+                std::max({double(bounds.minimum.y + translation.y), -double(bounds.maximum.y + translation.y), 0.});
+            const double dz =
+                std::max({double(bounds.minimum.z + translation.z), -double(bounds.maximum.z + translation.z), 0.});
+            nearestSurfaceDistance = std::min(nearestSurfaceDistance, std::sqrt(dx * dx + dy * dy + dz * dz));
+        }
+        const auto extracted = std::chrono::steady_clock::now();
+        Graphics::render(list, target);
+        terrain.submitted();
+        const auto rendered = std::chrono::steady_clock::now();
+        REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+        const auto waited = std::chrono::steady_clock::now();
+        const double updateMs = std::chrono::duration<double, std::milli>(updated - before).count();
+        const double extractMs = std::chrono::duration<double, std::milli>(extracted - updated).count();
+        const double renderMs = std::chrono::duration<double, std::milli>(rendered - extracted).count();
+        const double waitMs = std::chrono::duration<double, std::milli>(waited - rendered).count();
+        elapsed = std::chrono::duration<double>(waited - start).count();
+        const auto d = terrain.diagnostics();
+        REQUIRE(d.failed == 0);
+        size_t triangles = 0;
+        for (const auto& item : list.items)
+        {
+            triangles += item.mesh->indices().size() / 3;
+        }
+        report << elapsed << ',' << updateMs << ',' << extractMs << ',' << renderMs << ',' << waitMs << ','
+               << d.selected << ',' << d.jobs << ',' << d.residentCpuBytes << ',' << d.budgetBlocked << ','
+               << list.items.size() << ',' << triangles << ',' << unsigned(d.deepestSurfaceDepth) << ','
+               << d.unresolvedRefinements << ',' << d.planningIdle << '\n';
+        if (elapsed >= nextReport)
+        {
+            std::printf(
+                "Terrain profile %.1fs: update %.1f, extract %.1f, render %.1f, wait %.1f ms; cut %zu jobs %zu blocked "
+                "%d\n",
+                elapsed,
+                updateMs,
+                extractMs,
+                renderMs,
+                waitMs,
+                d.selected,
+                d.jobs,
+                int(d.budgetBlocked)
+            );
+            report.flush();
+            nextReport += 5;
+        }
+    }
+    while (elapsed < 60);
+    CHECK(terrain.diagnostics().deepestSurfaceDepth >= (moving ? 4 : 6));
+    CHECK(nearestSurfaceDistance < 64); // The cut must actually follow the observer, not merely retain old fine tiles.
+    if (!moving)
+    {
+        CHECK(terrain.diagnostics().unresolvedRefinements == 0);
+        CHECK(terrain.diagnostics().jobs == 0);
+        CHECK(terrain.diagnostics().planningIdle);
+    }
+    std::printf("Terrain profile: %s, D3D12 validation, 1440x1200.\n", fixture.device->getInfo().adapterName);
 }

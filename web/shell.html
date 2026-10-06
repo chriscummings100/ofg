@@ -32,6 +32,7 @@
             outdoorHours: Math.max(0, Math.min(24, Number(new URLSearchParams(location.search).get("hour") ?? 10))),
             outdoorClouds: Math.max(0, Math.min(1, Number(new URLSearchParams(location.search).get("clouds") ?? .35))),
             outdoor: new URLSearchParams(location.search).get("demo") === "outdoor",
+            terrain: new URLSearchParams(location.search).get("demo") === "terrain",
             model: new URLSearchParams(location.search).get('demo') === 'model',
             modelPath: new URLSearchParams(location.search).get('asset') || 'assets/models/laboratory.gltf',
             maximumLayout: new URLSearchParams(location.search).get("pbr") === "budget",
@@ -67,7 +68,7 @@
                 ++this.frameCount;
                 if (this.checkerboard && this.frameCount === 1) this.setStatus('WebGPU checkerboard ready');
                 else if (this.textureReady && ++this.textureFrames === 1)
-                    this.setStatus(this.character ? 'Animated superhero | 45 clips | direct UAL1 mapping' : this.model ? this.modelStatus + (this.ui ? ' | RMB in Scene to fly' : ' | click to fly: WASD/QE, mouse | R reset') : this.ui ? 'OFG | Terrain Laboratory' : this.pbr ? 'PBR spheres | roughness: left to right | metallic: bottom to top | click to fly: WASD/QE, mouse, Shift | Esc release | R reset | F close-up | 0-4 debug' : 'WebGPU scene ready');
+                    this.setStatus(this.terrain ? 'Terrain streaming | click to fly: WASD/QE, mouse, Shift | Esc release | R origin | F lower camera' : this.character ? 'Animated superhero | 45 clips | direct UAL1 mapping' : this.model ? this.modelStatus + (this.ui ? ' | RMB in Scene to fly' : ' | click to fly: WASD/QE, mouse | R reset') : this.ui ? 'OFG | Terrain Laboratory' : this.pbr ? 'PBR spheres | roughness: left to right | metallic: bottom to top | click to fly: WASD/QE, mouse, Shift | Esc release | R reset | F close-up | 0-4 debug' : 'WebGPU scene ready');
                 else if (this.frameCount === 1) this.setStatus(this.character ? 'Loading superhero and UAL1...' : this.model ? 'Loading model...' : 'Loading textures...');
             },
             print: text => console.log(text), printErr: text => console.error(text),
@@ -97,6 +98,7 @@
         });
         if (!navigator.gpu) Module.setStatus('WebGPU is unavailable. Use a supported browser on localhost or HTTPS.', true);
     </script>
+    <script src="terrain-workers.js"></script>
     {{{ SCRIPT }}}
 </body>
 </html>

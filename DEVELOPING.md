@@ -376,3 +376,76 @@ For haze regressions, the focused native command is:
 The GPU checks require zero haze in a vacuum and physical-distance interpolation of a synthetic linear volume;
 disabling haze must retain scene exposure. Render Settings includes a haze toggle and a **Haze lookup range** control.
 The range sets lookup coverage, not the distance where haze starts. Before/after evidence is in `artifacts/lighting/haze`.
+
+## Terrain streaming laboratory
+
+Launch `build/native/ofg.exe --terrain`, or open `?demo=terrain` in the browser build. The terrain window offers
+observer freeze, depth colors, projected node bounds, origin/distant teleports, reseeding, held jobs, injected worker
+failure, explicit retry and live payload/reservation/retirement counters. Right-drag and WASD/QE inspect terrain;
+movement is 128 m/s (384 m/s with Shift), R returns to the origin overview and F places the camera eight metres above
+the local surface. The default spawn is near the surface. Cell widths span 16 through 1024 metres.
+New roots visibly load. Existing root coverage stays represented until compatible replacements are prepared.
+
+The streaming controller and noise/Transvoxel generator build in the GPU-independent CPU preset. Native workers
+use two threads; browser workers load a separate `terrain-generator.mjs`/`.wasm` module. No cross-origin-isolation
+headers are required. The four terrain worker files are part of the browser deployment, alongside the main build.
+
+Verified commands (from the repository root, with the appropriate development environment above):
+
+```powershell
+cmake --build --preset cpu-tests --parallel
+ctest --test-dir build/cpu-tests -R 'terrain-(fast|allocation)' --output-on-failure
+ctest --test-dir build/cpu-tests -R 'terrain-(exhaustive|randomized)' --output-on-failure -j 2
+python tools/terrain-mutation-check.py
+node tools/terrain-workers-smoke.mjs
+node tools/terrain-smoke.mjs
+build/native/ofg-render-test.exe '--test-case=Terrain GPU*'
+powershell -ExecutionPolicy Bypass -File tools/terrain-native-smoke.ps1
+```
+
+The allocation test uses the production controller in a separate executable with MSVC iterator debugging disabled:
+MSVC debug containers allocate iterator proxies inside noexcept constructors, which cannot participate in a recoverable
+allocation-failure sweep. This target does not mix container ABIs with `ofg-core`. Exhaustive and randomized CTests
+have separate timeouts. Random schedules save seed/operation traces under `artifacts/terrain/traces`. Mutation checks
+build modified copies under `artifacts/terrain/mutations`; they never edit the production source.
+
+Long traversal commands are intentionally outside the ordinary CTest run. They exercise ten minutes of movement
+and distant teleports, then require obsolete terrain allocations to drain:
+
+```powershell
+build/native/ofg-render-test.exe '--test-case=Terrain ten minute*' --no-skip=true
+node tools/terrain-smoke.mjs --stress-seconds 600
+```
+
+See [terrain streaming](docs/terrain-streaming.md) for ownership, state transitions and numerical limits, and the
+[completed implementation plan](docs/archived/terrain-streaming.md) for validation evidence and prototype limits.
+
+
+For interactive terrain inspection, build with optimization and debug symbols in a separate directory. The Debug
+preset remains available for stepping through code; the optimized preset keeps runtime validation enabled:
+
+```powershell
+cmake --preset native-relwithdebinfo
+cmake --build --preset native-relwithdebinfo --parallel 6
+ctest --preset native-relwithdebinfo
+build/native-relwithdebinfo/ofg.exe --terrain
+```
+
+The diagnostic profile separates CPU terrain update, draw extraction, render submission and queue-completion wait at
+1440x1200. It runs for sixty seconds and writes `artifacts/terrain/profile/stationary.csv`. Use an otherwise idle machine
+for timing comparisons. Setting `OFG_TERRAIN_PROFILE_ROUTE=1` selects the moving route and `moving.csv` instead.
+
+```powershell
+build/native-relwithdebinfo/ofg-render-test.exe '--test-case=Terrain stationary profile' --no-skip=true
+ctest --test-dir build/native-relwithdebinfo -R terrain-bands --output-on-failure
+python tools/terrain-band-map.py
+powershell -ExecutionPolicy Bypass -File tools/terrain-native-smoke.ps1 -Executable build/native-relwithdebinfo/ofg.exe -ArtifactDirectory artifacts/terrain/repair
+```
+
+The flat-plane band test checks actual published coverage against analytic distance demand along 64 radial directions,
+including every width from 16 to 1024 metres. Its PNG has three zoom levels. It deliberately isolates streaming policy
+from noise: the native/browser terrain captures establish the real noise rendering separately. The terrain panel reports
+frame rate, terrain-update time, finest surface cell width, remaining refinement demand and budget/idle state.
+
+The [completed streaming repair](docs/archived/terrain-streaming-repair.md) records the seven-band convergence tests,
+native timing comparisons, browser checks and remaining limitations verified on 2026-10-05.

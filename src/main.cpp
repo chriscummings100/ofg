@@ -7,6 +7,7 @@
 #include "lab/scene-fixture.h"
 #include "lab/pbr-fixture.h"
 #include "lab/outdoor-fixture.h"
+#include "lab/terrain-laboratory.h"
 #include "lab/model-fixture.h"
 #include "lab/character-fixture.h"
 #include "lab/fly-camera.h"
@@ -193,7 +194,18 @@ static Result runFrames(
             }
             if (auto active = ofg::Game::scene().activeCamera())
             {
-                camera.update(*active->entity(), input, deltaSeconds);
+                if (ofg::Game::terrain() && (input.reset || input.closeup))
+                {
+                    if (input.closeup)
+                    {
+                        ofg::Game::terrain()->teleportToSurface({{}, {0, 0, -300}});
+                    }
+                    else
+                    {
+                        ofg::Game::terrain()->teleport({{}, {0, 180, -300}});
+                    }
+                }
+                camera.update(*active->entity(), input, deltaSeconds * (ofg::Game::terrain() ? 32.f : 1.f));
                 if (character && (input.reset || input.closeup))
                 {
                     ofg::frameCharacter(*active->entity());
@@ -249,7 +261,8 @@ static Result runWindow(
     const char* modelPath,
     int characterMode,
     bool ui,
-    bool outdoor
+    bool outdoor,
+    bool terrain
 )
 {
     ui = ui && !checkerboard;
@@ -308,7 +321,13 @@ static Result runWindow(
                 throw ofg::EngineError("Cannot resolve executable asset directory.");
             }
             auto path = std::filesystem::path(executable).parent_path() / "assets/checker.png";
-            if (characterMode)
+            if (terrain)
+            {
+                ofg::Game::initialize(ofg::createTerrainScene());
+                ofg::Game::setTerrain(std::make_unique<ofg::TerrainLaboratory>(device, queue));
+                glfwSetWindowTitle(window.get(), "OFG | Terrain Laboratory");
+            }
+            else if (characterMode)
             {
                 ofg::Game::initialize(ofg::createCharacterFixtureScene());
                 character = std::make_unique<ofg::CharacterFixture>(
@@ -394,8 +413,8 @@ static Result runWindow(
     {
         ImGui_ImplGlfw_Shutdown();
     }
-    ofg::Game::shutdown();
     const Result idleResult = queue->waitOnHost();
+    ofg::Game::shutdown();
     workspace.reset();
     ofg::Graphics::shutdown();
     return SLANG_FAILED(renderResult) ? renderResult : idleResult;
@@ -411,7 +430,7 @@ static void reportWindowError(int code, const char* message)
 // window-free startup test.
 int main(int argc, char** argv)
 {
-    bool checkDevice = false, checkerboard = false, scene = false, ui = true, outdoor = false;
+    bool checkDevice = false, checkerboard = false, scene = false, ui = true, outdoor = false, terrain = false;
     int character = 0;
     const char* modelPath = nullptr;
     for (int i = 1; i < argc; ++i)
@@ -423,6 +442,10 @@ int main(int argc, char** argv)
         else if (std::strcmp(argv[i], "--checkerboard") == 0)
         {
             checkerboard = true;
+        }
+        else if (std::strcmp(argv[i], "--terrain") == 0)
+        {
+            terrain = true;
         }
         else if (std::strcmp(argv[i], "--outdoor") == 0)
         {
@@ -452,7 +475,8 @@ int main(int argc, char** argv)
         {
             std::fprintf(
                 stderr,
-                "Usage: ofg [--check-device | --checkerboard | --scene | --outdoor | --character | --character-pair | "
+                "Usage: ofg [--check-device | --checkerboard | --scene | --outdoor | --terrain | --character "
+                "| --character-pair | "
                 "--model <path>] [--no-ui]\n"
             );
             return 1;
@@ -480,7 +504,7 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    result = runWindow(device, checkerboard, !checkerboard && !scene, modelPath, character, ui, outdoor);
+    result = runWindow(device, checkerboard, !checkerboard && !scene, modelPath, character, ui, outdoor, terrain);
     glfwTerminate();
     if (SLANG_FAILED(result))
     {

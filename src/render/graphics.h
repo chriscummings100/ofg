@@ -31,6 +31,11 @@ public:
 
     // Returns the latest outdoor generation and cascade state without synchronizing with the GPU.
     static OutdoorDiagnostics outdoorDiagnostics() noexcept;
+    // Prepares immutable geometry in bounded upload chunks before terrain publishes it. Consumes byteAllowance.
+    // Returns true once uploads are ordered on the graphics queue; failures preserve owned partial allocations.
+    static bool prepareStreamingMesh(Mesh& mesh, size_t& byteAllowance);
+    // Returns currently allocated streaming buffer bytes, including buffers whose upload is incomplete.
+    static size_t streamingMeshGpuBytes(const Mesh& mesh) noexcept;
 
 private:
     // Uploads immutable geometry once; publishes only after both buffer creations succeed.

@@ -9,6 +9,11 @@ Use the repository's [DEVELOPING.md](../../../DEVELOPING.md) as the source of ex
 
 ## Build environment
 
+For interactive terrain performance, use the verified `native-relwithdebinfo` configure/build/test presets and
+`build/native-relwithdebinfo/ofg.exe --terrain`. This separate optimized build retains symbols and runtime validation;
+keep `native-debug` for debugging. Do not compare their timings without naming the configuration. Terrain profiling,
+band-map generation and native presentation capture commands are recorded in DEVELOPING.md.
+
 Run from the repository root. Read the working-tree status and preserve existing edits.
 
 Use an x64 Visual Studio Developer PowerShell, or initialize an ordinary PowerShell using the `vswhere` and `Launch-VsDevShell.ps1` procedure in DEVELOPING.md. Discover the installation rather than hard-coding the Visual Studio edition or year. Both host and target architecture must be amd64.
@@ -21,7 +26,7 @@ If the submodule is missing, use the documented initialization command. Do not u
 
 Follow the documented native configure command, then build targets `ofg`, `ofg-render-test` and `ofg-core-test` (only `ofg` when `BUILD_TESTING=OFF`). Check the exit status at each stage before proceeding. The first configure fetches prebuilt Slang, DirectX dependencies and pinned GLFW; routine builds reuse them. D3D12 is the only enabled backend and no Emscripten or native Dawn setup is needed.
 
-Run `ofg --check-device` for finite startup verification, then run the four CTest checks as documented. Normal `ofg` launch opens an interactive PBR sphere grid (`--scene` retains the texture cubes and `--checkerboard` the original diagnostic) and stays running until closed; do not use it as a finite command-line test. The checkerboard test checks every offscreen pixel through doctest; the scene-rendering test checks indexed geometry, depth, material bindings, cache reuse and lifetime. The device and render checks are GPU-dependent, so report unavailable hardware/runtime honestly. Do not enable the entire upstream RHI test suite to test OFG.
+Run `ofg --check-device` for finite startup verification, then run the CTest checks registered by the selected preset as documented. Normal `ofg` launch opens an interactive PBR sphere grid (`--scene` retains the texture cubes and `--checkerboard` the original diagnostic) and stays running until closed; do not use it as a finite command-line test. The checkerboard test checks every offscreen pixel through doctest; the scene-rendering test checks indexed geometry, depth, material bindings, cache reuse and lifetime. The device and render checks are GPU-dependent, so report unavailable hardware/runtime honestly. Do not enable the entire upstream RHI test suite to test OFG.
 
 For pure state, scene or math work, use the documented `cpu-tests` configure/build/test presets. They use `build/cpu-tests` with `OFG_BUILD_APP=OFF`, and require neither the RHI submodule nor graphics downloads. This runs the same core suite as native-debug without initializing a GPU. Re-run the native integration checks when build wiring changes.
 

@@ -3,12 +3,14 @@
 #include "resources/resources.h"
 #include "render/graphics.h"
 #include "core/engine-error.h"
+#include "lab/terrain-laboratory.h"
 #include <cmath>
 
 namespace ofg {
 namespace {
 std::unique_ptr<Scene> currentScene;
 std::unique_ptr<State> rootState;
+std::unique_ptr<TerrainLaboratory> terrainLab;
 float frameSeconds{0};
 bool inFrame{false};
 
@@ -63,6 +65,16 @@ float Game::deltaSeconds() noexcept
     return frameSeconds;
 }
 
+void Game::setTerrain(std::unique_ptr<TerrainLaboratory> terrain)
+{
+    terrainLab = std::move(terrain);
+}
+
+TerrainLaboratory* Game::terrain() noexcept
+{
+    return terrainLab.get();
+}
+
 void Game::frame(float deltaSeconds, rhi::ITexture* colorTarget)
 {
     if (!rootState || inFrame || !std::isfinite(deltaSeconds) || deltaSeconds < 0)
@@ -75,6 +87,10 @@ void Game::frame(float deltaSeconds, rhi::ITexture* colorTarget)
     Resources::update();
     rootState->update();
     currentScene->updateAnimations(deltaSeconds);
+    if (terrainLab)
+    {
+        terrainLab->update(*currentScene);
+    }
     currentScene->update();
     if (currentScene->lighting.outdoor)
     {
@@ -88,7 +104,15 @@ void Game::frame(float deltaSeconds, rhi::ITexture* colorTarget)
             const auto size = colorTarget->getDesc().size;
             list = buildDrawList(*currentScene, *camera, float(size.width) / float(size.height));
         }
+        if (terrainLab)
+        {
+            terrainLab->append(list);
+        }
         Graphics::render(list, colorTarget);
+        if (terrainLab)
+        {
+            terrainLab->submitted();
+        }
     }
 }
 
@@ -98,6 +122,7 @@ void Game::shutdown()
     {
         throw EngineError("Game::shutdown cannot destroy the executing state tree.");
     }
+    terrainLab.reset();
     rootState.reset();
     currentScene.reset();
     frameSeconds = 0;

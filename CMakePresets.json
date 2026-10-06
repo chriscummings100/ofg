@@ -11,6 +11,14 @@
             }
         },
         {
+            "name": "native-relwithdebinfo",
+            "inherits": "native-debug",
+            "binaryDir": "${sourceDir}/build/native-relwithdebinfo",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+            }
+        },
+        {
             "name": "cpu-tests",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/cpu-tests",
@@ -38,14 +46,23 @@
             "targets": [
                 "ofg",
                 "ofg-render-test",
+                "ofg-terrain-test",
+                "ofg-terrain-allocation-test",
                 "ofg-core-test"
             ]
+        },
+        {
+            "name": "native-relwithdebinfo",
+            "inherits": "native-debug",
+            "configurePreset": "native-relwithdebinfo"
         },
         {
             "name": "cpu-tests",
             "configurePreset": "cpu-tests",
             "targets": [
-                "ofg-core-test"
+                "ofg-core-test",
+                "ofg-terrain-test",
+                "ofg-terrain-allocation-test"
             ]
         },
         {
@@ -63,6 +80,11 @@
             "output": {
                 "outputOnFailure": true
             }
+        },
+        {
+            "name": "native-relwithdebinfo",
+            "inherits": "native-debug",
+            "configurePreset": "native-relwithdebinfo"
         },
         {
             "name": "cpu-tests",

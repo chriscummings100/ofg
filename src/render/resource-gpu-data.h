@@ -22,6 +22,8 @@ struct SamplerGpuData
 };
 struct MeshGpuData
 {
+    size_t uploadedVertices = 0, uploadedIndices = 0;
+    bool incrementalUpload = false;
     rhi::ComPtr<rhi::IBuffer> vertices;
     rhi::ComPtr<rhi::IBuffer> indices;
     rhi::ComPtr<rhi::IBuffer> influences;

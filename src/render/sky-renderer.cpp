@@ -72,8 +72,8 @@ ComPtr<IShaderObject> SkyRenderer::bindings(uint32_t pass, const DrawList& list,
     set("sun", {frame.sunDirection.x, frame.sunDirection.y, frame.sunDirection.z, settings.atmosphere.sunIlluminance});
     set("moon",
         {frame.moonDirection.x, frame.moonDirection.y, frame.moonDirection.z, settings.atmosphere.moonIlluminance});
-    auto sunT = atmosphereTransmission(settings.atmosphere, list.cameraPosition.y, frame.sunDirection.y);
-    auto moonT = atmosphereTransmission(settings.atmosphere, list.cameraPosition.y, frame.moonDirection.y);
+    auto sunT = atmosphereTransmission(settings.atmosphere, list.atmosphereHeight, frame.sunDirection.y);
+    auto moonT = atmosphereTransmission(settings.atmosphere, list.atmosphereHeight, frame.moonDirection.y);
     set("sunTransmission", {sunT.x, sunT.y, sunT.z, 0});
     set("moonTransmission", {moonT.x, moonT.y, moonT.z, 0});
     set("atmosphere",
@@ -83,7 +83,7 @@ ComPtr<IShaderObject> SkyRenderer::bindings(uint32_t pass, const DrawList& list,
          settings.atmosphere.groundAlbedo});
     set("camera",
         {list.cameraPosition.x,
-         list.cameraPosition.y,
+         list.atmosphereHeight,
          list.cameraPosition.z,
          frame.exposureMultiplier * list.lighting.exposure});
     const auto& cloud = settings.clouds;
@@ -132,7 +132,7 @@ void SkyRenderer::update(const DrawList& frame)
         f.moonDirection.y,
         f.moonDirection.z,
         a.moonIlluminance,
-        frame.cameraPosition.y
+        frame.atmosphereHeight
     };
     std::array<float, 20> aerialSnapshot{};
     for (int column = 0; column < 4; ++column)
@@ -146,7 +146,7 @@ void SkyRenderer::update(const DrawList& frame)
     aerialSnapshot[16] = frame.camera.verticalFov;
     aerialSnapshot[17] = frame.camera.aspectRatio;
     aerialSnapshot[18] = a.aerialDistance;
-    aerialSnapshot[19] = frame.cameraPosition.y;
+    aerialSnapshot[19] = frame.atmosphereHeight;
     if (skySnapshot == m_skySnapshot && aerialSnapshot == m_aerialSnapshot)
     {
         return;

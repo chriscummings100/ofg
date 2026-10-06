@@ -9,6 +9,7 @@
 #include "lab/scene-fixture.h"
 #include "lab/pbr-fixture.h"
 #include "lab/outdoor-fixture.h"
+#include "lab/terrain-laboratory.h"
 #include "lab/model-fixture.h"
 #include "lab/character-fixture.h"
 #include "lab/fly-camera.h"
@@ -84,7 +85,12 @@ static Result initializeBrowser(BrowserApp& app)
         const bool fp32 = formats.supports(ofg::TextureFormat::RGBA32Float);
         EM_ASM({ Module.fp32Supported = Boolean($0); }, fp32);
         app.pbr = EM_ASM_INT({ return Module.pbr ? 1 : 0; });
-        if (EM_ASM_INT({ return Module.character ? 1 : 0; }))
+        if (EM_ASM_INT({ return Module.terrain ? 1 : 0; }))
+        {
+            ofg::Game::initialize(ofg::createTerrainScene());
+            ofg::Game::setTerrain(std::make_unique<ofg::TerrainLaboratory>(app.device, app.queue));
+        }
+        else if (EM_ASM_INT({ return Module.character ? 1 : 0; }))
         {
             ofg::Game::initialize(ofg::createCharacterFixtureScene());
             app.character =
@@ -255,7 +261,19 @@ static Result drawBrowserFrame(BrowserApp& app)
             {
                 input.closeup = true;
             }
-            app.camera.update(*scene.activeCamera()->entity(), input, deltaSeconds);
+            if (ofg::Game::terrain() && (input.reset || input.closeup))
+            {
+                if (input.closeup)
+                {
+                    ofg::Game::terrain()->teleportToSurface({{}, {0, 0, -300}});
+                }
+                else
+                {
+                    ofg::Game::terrain()->teleport({{}, {0, 180, -300}});
+                }
+            }
+            app.camera
+                .update(*scene.activeCamera()->entity(), input, deltaSeconds * (ofg::Game::terrain() ? 32.f : 1.f));
             if (app.character && (input.reset || input.closeup))
             {
                 ofg::frameCharacter(*scene.activeCamera()->entity());
@@ -264,6 +282,64 @@ static Result drawBrowserFrame(BrowserApp& app)
             EM_ASM({ Module.cameraPosition = Array($0, $1, $2); }, p.x, p.y, p.z);
         }
         ofg::Game::frame(deltaSeconds, app.workspace ? app.workspace->sceneTarget() : app.sceneTarget.get());
+        if (auto* terrain = ofg::Game::terrain())
+        {
+            const auto stats = terrain->diagnostics();
+            EM_ASM(
+                {
+                    Module.terrainState = ({
+                        roots : $0,
+                        loadingRoots : $1,
+                        selected : $2,
+                        jobs : $3,
+                        failed : $4,
+                        cpu : $5,
+                        gpu : $6,
+                        retired : $7,
+                        publications : $8,
+                        surfaceDepth : $9,
+                        unresolved : $10,
+                        idle : $11
+                    });
+                },
+                stats.admittedRoots,
+                stats.loadingRoots,
+                stats.selected,
+                stats.jobs,
+                stats.failed,
+                double(stats.residentCpuBytes + stats.reservedCpuBytes + stats.retiredCpuBytes),
+                double(stats.residentGpuBytes + stats.reservedGpuBytes + stats.retiredGpuBytes),
+                double(stats.retiredGpuBytes),
+                double(stats.publications),
+                int(stats.deepestSurfaceDepth),
+                int(stats.unresolvedRefinements),
+                int(stats.planningIdle)
+            );
+            const int command = EM_ASM_INT({
+                const value = Module.terrainCommand || 0;
+                Module.terrainCommand = 0;
+                return value;
+            });
+            if (command == 1)
+            {
+                terrain->teleportToSurface({{-1000000000, 0, -1000000000}, {512, 0, 512}});
+            }
+            if (command == 2)
+            {
+                terrain->teleportToSurface({{}, {0, 0, -300}});
+            }
+            if (command == 3)
+            {
+                terrain->teleport({{0, 1000000, 0}, {}});
+            }
+            const double routeSeconds = EM_ASM_DOUBLE({
+                return Number.isFinite(Module.terrainRouteSeconds) ? Module.terrainRouteSeconds : -1;
+            });
+            if (routeSeconds >= 0)
+            {
+                terrain->traverse(routeSeconds);
+            }
+        }
         if (ofg::Game::scene().lighting.outdoor)
         {
             auto stats = ofg::Graphics::outdoorDiagnostics();

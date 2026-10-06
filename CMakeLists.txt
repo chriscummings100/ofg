@@ -30,6 +30,9 @@ configure_file(src/lab/pbr-environment.h.in generated/pbr-environment.h @ONLY)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS assets/pbr-studio.bin)
 
 add_library(ofg-core STATIC
+    src/terrain/terrain-address.cpp
+    src/terrain/terrain-generator.cpp
+    src/terrain/terrain-stream.cpp
     src/scene/outdoor-lighting.cpp
     src/resources/model.cpp
     src/resources/gltf-accessor.cpp
@@ -72,11 +75,38 @@ add_library(ofg-core STATIC
 target_compile_features(ofg-core PUBLIC cxx_std_20)
 target_include_directories(ofg-core PUBLIC src PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_include_directories(ofg-core SYSTEM PRIVATE external/stb external/tinygltf)
+if(NOT EMSCRIPTEN)
+    target_sources(ofg-core PRIVATE src/terrain/terrain-workers-native.cpp)
+else()
+    target_sources(ofg-core PRIVATE src/terrain/terrain-workers-web.cpp)
+endif()
 
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS assets/checker.png assets/checker.jpg assets/README.md)
 file(COPY assets DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
+    add_executable(ofg-terrain-test tests/core-test-main.cpp tests/terrain-stream-test.cpp tests/terrain-band-test.cpp tests/terrain-generator-test.cpp tests/terrain-workers-test.cpp)
+    add_executable(ofg-terrain-allocation-test tests/core-test-main.cpp tests/terrain-allocation-test.cpp
+        src/terrain/terrain-stream.cpp src/terrain/terrain-address.cpp)
+    target_link_libraries(ofg-terrain-allocation-test PRIVATE doctest)
+    target_compile_features(ofg-terrain-allocation-test PRIVATE cxx_std_20)
+    target_include_directories(ofg-terrain-allocation-test PRIVATE src)
+    # MSVC debug iterator proxies allocate in noexcept container constructors, so fault those containers
+    # in the standard non-debug-iterator ABI. All translation units here use the same setting.
+    if(MSVC)
+        target_compile_definitions(ofg-terrain-allocation-test PRIVATE _ITERATOR_DEBUG_LEVEL=0)
+    endif()
+    add_test(NAME ofg-terrain-allocation COMMAND ofg-terrain-allocation-test)
+    set_tests_properties(ofg-terrain-allocation PROPERTIES LABELS "cpu;terrain" TIMEOUT 60)
+    target_link_libraries(ofg-terrain-test PRIVATE ofg-core doctest)
+    add_test(NAME ofg-terrain-fast COMMAND ofg-terrain-test --test-suite=terrain-fast)
+    add_test(NAME ofg-terrain-bands COMMAND ofg-terrain-test --test-suite=terrain-bands)
+    set_tests_properties(ofg-terrain-bands PROPERTIES LABELS "cpu;terrain" TIMEOUT 180)
+    add_test(NAME ofg-terrain-exhaustive COMMAND ofg-terrain-test --test-suite=terrain-exhaustive)
+    add_test(NAME ofg-terrain-randomized COMMAND ofg-terrain-test --test-suite=terrain-randomized)
+    set_tests_properties(ofg-terrain-randomized PROPERTIES LABELS "cpu;terrain;randomized" TIMEOUT 900)
+    set_tests_properties(ofg-terrain-fast PROPERTIES LABELS "cpu;terrain" TIMEOUT 60)
+    set_tests_properties(ofg-terrain-exhaustive PROPERTIES LABELS "cpu;terrain;exhaustive" TIMEOUT 300)
     add_executable(ofg-core-test
         tests/outdoor-lighting-test.cpp
         tests/gltf-test.cpp
@@ -140,6 +170,8 @@ file(READ shaders/shadows/depth.slang SHADOW_SHADER)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/shadows/depth.slang)
 configure_file(src/render/shadow-shader.h.in generated/shadow-shader.h @ONLY)
 add_library(ofg-render STATIC
+    src/lab/terrain-laboratory.cpp
+    src/render/queue-completion.cpp
     src/render/shadow-renderer.cpp
     src/render/sky-renderer.cpp
     src/render/lighting-pass.cpp
@@ -164,7 +196,7 @@ target_link_libraries(ofg-render PUBLIC slang-rhi ofg-core)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/imgui.slang)
 file(READ shaders/imgui.slang IMGUI_SHADER)
 configure_file(src/ui/imgui-shader.h.in generated/imgui-shader.h @ONLY)
-add_library(ofg-ui STATIC src/ui/render-settings-panel.cpp src/ui/imgui-renderer.cpp src/ui/workspace.cpp src/ui/animation-panel.cpp)
+add_library(ofg-ui STATIC src/ui/terrain-panel.cpp src/ui/render-settings-panel.cpp src/ui/imgui-renderer.cpp src/ui/workspace.cpp src/ui/animation-panel.cpp)
 target_include_directories(ofg-ui PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(ofg-ui PUBLIC ofg-render imgui)
 
@@ -177,8 +209,20 @@ target_include_directories(ofg-compute-proof PRIVATE ${CMAKE_CURRENT_BINARY_DIR}
 target_link_libraries(ofg-compute-proof PUBLIC ofg-render)
 
 if(EMSCRIPTEN)
+    target_compile_options(ofg-render PRIVATE --use-port=emdawnwebgpu)
     target_sources(ofg-ui PRIVATE src/ui/browser-input.cpp)
+    add_executable(ofg-terrain-worker src/terrain/terrain-worker-main.cpp src/terrain/terrain-generator.cpp src/terrain/terrain-address.cpp)
+    target_include_directories(ofg-terrain-worker PRIVATE src)
+    target_compile_features(ofg-terrain-worker PRIVATE cxx_std_20)
+    set_target_properties(ofg-terrain-worker PROPERTIES OUTPUT_NAME terrain-generator SUFFIX .mjs)
+    target_link_options(ofg-terrain-worker PRIVATE --no-entry -fwasm-exceptions
+        -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=worker -sALLOW_MEMORY_GROWTH=1
+        -sMAXIMUM_MEMORY=50331648 -sEXPORTED_FUNCTIONS=['_malloc','_free']
+        -sEXPORTED_RUNTIME_METHODS=['UTF8ToString','HEAPU8'] -sASSERTIONS=1)
+    configure_file(web/terrain-worker.js terrain-worker.js COPYONLY)
+    configure_file(web/terrain-workers.js terrain-workers.js COPYONLY)
     add_executable(ofg-web src/web-main.cpp)
+    add_dependencies(ofg-web ofg-terrain-worker)
     target_link_libraries(ofg-web PRIVATE ofg-ui ofg-core)
     set_target_properties(ofg-web PROPERTIES OUTPUT_NAME index SUFFIX .html)
     set_property(TARGET ofg-web APPEND PROPERTY LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html)

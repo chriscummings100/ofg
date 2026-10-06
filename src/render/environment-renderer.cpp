@@ -154,7 +154,7 @@ static std::array<float, 20> environmentSnapshot(const DrawList& frame)
         s.dayCycle.noonElevation,
         s.dayCycle.azimuth,
         frame.cameraPosition.x,
-        frame.cameraPosition.y,
+        frame.atmosphereHeight,
         frame.cameraPosition.z,
         float(s.dayCycle.timeHours),
         float(s.dayCycle.elapsedSeconds)
@@ -213,6 +213,7 @@ void EnvironmentRenderer::update(const DrawList& frame, SkyRenderer& sky)
         m_captureFrame.outdoor = frame.outdoor;
         m_captureFrame.camera = frame.camera;
         m_captureFrame.cameraPosition = frame.cameraPosition;
+        m_captureFrame.atmosphereHeight = frame.atmosphereHeight;
         sky.beginCapture();
         m_pendingSnapshot = snapshot;
         m_started = now;

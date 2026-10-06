@@ -103,6 +103,7 @@ DrawList buildDrawList(const Scene& scene, const Camera& camera, float aspectRat
     list.lighting = scene.lighting;
     const auto cameraWorld = entity->worldTransform()[3];
     list.cameraPosition = {cameraWorld.x, cameraWorld.y, cameraWorld.z};
+    list.atmosphereHeight = cameraWorld.y;
     list.camera =
         {entity->worldTransform(), camera.nearDistance(), camera.farDistance(), camera.verticalFov(), aspectRatio};
     if (list.lighting.outdoor)

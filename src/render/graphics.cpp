@@ -567,6 +567,11 @@ void Graphics::prepareMesh(Mesh& mesh)
 {
     if (mesh.m_gpu && mesh.m_gpu->vertices)
     {
+        if (mesh.m_gpu->incrementalUpload && (mesh.m_gpu->uploadedVertices != mesh.vertices().size_bytes() ||
+                                              mesh.m_gpu->uploadedIndices != mesh.indices().size_bytes()))
+        {
+            throw EngineError("A partially uploaded streaming mesh reached rendering.");
+        }
         return;
     }
     auto data = std::make_shared<MeshGpuData>();
@@ -588,6 +593,77 @@ void Graphics::prepareMesh(Mesh& mesh)
     check(graphics->device->createBuffer(desc, mesh.indices().data(), data->indices.writeRef()), "Upload mesh indices");
     graphics->meshes.push_back(data);
     mesh.m_gpu = std::move(data);
+}
+
+size_t Graphics::streamingMeshGpuBytes(const Mesh& mesh) noexcept
+{
+    return mesh.m_gpu ? mesh.vertices().size_bytes() + mesh.indices().size_bytes() : 0;
+}
+
+bool Graphics::prepareStreamingMesh(Mesh& mesh, size_t& allowance)
+{
+    if (!graphics)
+    {
+        throw EngineError("Streaming mesh preparation requires Graphics initialization.");
+    }
+    for (const auto& subMesh : mesh.subMeshes())
+    {
+        prepareShader(*subMesh.material->shader());
+    }
+    if (!mesh.m_gpu)
+    {
+        auto data = std::make_shared<MeshGpuData>();
+        rhi::BufferDesc desc{};
+        desc.size = mesh.vertices().size_bytes();
+        desc.usage = rhi::BufferUsage::VertexBuffer | rhi::BufferUsage::CopyDestination;
+        desc.defaultState = rhi::ResourceState::VertexBuffer;
+        check(graphics->device->createBuffer(desc, nullptr, data->vertices.writeRef()), "Allocate streaming vertices");
+        desc.size = mesh.indices().size_bytes();
+        desc.usage = rhi::BufferUsage::IndexBuffer | rhi::BufferUsage::CopyDestination;
+        desc.defaultState = rhi::ResourceState::IndexBuffer;
+        check(graphics->device->createBuffer(desc, nullptr, data->indices.writeRef()), "Allocate streaming indices");
+        data->incrementalUpload = true;
+        graphics->meshes.push_back(data);
+        mesh.m_gpu = std::move(data);
+    }
+    auto& data = *mesh.m_gpu;
+    if (!data.incrementalUpload)
+    {
+        return true;
+    }
+    // Chunks are four-byte aligned for both backends. Each encoder owns its upload staging until completion.
+    for (unsigned part = 0; part < 2 && allowance >= 4; ++part)
+    {
+        const size_t total = part == 0 ? mesh.vertices().size_bytes() : mesh.indices().size_bytes();
+        size_t& uploaded = part == 0 ? data.uploadedVertices : data.uploadedIndices;
+        const size_t bytes = std::min(total - uploaded, allowance & ~size_t(3));
+        if (!bytes)
+        {
+            continue;
+        }
+        const auto* source = part == 0 ? reinterpret_cast<const std::byte*>(mesh.vertices().data())
+                                       : reinterpret_cast<const std::byte*>(mesh.indices().data());
+        rhi::ComPtr<rhi::ICommandEncoder> encoder;
+        check(graphics->queue->createCommandEncoder(encoder.writeRef()), "Create streaming upload encoder");
+        check(
+            encoder->uploadBufferData(
+                part == 0 ? data.vertices.get() : data.indices.get(),
+                uploaded,
+                bytes,
+                source + uploaded
+            ),
+            "Upload streaming mesh chunk"
+        );
+        auto commands = encoder->finish();
+        if (!commands)
+        {
+            throw EngineError("Finish streaming mesh upload failed.");
+        }
+        check(graphics->queue->submit(commands), "Submit streaming mesh upload");
+        uploaded += bytes;
+        allowance -= bytes;
+    }
+    return data.uploadedVertices == mesh.vertices().size_bytes() && data.uploadedIndices == mesh.indices().size_bytes();
 }
 
 void Graphics::prepareShader(Shader& shader)
