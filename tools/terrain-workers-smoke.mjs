@@ -1,59 +1,60 @@
-// Exercise real dedicated browser workers independently from graphics and suspended application WASM.
+// Exercise the production C++ pthread workers and shared heap without loading graphics or the native test suite.
 import assert from 'node:assert/strict';
-import {mkdir,writeFile} from 'node:fs/promises';
+import {mkdir, writeFile} from 'node:fs/promises';
 import {chromium} from 'playwright-core';
 import {startWebServer} from './serve-web.mjs';
-const server=await startWebServer(0);
-const browser=await chromium.launch({channel:'chrome',headless:true});
-const report={errors:[]};
+
+const server = await startWebServer(0);
+const browser = await chromium.launch({channel: 'chrome', headless: true});
+const report = {errors: []};
 try {
-    const page=await browser.newPage();
-    page.on('pageerror',error=>report.errors.push(error.message));
-    await page.route('**/worker-check',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Terrain worker proof</title>'}));
-    await page.goto(`http://127.0.0.1:${server.address().port}/worker-check`);
-    await page.addScriptTag({url:'/terrain-workers.js'});
-    await page.evaluate(()=>{
-        window.pool=new TerrainWorkerPool();
-        window.packet=(sequence,flags=0)=>{
-            const bytes=new Uint8Array(104),view=new DataView(bytes.buffer);
-            view.setBigUint64(0,1n,true);view.setBigUint64(8,BigInt(sequence),true);
-            view.setBigUint64(40,1n,true);view.setUint32(88,32,true);
-            view.setFloat64(64,1024,true);view.setFloat64(72,24,true);view.setFloat64(80,180,true);
-            view.setUint32(92,4*1024*1024,true);view.setUint32(96,flags,true);
-            return bytes;
-        };
-        window.heartbeat=0;
-        const beat=()=>{++window.heartbeat;requestAnimationFrame(beat);};requestAnimationFrame(beat);
-        pool.submit(packet(1,1));pool.submit(packet(2));
+    const page = await browser.newPage();
+    page.on('pageerror', error => report.errors.push(error.message));
+    page.on('console', message => {
+        if (['error', 'warning'].includes(message.type())) report.errors.push(message.text());
     });
-    await page.waitForFunction(()=>pool.results.length===1&&heartbeat>=3,null,{timeout:30000});
-    report.independent=await page.evaluate(()=>({worker:pool.results[0].worker,outcome:pool.results[0].outcome,
-        error:pool.results[0].error,vertices:pool.results[0].vertices?.length,indices:pool.results[0].indices?.length/4,
-        parts:pool.results[0].partOffsets ? Array.from(pool.results[0].partOffsets) : [],
-        held:pool.workers.find(w=>w.job)?.index,heartbeat}));
-    assert.equal(report.independent.outcome,0);assert.ok(report.independent.vertices>0);
-    assert.equal(report.independent.parts.length,8);
-    assert.equal(report.independent.parts[0],0);
-    assert.equal(report.independent.parts[7],report.independent.indices);
-    for(let i=1;i<8;++i){assert.ok(report.independent.parts[i]>=report.independent.parts[i-1]);assert.equal(report.independent.parts[i]%3,0);}
-    assert.ok(report.independent.parts[7]>report.independent.parts[1]);
-    assert.notEqual(report.independent.worker,report.independent.held);
-    await page.evaluate(()=>pool.cancel(packet(1)));
-    await page.waitForFunction(()=>pool.results.length===2,null,{timeout:30000});
-    report.cancellation=await page.evaluate(()=>pool.results[1].outcome);
-    assert.equal(report.cancellation,1);
-    await page.evaluate(()=>pool.submit(packet(3,2)));
-    await page.waitForFunction(()=>pool.results.length===3,null,{timeout:30000});
-    report.failure=await page.evaluate(()=>({outcome:pool.results[2].outcome,error:pool.results[2].error}));
-    assert.equal(report.failure.outcome,2);assert.ok(report.failure.error.length);
-    await page.evaluate(()=>{pool.submit(packet(4,1));pool.release();});
-    await page.waitForFunction(()=>pool.results.length===4,null,{timeout:30000});
-    assert.equal(await page.evaluate(()=>pool.results[3].outcome),0);
-    await page.evaluate(()=>{pool.submit(packet(5,1));pool.stop();});
-    assert.equal(await page.evaluate(()=>pool.jobs.size),0);
-    assert.deepEqual(report.errors,[]);
+    await page.route('**/worker-check', route => route.fulfill({
+        contentType: 'text/html',
+        headers: {'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp'},
+        body: `<!doctype html><link rel="icon" href="data:,"><title>C++ worker proof</title>
+            <script>
+                var Module = {printErr: text => console.error(text)};
+                var heartbeat = 0;
+                function beat() { ++heartbeat; requestAnimationFrame(beat); }
+                requestAnimationFrame(beat);
+            </script><script src="terrain-workers-proof.js"></script>`
+    }));
+    await page.goto(`http://127.0.0.1:${server.address().port}/worker-check`);
+    await page.waitForFunction(() => Module.workerProof?.done || Module.workerProof?.error, null, {timeout: 60000});
+    report.proof = await page.evaluate(() => ({...Module.workerProof, heartbeat, isolated: crossOriginIsolated}));
+    assert.equal(report.proof.error, undefined);
+    assert.equal(report.proof.done, true);
+    assert.equal(report.proof.shared, true);
+    assert.equal(report.proof.isolated, true);
+    assert.equal(report.proof.stage, 5);
+    assert.ok(report.proof.heartbeat >= 3);
+    assert.ok(report.proof.indices > 0 && report.proof.vertices > 0);
+    // Detached shutdown must return both generations of workers to the runtime pool.
+    await page.waitForFunction(() => Object.keys(PThread.pthreads).length === 0, null, {timeout: 30000});
+    report.drainedWorkers = await page.evaluate(() => Object.keys(PThread.pthreads).length);
+    assert.deepEqual(report.errors, []);
+
+    // Production shell must diagnose missing headers before trying to instantiate shared WASM.
+    await page.route('**/index.html', async route => {
+        const response = await route.fetch();
+        const headers = response.headers();
+        delete headers['cross-origin-opener-policy'];
+        delete headers['cross-origin-embedder-policy'];
+        await route.fulfill({response, headers});
+    });
+    await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);
+    report.missingIsolation = await page.locator('#status').innerText();
+    assert.match(report.missingIsolation, /cross-origin isolation/);
+    assert.equal(await page.evaluate(() => Module.failed), true);
+    assert.deepEqual(report.errors, []);
 } finally {
-    await mkdir('artifacts/terrain/browser',{recursive:true});
-    await writeFile('artifacts/terrain/browser/workers.json',JSON.stringify(report,null,2));
-    await browser.close();await new Promise(resolve=>server.close(resolve));
+    await mkdir('artifacts/terrain/browser', {recursive: true});
+    await writeFile('artifacts/terrain/browser/workers.json', JSON.stringify(report, null, 2));
+    await browser.close();
+    await new Promise(resolve => server.close(resolve));
 }

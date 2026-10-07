@@ -19,6 +19,14 @@
             }
         },
         {
+            "name": "native-release",
+            "inherits": "native-debug",
+            "binaryDir": "${sourceDir}/build/native-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
             "name": "cpu-tests",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/cpu-tests",
@@ -57,6 +65,11 @@
             "configurePreset": "native-relwithdebinfo"
         },
         {
+            "name": "native-release",
+            "inherits": "native-debug",
+            "configurePreset": "native-release"
+        },
+        {
             "name": "cpu-tests",
             "configurePreset": "cpu-tests",
             "targets": [
@@ -85,6 +98,11 @@
             "name": "native-relwithdebinfo",
             "inherits": "native-debug",
             "configurePreset": "native-relwithdebinfo"
+        },
+        {
+            "name": "native-release",
+            "inherits": "native-debug",
+            "configurePreset": "native-release"
         },
         {
             "name": "cpu-tests",

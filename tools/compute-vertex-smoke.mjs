@@ -12,6 +12,8 @@ for (const [extension, type] of [['html', 'text/html'], ['js', 'text/javascript'
     files.set(`/compute-proof.${extension}`, { type, data: await readFile(`build/web/compute-proof.${extension}`) });
 }
 const server = createServer((request, response) => {
+    response.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
     if (request.url === '/favicon.ico') { response.writeHead(204).end(); return; }
     const file = files.get(new URL(request.url, 'http://localhost').pathname);
     if (!file) { response.writeHead(404).end(); return; }

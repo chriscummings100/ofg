@@ -6,7 +6,7 @@ import { chromium } from 'playwright-core';
 import { startWebServer } from './serve-web.mjs';
 const compiler=process.argv[2] || 'build/native/_deps/slang-src/bin/slangc.exe';
 const folder='artifacts/pbr/shaders';await mkdir(folder,{recursive:true});
-const modules=['common','brdf','iridescence','material','../sky/clouds','../shadows/sampling','lighting','mesh'];
+const modules=['scene','common','brdf','iridescence','material','../sky/clouds','../shadows/sampling','lighting','mesh'];
 let source='';for(const name of modules)source+=`\n#line 1 "pbr/${name}.slang"\n`+await readFile(`shaders/pbr/${name}.slang`,'utf8');
 const textureDefines = [
     'HAS_BASE_COLOR_TEXTURE',
@@ -33,7 +33,7 @@ try {
         const file=`${folder}/${name}.slang`;await writeFile(file,'#define MATERIAL_ANISOTROPY 1\n'+defines+source);
         for(const stage of ['vertex','fragment']) {
             const output=`${folder}/${name}-${stage}.wgsl`;
-            execFileSync(compiler,[file,'-target','wgsl','-entry',`${stage}Main`,'-stage',stage,'-o',output]);
+            execFileSync(compiler,[file,'-I','shaders/pbr','-target','wgsl','-entry',`${stage}Main`,'-stage',stage,'-o',output]);
             const code=await readFile(output,'utf8');
             if(stage==='vertex') {
                 const input=code.match(/struct vertexInput_\d+\s*\{([\s\S]*?)\}/)[1];

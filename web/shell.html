@@ -54,7 +54,7 @@
             uiFrame(x0,y0,x1,y1,exposure,debugView,selection) {
                 this.uiState = {sceneRect:[x0,y0,x1,y1],exposure,debugView,selection};
             },
-            failed: false, noInitialRun: !navigator.gpu,
+            failed: false, noInitialRun: !navigator.gpu || !crossOriginIsolated,
             // Preserves the first failure and exposes readiness to browser automation.
             setStatus(text, failed = false) {
                 if (this.failed && !failed) return;
@@ -97,8 +97,16 @@
             if (document.pointerLockElement) document.exitPointerLock();
         });
         if (!navigator.gpu) Module.setStatus('WebGPU is unavailable. Use a supported browser on localhost or HTTPS.', true);
+        else if (!crossOriginIsolated) Module.setStatus('Shared-memory threads require cross-origin isolation. Serve with COOP: same-origin and COEP: require-corp headers.', true);
     </script>
-    <script src="terrain-workers.js"></script>
-    {{{ SCRIPT }}}
+    <!-- Load only after capability checks; pthread startup otherwise fails before our diagnostic is shown. -->
+    <script>
+        if (!Module.noInitialRun) {
+            const script = document.createElement('script');
+            script.src = 'index.js';
+            document.body.appendChild(script);
+        }
+    </script>
+    <!-- {{{ SCRIPT }}} -->
 </body>
 </html>

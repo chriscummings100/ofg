@@ -77,3 +77,9 @@ Verified 2026-10-03: native CTest passes all four targets; core tests have 65 ca
 The [active plan](plans/pbr-rendering.md#artifacts-and-notes) records timing and unpadded payload budgets. Physical GPU allocation/residency, including pending command retention, has not been measured; payload totals must not be presented as that measurement. The plan remains open for this and the full Khronos differential validation.
 
 Outdoor sky generation, packed cube arrays and cascaded shadows are described in [outdoor lighting](outdoor-lighting.md).
+
+## Parameter-block ownership
+
+`ParameterBlock<SceneGlobals> scene` holds pass-wide camera/light/outdoor data and the four frame textures/two samplers. Its type is imported from `shaders/pbr/ofg_scene_globals.slang` so every feature variant can share the same object. `ParameterBlock<MaterialParameters> material` holds persistent material values and its conditional texture/sampler fields. The root draw constant buffer holds instance transforms, orientation and cached material alpha mode. This uses three WebGPU binding groups and preserves the total 16-texture/16-sampler budget; reflection counts inside both parameter blocks.
+
+Materials validate/reflect only on first use or after edits, and retain immutable material objects. Pass globals are populated once per pass. Draws use cached field offsets and reflected matrix storage. The pinned RHI still builds backend descriptor data per draw; this change removes repeated application reflection rather than adding a backend descriptor cache. The native parameter-block regression submits frames with changed lighting, values, textures and alpha state without a host wait, covers different material variants and clone isolation, and reprepares surviving assets after Graphics restart.

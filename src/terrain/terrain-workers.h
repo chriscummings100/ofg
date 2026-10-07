@@ -1,4 +1,4 @@
-// Bounded native/browser worker adapters exchange immutable requests and owned CPU results with the application.
+// Shared C++ workers exchange immutable requests and owned CPU results on native and browser hosts.
 #pragma once
 
 #include "terrain/terrain-generator.h"
@@ -27,7 +27,7 @@ class TerrainWorkers
 public:
     // Starts two persistent CPU workers; queued plus running plus unclaimed results are limited to 64.
     TerrainWorkers();
-    // Cancels outstanding work and stops owned workers; native destruction joins outside frame submission.
+    // Cancels work; native joins, browser workers finish independently while retaining their shared CPU state.
     ~TerrainWorkers();
     TerrainWorkers(const TerrainWorkers&) = delete;
     TerrainWorkers& operator=(const TerrainWorkers&) = delete;
@@ -39,13 +39,11 @@ public:
     void releaseHeld();
     // Transfers completed results to the application thread without waiting for generation.
     std::vector<WorkerResult> takeResults();
-#ifndef __EMSCRIPTEN__
-    // Native test/offline convenience only; application frames must use nonblocking takeResults.
+    // Test/offline convenience; never call on the browser main thread. Frames use nonblocking takeResults.
     bool waitForResult(std::chrono::milliseconds timeout);
-#endif
 
 private:
     struct State;
-    std::unique_ptr<State> m_state;
+    std::shared_ptr<State> m_state;
 };
 } // namespace ofg::terrain

@@ -1,4 +1,5 @@
 // Uploads baked IBL and incrementally builds frozen dynamic generations without exposing partial filters.
+#include "terrain/terrain-profile.h"
 #include "render/environment-renderer.h"
 #include "render/resource-gpu-data.h"
 #include "render/sky-renderer.h"
@@ -162,6 +163,7 @@ static std::array<float, 20> environmentSnapshot(const DrawList& frame)
 }
 void EnvironmentRenderer::filterFace(uint32_t kind, uint32_t face)
 {
+    OFG_TERRAIN_SCOPE(EnvironmentRenderer_filterFace);
     ComPtr<ICommandEncoder> encoder;
     checkLighting(m_queue->createCommandEncoder(encoder.writeRef()), "Create filter encoder");
     for (uint32_t mip = 0; mip < 7; ++mip)
@@ -184,6 +186,7 @@ void EnvironmentRenderer::filterFace(uint32_t kind, uint32_t face)
 }
 void EnvironmentRenderer::update(const DrawList& frame, SkyRenderer& sky)
 {
+    OFG_TERRAIN_SCOPE(EnvironmentRenderer_update);
     m_lastPassCount = 0;
     // The BRDF lookup follows the current scene asset even while a frozen capture is in flight.
     prepare(*frame.lighting.environment);

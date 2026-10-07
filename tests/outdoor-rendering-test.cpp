@@ -42,12 +42,17 @@ TEST_CASE("Aerial sampling interpolates physical distances and keeps exposure wh
     REQUIRE(SLANG_SUCCEEDED(device->getQueue(rhi::QueueType::Graphics, queue.writeRef())));
     // Compile the actual production composition function, with a synthetic linear-in-distance volume.
     std::string source;
-    for (const char* path : {"shaders/sky/clouds.slang", "shaders/shadows/sampling.slang"})
+    for (const char* path :
+         {"shaders/pbr/ofg_scene_globals.slang", "shaders/sky/clouds.slang", "shaders/shadows/sampling.slang"})
     {
         std::ifstream file(std::filesystem::path(OFG_SOURCE_DIR) / path);
         REQUIRE(file.good());
         source.append(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
         source += '\n';
+        if (std::string_view(path) == "shaders/pbr/ofg_scene_globals.slang")
+        {
+            source += "ParameterBlock<SceneGlobals> scene;\n";
+        }
     }
     source += R"(
 // Fullscreen diagnostic: the left half covers 0..10 metres, the right half 0..10000 metres.
@@ -94,7 +99,7 @@ TEST_CASE("Aerial sampling interpolates physical distances and keeps exposure wh
     {
         rhi::ComPtr<rhi::IShaderObject> root;
         REQUIRE(SLANG_SUCCEEDED(device->createRootShaderObject(program, root.writeRef())));
-        auto cursor = rhi::ShaderCursor(root);
+        auto cursor = rhi::ShaderCursor(root)["scene"];
         const float exposure[]{1, 2, 0, 0}, camera[]{0, 0, 0, 0}, range[]{0, 1, 0, 10000};
         const float viewport[]{64, 1, float(enabled), 0};
         REQUIRE(SLANG_SUCCEEDED(cursor["outdoor"]["enabledExposure"].setData(exposure, sizeof(exposure))));

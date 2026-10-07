@@ -5,6 +5,7 @@ struct DrawParameters
     column_major float4x4 worldFromLocal;
     column_major float4x4 normalFromLocal;
     float orientation;
+    uint alphaMode;
 };
 ConstantBuffer<DrawParameters> draw;
 // WGSL uses numeric semantic indices as locations; these match the dedicated PBR RHI layout.
@@ -41,7 +42,7 @@ struct VertexOutput
     output.color = input.color;
     return output;
 }
-// Reconstructs a tangent frame for this texture's transformed UVs, including mirrored UVs and UV1.
+// Reconstructs a tangent scene.frame for this texture's transformed UVs, including mirrored UVs and UV1.
 float3 mappedNormal(float3 texel, float scale, float3 n, float3 world, float2 uv)
 {
     float3 qx = ddx(world), qy = ddy(world);
@@ -67,14 +68,17 @@ Surface evaluateSurface(VertexOutput input, bool front)
     float2 dx = ddx(input.uv), dy = ddy(input.uv);
     float4 base = material.baseColor * input.color;
 #ifdef HAS_BASE_COLOR_TEXTURE
-    base *= baseColorTexture.Sample(baseColorSampler, baseColorUv(input.uv, input.uv1));
+    base *= material.baseColorTexture.Sample(material.baseColorSampler, baseColorUv(input.uv, input.uv1));
 #endif
     s.base = base.rgb;
     s.alpha = base.a;
     s.roughness = material.roughness;
     s.metallic = material.metallic;
 #ifdef HAS_METALLIC_ROUGHNESS_TEXTURE
-    float4 mr = metallicRoughnessTexture.Sample(metallicRoughnessSampler, metallicRoughnessUv(input.uv, input.uv1));
+    float4 mr = material.metallicRoughnessTexture.Sample(
+        material.metallicRoughnessSampler,
+        metallicRoughnessUv(input.uv, input.uv1)
+    );
     s.roughness *= mr.g;
     s.metallic *= mr.b;
 #endif
@@ -83,7 +87,7 @@ Surface evaluateSurface(VertexOutput input, bool front)
     s.coatNormal = s.normal;
 #ifdef HAS_NORMAL_TEXTURE
     s.normal = mappedNormal(
-        normalTexture.Sample(normalSampler, normalUv(input.uv, input.uv1)).rgb,
+        material.normalTexture.Sample(material.normalSampler, normalUv(input.uv, input.uv1)).rgb,
         material.normalScale,
         s.normal,
         input.world,
@@ -92,7 +96,8 @@ Surface evaluateSurface(VertexOutput input, bool front)
 #endif
 #ifdef HAS_CLEARCOAT_NORMAL_TEXTURE
     s.coatNormal = mappedNormal(
-        clearcoatNormalTexture.Sample(clearcoatNormalSampler, clearcoatNormalUv(input.uv, input.uv1)).rgb,
+        material.clearcoatNormalTexture.Sample(material.clearcoatNormalSampler, clearcoatNormalUv(input.uv, input.uv1))
+            .rgb,
         material.clearcoatNormalScale,
         s.coatNormal,
         input.world,
@@ -122,57 +127,63 @@ Surface evaluateSurface(VertexOutput input, bool front)
 #ifdef HAS_OCCLUSION_TEXTURE
     s.ao = lerp(
         1,
-        occlusionTexture.Sample(occlusionSampler, occlusionUv(input.uv, input.uv1)).r,
+        material.occlusionTexture.Sample(material.occlusionSampler, occlusionUv(input.uv, input.uv1)).r,
         material.occlusionStrength
     );
 #endif
     s.emission = material.emissive * material.emissiveStrength;
 #ifdef HAS_EMISSIVE_TEXTURE
-    s.emission *= emissiveTexture.Sample(emissiveSampler, emissiveUv(input.uv, input.uv1)).rgb;
+    s.emission *= material.emissiveTexture.Sample(material.emissiveSampler, emissiveUv(input.uv, input.uv1)).rgb;
 #endif
     s.specular = material.specular;
     float3 specColor = material.specularColor;
 #ifdef HAS_SPECULAR_TEXTURE
-    s.specular *= specularTexture.Sample(specularSampler, specularUv(input.uv, input.uv1)).a;
+    s.specular *= material.specularTexture.Sample(material.specularSampler, specularUv(input.uv, input.uv1)).a;
 #endif
 #ifdef HAS_SPECULAR_COLOR_TEXTURE
-    specColor *= specularColorTexture.Sample(specularColorSampler, specularColorUv(input.uv, input.uv1)).rgb;
+    specColor *=
+        material.specularColorTexture.Sample(material.specularColorSampler, specularColorUv(input.uv, input.uv1)).rgb;
 #endif
     s.f0 = min(sq((material.ior - 1) / (material.ior + 1)) * specColor, float3(1));
     s.coat = material.clearcoat;
     s.coatRoughness = material.clearcoatRoughness;
 #ifdef HAS_CLEARCOAT_TEXTURE
-    s.coat *= clearcoatTexture.Sample(clearcoatSampler, clearcoatUv(input.uv, input.uv1)).r;
+    s.coat *= material.clearcoatTexture.Sample(material.clearcoatSampler, clearcoatUv(input.uv, input.uv1)).r;
 #endif
 #ifdef HAS_CLEARCOAT_ROUGHNESS_TEXTURE
-    s.coatRoughness *=
-        clearcoatRoughnessTexture.Sample(clearcoatRoughnessSampler, clearcoatRoughnessUv(input.uv, input.uv1)).g;
+    s.coatRoughness *= material.clearcoatRoughnessTexture
+                           .Sample(material.clearcoatRoughnessSampler, clearcoatRoughnessUv(input.uv, input.uv1))
+                           .g;
 #endif
     s.sheen = material.sheenColor;
     s.sheenRoughness = material.sheenRoughness;
 #ifdef HAS_SHEEN_COLOR_TEXTURE
-    s.sheen *= sheenColorTexture.Sample(sheenColorSampler, sheenColorUv(input.uv, input.uv1)).rgb;
+    s.sheen *= material.sheenColorTexture.Sample(material.sheenColorSampler, sheenColorUv(input.uv, input.uv1)).rgb;
 #endif
 #ifdef HAS_SHEEN_ROUGHNESS_TEXTURE
-    s.sheenRoughness *= sheenRoughnessTexture.Sample(sheenRoughnessSampler, sheenRoughnessUv(input.uv, input.uv1)).a;
+    s.sheenRoughness *=
+        material.sheenRoughnessTexture.Sample(material.sheenRoughnessSampler, sheenRoughnessUv(input.uv, input.uv1)).a;
 #endif
     s.iridescence = material.iridescence;
     s.filmIor = material.iridescenceIor;
     s.thickness = material.thicknessMaximum;
 #ifdef HAS_IRIDESCENCE_TEXTURE
-    s.iridescence *= iridescenceTexture.Sample(iridescenceSampler, iridescenceUv(input.uv, input.uv1)).r;
+    s.iridescence *=
+        material.iridescenceTexture.Sample(material.iridescenceSampler, iridescenceUv(input.uv, input.uv1)).r;
 #endif
 #ifdef HAS_IRIDESCENCE_THICKNESS_TEXTURE
     s.thickness = lerp(
         material.thicknessMinimum,
         material.thicknessMaximum,
-        iridescenceThicknessTexture.Sample(iridescenceThicknessSampler, iridescenceThicknessUv(input.uv, input.uv1)).g
+        material.iridescenceThicknessTexture
+            .Sample(material.iridescenceThicknessSampler, iridescenceThicknessUv(input.uv, input.uv1))
+            .g
     );
 #endif
     s.anisotropy = material.anisotropy;
     float2 direction = float2(1, 0);
 #ifdef HAS_ANISOTROPY_TEXTURE
-    float3 aniso = anisotropyTexture.Sample(anisotropySampler, anisotropyUv(input.uv, input.uv1)).rgb;
+    float3 aniso = material.anisotropyTexture.Sample(material.anisotropySampler, anisotropyUv(input.uv, input.uv1)).rgb;
     s.anisotropy *= aniso.b;
     float2 encoded = aniso.rg * 2 - 1;
     direction = dot(encoded, encoded) > 1e-8 ? normalize(encoded) : float2(1, 0);
@@ -200,7 +211,7 @@ Surface evaluateSurface(VertexOutput input, bool front)
     float3 geometricNormal = safeNormal(cross(ddx(input.world), ddy(input.world)), s.normal);
     color = shadeSurface(s, input.world, geometricNormal);
     color = applyAerialPerspective(color, input.world, input.position.xy);
-    if (outdoor.enabledExposure.x > 0 && outdoor.shadowOptions.w == 1)
+    if (scene.outdoor.enabledExposure.x > 0 && scene.outdoor.shadowOptions.w == 1)
     {
         uint cascade = shadowCascadeIndex(input.world);
         color = cascade == 0   ? float3(1, .1, .1)
@@ -208,23 +219,23 @@ Surface evaluateSurface(VertexOutput input, bool front)
                 : cascade == 2 ? float3(.1, .1, 1)
                                : float3(1, 1, .1);
     }
-    if (outdoor.enabledExposure.x > 0 && outdoor.shadowOptions.w == 2)
+    if (scene.outdoor.enabledExposure.x > 0 && scene.outdoor.shadowOptions.w == 2)
         color = float3(outdoorVisibility(input.world, geometricNormal));
-    if (frame.displayOutput != 0 && frame.debugView == 0)
-        color = frame.linearOutput != 0 ? color * frame.exposure : pbrNeutral(color * frame.exposure);
+    if (scene.frame.displayOutput != 0 && scene.frame.debugView == 0)
+        color = scene.frame.linearOutput != 0 ? color * scene.frame.exposure : pbrNeutral(color * scene.frame.exposure);
 #endif
-    if (frame.debugView == 1)
+    if (scene.frame.debugView == 1)
         color = s.normal * .5 + .5;
-    if (frame.debugView == 2)
+    if (scene.frame.debugView == 2)
         color = float3(s.roughness);
-    if (frame.debugView == 3)
+    if (scene.frame.debugView == 3)
         color = float3(s.metallic);
-    if (frame.debugView == 4)
+    if (scene.frame.debugView == 4)
         color = s.base;
     // Late discard preserves derivative validity across mask boundaries.
-    if (frame.alphaMode == 1 && s.alpha < material.alphaCutoff)
+    if (draw.alphaMode == 1 && s.alpha < material.alphaCutoff)
         discard;
-    if (frame.displayOutput != 0 && frame.encodeSrgb != 0)
+    if (scene.frame.displayOutput != 0 && scene.frame.encodeSrgb != 0)
         color = linearToSrgb(color);
-    return float4(color, frame.alphaMode == 2 ? s.alpha : 1);
+    return float4(color, draw.alphaMode == 2 ? s.alpha : 1);
 }

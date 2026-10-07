@@ -2,10 +2,16 @@
 cmake_minimum_required(VERSION 3.24)
 project(ofg LANGUAGES C CXX)
 
+option(OFG_TERRAIN_FUNCTION_PROFILE "Compile opt-in terrain function timing diagnostics" OFF)
+if(OFG_TERRAIN_FUNCTION_PROFILE)
+    add_compile_definitions(OFG_TERRAIN_FUNCTION_PROFILE=1)
+endif()
+
 option(OFG_BUILD_APP "Build the graphics application and GPU integration tests" ON)
 
 if(EMSCRIPTEN)
-    add_compile_options(-fwasm-exceptions)
+    add_compile_options(-fwasm-exceptions -pthread)
+    add_link_options(-pthread)
 elseif(OFG_BUILD_APP AND NOT WIN32)
     message(FATAL_ERROR "OFG supports native Windows and Emscripten browser builds.")
 endif()
@@ -17,13 +23,16 @@ add_subdirectory(external)
 
 # PBR source modules have a fixed dependency/order list and are embedded on every target.
 set(PBR_SHADER "")
-foreach(module common brdf iridescence material ../sky/clouds ../shadows/sampling lighting mesh)
+foreach(module scene common brdf iridescence material ../sky/clouds ../shadows/sampling lighting mesh)
     get_filename_component(module_path shaders/pbr/${module}.slang ABSOLUTE)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${module_path}")
     file(READ shaders/pbr/${module}.slang source)
     string(APPEND PBR_SHADER "\n#line 1 \"pbr/${module}.slang\"\n${source}\n")
 endforeach()
 configure_file(src/resources/pbr-shader.h.in generated/pbr-shader.h @ONLY)
+file(READ shaders/pbr/ofg_scene_globals.slang SCENE_GLOBALS_SHADER)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/pbr/ofg_scene_globals.slang)
+configure_file(src/render/scene-globals-shader.h.in generated/scene-globals-shader.h @ONLY)
 file(READ assets/pbr-studio.bin IBL_HEX HEX)
 string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," IBL_BYTES "${IBL_HEX}")
 configure_file(src/lab/pbr-environment.h.in generated/pbr-environment.h @ONLY)
@@ -75,11 +84,7 @@ add_library(ofg-core STATIC
 target_compile_features(ofg-core PUBLIC cxx_std_20)
 target_include_directories(ofg-core PUBLIC src PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_include_directories(ofg-core SYSTEM PRIVATE external/stb external/tinygltf)
-if(NOT EMSCRIPTEN)
-    target_sources(ofg-core PRIVATE src/terrain/terrain-workers-native.cpp)
-else()
-    target_sources(ofg-core PRIVATE src/terrain/terrain-workers-web.cpp)
-endif()
+target_sources(ofg-core PRIVATE src/terrain/terrain-workers.cpp)
 
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS assets/checker.png assets/checker.jpg assets/README.md)
 file(COPY assets DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
@@ -166,6 +171,8 @@ configure_file(src/render/sky-shader.h.in generated/sky-shader.h @ONLY)
 file(READ shaders/environment/filter.slang ENVIRONMENT_SHADER)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/environment/filter.slang)
 configure_file(src/render/environment-shader.h.in generated/environment-shader.h @ONLY)
+file(READ shaders/shadows/ofg_shadow_pass.slang SHADOW_PASS_SHADER)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/shadows/ofg_shadow_pass.slang)
 file(READ shaders/shadows/depth.slang SHADOW_SHADER)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS shaders/shadows/depth.slang)
 configure_file(src/render/shadow-shader.h.in generated/shadow-shader.h @ONLY)
@@ -211,18 +218,17 @@ target_link_libraries(ofg-compute-proof PUBLIC ofg-render)
 if(EMSCRIPTEN)
     target_compile_options(ofg-render PRIVATE --use-port=emdawnwebgpu)
     target_sources(ofg-ui PRIVATE src/ui/browser-input.cpp)
-    add_executable(ofg-terrain-worker src/terrain/terrain-worker-main.cpp src/terrain/terrain-generator.cpp src/terrain/terrain-address.cpp)
-    target_include_directories(ofg-terrain-worker PRIVATE src)
-    target_compile_features(ofg-terrain-worker PRIVATE cxx_std_20)
-    set_target_properties(ofg-terrain-worker PROPERTIES OUTPUT_NAME terrain-generator SUFFIX .mjs)
-    target_link_options(ofg-terrain-worker PRIVATE --no-entry -fwasm-exceptions
-        -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=worker -sALLOW_MEMORY_GROWTH=1
-        -sMAXIMUM_MEMORY=50331648 -sEXPORTED_FUNCTIONS=['_malloc','_free']
-        -sEXPORTED_RUNTIME_METHODS=['UTF8ToString','HEAPU8'] -sASSERTIONS=1)
-    configure_file(web/terrain-worker.js terrain-worker.js COPYONLY)
-    configure_file(web/terrain-workers.js terrain-workers.js COPYONLY)
+    add_executable(ofg-terrain-workers-proof tests/terrain-workers-web.cpp)
+    target_link_libraries(ofg-terrain-workers-proof PRIVATE ofg-core)
+    set_target_properties(ofg-terrain-workers-proof PROPERTIES OUTPUT_NAME terrain-workers-proof SUFFIX .js)
+    # The lifecycle proof deliberately overlaps an old draining pair with its replacement pair.
+    target_link_options(ofg-terrain-workers-proof PRIVATE
+        -fwasm-exceptions -sPTHREAD_POOL_SIZE=4 -sALLOW_MEMORY_GROWTH=1 -sASSERTIONS=1
+        -sEXPORTED_RUNTIME_METHODS=HEAPU8 -sALLOW_BLOCKING_ON_MAIN_THREAD=0
+        -sASYNCIFY=1 -sASYNCIFY_IGNORE_INDIRECT=1
+        "-sASYNCIFY_ONLY=['*main*','*wait*','*create*','*map*','*ofg*','*dynCall*']")
     add_executable(ofg-web src/web-main.cpp)
-    add_dependencies(ofg-web ofg-terrain-worker)
+    add_dependencies(ofg-web ofg-terrain-workers-proof)
     target_link_libraries(ofg-web PRIVATE ofg-ui ofg-core)
     set_target_properties(ofg-web PROPERTIES OUTPUT_NAME index SUFFIX .html)
     set_property(TARGET ofg-web APPEND PROPERTY LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html)
@@ -234,6 +240,7 @@ if(EMSCRIPTEN)
         --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
         -fwasm-exceptions --export=__cpp_exception
         -sFETCH=1 -sASSERTIONS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576
+        -sPTHREAD_POOL_SIZE=2 -sALLOW_BLOCKING_ON_MAIN_THREAD=0
         -sASYNCIFY=1 -sASYNCIFY_IGNORE_INDIRECT=1
         "-sASYNCIFY_ONLY=['*main*','*wait*','*initialize*','*create*','*map*','*readBuffer*','*ofg*','*rhi*','*Frame*','*dynCall*']"
     )

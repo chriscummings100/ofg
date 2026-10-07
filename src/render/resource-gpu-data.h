@@ -2,6 +2,7 @@
 #pragma once
 
 #include <slang-rhi.h>
+#include <slang-rhi/shader-cursor.h>
 #include <map>
 #include <array>
 
@@ -27,6 +28,19 @@ struct MeshGpuData
     rhi::ComPtr<rhi::IBuffer> vertices;
     rhi::ComPtr<rhi::IBuffer> indices;
     rhi::ComPtr<rhi::IBuffer> influences;
+};
+
+// Cursors observe children retained by root; clear the whole record when releasing its device.
+struct MatrixBinding
+{
+    rhi::ShaderCursor cursor;
+    bool rowMajor = false;
+};
+struct MaterialGpuData
+{
+    rhi::ComPtr<rhi::IShaderObject> root, unboundScene;
+    rhi::ShaderCursor scene, orientation;
+    MatrixBinding clipFromLocal, worldFromLocal, normalFromLocal;
 };
 
 struct ShaderGpuData

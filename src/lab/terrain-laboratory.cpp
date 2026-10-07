@@ -1,4 +1,5 @@
 // Main-thread terrain adapter: immutable worker values become prepared snapshots with explicit GPU lifetime.
+#include "terrain/terrain-profile.h"
 #include "lab/terrain-laboratory.h"
 #include "lab/pbr-fixture.h"
 #include "resources/pbr-material.h"
@@ -93,6 +94,7 @@ void TerrainLaboratory::traverse(double elapsedSeconds)
 
 void TerrainLaboratory::updateRoots()
 {
+    OFG_TERRAIN_SCOPE(TerrainLaboratory_updateRoots);
     m_admissionBlocked = false;
     // Candidate offsets are small: global cell arithmetic stays exact before conversion to metres.
     for (int z = -4; z <= 4; ++z)
@@ -141,6 +143,7 @@ void TerrainLaboratory::updateRoots()
 
 void TerrainLaboratory::receiveResults()
 {
+    OFG_TERRAIN_SCOPE(TerrainLaboratory_receiveResults);
     for (auto& result : m_workers.takeResults())
     {
         if (result.outcome == terrain::WorkerOutcome::Cancelled)
@@ -199,6 +202,7 @@ void TerrainLaboratory::receiveResults()
 
 void TerrainLaboratory::upload()
 {
+    OFG_TERRAIN_SCOPE(TerrainLaboratory_upload);
     const auto completed = m_completion.completed();
     m_stream.completedSubmission(completed);
     while (!m_staging.empty() && m_staging.front().first <= completed)
@@ -263,6 +267,7 @@ void TerrainLaboratory::upload()
 
 void TerrainLaboratory::update(Scene& scene)
 {
+    OFG_TERRAIN_SCOPE(TerrainLaboratory_update);
     const auto updateStart = std::chrono::steady_clock::now();
     auto* camera = scene.activeCamera();
     if (!camera)
@@ -316,6 +321,7 @@ void TerrainLaboratory::update(Scene& scene)
 
 void TerrainLaboratory::append(DrawList& list)
 {
+    OFG_TERRAIN_SCOPE(TerrainLaboratory_append);
     m_clipFromWorld = list.clipFromWorld;
     list.atmosphereHeight = float(std::clamp(double(m_camera.cell.y) * 1024 + m_camera.local[1], -1000.0, 1000000.0));
     if (list.lighting.outdoor)

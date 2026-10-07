@@ -33,7 +33,9 @@ The [glTF plan](plans/gltf-model-loading.md) records the preceding import founda
 
 Graphics lazily creates immutable vertex/index buffers and shader programs. Weak tracking allows shutdown to reset surviving assets' GPU handles. Pipeline entries observe Shader ownership identity, color format, alpha/cull state, mirrored winding and fullscreen classification. Expired Shader entries are pruned each rendered frame; factor changes and clones reuse pipelines. Vertices include position/normal/UV0/tangent/UV1/color; indices are uint32 triangles. Scene geometry uses single sampling and D32Float/Less depth. Blended materials disable depth writes; double-sided materials disable culling. The PBR pass/output contract is detailed below.
 
-Each draw receives independent RHI shader-object storage. Reflection validates every direct `material` field and the required `draw.clipFromLocal` float4x4. Scalars and vectors are explicitly packed; matrices respect reflected row/column storage. Slang compilation uses unique internal module names and paths because its session caches both; resource source names remain in diagnostics. The compiler session may retain compiled modules until device/session destruction; weak application caches do not claim to evict compiler internals.
+Material owns a persistent RHI root with cached instance-field cursors; its finalized PBR material parameter block holds values, textures and samplers. Edits invalidate the cache and clones begin uncached. Graphics tracks allocations weakly and clears surviving caches on shutdown. Each PBR pass creates one finalized scene parameter block using the common imported `SceneGlobals` type, shared across shader feature variants. Each draw attaches that object and updates transforms/orientation without named reflection. RHI captures independent binding data at `drawIndexed`; the material then drops its scene reference to avoid retaining obsolete pass resources. The pinned backends still assemble descriptor data per draw.
+
+Reflection validates material names/types during preparation. Scalars and vectors are explicitly packed; cached matrix layouts respect row/column storage. Slang compilation uses unique internal module names/paths for programs, and one named imported scene module per device session. Compiler sessions may retain modules until device destruction; weak application caches do not evict compiler internals. See [resource contracts](resources.md#procedural-scene-assets).
 
 RHI command buffers retain referenced buffers, pipelines, attachments and bindings. Native queues retain submitted command buffers until completion; WebGPU owns submitted backend work. Assets may be released after submission. No application-level retirement system or permanent owning asset registry is added. Reinitialization recreates GPU data from surviving CPU descriptions.
 
@@ -117,11 +119,22 @@ layouts, the pinned WebGPU adaptations, numerical approximations and validation 
 
 The [terrain laboratory](terrain-streaming.md) adds a GPU-independent octree controller and deterministic volume
 mesher to `ofg-core`, a concrete preparation/retirement adapter to `ofg-render`, and diagnostics to `ofg-ui`.
-`Game` owns the optional terrain mode. Native generation uses two threads; browser generation uses two dedicated
-workers running a separate small WASM module. The graphics WASM remains single-threaded. Terrain draws and shadow
+`Game` owns the optional terrain mode. Both hosts use the same two persistent C++ generation threads. Browser
+pthreads share the application WASM heap and require cross-origin isolation; graphics/UI stay on the application
+thread. Browser teardown cancels detached workers, which retain their CPU state until they exit without accessing
+the destroyed laboratory. Native teardown joins. Terrain draws and shadow
 casters use the same camera-relative transforms, while physical atmosphere altitude remains independent.
 
 Atomic cuts, immutable request identities and retained ancestors protect visible coverage. Explicit upload preparation
 prevents lazy mesh allocation from being mistaken for readiness. Actual GPU completion protects retired buffers; the
 browser uses WebGPU queue completion callbacks because the pinned RHI fence only tracks submission there. See the
 terrain contract and its validation evidence before extending generation or interpreting residency counters.
+
+The [sparse streaming plan](plans/sparse-terrain-streaming.md) records the proposed complete demand/boundary/display
+passes and future single-owner streaming thread. The current threading migration does not implement those passes
+or increase world/render size. The browser Slang library is rebuilt at the same pinned version with pthread support
+because the release WASM archive is not shared-memory compatible; see DEVELOPING.md.
+
+## Shadow binding ownership
+
+The four depth passes follow the same lifetime split as the main material pass: one immutable globals object per cascade, a persistent immutable shadow-material block, and cached per-instance transform binding. Shadow-only materials need no visible-pass shader preparation. Material setters invalidate both caches; the shadow renderer weakly tracks and clears its records on destruction. The opaque and alpha-textured programs import a common pass type. GPU vertex transforms combine the pass and instance matrices; CPU culling and skinning behavior are unchanged. See [shadow material contracts](resources.md#shadow-material-bindings).

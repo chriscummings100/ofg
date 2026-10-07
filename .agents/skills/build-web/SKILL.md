@@ -13,7 +13,7 @@ Use the `web` CMake configure/build preset and target `ofg-web`, with output in 
 
 Reuse the existing build tree. Do not replace the SDK, update the RHI submodule pin or remove build directories merely to make a build pass. Report missing prerequisites or a toolchain mismatch with the relevant diagnostic. Native builds remain in `build/native` and must not acquire an Emscripten or Node dependency.
 
-The browser configuration enables RHI WebGPU through `emdawnwebgpu` and excludes GLFW, DirectX, desktop Dawn and the native C++ tests. The first configure fetches the pinned Slang WASM libraries; linking still optimizes the bundled compiler and can take substantially longer than native linking. A generated HTML file alone is not evidence of a successful build: check the command's exit status and all three HTML/JS/WASM outputs.
+The browser configuration enables RHI WebGPU through `emdawnwebgpu` and excludes GLFW, DirectX, desktop Dawn and the native C++ tests. Prepare the pinned threaded Slang libraries with the documented script before configuring; linking still optimizes the embedded compiler and can take substantially longer than native linking. A generated HTML file alone is not evidence of a successful build: check the command's exit status and all three HTML/JS/WASM outputs.
 
 ## Serve and capture
 
@@ -25,7 +25,12 @@ For interactive investigation, use `npm run serve:web` and the printed localhost
 
 ## Known integration details
 
-The Slang source is embedded by CMake, so shader edits require a rebuild. Keep JavaScript logic in `web/shell.html` and inline C++ `EM_ASM` blocks simple: clang-format can corrupt JavaScript-only operators such as strict equality. The current build is single-threaded and needs no cross-origin isolation headers.
+The Slang source is embedded by CMake, so shader edits require a rebuild. Keep JavaScript logic in `web/shell.html` and inline C++ `EM_ASM` blocks simple: clang-format can corrupt JavaScript-only operators such as strict equality.
+The build uses shared-memory C++ pthreads. The development server supplies required COOP/COEP headers; deployment
+must do the same. First build the pinned threaded Slang libraries with `tools/build-slang-web.ps1` as documented in
+DEVELOPING.md: the prebuilt Slang WASM release is single-threaded and cannot be used for this link. Run
+`node tools/terrain-workers-smoke.mjs` for real C++ worker lifecycle/shared-memory proof, then the terrain smoke
+for WebGPU integration. The full C++ test suite remains native.
 
 The WASM includes the Slang compiler (the original checkerboard baseline was about 26 MB uncompressed). Asyncify/WASM-exception settings follow the pinned RHI integration and emit a known Emscripten warning. Do not suppress it or assume all asynchronous exception paths work because the checkerboard passes. Record failures and revisit the settings when those paths change.
 

@@ -191,16 +191,21 @@ The browser target is `ofg-web`, selected by the `web` build preset. It produces
 
 ## Build for the browser
 
-The tested SDK is Emscripten 6.0.0, already installed at `C:\tools\emsdk` on this machine. Activate the SDK using its normal setup so `EMSDK` points at its root and its compiler can find Node/Python. CMake reads the Emscripten toolchain from `EMSDK`; it does not download or switch SDK versions. Have CMake and Ninja on PATH. No MSVC compilation is involved in the browser build. If using the bundled Visual Studio Ninja, the discovery block above gives `$vsRoot`; add only its Ninja folder when needed:
+The tested SDK is Emscripten 6.0.0, already installed at `C:\tools\emsdk` on this machine. Activate the SDK using its normal setup so `EMSDK` points at its root and its compiler can find Node/Python. CMake reads the Emscripten toolchain from `EMSDK`; it does not download or switch SDK versions. Have CMake and Ninja on PATH. Threaded Slang preparation uses MSVC for host generators; browser application code is compiled by Emscripten. If using the bundled Visual Studio Ninja, the discovery block above gives `$vsRoot`; add its Ninja folder when needed:
 
 ```powershell
 $env:PATH = (Join-Path $vsRoot 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja') + ';' + $env:PATH
 emcc --version
+./tools/build-slang-web.ps1 -Parallel 6
 cmake --preset web
 cmake --build --preset web --parallel 8
 ```
 
-Stop if any command fails. The first build fetches the pinned RHI's Slang 2026.17.1 WASM libraries and uses Emscripten's `emdawnwebgpu` port. It does not build the Slang compiler from source. The final link still optimizes the bundled compiler and takes substantially longer than a native incremental link. Routine builds reuse `build/web`; leave `build/native` intact.
+Stop if any command fails. Threaded Slang preparation fetches v2026.17.1 source at revision
+`ca6e0a657c52881166295f11c14d57afdf0de481`, builds host generators and pthread-compatible WASM libraries,
+and reuses those outputs on later runs. The application uses Emscripten's `emdawnwebgpu` port.
+The final link optimizes the embedded compiler and takes substantially longer than a native incremental link.
+Routine builds reuse `build/web`; leave `build/native` intact.
 
 The browser currently includes the runtime Slang compiler: the initial verified WASM output was 26,795,946 bytes (about 25.6 MiB), before HTTP compression. This is a bring-up baseline, not an optimized distribution-size target. Emscripten warns about combining Asyncify and WASM exceptions. The startup settings originate in the pinned RHI preset. Scene rendering extends the Asyncify allowlist to OFG/RHI, browser frame calls and Emscripten callback thunks because buffer uploads and uniform staging maps can yield. Emscripten pauses/resumes its main loop across those yields. The browser renders into a persistent host-owned texture and acquires the canvas only for the final presentation pass, because canvas textures expire across event-loop turns. Arbitrary exception paths through suspended calls are not established by the smoke check. Revisit this with any async/lifecycle expansion.
 
@@ -213,7 +218,13 @@ npm.cmd ci
 npm.cmd run serve:web
 ```
 
-Open `http://127.0.0.1:8080`. Stop the server with Ctrl+C. Serve the generated files over localhost or HTTPS, rather than opening the HTML with `file://`. This single-threaded build needs no cross-origin isolation headers. The small loopback server serves the generated HTML/JS/WASM and explicitly allowlisted fixture images from build/web/assets.
+Open `http://127.0.0.1:8080`. Stop the server with Ctrl+C. Serve the generated files over localhost or HTTPS,
+rather than opening the HTML with `file://`. The shared-memory C++ build requires
+`Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` response headers.
+The loopback server supplies both and serves the generated HTML/JS/WASM and allowlisted fixture assets.
+Production hosting must supply these headers too; cross-origin assets must satisfy COEP/CORS requirements.
+The application reports missing isolation before starting WASM. Emscripten creates its pthread workers
+from the generated JavaScript; deploy the matching index.html, index.js and index.wasm together.
 
 In another shell, run the focused browser check:
 
@@ -386,9 +397,18 @@ movement is 128 m/s (384 m/s with Shift), R returns to the origin overview and F
 the local surface. The default spawn is near the surface. Cell widths span 16 through 1024 metres.
 New roots visibly load. Existing root coverage stays represented until compatible replacements are prepared.
 
-The streaming controller and noise/Transvoxel generator build in the GPU-independent CPU preset. Native workers
-use two threads; browser workers load a separate `terrain-generator.mjs`/`.wasm` module. No cross-origin-isolation
-headers are required. The four terrain worker files are part of the browser deployment, alongside the main build.
+The streaming controller and noise/Transvoxel generator build in the GPU-independent CPU preset. Both hosts use
+two persistent C++ threads from `src/terrain/terrain-workers.cpp`. Browser pthreads share the application WASM heap;
+geometry vectors move through the protected queue without serialization or cross-heap copies. Graphics and UI
+remain on the existing application thread. Native teardown joins; browser teardown cancels and releases ownership,
+and detached workers retain only shared CPU state until they stop. Main-thread blocking waits are disabled on web.
+The separate generator WASM, wire protocol and JavaScript worker transport have been removed.
+
+The pinned Slang 2026.17.1 release WASM archives lack atomics/bulk-memory support and cannot link into shared memory.
+Before configuring web, build that same version with pthread support using `tools/build-slang-web.ps1` (requires the
+existing MSVC x64 tools plus EMSDK). This builds host generators and browser static libraries under `build/`, reuses
+them on subsequent runs, and does not change the native Slang dependency. First-time compilation is substantial.
+The focused worker proof is a separate small browser executable; the full doctest suite stays native.
 
 Verified commands (from the repository root, with the appropriate development environment above):
 
@@ -457,3 +477,50 @@ browser application must be deployed together because the result protocol includ
 the CPU terrain-fast suite checks payload identity, no regeneration, range validation and six-face/corner continuity.
 The [completed prebuilt transition plan](docs/archived/terrain-prebuilt-transitions.md) records native and browser
 validation on 2026-10-06, lower payload residency and the unresolved increase in measured frame cost.
+
+## Release terrain function profiling
+
+Use the x64 developer environment above. `native-release` uses MSVC Release (`/O2 /Ob2 /DNDEBUG`), in a separate
+build directory. Function scopes compile away unless explicitly configured on:
+
+```powershell
+cmake --preset native-release -DOFG_TERRAIN_FUNCTION_PROFILE=ON
+cmake --build --preset native-release --parallel 6
+build/native-release/ofg.exe --check-device
+ctest --preset native-release --output-on-failure
+$env:OFG_TERRAIN_PROFILE_FUNCTIONS = '1'
+build/native-release/ofg-render-test.exe '--test-case=Terrain stationary profile' --no-skip=true --no-colors
+```
+
+This skipped diagnostic uses a 1440x1200 offscreen target for sixty seconds. It disables D3D12 validation by default;
+set `OFG_TERRAIN_PROFILE_VALIDATION=1` to measure validation overhead. Ordinary graphics tests and interactive app
+startup retain their existing validation behavior, including in Release. Remove `OFG_TERRAIN_PROFILE_FUNCTIONS`
+from the environment for a comparison with timing scopes inactive. Remove `OFG_TERRAIN_PROFILE_ROUTE` for stationary
+measurements. These environment switches are enabled by presence, not by their string value.
+
+The run overwrites `artifacts/terrain/profile/stationary.csv` and, in instrumented builds, `functions.csv`. Preserve
+each pair under a separate run directory before the next run. The function CSV holds cumulative completed-call counts
+and inclusive/exclusive host elapsed milliseconds at convergence, 45 seconds and completion. Exclusive time excludes
+only other instrumented scopes on the same thread; worker totals overlap the main thread. Remaining queue wait is
+not a GPU timestamp or total GPU execution time. Run serially without concurrent compilation or other test workloads.
+`python tools/terrain-profile-summary.py artifacts/terrain/release-profile` summarizes preserved run subdirectories.
+
+The [2026-10-07 Release profile](docs/archived/terrain-release-profile.md) records the measured function breakdown,
+validation comparison, hardware, checks and limitations.
+
+The [binding preparation repair](docs/archived/render-binding-cost.md) records the subsequent stage-local material
+reuse, native/browser checks and matched Release before/after measurements.
+
+### Scene and material parameter blocks
+
+PBR embeds a shared `ofg_scene_globals` Slang module plus the composed shader family. CMake tracks both inputs; rebuild after changing either. Materials cache their validated shader bindings until edited, passes share one scene object, and per-draw matrices use cached offsets. See [PBR ownership](docs/pbr.md#parameter-block-ownership) and [implementation/validation plan](docs/archived/material-parameter-blocks.md).
+
+Validation uses the existing native-release CTest suite, `node tools/pbr-shader-check.mjs`, the web build, `node tools/pbr-smoke.mjs`, and `node tools/terrain-smoke.mjs`. The native test named `PBR parameter blocks preserve variants edits and queued scene snapshots` covers scene/material changes without a host wait and cache rebuilding after Graphics restart. The earlier Release profiling commands remain applicable; preserve comparison runs in separate artifact subdirectories.
+
+Parameter-block verification (2026-10-07): all 9 native Release CTests, native presentation smoke, PBR WGSL checks, and PBR/terrain/texture WebGPU smoke passed. Native/browser evidence is under `artifacts/terrain/parameter-blocks`. The isolated Release run is `artifacts/terrain/release-profile/parameter-blocks`: unchanged materials have zero steady binding-preparation calls; mean Graphics::render was 7.5263 ms and median measured frame 10.8438 ms (RTX 3050 Ti Laptop GPU, D3D12, 1440x1200, validation off). See the completed plan for comparison conditions and remaining shadow cost.
+
+### Shadow parameter blocks
+
+The shadow shader imports `ofg_shadow_pass`, embedded alongside `depth.slang`; CMake tracks both sources. Shadow materials cache alpha/UV/resources until edited, each cascade shares its own pass block, and each instance writes only its world transform through a cached cursor. The native test `Shadow parameter blocks preserve cascade instance and edited material snapshots` reads all four depth layers, including masked texture/UV edits, mirrored instances, clones and renderer replacement. `node tools/outdoor-smoke.mjs` verifies the shared shaders on WebGPU. Native presentation evidence and the browser report are under `artifacts/terrain/shadow-parameter-blocks`; the completed [shadow binding plan](docs/archived/shadow-parameter-blocks.md) records validation and the isolated Release comparison.
+
+Shadow-block Release result (2026-10-07): mean shadow host time 3.8392 ms versus 6.0722 ms before, median measured frame 7.3440 ms versus 10.8438 ms, with the same 1440x1200 D3D12 terrain workload on RTX 3050 Ti Laptop GPU and zero material rebuilds after warm-up. Raw captures are in `artifacts/terrain/release-profile/shadow-parameter-blocks`. All native groups pass after correcting the new test fixture; `ctest --preset native-release --rerun-failed --output-on-failure` passed the complete scene group. Outdoor WebGPU and native presentation checks passed.

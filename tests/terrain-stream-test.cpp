@@ -1,6 +1,7 @@
 // Streaming contracts are tested through production requests and snapshots, with an independent grid oracle.
 #include "doctest.h"
 #include "terrain/terrain-stream.h"
+#include "terrain/terrain-profile.h"
 
 #include <algorithm>
 #include <numeric>
@@ -1086,3 +1087,32 @@ TEST_SUITE("terrain-fast")
         CHECK(stream.cut().size() == 1);
     }
 }
+
+#ifdef OFG_TERRAIN_FUNCTION_PROFILE
+TEST_CASE("Function timers count nested scopes and ignore disabled scopes" * doctest::test_suite("terrain-fast"))
+{
+    using namespace ofg::terrainProfile;
+    auto& parent = counters[size_t(Function::TerrainStream_reconcile)];
+    auto& child = counters[size_t(Function::TerrainStream_makePlan)];
+    const auto beforeParent = parent.calls.load(), beforeChild = child.calls.load();
+    const auto beforeInclusive = parent.inclusive.load(), beforeExclusive = parent.exclusive.load();
+    const auto beforeChildInclusive = child.inclusive.load();
+    enabled = true;
+    {
+        Scope outer(Function::TerrainStream_reconcile);
+        {
+            Scope inner(Function::TerrainStream_makePlan);
+        }
+    }
+    enabled = false;
+    {
+        Scope ignored(Function::TerrainStream_makePlan);
+    }
+    CHECK(parent.calls.load() == beforeParent + 1);
+    CHECK(child.calls.load() == beforeChild + 1);
+    CHECK(
+        parent.inclusive.load() - beforeInclusive ==
+        parent.exclusive.load() - beforeExclusive + child.inclusive.load() - beforeChildInclusive
+    );
+}
+#endif

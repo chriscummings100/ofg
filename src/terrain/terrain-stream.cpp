@@ -1,4 +1,5 @@
 // Terrain replacement plans keep current coverage alive until complete compatible payloads are prepared.
+#include "terrain/terrain-profile.h"
 #include "terrain/terrain-stream.h"
 #include "core/engine-error.h"
 
@@ -277,6 +278,7 @@ bool TerrainStream::wantsChildren(const Node& node) const
 
 std::optional<TerrainStream::Plan> TerrainStream::makePlan(NodeAddress seed, Operation operation)
 {
+    OFG_TERRAIN_SCOPE(TerrainStream_makePlan);
     auto* node = find(seed);
     if (!node || (operation == Operation::Admit && node->admitted) ||
         (operation == Operation::Split && !wantsChildren(*node)) ||
@@ -445,6 +447,7 @@ std::optional<TerrainStream::Plan> TerrainStream::makePlan(NodeAddress seed, Ope
 
 bool TerrainStream::schedule(Plan& plan)
 {
+    OFG_TERRAIN_SCOPE(TerrainStream_schedule);
     std::vector<NodeAddress> missing;
     for (const auto& key : plan.required)
     {
@@ -524,6 +527,7 @@ bool TerrainStream::schedule(Plan& plan)
 
 bool TerrainStream::publish(const Plan& plan)
 {
+    OFG_TERRAIN_SCOPE(TerrainStream_publish);
     for (const auto& key : plan.required)
     {
         if (slot(key).state != BuildState::Loaded)
@@ -590,6 +594,7 @@ void TerrainStream::retire(Slot& content)
 
 void TerrainStream::prune(const std::set<NodeAddress>& required)
 {
+    OFG_TERRAIN_SCOPE(TerrainStream_prune);
     // Visit children before parents so a discarded branch transfers each allocation exactly once.
     std::function<bool(Node&)> visit = [&](Node& node)
     {
@@ -649,6 +654,7 @@ void TerrainStream::update()
 
 void TerrainStream::reconcile()
 {
+    OFG_TERRAIN_SCOPE(TerrainStream_reconcile);
     bool demandChanged = false;
     std::function<void(Node&)> updateDemand = [&](Node& node)
     {
@@ -1055,6 +1061,7 @@ void TerrainStream::completedSubmission(uint64_t serial)
 
 StreamDiagnostics TerrainStream::diagnostics() const
 {
+    OFG_TERRAIN_SCOPE(TerrainStream_diagnostics);
     StreamDiagnostics result;
     std::function<void(const Node&)> visit = [&](const Node& node)
     {

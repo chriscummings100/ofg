@@ -98,11 +98,69 @@ struct MaterialParameters
     float3 anisotropyTransformY;
     uint anisotropyUvSet;
 #endif
-};
-ConstantBuffer<MaterialParameters> material;
 #ifdef HAS_BASE_COLOR_TEXTURE
-Texture2D<float4> baseColorTexture;
-SamplerState baseColorSampler;
+    Texture2D<float4> baseColorTexture;
+    SamplerState baseColorSampler;
+#endif
+#ifdef HAS_METALLIC_ROUGHNESS_TEXTURE
+    Texture2D<float4> metallicRoughnessTexture;
+    SamplerState metallicRoughnessSampler;
+#endif
+#ifdef HAS_NORMAL_TEXTURE
+    Texture2D<float4> normalTexture;
+    SamplerState normalSampler;
+#endif
+#ifdef HAS_OCCLUSION_TEXTURE
+    Texture2D<float4> occlusionTexture;
+    SamplerState occlusionSampler;
+#endif
+#ifdef HAS_EMISSIVE_TEXTURE
+    Texture2D<float4> emissiveTexture;
+    SamplerState emissiveSampler;
+#endif
+#ifdef HAS_SPECULAR_TEXTURE
+    Texture2D<float4> specularTexture;
+    SamplerState specularSampler;
+#endif
+#ifdef HAS_SPECULAR_COLOR_TEXTURE
+    Texture2D<float4> specularColorTexture;
+    SamplerState specularColorSampler;
+#endif
+#ifdef HAS_CLEARCOAT_TEXTURE
+    Texture2D<float4> clearcoatTexture;
+    SamplerState clearcoatSampler;
+#endif
+#ifdef HAS_CLEARCOAT_ROUGHNESS_TEXTURE
+    Texture2D<float4> clearcoatRoughnessTexture;
+    SamplerState clearcoatRoughnessSampler;
+#endif
+#ifdef HAS_CLEARCOAT_NORMAL_TEXTURE
+    Texture2D<float4> clearcoatNormalTexture;
+    SamplerState clearcoatNormalSampler;
+#endif
+#ifdef HAS_SHEEN_COLOR_TEXTURE
+    Texture2D<float4> sheenColorTexture;
+    SamplerState sheenColorSampler;
+#endif
+#ifdef HAS_SHEEN_ROUGHNESS_TEXTURE
+    Texture2D<float4> sheenRoughnessTexture;
+    SamplerState sheenRoughnessSampler;
+#endif
+#ifdef HAS_IRIDESCENCE_TEXTURE
+    Texture2D<float4> iridescenceTexture;
+    SamplerState iridescenceSampler;
+#endif
+#ifdef HAS_IRIDESCENCE_THICKNESS_TEXTURE
+    Texture2D<float4> iridescenceThicknessTexture;
+    SamplerState iridescenceThicknessSampler;
+#endif
+#ifdef HAS_ANISOTROPY_TEXTURE
+    Texture2D<float4> anisotropyTexture;
+    SamplerState anisotropySampler;
+#endif
+};
+ParameterBlock<MaterialParameters> material;
+#ifdef HAS_BASE_COLOR_TEXTURE
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
 float2 baseColorUv(float2 uv0, float2 uv1)
 {
@@ -111,8 +169,6 @@ float2 baseColorUv(float2 uv0, float2 uv1)
 }
 #endif
 #ifdef HAS_METALLIC_ROUGHNESS_TEXTURE
-Texture2D<float4> metallicRoughnessTexture;
-SamplerState metallicRoughnessSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
 float2 metallicRoughnessUv(float2 uv0, float2 uv1)
 {
@@ -121,8 +177,6 @@ float2 metallicRoughnessUv(float2 uv0, float2 uv1)
 }
 #endif
 #ifdef HAS_NORMAL_TEXTURE
-Texture2D<float4> normalTexture;
-SamplerState normalSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
 float2 normalUv(float2 uv0, float2 uv1)
 {
@@ -131,8 +185,6 @@ float2 normalUv(float2 uv0, float2 uv1)
 }
 #endif
 #ifdef HAS_OCCLUSION_TEXTURE
-Texture2D<float4> occlusionTexture;
-SamplerState occlusionSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
 float2 occlusionUv(float2 uv0, float2 uv1)
 {
@@ -141,8 +193,6 @@ float2 occlusionUv(float2 uv0, float2 uv1)
 }
 #endif
 #ifdef HAS_EMISSIVE_TEXTURE
-Texture2D<float4> emissiveTexture;
-SamplerState emissiveSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
 float2 emissiveUv(float2 uv0, float2 uv1)
 {
@@ -151,8 +201,6 @@ float2 emissiveUv(float2 uv0, float2 uv1)
 }
 #endif
 #ifdef HAS_SPECULAR_TEXTURE
-Texture2D<float4> specularTexture;
-SamplerState specularSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
 float2 specularUv(float2 uv0, float2 uv1)
 {
@@ -161,8 +209,6 @@ float2 specularUv(float2 uv0, float2 uv1)
 }
 #endif
 #ifdef HAS_SPECULAR_COLOR_TEXTURE
-Texture2D<float4> specularColorTexture;
-SamplerState specularColorSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
 float2 specularColorUv(float2 uv0, float2 uv1)
 {
@@ -171,8 +217,6 @@ float2 specularColorUv(float2 uv0, float2 uv1)
 }
 #endif
 #ifdef HAS_CLEARCOAT_TEXTURE
-Texture2D<float4> clearcoatTexture;
-SamplerState clearcoatSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
 float2 clearcoatUv(float2 uv0, float2 uv1)
 {
@@ -181,8 +225,6 @@ float2 clearcoatUv(float2 uv0, float2 uv1)
 }
 #endif
 #ifdef HAS_CLEARCOAT_ROUGHNESS_TEXTURE
-Texture2D<float4> clearcoatRoughnessTexture;
-SamplerState clearcoatRoughnessSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
 float2 clearcoatRoughnessUv(float2 uv0, float2 uv1)
 {
@@ -191,8 +233,6 @@ float2 clearcoatRoughnessUv(float2 uv0, float2 uv1)
 }
 #endif
 #ifdef HAS_CLEARCOAT_NORMAL_TEXTURE
-Texture2D<float4> clearcoatNormalTexture;
-SamplerState clearcoatNormalSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
 float2 clearcoatNormalUv(float2 uv0, float2 uv1)
 {
@@ -201,8 +241,6 @@ float2 clearcoatNormalUv(float2 uv0, float2 uv1)
 }
 #endif
 #ifdef HAS_SHEEN_COLOR_TEXTURE
-Texture2D<float4> sheenColorTexture;
-SamplerState sheenColorSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
 float2 sheenColorUv(float2 uv0, float2 uv1)
 {
@@ -211,8 +249,6 @@ float2 sheenColorUv(float2 uv0, float2 uv1)
 }
 #endif
 #ifdef HAS_SHEEN_ROUGHNESS_TEXTURE
-Texture2D<float4> sheenRoughnessTexture;
-SamplerState sheenRoughnessSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
 float2 sheenRoughnessUv(float2 uv0, float2 uv1)
 {
@@ -221,8 +257,6 @@ float2 sheenRoughnessUv(float2 uv0, float2 uv1)
 }
 #endif
 #ifdef HAS_IRIDESCENCE_TEXTURE
-Texture2D<float4> iridescenceTexture;
-SamplerState iridescenceSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
 float2 iridescenceUv(float2 uv0, float2 uv1)
 {
@@ -231,8 +265,6 @@ float2 iridescenceUv(float2 uv0, float2 uv1)
 }
 #endif
 #ifdef HAS_IRIDESCENCE_THICKNESS_TEXTURE
-Texture2D<float4> iridescenceThicknessTexture;
-SamplerState iridescenceThicknessSampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
 float2 iridescenceThicknessUv(float2 uv0, float2 uv1)
 {
@@ -241,8 +273,6 @@ float2 iridescenceThicknessUv(float2 uv0, float2 uv1)
 }
 #endif
 #ifdef HAS_ANISOTROPY_TEXTURE
-Texture2D<float4> anisotropyTexture;
-SamplerState anisotropySampler;
 // Selects and transforms this slot's coordinates independently of other uses of the same image.
 float2 anisotropyUv(float2 uv0, float2 uv1)
 {

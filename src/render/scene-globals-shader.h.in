@@ -1,0 +1,3 @@
+// Shared scene type module, embedded by CMake for native and browser Slang sessions.
+#pragma once
+inline constexpr char sceneGlobalsShader[] = R"OFG_SCENE(@SCENE_GLOBALS_SHADER@)OFG_SCENE";

@@ -1,4 +1,4 @@
-// Deterministic CPU noise and bounded-step Transvoxel meshing, shared by native and separate WASM workers.
+// Deterministic CPU noise and bounded-step Transvoxel meshing, shared by native and browser C++ workers.
 #pragma once
 
 #include "terrain/terrain-address.h"

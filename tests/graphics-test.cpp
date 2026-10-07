@@ -1,5 +1,7 @@
 // Native offscreen scene tests for indexed draws, uniforms, cache identity, retirement and Game ordering.
 #include "render/graphics.h"
+#include "render/shadow-renderer.h"
+#include "terrain/terrain-profile.h"
 #include "render/deformation.h"
 #include "ui/imgui-renderer.h"
 #include "ui/workspace.h"
@@ -55,12 +57,12 @@ struct GraphicsFixture
     SceneDiagnostics diagnostics;
     rhi::ComPtr<rhi::IDevice> device;
     rhi::ComPtr<rhi::ICommandQueue> queue;
-    // Creates a validated native device and the shared Graphics service.
-    GraphicsFixture()
+    // Creates a native device; ordinary tests retain validation, profiling may explicitly disable it.
+    explicit GraphicsFixture(bool validation = true)
     {
         rhi::DeviceDesc desc{};
         desc.deviceType = rhi::DeviceType::D3D12;
-        desc.enableValidation = true;
+        desc.enableValidation = validation;
         desc.debugCallback = &diagnostics;
         REQUIRE(SLANG_SUCCEEDED(rhi::getRHI()->createDevice(desc, device.writeRef())));
         REQUIRE(SLANG_SUCCEEDED(device->getQueue(rhi::QueueType::Graphics, queue.writeRef())));
@@ -420,6 +422,42 @@ TEST_CASE("indexed submeshes use independent uniforms and depth while pipelines 
     CHECK(fixture.pixel(presented, 60, 35) == fixture.pixel(target, 60, 35));
     CHECK(fixture.pixel(presented, 60, 60) == fixture.pixel(target, 60, 60));
     CHECK(fixture.pixel(presented, 100, 48) == fixture.pixel(target, 100, 48));
+}
+
+// Reusing material bindings must preserve each draw's transform and each submission's material values.
+TEST_CASE("shared material bindings preserve interleaved draw and submission snapshots")
+{
+    GraphicsFixture fixture;
+    auto first = fixture.target(), second = fixture.target();
+    auto red = flatMaterial({1, 0, 0, 1});
+    auto green = flatMaterial({0, 1, 0, 1}, red->shader());
+    auto mesh = square(red);
+    DrawList list;
+    for (unsigned instance = 0; instance < 3; ++instance)
+    {
+        auto transform = math::mat4Translation({-.65f + .65f * instance, 0, .5f});
+        transform[0].x = instance == 2 ? -.45f : .45f;
+        transform[1].y = .6f;
+        for (uint32_t part = 0; part < 2; ++part)
+        {
+            list.items.push_back({mesh, part, instance == 1 ? green : red, transform});
+        }
+    }
+    Graphics::render(list, first);
+    red->setUniform("tint", math::Vec4{0, 0, 1, 1});
+    green->setUniform("tint", math::Vec4{1, 1, 0, 1});
+    Graphics::render(list, second); // No host wait before editing and submitting again.
+    for (uint32_t y : {40u, 56u})
+    {
+        for (uint32_t x : {22u, 106u})
+        {
+            CHECK(fixture.pixel(first, x, y) == std::array<uint8_t, 4>{255, 0, 0, 255});
+            CHECK(fixture.pixel(second, x, y) == std::array<uint8_t, 4>{0, 0, 255, 255});
+        }
+        CHECK(fixture.pixel(first, 64, y) == std::array<uint8_t, 4>{0, 255, 0, 255});
+        CHECK(fixture.pixel(second, 64, y) == std::array<uint8_t, 4>{255, 255, 0, 255});
+        CHECK(fixture.pixel(first, 43, y)[0] < 20); // The gap remains clear between distinct transforms.
+    }
 }
 
 TEST_CASE("material binding supports all typed values and explicit matrix storage")
@@ -1065,7 +1103,12 @@ static std::shared_ptr<Mesh> pbrPlane(const std::shared_ptr<Material>& material)
     );
 }
 // Reads actual scene-linear float output; no tone mapping/transfer is used on this diagnostic target.
-static std::array<float, 4> floatPixel(GraphicsFixture& fixture, rhi::ITexture* target)
+static std::array<float, 4> floatPixel(
+    GraphicsFixture& fixture,
+    rhi::ITexture* target,
+    uint32_t x = 64,
+    uint32_t y = 48
+)
 {
     REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
     rhi::ComPtr<ISlangBlob> pixels;
@@ -1074,10 +1117,223 @@ static std::array<float, 4> floatPixel(GraphicsFixture& fixture, rhi::ITexture* 
     std::array<float, 4> result;
     std::memcpy(
         result.data(),
-        static_cast<const uint8_t*>(pixels->getBufferPointer()) + 48 * layout.rowPitch + 64 * 16,
+        static_cast<const uint8_t*>(pixels->getBufferPointer()) + y * layout.rowPitch + x * 16,
         16
     );
     return result;
+}
+
+TEST_CASE("Shadow parameter blocks preserve cascade instance and edited material snapshots")
+{
+    GraphicsFixture fixture;
+    const rhi::VertexStreamDesc stream{sizeof(Vertex), rhi::InputSlotClass::PerVertex, 0};
+    rhi::InputElementDesc elements[]{
+        {"POSITION", 0, rhi::Format::RGB32Float, offsetof(Vertex, position), 0},
+        {"NORMAL", 1, rhi::Format::RGB32Float, offsetof(Vertex, normal), 0},
+        {"TEXCOORD", 2, rhi::Format::RG32Float, offsetof(Vertex, uv), 0},
+        {"TANGENT", 3, rhi::Format::RGBA32Float, offsetof(Vertex, tangent), 0},
+        {"TEXCOORD", 4, rhi::Format::RG32Float, offsetof(Vertex, uv1), 0},
+        {"COLOR", 5, rhi::Format::RGBA32Float, offsetof(Vertex, color), 0}
+    };
+    rhi::InputLayoutDesc layoutDesc{};
+    layoutDesc.inputElements = elements;
+    layoutDesc.inputElementCount = 6;
+    layoutDesc.vertexStreams = &stream;
+    layoutDesc.vertexStreamCount = 1;
+    rhi::ComPtr<rhi::IInputLayout> layout;
+    REQUIRE(SLANG_SUCCEEDED(fixture.device->createInputLayout(layoutDesc, layout.writeRef())));
+    PbrMaterialDesc desc;
+    desc.doubleSided = true;
+    auto opaque = createPbrMaterial(desc);
+    auto clone = opaque->clone();
+    auto cloneState = clone->renderState();
+    cloneState.doubleSided = false;
+    clone->setRenderState(cloneState);
+    std::array<std::byte, 4> clear{std::byte{255}, std::byte{255}, std::byte{255}, std::byte{0}};
+    auto transparent = Texture::create({1, 1, TextureFormat::RGBA8Unorm}, {clear});
+    clear[3] = std::byte{255};
+    auto solid = Texture::create({1, 1, TextureFormat::RGBA8Unorm}, {clear});
+    desc.alphaMode = AlphaMode::Mask;
+    desc.textures[0].texture = transparent;
+    auto masked = createPbrMaterial(desc);
+    auto mesh = pbrPlane(opaque);
+    rhi::ComPtr<rhi::IBuffer> vertices, indices;
+    rhi::BufferDesc buffer{};
+    buffer.size = mesh->vertices().size_bytes();
+    buffer.usage = rhi::BufferUsage::VertexBuffer;
+    REQUIRE(SLANG_SUCCEEDED(fixture.device->createBuffer(buffer, mesh->vertices().data(), vertices.writeRef())));
+    buffer.size = mesh->indices().size_bytes();
+    buffer.usage = rhi::BufferUsage::IndexBuffer;
+    REQUIRE(SLANG_SUCCEEDED(fixture.device->createBuffer(buffer, mesh->indices().data(), indices.writeRef())));
+    TextureRenderer textures(fixture.device, fixture.queue);
+    auto shadows = std::make_unique<ShadowRenderer>(fixture.device, fixture.queue, layout);
+    DrawList frame;
+    frame.camera.nearDistance = 1;
+    frame.camera.farDistance = 16;
+    frame.lighting.outdoor.emplace();
+    frame.lighting.outdoor->shadows.resolution = 128;
+    frame.lighting.outdoor->shadows.distance = 16;
+    frame.lighting.outdoor->shadows.splitLambda = 0;
+    frame.outdoor.emplace();
+    frame.outdoor->lightDirection = {0, 0, -1};
+    std::array materials{opaque, masked, clone};
+    std::array<DrawItem, 3> items;
+    std::array<ShadowDraw, 3> draws;
+    for (size_t i = 0; i < items.size(); ++i)
+    {
+        auto world =
+            math::mul(math::mat4Translation({float(i) * 2 - 2, 0, 3}), math::mat4Scale({i == 2 ? -.7f : .7f, .7f, 1}));
+        items[i] = {mesh, 0, materials[i], world};
+        draws[i] = {&items[i], vertices, indices};
+    }
+    // Prepare the selected resources as Graphics does, without any visible-pass material preparation.
+    const auto prepareAlpha = [&]()
+    {
+        draws[1].alphaTexture =
+            textures.prepare(bindingTexture(masked->textures().at("baseColorTexture"))->defaultView());
+        draws[1].alphaSampler = textures.prepare(*masked->samplers().at("baseColorSampler"));
+    };
+    // Preserve each submitted depth array before the next frame overwrites the renderer's attachment.
+    const auto capture = [&]()
+    {
+        prepareAlpha();
+        shadows->render(frame, draws);
+        auto desc = shadows->texture()->getDesc();
+        desc.usage = rhi::TextureUsage::CopyDestination | rhi::TextureUsage::CopySource;
+        desc.defaultState = rhi::ResourceState::CopyDestination;
+        rhi::ComPtr<rhi::ITexture> copy;
+        REQUIRE(SLANG_SUCCEEDED(fixture.device->createTexture(desc, nullptr, copy.writeRef())));
+        auto encoder = fixture.queue->createCommandEncoder();
+        encoder->copyTexture(copy, {}, {}, shadows->texture(), {}, {}, rhi::Extent3D::kWholeTexture);
+        auto commands = encoder->finish();
+        REQUIRE(SLANG_SUCCEEDED(fixture.queue->submit(commands)));
+        return copy;
+    };
+    auto first = capture();
+    auto cascades = shadows->cascades();
+    auto state = opaque->renderState();
+    state.alphaMode = AlphaMode::Mask;
+    opaque->setRenderState(state);
+    opaque->setUniform("baseColor", math::Vec4{1, 1, 1, .1f});
+    masked->setTexture("baseColorTexture", solid);
+    auto second = capture(); // No host wait before editing materials and encoding all four new passes.
+    REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+    // Checks the projected interior of each caster; untouched depth is exactly 1, caster depth is well below .99.
+    const auto checkCoverage = [&](rhi::ITexture* image, std::array<bool, 3> visible)
+    {
+        for (uint32_t layer = 0; layer < 4; ++layer)
+        {
+            rhi::ComPtr<ISlangBlob> pixels;
+            rhi::SubresourceLayout storage{};
+            REQUIRE(SLANG_SUCCEEDED(fixture.device->readTexture(image, layer, 0, pixels.writeRef(), &storage)));
+            for (uint32_t i = 0; i < 3; ++i)
+            {
+                auto p = math::transformPoint(cascades[layer].clipFromWorld, {float(i) * 2 - 2, 0, 3});
+                uint32_t x = uint32_t((p.x * .5f + .5f) * 128), y = uint32_t((.5f - p.y * .5f) * 128);
+                REQUIRE(x < 128);
+                REQUIRE(y < 128);
+                float depth;
+                std::memcpy(
+                    &depth,
+                    static_cast<const std::byte*>(pixels->getBufferPointer()) + y * storage.rowPitch + x * 4,
+                    4
+                );
+                INFO("cascade ", layer, " instance ", i, " depth ", depth);
+                CHECK((depth < .99f) == visible[i]);
+            }
+        }
+    };
+    checkCoverage(first, {true, false, true});
+    checkCoverage(second, {false, true, true});
+    // Sample opposite halves of the same alpha image by editing only cached UV properties.
+    std::array<std::byte, 8> splitAlpha{
+        std::byte{255},
+        std::byte{255},
+        std::byte{255},
+        std::byte{0},
+        std::byte{255},
+        std::byte{255},
+        std::byte{255},
+        std::byte{255}
+    };
+    masked->setTexture("baseColorTexture", Texture::create({2, 1, TextureFormat::RGBA8Unorm}, {splitAlpha}));
+    masked->setUniform("baseColorTransformX", math::Vec3{0, 0, .25f});
+    masked->setUniform("baseColorTransformY", math::Vec3{0, 0, .5f});
+    auto uvLeft = capture();
+    masked->setUniform("baseColorTransformX", math::Vec3{0, 0, .75f});
+    auto uvRight = capture();
+    REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+    checkCoverage(uvLeft, {false, false, true});
+    checkCoverage(uvRight, {false, true, true});
+    shadows.reset();
+    shadows = std::make_unique<ShadowRenderer>(fixture.device, fixture.queue, layout);
+    auto restarted = capture();
+    REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+    checkCoverage(restarted, {false, true, true});
+}
+
+TEST_CASE("PBR parameter blocks preserve variants edits and queued scene snapshots")
+{
+    GraphicsFixture fixture;
+    auto first = fixture.target(rhi::Format::RGBA32Float);
+    auto second = fixture.target(rhi::Format::RGBA32Float);
+    auto third = fixture.target(rhi::Format::RGBA32Float);
+    PbrMaterialDesc desc;
+    desc.baseColor = {.5f, 0, 0, 1};
+    desc.metallic = 0;
+    desc.specular = 0;
+    auto red = createPbrMaterial(desc);
+    auto clone = red->clone();
+    std::array<float, 4> greenPixel{0, .25f, 0, 1}, bluePixel{0, 0, .5f, 1};
+    auto greenTexture = Texture::create({1, 1, TextureFormat::RGBA32Float}, {std::as_bytes(std::span(greenPixel))});
+    auto blueTexture = Texture::create({1, 1, TextureFormat::RGBA32Float}, {std::as_bytes(std::span(bluePixel))});
+    desc.baseColor = {1, 1, 1, 1};
+    desc.textures[static_cast<size_t>(PbrSlot::BaseColor)].texture = greenTexture;
+    auto textured = createPbrMaterial(desc);
+    REQUIRE(red->shader() != textured->shader());
+    auto mesh = pbrPlane(red);
+    DrawList list;
+    list.cameraPosition = {0, 0, -3};
+    list.lighting.hdr = true;
+    list.lighting.linearOutput = true;
+    list.lighting.environment = createStudioEnvironment();
+    list.lighting.environmentIntensity = 0;
+    list.lighting.lightCount = 1;
+    list.lighting.lights[0].direction = {0, 0, 1};
+    list.lighting.lights[0].intensity = 3.141592654f;
+    std::array materials{red, textured, clone};
+    for (uint32_t i = 0; i < materials.size(); ++i)
+    {
+        auto world = math::mul(math::mat4Translation({-.65f + .65f * i, 0, .5f}), math::mat4Scale({.35f, .8f, 1}));
+        list.items.push_back({mesh, 0, materials[i], world});
+    }
+    Graphics::render(list, first);
+    red->setUniform("baseColor", math::Vec4{.25f, 0, 0, 1});
+    textured->setTexture("baseColorTexture", blueTexture);
+    textured->setSampler("baseColorSampler", Sampler::create({}));
+    list.lighting.lights[0].intensity *= .5f;
+    Graphics::render(list, second); // Edits, changed globals and independent variants, with no host wait.
+    auto state = clone->renderState();
+    state.alphaMode = AlphaMode::Mask;
+    clone->setRenderState(state);
+    clone->setUniform("baseColor", math::Vec4{.5f, 0, 0, .1f});
+    Graphics::render(list, third);
+    // Half-float intermediate targets allow 0.2% relative error in these analytic diffuse values.
+    CHECK(floatPixel(fixture, first, 22)[0] == doctest::Approx(.5).epsilon(.002));
+    CHECK(floatPixel(fixture, first, 64)[1] == doctest::Approx(.25).epsilon(.002));
+    CHECK(floatPixel(fixture, first, 106)[0] == doctest::Approx(.5).epsilon(.002));
+    CHECK(floatPixel(fixture, second, 22)[0] == doctest::Approx(.125).epsilon(.002));
+    CHECK(floatPixel(fixture, second, 64)[2] == doctest::Approx(.25).epsilon(.002));
+    CHECK(floatPixel(fixture, second, 64)[1] == 0);
+    CHECK(floatPixel(fixture, second, 106)[0] == doctest::Approx(.25).epsilon(.002));
+    CHECK(floatPixel(fixture, third, 22)[0] == doctest::Approx(.125).epsilon(.002));
+    CHECK(floatPixel(fixture, third, 106)[0] < .03f); // Masked clone reveals the clear color.
+    REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+    Graphics::shutdown();
+    Graphics::initialize(fixture.device, fixture.queue);
+    Graphics::render(list, third); // Surviving PBR materials rebuild against the new Graphics lifecycle.
+    CHECK(floatPixel(fixture, third, 22)[0] == doctest::Approx(.125).epsilon(.002));
+    CHECK(floatPixel(fixture, third, 64)[2] == doctest::Approx(.25).epsilon(.002));
 }
 
 TEST_CASE("PBR direct light has analytic dielectric and metal limits with HDR emission and unlit bypass")
@@ -1897,7 +2153,8 @@ TEST_CASE("Terrain ten minute traversal retires obsolete allocations" * doctest:
 // Repeatable diagnostic workload; phase timings are evidence, not machine-dependent unit-test thresholds.
 TEST_CASE("Terrain stationary profile" * doctest::skip())
 {
-    GraphicsFixture fixture;
+    const bool validation = std::getenv("OFG_TERRAIN_PROFILE_VALIDATION") != nullptr;
+    GraphicsFixture fixture(validation);
     Game::initialize(createTerrainScene());
     Game::setTerrain(std::make_unique<TerrainLaboratory>(fixture.device, fixture.queue));
     auto target = fixture.target(rhi::Format::RGBA8Unorm, 1440, 1200);
@@ -1909,6 +2166,13 @@ TEST_CASE("Terrain stationary profile" * doctest::skip())
     std::ofstream report(directory / (moving ? "moving.csv" : "stationary.csv"));
     report << "seconds,update_ms,extract_ms,render_ms,wait_ms,cut,jobs,cpu,blocked,draws,triangles,finest_depth,"
               "unresolved,idle\n";
+#ifdef OFG_TERRAIN_FUNCTION_PROFILE
+    terrainProfile::enabled = std::getenv("OFG_TERRAIN_PROFILE_FUNCTIONS") != nullptr;
+    std::ofstream functions(directory / "functions.csv");
+    functions << "phase,frames,seconds,function,calls,inclusive_ms,exclusive_ms\n";
+    size_t frames = 0;
+    bool checkpointWritten = false, convergedCheckpoint = false;
+#endif
     const auto start = std::chrono::steady_clock::now();
     double elapsed = 0, nextReport = 0;
     double nearestSurfaceDistance = 0;
@@ -1941,14 +2205,32 @@ TEST_CASE("Terrain stationary profile" * doctest::skip())
         Graphics::render(list, target);
         terrain.submitted();
         const auto rendered = std::chrono::steady_clock::now();
-        REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+        {
+            OFG_TERRAIN_SCOPE(GpuWait);
+            REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+        }
         const auto waited = std::chrono::steady_clock::now();
         const double updateMs = std::chrono::duration<double, std::milli>(updated - before).count();
         const double extractMs = std::chrono::duration<double, std::milli>(extracted - updated).count();
         const double renderMs = std::chrono::duration<double, std::milli>(rendered - extracted).count();
         const double waitMs = std::chrono::duration<double, std::milli>(waited - rendered).count();
         elapsed = std::chrono::duration<double>(waited - start).count();
+#ifdef OFG_TERRAIN_FUNCTION_PROFILE
+        ++frames;
+        if (!checkpointWritten && elapsed >= 45)
+        {
+            terrainProfile::checkpoint(functions, "warmup", frames, elapsed);
+            checkpointWritten = true;
+        }
+#endif
         const auto d = terrain.diagnostics();
+#ifdef OFG_TERRAIN_FUNCTION_PROFILE
+        if (!convergedCheckpoint && d.planningIdle && d.unresolvedRefinements == 0 && d.jobs == 0)
+        {
+            terrainProfile::checkpoint(functions, "converged", frames, elapsed);
+            convergedCheckpoint = true;
+        }
+#endif
         REQUIRE(d.failed == 0);
         size_t triangles = 0;
         for (const auto& item : list.items)
@@ -1978,6 +2260,10 @@ TEST_CASE("Terrain stationary profile" * doctest::skip())
         }
     }
     while (elapsed < 60);
+#ifdef OFG_TERRAIN_FUNCTION_PROFILE
+    terrainProfile::enabled = false;
+    terrainProfile::checkpoint(functions, "total", frames, elapsed);
+#endif
     CHECK(terrain.diagnostics().deepestSurfaceDepth >= (moving ? 4 : 6));
     CHECK(nearestSurfaceDistance < 64); // The cut must actually follow the observer, not merely retain old fine tiles.
     if (!moving)
@@ -1986,5 +2272,9 @@ TEST_CASE("Terrain stationary profile" * doctest::skip())
         CHECK(terrain.diagnostics().jobs == 0);
         CHECK(terrain.diagnostics().planningIdle);
     }
-    std::printf("Terrain profile: %s, D3D12 validation, 1440x1200.\n", fixture.device->getInfo().adapterName);
+    std::printf(
+        "Terrain profile: %s, D3D12 validation %s, 1440x1200.\n",
+        fixture.device->getInfo().adapterName,
+        validation ? "on" : "off"
+    );
 }

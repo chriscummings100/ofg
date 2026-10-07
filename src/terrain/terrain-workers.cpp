@@ -1,4 +1,4 @@
-// Two native worker threads perform only CPU meshing; the short queue lock never encloses generation.
+// Two persistent C++ threads mesh in shared CPU memory; the short queue lock never encloses generation.
 #include "terrain/terrain-workers.h"
 #include "core/engine-error.h"
 
@@ -94,18 +94,23 @@ struct TerrainWorkers::State
 };
 
 TerrainWorkers::TerrainWorkers()
-    : m_state(std::make_unique<State>())
+    : m_state(std::make_shared<State>())
 {
     try
     {
         for (uint32_t i = 0; i < m_state->threads.size(); ++i)
         {
             m_state->threads[i] = std::thread(
-                [state = m_state.get(), i]
+                [state = m_state, i]
                 {
                     state->run(i);
                 }
             );
+#ifdef __EMSCRIPTEN__
+            // Browser teardown cannot join on the UI thread. Workers own only this shared CPU state,
+            // observe cancellation between meshing batches and release it themselves after stopping.
+            m_state->threads[i].detach();
+#endif
         }
     } catch (...)
     {
@@ -138,7 +143,10 @@ TerrainWorkers::~TerrainWorkers()
     m_state->changed.notify_all();
     for (auto& thread : m_state->threads)
     {
-        thread.join();
+        if (thread.joinable())
+        {
+            thread.join();
+        }
     }
 }
 

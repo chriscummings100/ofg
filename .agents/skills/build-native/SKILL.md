@@ -14,6 +14,10 @@ For interactive terrain performance, use the verified `native-relwithdebinfo` co
 keep `native-debug` for debugging. Do not compare their timings without naming the configuration. Terrain profiling,
 band-map generation and native presentation capture commands are recorded in DEVELOPING.md.
 
+For an explicitly requested Release profile, use `native-release` and the function-profiling commands in DEVELOPING.md.
+The skipped offscreen terrain profile can disable validation independently of the normal validated graphics tests.
+Name validation and instrumentation settings in results; host elapsed scopes are not sampled CPU or GPU timings.
+
 Run from the repository root. Read the working-tree status and preserve existing edits.
 
 Use an x64 Visual Studio Developer PowerShell, or initialize an ordinary PowerShell using the `vswhere` and `Launch-VsDevShell.ps1` procedure in DEVELOPING.md. Discover the installation rather than hard-coding the Visual Studio edition or year. Both host and target architecture must be amd64.

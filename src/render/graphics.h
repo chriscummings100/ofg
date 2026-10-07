@@ -40,6 +40,8 @@ public:
 private:
     // Uploads immutable geometry once; publishes only after both buffer creations succeed.
     static void prepareMesh(Mesh& mesh);
+    // Prepares immutable material data and resolves instance fields once, publishing only on success.
+    static void prepareMaterial(Material& material);
     // Compiles source/entry points once and preserves compiler diagnostics on failure.
     static void prepareShader(Shader& shader);
 };

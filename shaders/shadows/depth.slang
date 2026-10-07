@@ -1,16 +1,22 @@
 // Shadow depth path with the same PBR base-alpha, transformed UV and vertex-alpha contract as visible geometry.
+import ofg_shadow_pass;
+ParameterBlock<ShadowPassParameters> shadowPass;
 struct ShadowDrawParameters
 {
-    column_major float4x4 clipFromLocal;
+    column_major float4x4 worldFromLocal;
+};
+ConstantBuffer<ShadowDrawParameters> shadowDraw;
+struct ShadowMaterialParameters
+{
     float4 transformX;
     float4 transformY;
     float4 alpha;
-};
-ConstantBuffer<ShadowDrawParameters> shadowDraw;
 #ifdef SHADOW_ALPHA_TEXTURE
-Texture2D<float4> alphaTexture;
-SamplerState alphaSampler;
+    Texture2D<float4> alphaTexture;
+    SamplerState alphaSampler;
 #endif
+};
+ParameterBlock<ShadowMaterialParameters> shadowMaterial;
 struct ShadowVertexInput
 {
     float3 position : POSITION;
@@ -30,10 +36,10 @@ struct ShadowVertex
 [shader("vertex")] ShadowVertex vertexMain(ShadowVertexInput input)
 {
     ShadowVertex v;
-    v.position = mul(shadowDraw.clipFromLocal, float4(input.position, 1));
-    float3 uv = float3(shadowDraw.alpha.z > 0 ? input.uv1 : input.uv, 1);
-    v.uv = float2(dot(uv, shadowDraw.transformX.xyz), dot(uv, shadowDraw.transformY.xyz));
-    v.alpha = input.color.a * shadowDraw.alpha.x;
+    v.position = mul(shadowPass.clipFromWorld, mul(shadowDraw.worldFromLocal, float4(input.position, 1)));
+    float3 uv = float3(shadowMaterial.alpha.z > 0 ? input.uv1 : input.uv, 1);
+    v.uv = float2(dot(uv, shadowMaterial.transformX.xyz), dot(uv, shadowMaterial.transformY.xyz));
+    v.alpha = input.color.a * shadowMaterial.alpha.x;
     return v;
 }
     // Late alpha testing preserves derivative-valid implicit texture sampling.
@@ -41,9 +47,9 @@ struct ShadowVertex
 {
     float alpha = input.alpha;
 #ifdef SHADOW_ALPHA_TEXTURE
-    alpha *= alphaTexture.Sample(alphaSampler, input.uv).a;
+    alpha *= shadowMaterial.alphaTexture.Sample(shadowMaterial.alphaSampler, input.uv).a;
 #endif
-    if (shadowDraw.alpha.w > 0 && alpha < shadowDraw.alpha.y)
+    if (shadowMaterial.alpha.w > 0 && alpha < shadowMaterial.alpha.y)
     {
         discard;
     }

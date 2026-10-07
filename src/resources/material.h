@@ -32,6 +32,9 @@ using TextureBinding = std::variant<std::shared_ptr<Texture>, TextureView>;
 // Returns the retained texture independently of the selected view range.
 const std::shared_ptr<Texture>& bindingTexture(const TextureBinding& binding);
 
+struct MaterialGpuData;
+struct ShadowMaterialGpuData;
+
 class Material : public Resource
 {
 public:
@@ -56,11 +59,20 @@ public:
     // Copies values/bindings into a distinct ready resource sharing shader, textures and samplers.
     std::shared_ptr<Material> clone() const;
     // Sets fixed-function coverage/culling classification; PBR helpers also identify their frame ABI.
-    void setRenderState(MaterialState state) { m_renderState = state; }
+    void setRenderState(MaterialState state)
+    {
+        m_renderState = state;
+        m_gpu.reset();
+        m_shadowGpu.reset();
+    }
     // Returns the state used for queue classification and pipeline identity.
     const MaterialState& renderState() const noexcept { return m_renderState; }
 
 private:
+    friend class Graphics;
+    friend class ShadowRenderer;
+    std::shared_ptr<MaterialGpuData> m_gpu;
+    std::shared_ptr<ShadowMaterialGpuData> m_shadowGpu;
     // Retains the validated shader.
     explicit Material(std::shared_ptr<Shader> shader);
     std::shared_ptr<Shader> m_shader;

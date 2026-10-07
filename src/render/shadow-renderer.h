@@ -16,6 +16,8 @@ class ShadowRenderer
 public:
     // Retains device/layout and creates the small always-valid fallback depth binding.
     ShadowRenderer(rhi::IDevice* device, rhi::ICommandQueue* queue, rhi::IInputLayout* inputLayout);
+    // Clears surviving materials' cached objects before this device-owned renderer is released.
+    ~ShadowRenderer();
     // Fits and renders the four layers, retaining submitted resources through RHI commands.
     void render(const DrawList& frame, std::span<const ShadowDraw> draws);
     // Returns the sampled depth array, including when shadows are disabled.
@@ -26,6 +28,8 @@ public:
     const std::array<ShadowCascade, 4>& cascades() const { return m_cascades; }
 
 private:
+    // Prepares and freezes material properties once per edit, including shadow-only casters.
+    void prepareMaterial(const ShadowDraw& draw);
     // Allocates a complete four-layer depth resource before replacing previous storage.
     void resize(uint32_t resolution);
     // Compiles the masked/opaque and culling/winding variant required by this draw.
@@ -35,6 +39,9 @@ private:
     rhi::ComPtr<rhi::IInputLayout> m_layout;
     rhi::ComPtr<rhi::ITexture> m_depth;
     rhi::ComPtr<rhi::ISampler> m_sampler;
+    rhi::ComPtr<slang::IModule> m_passModule;
+    slang::TypeReflection* m_passType = nullptr;
+    std::vector<std::weak_ptr<ShadowMaterialGpuData>> m_materials;
     std::array<rhi::ComPtr<rhi::IShaderProgram>, 2> m_programs;
     std::array<rhi::ComPtr<rhi::IRenderPipeline>, 8> m_pipelines;
     std::array<ShadowCascade, 4> m_cascades{};

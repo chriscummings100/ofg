@@ -27,6 +27,14 @@ set(SLANG_RHI_ENABLE_AFTERMATH OFF)
 
 if(EMSCRIPTEN)
     set(SLANG_RHI_ENABLE_WGPU ON)
+    # Release WASM archives were built without atomics and cannot link into shared memory.
+    # Build the identical pinned version with tools/build-slang-web.ps1 before configuring web.
+    set(SLANG_RHI_FETCH_SLANG OFF)
+    set(SLANG_RHI_SLANG_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/build/slang-web/Release/include" CACHE STRING "" FORCE)
+    set(SLANG_RHI_SLANG_BINARY_DIR "${CMAKE_SOURCE_DIR}/build/slang-web" CACHE STRING "" FORCE)
+    if(NOT EXISTS "${SLANG_RHI_SLANG_BINARY_DIR}/lib/libslang-compiler.a")
+        message(FATAL_ERROR "Threaded Slang is missing. Set EMSDK and run tools/build-slang-web.ps1 first.")
+    endif()
 else()
     set(SLANG_RHI_ENABLE_D3D12 ON)
 endif()

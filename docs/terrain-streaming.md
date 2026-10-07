@@ -117,8 +117,9 @@ supporting the resulting boundary ratios; the current Transvoxel path supports a
 
 The runtime reserves up to 4 MiB for each of at most 32 outstanding payloads. CPU payloads have a 256 MiB budget;
 another 128 MiB is an allowance for worker storage, scratch, transport and metadata. These counters are not process RSS
-or exact allocator/driver residency. Each job's scratch allocator has a hard 16 MiB limit, and each browser worker heap
-has a 48 MiB maximum. GPU payloads have a 256 MiB budget. Upload submission is limited to 4 MiB per frame
+or exact allocator/driver residency. Each job's scratch allocator has a hard 16 MiB limit. Browser C++ workers now
+share the application heap rather than each having a separate 48 MiB heap; payload and scratch limits still apply,
+but there is no independent per-worker heap cap. GPU payloads have a 256 MiB budget. Upload submission is limited to 4 MiB per frame
 and 16 MiB of incomplete staging. Counts include retained ancestors, cancelled requests and retired payloads.
 Driver allocation alignment and the preexisting renderer's lighting resources are outside the terrain payload ledger.
 
@@ -130,7 +131,8 @@ The last upload or draw serial protects each payload. Native D3D12 uses a real q
 fence signals submission, so the browser path uses `wgpuQueueOnSubmittedWorkDone` instead. Callback state outlives the
 laboratory when needed and contains no terrain pointer. Retirement releases a payload only after real completion and
 after external snapshots have dropped ownership. Native shutdown drains the queue before destroying terrain ownership;
-browser command buffers retain submitted resources and worker termination prevents further application messages.
+browser command buffers retain submitted resources. Browser worker shutdown cancels tasks and detaches lifetime:
+workers retain only shared CPU queue state until they exit, never a pointer to the destroyed laboratory or GPU objects.
 
 ## Verification
 

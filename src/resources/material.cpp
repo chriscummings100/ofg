@@ -25,6 +25,8 @@ void Material::setUniform(std::string name, UniformValue value)
         throw EngineError("Material uniform must name a direct field.");
     }
     m_uniforms.insert_or_assign(std::move(name), std::move(value));
+    m_gpu.reset();
+    m_shadowGpu.reset();
 }
 
 std::shared_ptr<Material> Material::clone() const
@@ -62,6 +64,8 @@ void Material::setTexture(std::string name, std::shared_ptr<Texture> texture)
         throw EngineError("Invalid or conflicting texture binding: " + name);
     }
     m_textures.insert_or_assign(std::move(name), std::move(texture));
+    m_gpu.reset();
+    m_shadowGpu.reset();
 }
 
 void Material::setTexture(std::string name, TextureView view)
@@ -72,6 +76,8 @@ void Material::setTexture(std::string name, TextureView view)
         throw EngineError("Invalid or conflicting texture view: " + name);
     }
     m_textures.insert_or_assign(std::move(name), std::move(view));
+    m_gpu.reset();
+    m_shadowGpu.reset();
 }
 
 void Material::setSampler(std::string name, std::shared_ptr<Sampler> sampler)
@@ -82,5 +88,7 @@ void Material::setSampler(std::string name, std::shared_ptr<Sampler> sampler)
         throw EngineError("Invalid or conflicting sampler binding: " + name);
     }
     m_samplers.insert_or_assign(std::move(name), std::move(sampler));
+    m_gpu.reset();
+    m_shadowGpu.reset();
 }
 } // namespace ofg

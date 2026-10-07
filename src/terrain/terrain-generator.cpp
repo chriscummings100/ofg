@@ -1,4 +1,5 @@
 // Table-driven Transvoxel surface extraction; transition strips join fine/coarse contours on exact node faces.
+#include "terrain/terrain-profile.h"
 #include "terrain/terrain-generator.h"
 #include "core/engine-error.h"
 
@@ -412,6 +413,7 @@ struct TerrainMesher::Work
 
 TerrainMesher::TerrainMesher(NodeAddress address, GeneratorSettings settings, size_t byteLimit)
 {
+    OFG_TERRAIN_SCOPE(TerrainMesher_construct);
     validateAddress(address);
     if (!std::isfinite(settings.rootWidth) || settings.rootWidth <= 0 || !std::isfinite(settings.heightOffset) ||
         !std::isfinite(settings.amplitude) || settings.amplitude < 0 || settings.intervals < 2 ||
@@ -426,6 +428,7 @@ TerrainMesher::~TerrainMesher() = default;
 
 bool TerrainMesher::step(uint32_t budget)
 {
+    OFG_TERRAIN_SCOPE(TerrainMesher_step);
     auto& w = *m_work;
     while (budget-- && !w.done)
     {

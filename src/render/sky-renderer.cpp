@@ -1,4 +1,5 @@
 // Explicit lookup-generation/capture passes; each encoded draw retains its own uniform storage.
+#include "terrain/terrain-profile.h"
 #include "render/sky-renderer.h"
 #include "render/lighting-pass.h"
 #include "sky-shader.h"
@@ -115,6 +116,7 @@ ComPtr<IShaderObject> SkyRenderer::bindings(uint32_t pass, const DrawList& list,
 }
 void SkyRenderer::update(const DrawList& frame)
 {
+    OFG_TERRAIN_SCOPE(SkyRenderer_update);
     initialize();
     const auto& a = frame.lighting.outdoor->atmosphere;
     std::array<float, 4> atmosphere{a.rayleigh, a.mie, a.ozone, a.groundAlbedo};
@@ -181,6 +183,7 @@ void SkyRenderer::update(const DrawList& frame)
 }
 void SkyRenderer::drawBackground(const DrawList& frame, ITexture* target)
 {
+    OFG_TERRAIN_SCOPE(SkyRenderer_drawBackground);
     auto root = bindings(4, frame, 0);
     ComPtr<ICommandEncoder> encoder;
     checkLighting(m_queue->createCommandEncoder(encoder.writeRef()), "Create sky encoder");
@@ -203,6 +206,7 @@ void SkyRenderer::beginCapture()
 }
 ITexture* SkyRenderer::captureFace(const DrawList& frame, uint32_t face)
 {
+    OFG_TERRAIN_SCOPE(SkyRenderer_captureFace);
     assert(face < 6);
     ComPtr<ICommandEncoder> encoder;
     checkLighting(m_queue->createCommandEncoder(encoder.writeRef()), "Create capture encoder");

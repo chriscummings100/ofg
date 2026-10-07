@@ -1,15 +1,42 @@
 // Four explicit depth passes with conservative caster clipping and material-equivalent mask evaluation.
+#include "terrain/terrain-profile.h"
 #include "render/shadow-renderer.h"
 #include "render/lighting-pass.h"
 #include "shadow-shader.h"
 #include "math/transform.h"
+#include "core/engine-error.h"
+#include <cassert>
+#include <algorithm>
 namespace ofg {
 using namespace rhi;
+// Material owns these bindings; cursors observe children retained by root. No pass resource is retained.
+struct ShadowMaterialGpuData
+{
+    ComPtr<IShaderObject> root, unboundPass;
+    ShaderCursor pass, worldFromLocal;
+};
+
 ShadowRenderer::ShadowRenderer(IDevice* device, ICommandQueue* queue, IInputLayout* layout)
     : m_device(device)
     , m_queue(queue)
     , m_layout(layout)
 {
+    ComPtr<slang::IBlob> diagnostics;
+    m_passModule = device->getSlangSession()->loadModuleFromSourceString(
+        "ofg_shadow_pass",
+        "ofg_shadow_pass.slang",
+        shadowPassShader,
+        diagnostics.writeRef()
+    );
+    if (!m_passModule)
+    {
+        throw EngineError(
+            std::string("Compile shadow pass: ") +
+            (diagnostics ? static_cast<const char*>(diagnostics->getBufferPointer()) : "no diagnostics")
+        );
+    }
+    m_passType = m_passModule->getLayout()->findTypeByName("ShadowPassParameters");
+    assert(m_passType);
     resize(1);
     rhi::SamplerDesc desc{};
     desc.reductionOp = TextureReductionOp::Comparison;
@@ -17,6 +44,67 @@ ShadowRenderer::ShadowRenderer(IDevice* device, ICommandQueue* queue, IInputLayo
     desc.addressU = desc.addressV = desc.addressW = TextureAddressingMode::ClampToEdge;
     checkLighting(device->createSampler(desc, m_sampler.writeRef()), "Create shadow comparison sampler");
 }
+ShadowRenderer::~ShadowRenderer()
+{
+    for (auto& weak : m_materials)
+    {
+        if (auto data = weak.lock())
+        {
+            *data = ShadowMaterialGpuData{};
+        }
+    }
+}
+
+void ShadowRenderer::prepareMaterial(const ShadowDraw& draw)
+{
+    auto& material = *draw.item->material;
+    if (material.m_shadowGpu && material.m_shadowGpu->root)
+    {
+        return;
+    }
+    OFG_TERRAIN_SCOPE(ShadowRenderer_prepareMaterial);
+    auto data = std::make_shared<ShadowMaterialGpuData>();
+    checkLighting(
+        m_device->createRootShaderObject(m_programs[draw.alphaTexture != nullptr], data->root.writeRef()),
+        "Create shadow material bindings"
+    );
+    ShaderCursor root(data->root);
+    data->pass = root["shadowPass"];
+    data->unboundPass = data->pass.getDereferenced().m_baseObject;
+    data->worldFromLocal = root["shadowDraw"]["worldFromLocal"];
+    // The production shader explicitly declares column-major float4x4, matching packMat4.
+    assert(data->worldFromLocal.getTypeLayout()->getMatrixLayoutMode() == SLANG_MATRIX_LAYOUT_COLUMN_MAJOR);
+    auto properties = root["shadowMaterial"];
+    const auto& values = material.uniforms();
+    float base = 1, cutoff = .5f;
+    uint32_t uv = 0;
+    math::Vec3 x{1, 0, 0}, y{0, 1, 0};
+    if (material.renderState().pbr)
+    {
+        base = std::get<math::Vec4>(values.at("baseColor")).w;
+        cutoff = std::get<float>(values.at("alphaCutoff"));
+        if (draw.alphaTexture)
+        {
+            x = std::get<math::Vec3>(values.at("baseColorTransformX"));
+            y = std::get<math::Vec3>(values.at("baseColorTransformY"));
+            uv = std::get<uint32_t>(values.at("baseColorUvSet"));
+        }
+    }
+    const float alpha[]{base, cutoff, float(uv), float(material.renderState().alphaMode == AlphaMode::Mask)};
+    const float tx[]{x.x, x.y, x.z, 0}, ty[]{y.x, y.y, y.z, 0};
+    checkLighting(properties["alpha"].setData(alpha, sizeof(alpha)), "Bind shadow alpha");
+    checkLighting(properties["transformX"].setData(tx, sizeof(tx)), "Bind shadow UV X");
+    checkLighting(properties["transformY"].setData(ty, sizeof(ty)), "Bind shadow UV Y");
+    if (draw.alphaTexture)
+    {
+        checkLighting(properties["alphaTexture"].setBinding(draw.alphaTexture), "Bind shadow alpha image");
+        checkLighting(properties["alphaSampler"].setBinding(draw.alphaSampler), "Bind shadow alpha sampler");
+    }
+    checkLighting(properties.getDereferenced().m_baseObject->finalize(), "Finalize shadow material");
+    m_materials.push_back(data);
+    material.m_shadowGpu = std::move(data);
+}
+
 void ShadowRenderer::resize(uint32_t resolution)
 {
     rhi::TextureDesc desc{};
@@ -59,6 +147,7 @@ IRenderPipeline* ShadowRenderer::pipeline(bool texture, bool doubleSided, bool m
 }
 void ShadowRenderer::render(const DrawList& frame, std::span<const ShadowDraw> draws)
 {
+    OFG_TERRAIN_SCOPE(ShadowRenderer_render);
     const auto& settings = frame.lighting.outdoor->shadows;
     if (!settings.enabled)
     {
@@ -68,6 +157,13 @@ void ShadowRenderer::render(const DrawList& frame, std::span<const ShadowDraw> d
     {
         resize(settings.resolution);
     }
+    std::erase_if(
+        m_materials,
+        [](const auto& entry)
+        {
+            return entry.expired();
+        }
+    );
     std::vector<Bounds> bounds;
     bounds.reserve(draws.size());
     for (const auto& draw : draws)
@@ -82,11 +178,19 @@ void ShadowRenderer::render(const DrawList& frame, std::span<const ShadowDraw> d
         bool mirrored =
             math::dot(math::cross({w[0].x, w[0].y, w[0].z}, {w[1].x, w[1].y, w[1].z}), {w[2].x, w[2].y, w[2].z}) < 0;
         pipeline(draw.alphaTexture != nullptr, draw.item->material->renderState().doubleSided, mirrored);
+        prepareMaterial(draw);
     }
     ComPtr<ICommandEncoder> encoder;
     checkLighting(m_queue->createCommandEncoder(encoder.writeRef()), "Create shadow encoder");
     for (uint32_t layer = 0; layer < 4; ++layer)
     {
+        ComPtr<IShaderObject> globals;
+        checkLighting(
+            m_device->createShaderObject(m_passType, ShaderObjectContainerType::None, globals.writeRef()),
+            "Create shadow pass globals"
+        );
+        setLightingMatrix(ShaderCursor(globals)["clipFromWorld"], m_cascades[layer].clipFromWorld);
+        checkLighting(globals->finalize(), "Finalize shadow pass globals");
         auto view = lightingView(m_depth, layer);
         RenderPassDepthStencilAttachment depth{};
         depth.view = view;
@@ -109,35 +213,11 @@ void ShadowRenderer::render(const DrawList& frame, std::span<const ShadowDraw> d
                 math::dot(math::cross({w[0].x, w[0].y, w[0].z}, {w[1].x, w[1].y, w[1].z}), {w[2].x, w[2].y, w[2].z}) <
                 0;
             auto p = pipeline(draw.alphaTexture != nullptr, item.material->renderState().doubleSided, mirrored);
-            auto root = pass->bindPipeline(p);
-            auto cursor = ShaderCursor(root), s = cursor["shadowDraw"];
-            setLightingMatrix(s["clipFromLocal"], clip);
-            const auto& values = item.material->uniforms();
-            float base = 1, cutoff = .5f;
-            uint32_t uv = 0;
-            math::Vec3 x{1, 0, 0}, y{0, 1, 0};
-            if (item.material->renderState().pbr)
-            {
-                base = std::get<math::Vec4>(values.at("baseColor")).w;
-                cutoff = std::get<float>(values.at("alphaCutoff"));
-                if (draw.alphaTexture)
-                {
-                    x = std::get<math::Vec3>(values.at("baseColorTransformX"));
-                    y = std::get<math::Vec3>(values.at("baseColorTransformY"));
-                    uv = std::get<uint32_t>(values.at("baseColorUvSet"));
-                }
-            }
-            const float
-                alpha[]{base, cutoff, float(uv), float(item.material->renderState().alphaMode == AlphaMode::Mask)};
-            const float tx[]{x.x, x.y, x.z, 0}, ty[]{y.x, y.y, y.z, 0};
-            checkLighting(s["alpha"].setData(alpha, sizeof(alpha)), "Bind shadow alpha");
-            checkLighting(s["transformX"].setData(tx, sizeof(tx)), "Bind shadow UV X");
-            checkLighting(s["transformY"].setData(ty, sizeof(ty)), "Bind shadow UV Y");
-            if (draw.alphaTexture)
-            {
-                checkLighting(cursor["alphaTexture"].setBinding(draw.alphaTexture), "Bind shadow alpha image");
-                checkLighting(cursor["alphaSampler"].setBinding(draw.alphaSampler), "Bind shadow alpha sampler");
-            }
+            auto& bindings = *item.material->m_shadowGpu;
+            auto world = math::packMat4(item.worldFromLocal);
+            checkLighting(bindings.worldFromLocal.setData(world.data(), sizeof(world)), "Bind shadow instance");
+            checkLighting(bindings.pass.setObject(globals), "Bind shadow pass globals");
+            pass->bindPipeline(p, bindings.root);
             RenderState state{};
             state.viewports[0] = Viewport::fromSize(settings.resolution, settings.resolution);
             state.viewportCount = 1;
@@ -153,6 +233,8 @@ void ShadowRenderer::render(const DrawList& frame, std::span<const ShadowDraw> d
             args.vertexCount = part.indexCount;
             args.startIndexLocation = part.firstIndex;
             pass->drawIndexed(args);
+            // RHI snapshots at draw; restore the original child because setObject disallows null.
+            checkLighting(bindings.pass.setObject(bindings.unboundPass), "Release shadow pass globals");
         }
         pass->end();
     }

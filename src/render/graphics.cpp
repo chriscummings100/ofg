@@ -1,4 +1,5 @@
 // Direct RHI scene rendering, reflected material binding, and explicit service/asset GPU ownership.
+#include "terrain/terrain-profile.h"
 #include "render/graphics.h"
 #include "render/resource-gpu-data.h"
 #include "render/environment-renderer.h"
@@ -9,6 +10,7 @@
 #include "core/engine-error.h"
 #include "math/transform.h"
 #include "pbr-output-shader.h"
+#include "scene-globals-shader.h"
 #include <cmath>
 #include <chrono>
 #include <cstdio>
@@ -47,6 +49,9 @@ struct GraphicsState
     ComPtr<ISampler> environmentSampler;
     // Pipeline identity includes every variable fixed-function state.
     std::map<std::weak_ptr<Shader>, std::vector<PipelineEntry>, std::owner_less<std::weak_ptr<Shader>>> pipelines;
+    std::vector<std::weak_ptr<MaterialGpuData>> materials;
+    rhi::ComPtr<slang::IModule> sceneModule;
+    slang::TypeReflection* sceneType = nullptr;
     std::vector<std::weak_ptr<MeshGpuData>> meshes;
     std::vector<std::weak_ptr<ShaderGpuData>> shaders;
     std::unique_ptr<TextureRenderer> textures;
@@ -110,18 +115,24 @@ bool uniformMatches(slang::TypeLayoutReflection* layout, const UniformValue& val
     );
 }
 
-// Packs a column-vector matrix for the reflected Slang storage layout, including row-major declarations.
-void bindMatrix(ShaderCursor cursor, const math::Mat4& value)
+// Resolves and validates matrix storage once when preparing instance bindings.
+MatrixBinding matrixBinding(ShaderCursor cursor)
 {
-    auto layout = cursor.getTypeLayout();
+    auto layout = cursor.isValid() ? cursor.getTypeLayout() : nullptr;
     if (!layout || layout->getKind() != slang::TypeReflection::Kind::Matrix || layout->getType()->getRowCount() != 4 ||
         layout->getType()->getColumnCount() != 4 ||
         layout->getType()->getScalarType() != slang::TypeReflection::ScalarType::Float32)
     {
         throw EngineError("Transform binding requires float4x4.");
     }
+    return {cursor, layout->getMatrixLayoutMode() == SLANG_MATRIX_LAYOUT_ROW_MAJOR};
+}
+
+// Writes an instance matrix without reflection; CPU matrices use column vectors.
+void bindMatrix(const MatrixBinding& binding, const math::Mat4& value)
+{
     auto packed = math::packMat4(value);
-    if (layout->getMatrixLayoutMode() == SLANG_MATRIX_LAYOUT_ROW_MAJOR)
+    if (binding.rowMajor)
     {
         for (size_t row = 0; row < 4; ++row)
         {
@@ -131,7 +142,13 @@ void bindMatrix(ShaderCursor cursor, const math::Mat4& value)
             }
         }
     }
-    check(cursor.setData(packed.data(), sizeof(packed)), "Bind matrix");
+    check(binding.cursor.setData(packed.data(), sizeof(packed)), "Bind matrix");
+}
+
+// Reflects matrices written during one-off material or pass preparation.
+void bindMatrix(ShaderCursor cursor, const math::Mat4& value)
+{
+    bindMatrix(matrixBinding(cursor), value);
 }
 
 // Writes scalar/vector values using explicit arrays so C++ member layout is not a shader ABI assumption.
@@ -172,6 +189,7 @@ void bindUniform(ShaderCursor cursor, const UniformValue& value)
 // Requires an exact set of supported direct material fields, checking every name and type before submission.
 void bindMaterial(IShaderObject* root, const Material& material)
 {
+    OFG_TERRAIN_SCOPE(bindMaterial);
     auto cursor = ShaderCursor(root)["material"];
     if (!cursor.isValid())
     {
@@ -204,7 +222,13 @@ void bindMaterial(IShaderObject* root, const Material& material)
     }
     for (unsigned int index = 0; index < layout->getFieldCount(); ++index)
     {
-        const char* name = layout->getFieldByIndex(index)->getName();
+        auto field = layout->getFieldByIndex(index);
+        auto kind = field->getTypeLayout()->getKind();
+        if (kind == slang::TypeReflection::Kind::Resource || kind == slang::TypeReflection::Kind::SamplerState)
+        {
+            continue;
+        }
+        const char* name = field->getName();
         if (!material.uniforms().contains(name))
         {
             throw EngineError(std::string("Missing material uniform: ") + name);
@@ -215,7 +239,8 @@ void bindMaterial(IShaderObject* root, const Material& material)
 // Validates and binds direct sampled resources, preserving the uniform-only shader contract.
 void bindResources(IShaderObject* root, const Material& material)
 {
-    ShaderCursor cursor(root);
+    OFG_TERRAIN_SCOPE(bindResources);
+    auto cursor = material.renderState().pbr ? ShaderCursor(root)["material"].getDereferenced() : ShaderCursor(root);
     for (const auto& [name, binding] : material.textures())
     {
         auto field = cursor[name.c_str()];
@@ -252,12 +277,11 @@ void bindResources(IShaderObject* root, const Material& material)
     for (unsigned int index = 0; index < layout->getFieldCount(); ++index)
     {
         std::string name = layout->getFieldByIndex(index)->getName();
-        if (name != "draw" && name != "material" &&
-            !(material.renderState().pbr &&
-              (name == "outdoor" || name == "shadowMaps" || name == "shadowSampler" || name == "aerialPerspective" ||
-               name == "frame" || name == "filteredEnvironment" || name == "brdfLookup" ||
-               name == "environmentSampler")) &&
-            !material.textures().contains(name) && !material.samplers().contains(name))
+        auto kind = layout->getFieldByIndex(index)->getTypeLayout()->getKind();
+        bool materialValue = material.renderState().pbr && kind != slang::TypeReflection::Kind::Resource &&
+                             kind != slang::TypeReflection::Kind::SamplerState;
+        if (!materialValue && name != "draw" && name != "material" && !material.textures().contains(name) &&
+            !material.samplers().contains(name))
         {
             throw EngineError("Missing or unsupported shader resource binding: " + name);
         }
@@ -274,6 +298,7 @@ IRenderPipeline* pipelineFor(
     bool fullscreen = false
 )
 {
+    OFG_TERRAIN_SCOPE(pipelineFor);
     auto& variants = graphics->pipelines[shader];
     for (const auto& entry : variants)
     {
@@ -335,6 +360,7 @@ int stageFor(const Material& material, bool hdr)
 // Binds explicit outdoor values and valid fallback resources for ordinary studio materials.
 void bindOutdoor(IShaderObject* root, const DrawList& list, uint32_t width, uint32_t height)
 {
+    OFG_TERRAIN_SCOPE(bindOutdoor);
     auto cursor = ShaderCursor(root), o = cursor["outdoor"];
     const auto set = [&](const char* name, math::Vec4 value)
     {
@@ -399,14 +425,9 @@ void bindOutdoor(IShaderObject* root, const DrawList& list, uint32_t width, uint
     );
 }
 // Binds an immutable lighting snapshot, packed environment filters and the BRDF lookup to a PBR draw.
-void bindFrame(
-    IShaderObject* root,
-    const DrawList& list,
-    const Material& material,
-    bool display,
-    const EnvironmentGpuData& env
-)
+void bindFrame(IShaderObject* root, const DrawList& list, bool display, const EnvironmentGpuData& env)
 {
+    OFG_TERRAIN_SCOPE(bindFrame);
     ShaderCursor cursor(root), frame = cursor["frame"];
     bindUniform(frame["cameraPosition"], list.cameraPosition);
     bindUniform(frame["lightCount"], list.lighting.lightCount);
@@ -447,7 +468,6 @@ void bindFrame(
     bindUniform(frame["environmentRotation"], list.lighting.environmentRotation);
     bindUniform(frame["environmentMips"], float(env.cubes->getDesc().mipCount));
     bindUniform(frame["exposure"], list.outdoor ? 1.0f : list.lighting.exposure);
-    bindUniform(frame["alphaMode"], uint32_t(material.renderState().alphaMode));
     bindUniform(frame["displayOutput"], uint32_t(display));
     bindUniform(frame["encodeSrgb"], uint32_t(0));
     bindUniform(frame["linearOutput"], uint32_t(list.lighting.linearOutput));
@@ -468,6 +488,7 @@ void outputPass(
     uint32_t debug
 )
 {
+    OFG_TERRAIN_SCOPE(outputPass);
     auto pipeline = pipelineFor(shader, program, target->getDesc().format, {}, false, true);
     ComPtr<IShaderObject> root;
     check(graphics->device->createRootShaderObject(program, root.writeRef()), "Create output bindings");
@@ -602,6 +623,7 @@ size_t Graphics::streamingMeshGpuBytes(const Mesh& mesh) noexcept
 
 bool Graphics::prepareStreamingMesh(Mesh& mesh, size_t& allowance)
 {
+    OFG_TERRAIN_SCOPE(Graphics_prepareStreamingMesh);
     if (!graphics)
     {
         throw EngineError("Streaming mesh preparation requires Graphics initialization.");
@@ -673,6 +695,24 @@ void Graphics::prepareShader(Shader& shader)
         return;
     }
     rhi::ComPtr<slang::IBlob> diagnostics;
+    if ((shader.name().starts_with("pbr-") && shader.name() != "pbr-output") && !graphics->sceneModule)
+    {
+        graphics->sceneModule = graphics->device->getSlangSession()->loadModuleFromSourceString(
+            "ofg_scene_globals",
+            "ofg_scene_globals.slang",
+            sceneGlobalsShader,
+            diagnostics.writeRef()
+        );
+        if (!graphics->sceneModule)
+        {
+            throw EngineError("Compile scene globals: " + diagnosticText(diagnostics));
+        }
+        graphics->sceneType = graphics->sceneModule->getLayout()->findTypeByName("SceneGlobals");
+        if (!graphics->sceneType)
+        {
+            throw EngineError("Missing SceneGlobals type.");
+        }
+    }
     // Slang caches modules by name within a session. Distinct Shader objects may use the same diagnostic filename.
     static uint64_t nextModuleId = 0;
     const std::string moduleName = "ofg_mesh_" + std::to_string(nextModuleId++);
@@ -698,17 +738,20 @@ void Graphics::prepareShader(Shader& shader)
     auto data = std::make_shared<ShaderGpuData>();
     const auto result = graphics->device->createShaderProgram(desc, data->program.writeRef(), diagnostics.writeRef());
     check(result, "Create shader " + shader.name() + ": " + diagnosticText(diagnostics));
-    if (shader.name().starts_with("pbr-"))
+    if (shader.name().starts_with("pbr-") && shader.name() != "pbr-output")
     {
         ComPtr<IShaderObject> root;
         check(graphics->device->createRootShaderObject(data->program, root.writeRef()), "Reflect PBR resources");
-        auto layout = ShaderCursor(root).getTypeLayout();
         unsigned textures = 0, samplers = 0;
-        for (unsigned i = 0; i < layout->getFieldCount(); ++i)
+        for (const char* name : {"scene", "material"})
         {
-            auto kind = layout->getFieldByIndex(i)->getTypeLayout()->getKind();
-            textures += kind == slang::TypeReflection::Kind::Resource;
-            samplers += kind == slang::TypeReflection::Kind::SamplerState;
+            auto layout = ShaderCursor(root)[name].getDereferenced().getTypeLayout();
+            for (unsigned i = 0; i < layout->getFieldCount(); ++i)
+            {
+                auto kind = layout->getFieldByIndex(i)->getTypeLayout()->getKind();
+                textures += kind == slang::TypeReflection::Kind::Resource;
+                samplers += kind == slang::TypeReflection::Kind::SamplerState;
+            }
         }
         if (textures > 16 || samplers > 16)
         {
@@ -721,8 +764,43 @@ void Graphics::prepareShader(Shader& shader)
 }
 
 
+void Graphics::prepareMaterial(Material& material)
+{
+    if (material.m_gpu && material.m_gpu->root)
+    {
+        return;
+    }
+    OFG_TERRAIN_SCOPE(DrawBindings);
+    auto data = std::make_shared<MaterialGpuData>();
+    check(
+        graphics->device->createRootShaderObject(material.shader()->m_gpu->program, data->root.writeRef()),
+        "Create material bindings"
+    );
+    bindMaterial(data->root, material);
+    bindResources(data->root, material);
+    ShaderCursor root(data->root);
+    auto draw = root["draw"];
+    data->clipFromLocal = matrixBinding(draw["clipFromLocal"]);
+    if (material.renderState().pbr)
+    {
+        data->scene = root["scene"];
+        // RHI requires a non-null subobject. Keep its initial resource-free object to detach pass ownership.
+        data->unboundScene = data->scene.getDereferenced().m_baseObject;
+        data->worldFromLocal = matrixBinding(draw["worldFromLocal"]);
+        data->normalFromLocal = matrixBinding(draw["normalFromLocal"]);
+        data->orientation = draw["orientation"];
+        bindUniform(draw["alphaMode"], uint32_t(material.renderState().alphaMode));
+        // Finalizing prevents accidental mutation; edited materials replace their entire cached record.
+        check(root["material"].getDereferenced().m_baseObject->finalize(), "Finalize material block");
+    }
+    graphics->materials.push_back(data);
+    material.m_gpu = std::move(data);
+}
+
+
 void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
 {
+    OFG_TERRAIN_SCOPE(Graphics_render);
     using namespace rhi;
     if (!graphics || !colorTarget)
     {
@@ -755,6 +833,14 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
     );
     std::erase_if(
         graphics->shaders,
+        [](const auto& entry)
+        {
+            return entry.expired();
+        }
+    );
+
+    std::erase_if(
+        graphics->materials,
         [](const auto& entry)
         {
             return entry.expired();
@@ -824,6 +910,7 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
         {
             graphics->textures->prepare(*sampler);
         }
+        prepareMaterial(*item.material);
     }
 
     if (list.lighting.lightCount > 4 || !std::isfinite(list.lighting.exposure) || list.lighting.exposure < 0 ||
@@ -956,6 +1043,8 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
         passDesc.colorAttachmentCount = 1;
         passDesc.depthStencilAttachment = &depth;
         auto pass = encoder->beginRenderPass(passDesc);
+        // All feature variants import the same SceneGlobals type. Only passes with PBR draws allocate it.
+        ComPtr<IShaderObject> scene;
         for (const auto* itemPointer : items)
         {
             const auto& item = *itemPointer;
@@ -975,20 +1064,34 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
                 item.material->renderState(),
                 mirrored
             );
-            // Each draw gets independent uniform storage; later material edits cannot overwrite encoded draws.
-            ComPtr<IShaderObject> root;
-            check(
-                graphics->device->createRootShaderObject(shader->m_gpu->program, root.writeRef()),
-                "Create draw bindings"
-            );
-            bindMaterial(root, *item.material);
-            bindResources(root, *item.material);
-            auto transform = ShaderCursor(root)["draw"]["clipFromLocal"];
-            if (!transform.isValid())
+            auto& data = *item.material->m_gpu;
+            auto root = data.root.get();
+            if (item.material->renderState().pbr)
             {
-                throw EngineError("Shader requires draw.clipFromLocal float4x4.");
+                if (!scene)
+                {
+                    check(
+                        graphics->device->createShaderObject(
+                            graphics->sceneType,
+                            ShaderObjectContainerType::None,
+                            scene.writeRef()
+                        ),
+                        "Create scene globals"
+                    );
+                    bindFrame(
+                        scene,
+                        list,
+                        stage != 0,
+                        list.outdoor && graphics->environments->hasDynamic() ? graphics->environments->dynamic()
+                                                                             : *list.lighting.environment->m_gpu
+                    );
+                    bindOutdoor(scene, list, target.size.width, target.size.height);
+                    check(scene->finalize(), "Finalize scene globals");
+                }
+                check(data.scene.setObject(scene), "Bind scene globals");
             }
-            bindMatrix(transform, math::mul(list.clipFromWorld, item.worldFromLocal));
+            // RHI snapshots root/child binding data when encoding each draw; later writes cannot change it.
+            bindMatrix(data.clipFromLocal, math::mul(list.clipFromWorld, item.worldFromLocal));
             if (item.material->renderState().pbr)
             {
                 std::string error;
@@ -1005,18 +1108,9 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
                         normal[c][r] = (*inverse)[r][c];
                     }
                 }
-                bindMatrix(ShaderCursor(root)["draw"]["worldFromLocal"], item.worldFromLocal);
-                bindMatrix(ShaderCursor(root)["draw"]["normalFromLocal"], normal);
-                bindUniform(ShaderCursor(root)["draw"]["orientation"], mirrored ? -1.0f : 1.0f);
-                bindFrame(
-                    root,
-                    list,
-                    *item.material,
-                    stage != 0,
-                    list.outdoor && graphics->environments->hasDynamic() ? graphics->environments->dynamic()
-                                                                         : *list.lighting.environment->m_gpu
-                );
-                bindOutdoor(root, list, target.size.width, target.size.height);
+                bindMatrix(data.worldFromLocal, item.worldFromLocal);
+                bindMatrix(data.normalFromLocal, normal);
+                check(data.orientation.setData(mirrored ? -1.0f : 1.0f), "Bind orientation");
             }
             pass->bindPipeline(pipeline, root);
             RenderState state{};
@@ -1034,12 +1128,23 @@ void Graphics::render(const DrawList& list, rhi::ITexture* colorTarget)
             arguments.vertexCount = part.indexCount;
             arguments.startIndexLocation = part.firstIndex;
             pass->drawIndexed(arguments);
+            if (item.material->renderState().pbr)
+            {
+                // Commands retain their snapshots. An idle material must not pin an obsolete pass environment.
+                check(data.scene.setObject(data.unboundScene), "Release material reference to scene globals");
+            }
         }
 
         pass->end();
         ComPtr<ICommandBuffer> commands;
-        check(encoder->finish(commands.writeRef()), "Finish scene commands");
-        check(graphics->queue->submit(commands), "Submit scene commands");
+        {
+            OFG_TERRAIN_SCOPE(FinishScene);
+            check(encoder->finish(commands.writeRef()), "Finish scene commands");
+        }
+        {
+            OFG_TERRAIN_SCOPE(SubmitScene);
+            check(graphics->queue->submit(commands), "Submit scene commands");
+        }
     }
     if (list.lighting.hdr)
     {
@@ -1064,6 +1169,13 @@ void Graphics::shutdown() noexcept
         return;
     }
     graphics->pipelines.clear();
+    for (auto& weak : graphics->materials)
+    {
+        if (auto data = weak.lock())
+        {
+            *data = MaterialGpuData{};
+        }
+    }
     for (auto& weak : graphics->meshes)
     {
         if (auto data = weak.lock())

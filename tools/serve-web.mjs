@@ -7,10 +7,8 @@ import { resolve } from 'node:path';
 
 const buildDirectory = fileURLToPath(new URL('../build/web/', import.meta.url));
 const files = {
-    '/terrain-workers.js': ['terrain-workers.js', 'text/javascript'],
-    '/terrain-worker.js': ['terrain-worker.js', 'text/javascript'],
-    '/terrain-generator.mjs': ['terrain-generator.mjs', 'text/javascript'],
-    '/terrain-generator.wasm': ['terrain-generator.wasm', 'application/wasm'],
+    '/terrain-workers-proof.js': ['terrain-workers-proof.js', 'text/javascript'],
+    '/terrain-workers-proof.wasm': ['terrain-workers-proof.wasm', 'application/wasm'],
     '/': ['index.html', 'text/html'],
     '/index.html': ['index.html', 'text/html'],
     '/index.js': ['index.js', 'text/javascript'],
@@ -31,6 +29,8 @@ export async function startWebServer(port = 8080) {
         files['/assets/models/laboratory.' + extension] = ['assets/models/laboratory.' + extension, extension === 'gltf' ? 'model/gltf+json' : 'application/octet-stream'];
     }
     const server = createServer(async (request, response) => {
+        response.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+        response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
         const entry = files[new URL(request.url, 'http://localhost').pathname];
         if (!entry || !['GET', 'HEAD'].includes(request.method)) {
             response.writeHead(404).end();
