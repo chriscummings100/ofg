@@ -1,7 +1,7 @@
 # Build an interactive terrain generation service and stream its results
 
-This ExecPlan follows [PLANS.md](../../PLANS.md). Status: **proposed**. The user requested a plan on
-2026-10-08; implementation, dependency installation and server rental are not part of this planning turn.
+This ExecPlan follows [PLANS.md](../../PLANS.md). Status: **in progress**. The user authorized implementation
+on 2026-10-09 after committing and pushing all existing work. Server rental is not required or authorized.
 Keep the living sections current during implementation. Complete each stage with a demonstrable result
 before starting the next; do not introduce erosion to compensate for an unfinished delivery/rendering path.
 
@@ -39,16 +39,19 @@ require the service to simulate or store every fine feature visible near the pla
   source resolution is reached; finer descendants inherit that terminal-resolution input and GPU textures.
 - [x] (2026-10-09) Adopted the user's selected 256-cell default: 257 edge-inclusive samples plus a one-sample
   apron on each side, giving 259x259 stored samples. Updated sizes, limits, examples and acceptance tests.
-- [ ] Stage 1: Python service, bounded Voronoi island, immutable content and contract fixtures.
+- [x] (2026-10-09) Stage 1: Python service, bounded Voronoi island, immutable content and contract fixtures.
+  55 pytest cases pass, including real HTTP, spawned-process lifecycle, source bounds and corruption checks.
+  Inspected `artifacts/terrain-service/data/demo/revisions/a292ddd152bd4500a8437ce1c4240ede/diagnostic.png`.
+- [x] (2026-10-09) Committed and pushed the existing streaming implementation and this plan as `40fbf5d`.
 - [ ] Stage 2: Native/browser HTTP terrain streaming and a saved-content playback proof.
 - [ ] Stage 3: Editor parameters, regeneration and coherent revision replacement.
 - [ ] Stage 4: FastScape worker, progressive previews, numerical checks and measured terrain experiments.
 
 ## Surprises & Discoveries
 
-The current checkout already contains the sparse streaming implementation, including a coordinator thread
-and two C++ mesh workers on both hosts. It also contains substantial uncommitted changes and the move of
-the previous plan into `docs/archived`. Preserve that work; this plan adds no code changes or commits.
+The starting checkout contained the sparse streaming implementation, including a coordinator thread
+and two C++ mesh workers on both hosts. That work and the archived previous plan are now preserved in
+`40fbf5d` on `origin/main` before generation-service implementation.
 
 The terrain mesher currently evaluates procedural noise internally. Its conservative height bounds,
 root admission and `teleportToSurface` also assume that noise generator. Replacing just its vertex samples
@@ -125,8 +128,12 @@ same sampling halo used below; GPU filtering/mip construction must preserve corr
 
 ## Outcomes & Retrospective
 
-Planning only. The existing source was inspected and this proposed implementation contract was saved.
-No new server, transport, terrain data format, UI or erosion backend is implemented or validated yet.
+Implementation started after checkpoint `40fbf5d`; stage 1 is implemented and tested. The Python service,
+content format and saved serving are working. Native/browser client transport, UI and erosion remain in progress.
+The initial native CPU regression passed all six CTest groups (119.51 seconds). Stage-1 Python validation
+passed 55 tests (8.74 seconds), with coverage evidence in `artifacts/terrain-service/stage-1/coverage.json`.
+The coverage run instruments parent-process code; spawned worker behavior is additionally tested through
+real IPC plus direct worker failure-path checks. No viewer rendering or erosion result is claimed yet.
 Record actual commands, screenshots, numerical results and performance here as stages are delivered.
 The 2026-10-09 revisions simplify the planned client cache, specify richer data tiles and full-source bounds,
 and add corresponding acceptance tests. These remain documentation-only changes.

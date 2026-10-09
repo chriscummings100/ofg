@@ -1,5 +1,14 @@
 # Developing OFG
 
+## Terrain generation service
+
+The independent Python flat-island service and saved-content HTTP mode are implemented. See
+[service setup and commands](services/terrain/README.md) and the [binary content contract](docs/terrain-content.md).
+Verified on 2026-10-09 with Python 3.10.5: isolated dependency installation, editable package installation,
+`python -m terrain_service generate`, and the service's pytest suite with real loopback HTTP/spawned workers.
+The native/browser viewer connection, editor controls and FastScape integration are still in progress;
+service tests alone do not prove those features.
+
 The default application opens the [dockable laboratory workspace](docs/imgui.md), with a PBR Scene viewport, Scene Hierarchy and Render Settings. Native Windows D3D12 and browser WebGPU share the UI and scene renderer. --scene / ?demo=scene retain the checker-cube fixture. Select the original full-screen checkerboard using `--checkerboard` natively or `?demo=checkerboard` in the browser.
 
 See the [architecture note](docs/architecture.md) for source responsibilities and the checkerboard reference flow. Agent workflows are documented in the [native build skill](.agents/skills/build-native/SKILL.md) and [browser build skill](.agents/skills/build-web/SKILL.md).
