@@ -272,11 +272,13 @@ endif()
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_test(NAME ofg-startup COMMAND ofg --check-device)
 
-    add_executable(ofg-render-test tests/outdoor-rendering-test.cpp tests/checkerboard-test.cpp tests/graphics-test.cpp tests/compute-vertex-test.cpp)
+    add_executable(ofg-render-test tests/outdoor-rendering-test.cpp tests/checkerboard-test.cpp tests/graphics-test.cpp tests/compute-vertex-test.cpp tests/rhi-bindings-test.cpp)
     target_link_libraries(ofg-render-test PRIVATE ofg-ui ofg-compute-proof doctest)
     target_compile_definitions(ofg-render-test PRIVATE OFG_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME ofg-checkerboard COMMAND ofg-render-test "--test-case=Checkerboard*")
     add_test(NAME ofg-scene-rendering COMMAND ofg-render-test "--test-case-exclude=Checkerboard*")
     set_tests_properties(ofg-startup ofg-checkerboard PROPERTIES LABELS "native;gpu" TIMEOUT 30)
-    set_tests_properties(ofg-scene-rendering PROPERTIES LABELS "native;gpu" TIMEOUT 120)
+    # The complete validated-device/shader suite measured 139 seconds in Release. Individual async
+    # tests retain their own deadlines; this allowance covers the aggregate suite and device setup.
+    set_tests_properties(ofg-scene-rendering PROPERTIES LABELS "native;gpu" TIMEOUT 300)
 endif()

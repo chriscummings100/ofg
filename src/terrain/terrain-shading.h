@@ -3,6 +3,8 @@
 #include "terrain/terrain-content.h"
 
 namespace ofg::terrain {
+// Packs validity bits 0..2 and sediment classification in bit 3 for nearest-sampled R8 GPU data.
+std::vector<uint8_t> encodeTerrainCategories(const TerrainTile& source);
 inline constexpr size_t terrainTextureBytes = terrainDataSamples * terrainDataSamples * 9;
 // Portable uploads pad each RGBA16F/R8 row to 256 bytes; staging is distinct from retained texel storage.
 inline constexpr size_t terrainTextureUploadBytes =

@@ -261,9 +261,10 @@ void TerrainLaboratory::receiveResults()
                         {terrain::terrainDataSamples, terrain::terrainDataSamples, TextureFormat::RGBA16Float},
                         {std::as_bytes(std::span(pixels))}
                     );
+                    const auto categories = terrain::encodeTerrainCategories(*result.source);
                     payload.texture->validity = Texture::create(
                         {terrain::terrainDataSamples, terrain::terrainDataSamples, TextureFormat::R8Unorm},
-                        {std::as_bytes(std::span(result.source->validity))}
+                        {std::as_bytes(std::span(categories))}
                     );
                     weak = payload.texture;
                 }
@@ -435,6 +436,13 @@ void TerrainLaboratory::regenerate(const terrain::IslandRecipe& recipe)
         throw EngineError("Regeneration requires a terrain service connection.");
     m_generation->draft = recipe;
     m_generation->regenerate();
+}
+
+void TerrainLaboratory::startErosion()
+{
+    if (!m_generation || !m_manifest)
+        throw EngineError("Erosion requires a displayed service revision.");
+    m_generation->startErosion(m_manifest->revision, terrain::decodeIslandRecipe(m_manifest->parametersJson));
 }
 
 void TerrainLaboratory::connect()

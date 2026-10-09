@@ -1,8 +1,8 @@
 # Terrain content version 1
 
 The Python service publishes immutable heightfield revisions. Geometry and shading use the same canonical
-samples. This contract is implemented by `services/terrain/terrain_service/protocol.py`; application integration
-is in progress in the [active plan](plans/terrain-generation-service.md).
+samples. This contract is implemented by `services/terrain/terrain_service/protocol.py` and both application
+hosts; implementation evidence is recorded in the [plan](archived/terrain-generation-service.md).
 
 ## Coordinates and resolution
 
@@ -44,7 +44,7 @@ the transport must enforce a 2 MiB upper bound before decoding. Additional or mi
 | 192 | 67081 float32 | Ground surface elevation |
 | 268516 | 67081 float32 | Bedrock elevation |
 | 536840 | 67081 float32 | Water depth above ground |
-| 805164 | 67081 uint16 | Material ID (initial palette: 1 = bare rock) |
+| 805164 | 67081 uint16 | Material ID (1 = bare rock, 2 = sediment) |
 | 939326 | 67081 uint8 | Validity bits: 1 bedrock, 2 water, 4 material; other bits zero |
 
 CRC detects corruption, not malicious alteration. Compare revision, root and tile address against the captured
@@ -71,7 +71,8 @@ state; `POST /v1/jobs/{id}/cancel` requests cancellation. Invalid input returns 
 control bodies above 256 KiB return 413. Content reads do not start generation. Read-only mode has no controls.
 
 A worker writes source arrays, bounds, metadata and a diagnostic to a temporary directory, then renames it
-to its UUID. The parent job owner atomically updates latest only after successful completion without cancellation.
+to its UUID. The parent job owner atomically updates latest after each completed, uncancelled publication.
+Flat generation publishes once; erosion can publish completed previews while its solver remains active.
 Old revisions never change. Interrupted temporary directories are unserved and count against the configured
 storage budget until explicit maintenance. Saved serving opens the same directory hierarchy without a generator.
 
@@ -94,9 +95,10 @@ Shading uses an RGBA16F texture plus point-sampled R8 validity. Height is stored
 and residual, in units of 1024 m; tests bound reconstruction error below 1 mm over the supported elevation
 range. The other channels store sediment thickness and water depth in the same units. Unknown channels
 remain distinct from zero. Continuous attributes require all contributing samples valid; material uses
-nearest sampling. The initial palette has one known bare-rock ID. Base-level sampling uses the apron;
+nearest sampling. Palette ID 1 is bare rock and ID 2 is sediment; the R8 texture packs validity in bits 0..2
+and sediment classification in bit 3. Base-level sampling uses the apron;
 mipmapped minification is not implemented. Intermediate source samples affect shading normals without
-adding geometry. The optional flat sea-level quad is a visual reference, not simulated water.
+adding geometry. The optional flat sea-level grid is a visual reference, not simulated water.
 
 Service terrain has a 512 MiB combined CPU residency budget and 256 MiB GPU budget. Shared decoded inputs
 and CPU/GPU textures are charged once across active and retired descendants. The complete 16 m fixture

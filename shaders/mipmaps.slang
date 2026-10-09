@@ -24,6 +24,11 @@ ConstantBuffer<MipParameters> mip;
     float2 scale = float2(width, height) / float2(mip.destinationSize);
     float2 first = floor(position.xy) * scale;
     float2 last = min(first + scale, float2(width, height));
+    // Average differences from one sample so constant fields remain exact even when a GPU's
+    // reciprocal/division rounds down before conversion to a half-float render target.
+    float4 reference = sourceImage.Load(int3(int2(floor(first)), 0));
+    if (mip.alphaWeighted != 0)
+        reference.rgb *= reference.a;
     float4 sum = 0;
     float total = 0;
     for (int y = int(floor(first.y)); y < int(ceil(last.y)); ++y)
@@ -37,11 +42,11 @@ ConstantBuffer<MipParameters> mip;
             {
                 value.rgb *= value.a;
             }
-            sum += value * area;
+            sum += (value - reference) * area;
             total += area;
         }
     }
-    float4 result = sum / total;
+    float4 result = reference + sum / total;
     if (mip.alphaWeighted != 0)
     {
         result.rgb = result.a > 0 ? result.rgb / result.a : float3(0);

@@ -12,11 +12,11 @@ void TerrainLaboratory::generatorPanel()
     if (ImGui::CollapsingHeader("Island generator", ImGuiTreeNodeFlags_DefaultOpen))
     {
         auto& r = client.draft;
-        ImGui::PushItemWidth(110);
+        ImGui::PushItemWidth(ImGui::CalcTextSize("000000000000").x);
         ImGui::InputScalar("World seed", ImGuiDataType_U64, &r.seed);
         ImGui::InputScalar("Region X", ImGuiDataType_S64, &r.regionX);
         ImGui::InputScalar("Region Z", ImGuiDataType_S64, &r.regionZ);
-        ImGui::InputInt("Seed spacing (m)", &r.seedSpacing);
+        ImGui::InputInt("Seed spacing (m)", &r.seedSpacing, 0, 0);
         const struct
         {
             const char* label;
@@ -38,8 +38,8 @@ void TerrainLaboratory::generatorPanel()
             if (client.fieldErrors.contains(field.field))
                 ImGui::TextWrapped("%s", client.fieldErrors.at(field.field).c_str());
         }
-        ImGui::InputInt("Source spacing (m)", &r.sourceSpacing);
-        ImGui::InputInt("Source intervals", &r.sourceIntervals);
+        ImGui::InputInt("Source spacing (m)", &r.sourceSpacing, 0, 0);
+        ImGui::InputInt("Source intervals", &r.sourceIntervals, 0, 0);
         ImGui::PopItemWidth();
         ImGui::TextWrapped(
             "Source spacing and intervals must be powers of two. The domain must contain the island and a seabed "
@@ -69,6 +69,52 @@ void TerrainLaboratory::generatorPanel()
             ImGui::TextWrapped("%s", client.error.c_str());
             if (ImGui::Button("Retry control request"))
                 client.retryRequest();
+        }
+    }
+    if (ImGui::CollapsingHeader("FastScape erosion"))
+    {
+        auto& e = client.erosion;
+        ImGui::PushItemWidth(ImGui::CalcTextSize("000000000000").x);
+        ImGui::BeginDisabled(client.active());
+        ImGui::InputDouble("Timestep (years)", &e.timestepYears, 0, 0, "%.1f");
+        ImGui::InputInt("Requested steps", &e.steps, 0, 0);
+        ImGui::Text("Duration %.0f years", e.steps * e.timestepYears);
+        ImGui::InputDouble("Uplift (m/year)", &e.uplift, 0, 0, "%.5f");
+        ImGui::InputDouble("Bedrock incision", &e.incision, 0, 0, "%.6f");
+        ImGui::InputDouble("Sediment incision", &e.sedimentIncision, 0, 0, "%.6f");
+        ImGui::InputDouble("Land diffusion (m2/year)", &e.diffusivity);
+        ImGui::InputDouble("Deposition coefficient", &e.deposition);
+        ImGui::InputDouble("Marine diffusion (m2/year)", &e.marineDiffusivity);
+        ImGui::TextWrapped("Marine diffusion is experimental: fixed coast heights can supply unbalanced sediment.");
+        ImGui::InputDouble("Relative precipitation", &e.precipitation);
+        ImGui::InputDouble("Initial perturbation (m)", &e.perturbation);
+        ImGui::InputInt("Preview every N steps", &e.previewSteps, 0, 0);
+        ImGui::InputDouble("Minimum preview seconds", &e.previewSeconds);
+        ImGui::InputInt("Preview stride (1/2/4/8)", &e.previewStride, 0, 0);
+        ImGui::TextWrapped("Start uses the displayed revision. Preview stride reduces export resolution only.");
+        if (m_manifest && ImGui::Button("Start erosion (paused)"))
+            try
+            {
+                startErosion();
+            } catch (const std::exception& error)
+            {
+                client.error = error.what();
+            }
+        ImGui::EndDisabled();
+        ImGui::PopItemWidth();
+        if (client.erosionJob && client.active())
+        {
+            ImGui::Text("Step %d; %.0f simulated years", client.step, client.years);
+            if (client.state == "paused")
+            {
+                if (ImGui::Button("Play"))
+                    client.control("resume");
+                ImGui::SameLine();
+                if (ImGui::Button("Step"))
+                    client.control("step");
+            }
+            else if (client.state == "running" && ImGui::Button("Pause"))
+                client.control("pause");
         }
     }
     ImGui::TextWrapped("Published: %s", client.latestRevision.c_str());

@@ -124,7 +124,8 @@ TerrainManifest decodeTerrainManifest(std::string_view text)
             throw EngineError("Terrain source origin is not on its canonical lattice.");
     result.parametersJson = json.at("parameters").dump();
     const auto& palette = json.at("material_palette");
-    if (!palette.is_array() || palette.size() != 1 || palette[0].at("id") != 1)
+    if (!palette.is_array() || palette.empty() || palette.size() > 2 || palette[0].at("id") != 1 ||
+        (palette.size() == 2 && palette[1].at("id") != 2))
         throw EngineError("Unsupported terrain material palette.");
     return result;
 }
@@ -215,8 +216,9 @@ std::shared_ptr<const TerrainTile> decodeTerrainTile(
     {
         const auto bits = tile->validity[i];
         if ((bits & ~7) || ((bits & 1) && tile->bedrock[i] > tile->surface[i]) || ((bits & 2) && tile->water[i] < 0) ||
-            ((bits & 4) && tile->material[i] != 1) || (!(bits & 1) && tile->bedrock[i] != 0) ||
-            (!(bits & 2) && tile->water[i] != 0) || (!(bits & 4) && tile->material[i] != 0))
+            ((bits & 4) && tile->material[i] != 1 && tile->material[i] != 2) ||
+            (!(bits & 1) && tile->bedrock[i] != 0) || (!(bits & 2) && tile->water[i] != 0) ||
+            (!(bits & 4) && tile->material[i] != 0))
             throw EngineError("Invalid terrain attributes.");
         const auto x = i % terrainDataSamples, z = i / terrainDataSamples;
         if (x > 0 && x < 258 && z > 0 && z < 258 && (tile->surface[i] < low || tile->surface[i] > high))

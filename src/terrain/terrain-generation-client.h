@@ -14,6 +14,13 @@ struct IslandRecipe
     double jitter = 512, oceanClearance = 256, contourRounding = .35, contourVariation = .1;
     double plateauHeight = 40, seaLevel = 0, seabedHeight = -80, coastWidth = 256;
 };
+struct ErosionRecipe
+{
+    double timestepYears = 1000, uplift = .001, incision = .00002, sedimentIncision = .00004;
+    double diffusivity = .1, deposition = 1, marineDiffusivity = 0, precipitation = 1, perturbation = 1;
+    int steps = 100, previewSteps = 10, previewStride = 1;
+    double previewSeconds = 1;
+};
 // Decodes a complete server-validated recipe while preserving exact integer world identifiers.
 IslandRecipe decodeIslandRecipe(std::string_view json);
 // Encodes draft physical parameters; authoritative geometric validation is performed by the service.
@@ -26,9 +33,11 @@ public:
     TerrainGenerationClient(std::string baseUrl, std::string island);
     // Starts one immutable job with a fresh operation ID, leaving the draft independent of accepted input.
     void regenerate();
+    // Starts a paused, independent experiment from explicit displayed source data and its matching recipe.
+    void startErosion(std::string_view initialRevision, const IslandRecipe& initialRecipe);
     // Sends an explicit job action; only cancel/pause/resume/step are accepted.
     void control(std::string_view action);
-    // Retries the exact previous operation ID/body after an ambiguous transport failure.
+    // Retries idempotent submission; ambiguous controls refresh status without repeating a numerical Step.
     void retryRequest();
     // Advances HTTP completion and polls active jobs at most twice per second without blocking.
     void update();
@@ -36,6 +45,10 @@ public:
     bool active() const;
 
     IslandRecipe draft, accepted;
+    ErosionRecipe erosion;
+    bool erosionJob = false;
+    int step = 0;
+    double years = 0;
     std::string jobId, state, phase, latestRevision, error;
     std::map<std::string, std::string> fieldErrors;
     double progress = 0;
@@ -43,6 +56,8 @@ public:
 private:
     // Starts a bounded control request and retains its exact identity for explicit retry.
     void request(std::string url, std::string body = {});
+    // Assigns an operation identity and submits a flat or erosion recipe without duplicating HTTP ownership.
+    void submit(const IslandRecipe& recipe, std::string_view erosionJson = {});
     std::string m_baseUrl, m_island, m_lastUrl, m_lastBody;
     std::unique_ptr<HttpRequest> m_request;
     std::chrono::steady_clock::time_point m_nextPoll;

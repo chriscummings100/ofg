@@ -1,6 +1,6 @@
 # Build an interactive terrain generation service and stream its results
 
-This ExecPlan follows [PLANS.md](../../PLANS.md). Status: **in progress**. The user authorized implementation
+This ExecPlan follows [PLANS.md](../../PLANS.md). Status: **implemented; verification limits recorded below**. The user authorized implementation
 on 2026-10-09 after committing and pushing all existing work. Server rental is not required or authorized.
 Keep the living sections current during implementation. Complete each stage with a demonstrable result
 before starting the next; do not introduce erosion to compensate for an unfinished delivery/rendering path.
@@ -58,9 +58,20 @@ require the service to simulate or store every fine feature visible near the pla
   and minimal-budget refusal. Terrain-fast passes 62 cases / 104035 assertions; all 9 native CTest groups pass
   in 59.54 s. Browser recording proves a held HTTP candidate preserves old coverage, release adopts the new
   revision, and a later HTTP 503 candidate retains the old displayed revision. Inspected docked editor and
-  regeneration screenshots under `artifacts/terrain-service/stage-3`. The final added displayed-leaf counter
-  will be exercised in the next shared-host verification.
-- [ ] Stage 4: FastScape worker, progressive previews, numerical checks and measured terrain experiments.
+  regeneration screenshots under `artifacts/terrain-service/stage-3`. The displayed-leaf counter is also
+  checked in the final browser regression, proving the preserved old cut contains actual visible leaves.
+- [x] (2026-10-09) Stage 4: FastScape worker, progressive previews and numerical experiments delivered.
+  Optional pinned Linux worker, Play/Pause/Step, source-validity/material export, full-simulation bounds
+  for reduced previews and bounded publication acknowledgements are implemented. Linux passes 64 Python
+  cases; Windows passes 57 with the optional Fortran suite skipped. Coverage including spawned workers
+  and collector is 94.7% lines / 88.3% branches, with no project exclusions.
+  Final native Release regression passes all nine CTest groups (228.83 s); real HTTP passes 3 cases /
+  45016 assertions; fresh-island native erosion passes 60 assertions. Browser erosion renders three paused
+  states at 0/1000/2000 years with no errors; final texture/checkerboard, PBR and editor-regeneration
+  browser checks pass, including held/failed replacements, visible old coverage, reload and five C++ threads.
+  The final owned-service ten-minute run passes 452788 assertions across 90555 frames and five regenerations;
+  tracked terrain allocations drain to zero. This is stability evidence, not a frame-rate benchmark.
+  Native Release and browser builds pass. Remaining coverage/performance/numerical limits are recorded below.
 
 ## Surprises & Discoveries
 
@@ -81,13 +92,56 @@ asynchronous work. Neither currently identifies immutable server content. Keep t
 The Fortran FastScape library supplies sediment/deposition features that the newer C++ library's documented
 built-in eroders do not yet match. Use the Python bindings to the Fortran library for the first scientific
 backend. Its module-global state requires exclusive worker-process ownership of an active simulation.
-No FastScape build, full-island memory estimate or bake-speed claim has been verified in this repository.
+The pinned v2.8.4 binding is now built with Python 3.11.17, NumPy 1.26.4 and GNU Fortran 12.4.0 in WSL Ubuntu.
+Small numerical fixtures and 257/513/1025/2049-square scaling experiments ran; no full-island estimate is claimed.
 
 The initial tile-selection proposal incorrectly sized data requests only for mesh vertices. The user
 clarified that intermediate samples are needed for shading. This changes both request selection and resource
 lifetime: textures are rendered node content, not temporary meshing inputs that can all be discarded after a job.
 
 ## Decision Log
+
+2026-10-09: Full regression selected Intel Iris Xe on a later run, exposing a pre-existing one-ULP half-float
+mipmap error for constant fields. Area reduction now averages differences from a reference sample, preserving
+constants exactly instead of dividing two rounded totals. The existing exact constant-field assertions remain
+unchanged. Cross-material tests also rejected using RHI's uninitialized m_uid for the descriptor cache; its final
+key uses a retained pointer, version and layout. All nine final native CTest groups pass, including the
+unchanged exact-value mip assertions and parameter-block snapshot regressions. Adapter names are recorded per run rather than assumed from earlier NVIDIA results.
+
+2026-10-09: Final native erosion replay exposed D3D12 sampler-heap exhaustion in an aerial view. Each terrain
+material had an identical sampler in its persistent material block, exceeding the hardware heap's 2048 entries.
+Terrain now samples with the existing linear-clamp sampler in the shared scene block, always at mip zero.
+A GPU regression encodes 2200 distinct terrain materials in one pass. It also exposed that the pinned D3D12
+BindingCache is empty: even shared scene tables were reallocated per draw. A generated build-only adaptation
+caches leaf parameter-block descriptors by shader-object identity, version and specialized layout within one
+command buffer. It retains snapshot identities and replays resource-state requirements, and resets with the
+GPU-completed command buffer. Nested/root-descriptor blocks keep the upstream path. No upstream allocator or
+capacity limit was changed, and the pinned checkout remains untouched. The upstream finalize method does not
+set its finalized flag, so versioned keys are necessary rather than relying on that flag.
+
+2026-10-09: Raise the whole graphics CTest allowance from 120 to 300 seconds after a direct timed run passed
+all 36 cases / 3125 assertions with 138.59 seconds inside tests, plus device setup. The suite recreates validated
+devices and shader pipelines repeatedly; individual asynchronous deadlines and correctness assertions stay
+unchanged. Earlier CTest timeouts are retained as failed attempts, not attributed solely to concurrent builds.
+The real HTTP suite rerun passes all 3 cases / 45016 assertions without changing its deadlines.
+
+2026-10-09: Use FastScape's single-flow solver. The required paused/exported versus uninterrupted comparison
+exposed heap-dependent results in v2.8.4's multiple-flow path. Valgrind traced uninitialized lake-water scratch
+in StreamPowerLaw. Single-flow makes the comparison exact without patching the external solver. Residual
+warnings in the upstream unused marine compaction calculation are documented; no clean memory audit is claimed.
+Marine diffusion defaults to zero after the nonzero experiment showed large coastal sediment imbalance.
+See [erosion notes](../terrain-erosion.md) for equations, conventions, limitations and retained failed experiments.
+
+2026-10-09: Live WSL data uses the Linux filesystem. A Windows-mounted output directory returned PermissionError
+on atomic directory rename; previous published content stayed intact. Windows and browser viewers successfully
+use the Linux-local service over HTTP. The setup script records actual dependency/compiler provenance.
+
+2026-10-09: The short 10,000-year, 257-square, 32 m experiment with zero marine diffusion converged from
+100/50/25-year steps: successive RMS differences 0.6571/0.3273 m for 121 m initial relief. The earlier
+100,000-year experiment at 1000/500/250 years did not pass convergence; those results remain recorded.
+Initial scaling reached 2049-square samples at about 1.83 GiB process peak RSS, 33.18 seconds for five steps
+and 6.51 seconds for export. It grows seabed extent, not island detail, and ran alongside development work;
+these are preliminary costs, not a full-island performance forecast.
 
 2026-10-09: Keep one combined client CPU residency budget rather than a separate source-data allocator.
 Service terrain receives 256 MiB of additional CPU headroom (512 MiB total); noise remains 256 MiB and GPU
@@ -177,19 +231,28 @@ same sampling halo used below; GPU filtering/mip construction must preserve corr
 
 ## Outcomes & Retrospective
 
-Implementation started after checkpoint `40fbf5d`; the Python service, content format, saved serving and
-native/browser client transport, inheritance and shading are working. Editor regeneration and erosion remain.
-The initial native CPU regression passed all six CTest groups (119.51 seconds). Stage-1 Python validation
-passed 55 tests (8.74 seconds), with coverage evidence in `artifacts/terrain-service/stage-1/coverage.json`.
-The coverage run instruments parent-process code; spawned worker behavior is additionally tested through
-real IPC plus direct worker failure-path checks. Viewer evidence is recorded above; no erosion result is claimed yet.
-Record actual commands, screenshots, numerical results and performance here as stages are delivered.
-The 2026-10-09 revisions simplify the planned client cache, specify richer data tiles and full-source bounds,
-and add corresponding acceptance tests. These contracts are now implemented.
-The shading clarification removes premature cross-node reuse and adds terminal-source inheritance,
-GPU texture lifetime and shading validation to stage 2. Memory defaults require remeasurement for this workload.
-The selected 256-cell default reduces the proposed uncompressed channel payload to approximately 0.96 MiB
-per tile; source-resolution inheritance now starts at 256 m node width for a 1 m source.
+The four implementation stages are delivered: a deterministic Voronoi island service, immutable richer
+terrain tiles, native/browser streaming with the simple persistent cache, editor regeneration with coherent
+revision replacement, and progressive FastScape erosion in an optional isolated Linux worker. Checkpoint
+`40fbf5d` preserved the previous work before implementation. Current setup and experiment commands are in
+[the service README](../../services/terrain/README.md) and [erosion notes](../terrain-erosion.md).
+
+The 256-cell format provides 259x259 samples including shared edges and apron. Nodes own their shading
+data until reaching source resolution; finer nodes inherit it without more requests. Full-source bounds
+preserve features absent from coarse samples. Measured working sets required 512 MiB combined client CPU
+residency; GPU residency stays capped at 256 MiB. Progressive exports use the same immutable content path.
+
+Remaining verification limits are explicit: new C++ line coverage is unmeasured because the coverage tool
+is unavailable; the browser has rendering/format/visual checks but no dedicated intermediate-sample pixel
+oracle matching the native fixture. The original 2 ms loading-update target was missed in one baseline,
+and startup shader preparation still causes stalls. The final descriptor-cache fix has correctness tests,
+not a new isolated performance benchmark. These gaps are not reported as passing acceptance measurements.
+
+FastScape single-flow fixes reproducibility of paused exports without patching the external solver.
+Marine diffusion remains experimental and defaults to zero. Small timestep-refinement fixtures converge,
+but default long-run parameters need calibration. Metre-resolution 128 km islands, climate/growth and
+local procedural refinement remain later research. Failed numerical experiments are retained alongside
+successful ones; neither plausible screenshots nor small-grid timings establish large-world quality/cost.
 
 ## Context and Orientation
 
@@ -200,7 +263,7 @@ Relevant existing files, relative to `C:/dev/ofg`:
 | `src/terrain/terrain-address.*` | Signed 64-bit root IDs, local octree addresses and root-relative double coordinates. Preserve. |
 | `src/terrain/terrain-stream.*` | GPU-independent demand, readiness, balanced display cuts, request IDs and accounting. Preserve core rules. |
 | `src/terrain/terrain-streaming-service.*` | Single coordinator, root selection, build-job dispatch and mailboxes. Add revision handoff; keep cache policy out of the octree. |
-| `src/terrain/terrain-data-cache.*` (proposed) | Asynchronous local-storage lookup, HTTP on miss, persistence and explicit skip-cache flag. |
+| `src/terrain/terrain-data-cache.*` | Asynchronous local-storage lookup, HTTP on miss, persistence and explicit skip-cache flag. |
 | `src/terrain/terrain-workers.*` | Terrain build jobs request their input through the cache, yield while acquiring, then use two persistent C++ mesh workers for extraction. |
 | `src/terrain/terrain-generator.*` | Noise field, conservative bounds and Transvoxel mesher. Separate field evaluation from extraction. |
 | `src/lab/terrain-laboratory.*` | Application-thread uploads, draws, camera and real GPU-completion retirement. |
@@ -213,7 +276,8 @@ Relevant existing files, relative to `C:/dev/ofg`:
 
 Current laboratory roots are 131072 m wide, with depth 13 reaching 16 m nodes. Each node has 32 mesh
 intervals; node width is not simulation resolution. Detailed demand extends 4096 m and the far plane is
-16000 m. The CPU and GPU terrain budgets are each 256 MiB. These remain defaults for comparison.
+16000 m. Noise terrain retains 256 MiB CPU/GPU budgets; service terrain uses 512 MiB CPU and 256 MiB GPU,
+including decoded inputs and shading textures. The decision log records the measured reason for this increase.
 
 A **content revision** is one immutable terrain field. A **cut** is the complete non-overlapping set of
 octree leaves currently representing admitted roots. A **terrain tile** covers a dyadic X/Z footprint,
@@ -430,7 +494,7 @@ parameters separate from the submitted job's immutable parameters. To change the
 a new job. Poll status at a modest fixed cadence (initially 2 Hz); no WebSocket or SSE requirement.
 
 Job states are `queued -> running -> completed`, with `failed` and `cancelled` terminal alternatives.
-FastScape adds `pauseRequested -> paused -> running` and `cancelling`; record a requested pause immediately
+FastScape adds `pausing -> paused -> running` and `cancelling`; record a requested pause immediately
 but never claim it has taken effect while Fortran is still executing a step. A crashed worker marks the job
 failed; it cannot change latest content. Publication is a sub-operation, not a second mutable terrain state.
 
@@ -447,8 +511,8 @@ source-resolution data. In that case it inherits that data and samples the appro
 job decodes the arriving bytes before meshing. The octree chooses what to build, not how to cache it. Keep this distinct from
 the Python generation service and its separately published terrain files.
 
-Expose one asynchronous request operation with a `skipCache` boolean. The following is proposed pseudocode,
-not an existing API or a requirement to introduce a coroutine framework:
+Expose one asynchronous request operation with a `skipCache` boolean. The following pseudocode describes
+the implemented queue/completion flow; it does not require a coroutine framework:
 
 ```text
 terrain build job:
@@ -521,14 +585,11 @@ The persistent cache key contains source identity, content revision, encoding ve
 tile address, not transient RequestId. Different vertical nodes can therefore reuse the same disk data.
 Drain cancellation and stale replies without accepting them into a newer epoch.
 
-Do not add a separate retained in-memory LRU cache. Initially reserve up to 4 MiB for two encoded acquisitions
-and provisionally 128 MiB for decoded node-owned source data, separate from existing terrain geometry budgets.
-These limits now need validation against per-node shading textures and retained ancestors, not just transient
-build inputs: eight 0.96 MiB tiles consume about 7.68 MiB before counting parents. Measure
-the required working set at the first stage-2 integration and explicitly revise budgets or admitted detail
-before claiming the original workload fits. The 2 MiB response cap remains. Account GPU texture bytes
-alongside geometry, uploads and retirement within the GPU terrain budget; do not hide them in material state.
-Charge copies, halos and inherited terminal inputs once per allocation.
+Do not add a separate retained in-memory LRU cache. Bound encoded acquisitions to two 2 MiB responses.
+Use one 512 MiB combined CPU residency budget for service terrain, including decoded node-owned inputs,
+geometry, shading images and inherited ownership. The original separate 128 MiB source allowance did not
+fit the measured workload; see the decision log. GPU geometry, textures, uploads and retirement share the
+256 MiB terrain budget. Charge copies, halos and inherited terminal inputs once per allocation.
 Reserve decode space before issuing an acquisition, and release unused inputs before admitting more work;
 a full input budget defers work without blocking a mesh worker or evicting an input still in use. Reserve
 required sibling completion capacity including source data/textures, or retain the parent and report a budget
@@ -696,7 +757,7 @@ current uncommitted work, and read applicable nested instructions. Use the exist
 [web skill](../../.agents/skills/build-web/SKILL.md) for browser builds and screenshots. Do not assume a
 plain shell has the compiler environment. Pin new dependencies during their first implementation stage.
 
-Existing repository check interfaces, to run after the corresponding changes (not run in this planning turn):
+Repository check interfaces (actual results are recorded in Progress; not every command is repeated for every edit):
 
 ```powershell
 cmake --preset cpu-tests
@@ -711,9 +772,8 @@ node tools/terrain-workers-smoke.mjs
 node tools/terrain-smoke.mjs
 ```
 
-Proposed new interfaces below do **not** exist yet. Implement them or replace this section with the actual
-tested equivalents before marking a stage complete. Keep dependency installation in an isolated service
-environment, and resolve package versions into its lockfile rather than claiming untested pins here.
+The following service commands are implemented. Dependencies are pinned in the isolated service lockfiles.
+See [erosion setup and verification](../terrain-erosion.md) for the optional tested Linux solver environment.
 
 ```powershell
 python -m venv .venv-terrain
@@ -723,10 +783,12 @@ python -m venv .venv-terrain
 .venv-terrain/Scripts/python -m pytest services/terrain/tests --cov=terrain_service --cov-branch --cov-report=term-missing
 .venv-terrain/Scripts/python -m terrain_service serve --read-only artifacts/terrain-service/export --port 8766
 build/native-release/ofg.exe --terrain --terrain-service http://127.0.0.1:8765 --island demo
-node tools/terrain-service-smoke.mjs
+.venv-terrain/Scripts/python tools/terrain-client-test.py --browser
+.venv-terrain/Scripts/python tools/terrain-client-test.py --browser --editor
+.venv-terrain/Scripts/python tools/terrain-client-test.py --soak --executable build/native-release/ofg-render-test.exe
 ```
 
-The proposed browser launch is `http://127.0.0.1:8080/?demo=terrain&terrainService=/v1&island=demo`.
+The browser launch is `http://127.0.0.1:8080/?demo=terrain&terrainService=/v1&island=demo`.
 Normalize whether the supplied base includes `/v1` in one place and document it; no duplicate path prefixes.
 The smoke runner must start service/proxy processes itself with ephemeral ports, wait on health/readiness
 conditions, and stop only processes it owns. Native process launches used by automation must be hidden.
@@ -837,8 +899,13 @@ masquerading as complete solver state. Document that recovery limit in the UI an
 
 At every stage review correctness, ownership and cancellation, integer/float boundaries, byte limits,
 unnecessary abstractions, comments, stale noise assumptions, protocol compatibility and documentation.
-Review service and application independently of whether a screenshot looks plausible. Record actual test
-results and unresolved findings here. No implementation review has occurred yet.
+Review service and application independently of whether a screenshot looks plausible. Implementation review
+covered source inheritance/accounting, revision adoption, cancellation, preview bounds, categorical shading,
+numerical reproducibility and documentation. Final review fixed shutdown with an unread publication message:
+closing now discards pending previews, joins the owned process and closes its endpoint explicitly. A regression
+proves the last adopted revision remains intact. Ambiguous Step responses now retry with status reads instead
+of replaying a non-idempotent control. Numerical findings and remaining performance/coverage gaps are recorded
+above and in the erosion notes.
 
 ## Interfaces and Dependencies
 

@@ -140,3 +140,23 @@ the release WASM archive is not shared-memory compatible; see DEVELOPING.md.
 ## Shadow binding ownership
 
 The four depth passes follow the same lifetime split as the main material pass: one immutable globals object per cascade, a persistent immutable shadow-material block, and cached per-instance transform binding. Shadow-only materials need no visible-pass shader preparation. Material setters invalidate both caches; the shadow renderer weakly tracks and clears its records on destruction. The opaque and alpha-textured programs import a common pass type. GPU vertex transforms combine the pass and instance matrices; CPU culling and skinning behavior are unchanged. See [shadow material contracts](resources.md#shadow-material-bindings).
+
+## Native parameter-block descriptor reuse
+
+Pinned RHI `16324a68af477baaede620e713644f5e9613b1a2` has an empty D3D12 binding cache and allocates
+new sampler tables per draw, including repeated references to one scene block. An aerial terrain view
+exceeded its 2048-descriptor sampler heap. `cmake/rhi-d3d12-bindings.cmake` generates an adapted D3D12
+directory in the build tree; the submodule remains unchanged. All backend translation units see the same
+adapted cache layout. Source anchors fail configuration if an upstream update changes the patched code.
+
+The command buffer caches leaf parameter-block tables by retained object pointer, version and specialized layout.
+Entries retain object/layout identity, descriptor ranges and resource-state requirements. Cache hits rebind
+the tables at the current root-signature offsets and replay state requirements. Mutable edits create new
+snapshots; nested blocks and user root descriptors retain upstream traversal. Entries reset only when the
+completed command buffer and its arenas reset. This revision's `finalize()` does not set its finalized flag,
+so the adaptation deliberately uses versioned identities. No global cache or larger sampler heap is involved.
+The upstream `m_uid` field is also uninitialized; retaining the object makes its pointer a stable cache key.
+
+Terrain also uses the scene's existing linear-clamp sampler at explicit mip zero, avoiding one identical
+sampler table per node material. GPU regressions cover 2200 independent terrain materials in one pass,
+within-command parameter edits, queued submissions, cross-variant scene blocks and normal resource retirement.

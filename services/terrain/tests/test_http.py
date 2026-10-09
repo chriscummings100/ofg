@@ -5,6 +5,7 @@ import json
 import multiprocessing
 import socket
 import threading
+import time
 
 import httpx
 import pytest
@@ -72,10 +73,12 @@ def test_real_http_remains_responsive_during_generation_and_replays_saved_data(t
         changed = dict(body, parameters=dict(parameters.model_dump(), plateau_height=45))
         assert client.post('/v1/jobs', json=changed).status_code == 409
         gate.set()
-        process = app.state.jobs.active.process
-        process.join(30)
-        assert not app.state.jobs.active or not app.state.jobs.active.process.is_alive()
-        status = client.get(f"/v1/jobs/{job['id']}").json()
+        # The collector owns join(); a second concurrent Process.join can race its waitpid.
+        deadline = time.monotonic()+30
+        while True:
+            status = client.get(f"/v1/jobs/{job['id']}").json()
+            if status['state'] in {'completed','failed','cancelled'} or time.monotonic()>=deadline:
+                break
         assert status['state'] == 'completed', status
         assert client.get('/v1/islands/demo/manifest').json()['revision'] == status['revision']
         assert client.get(tile_url).content == tile
@@ -138,8 +141,10 @@ def test_worker_function_failure_messages_and_shutdown(tmp_path):
     manager = JobManager(tmp_path, gate=gate)
     job = manager.submit('demo', 'shutdown', IslandParameters())
     process = manager.active.process
+    worker_pid = process.pid
     manager.close()
-    assert not process.is_alive()
+    assert all(child.pid != worker_pid for child in multiprocessing.active_children())
+    assert manager.active is None
     assert manager.status(job['id'])['state'] == 'cancelled'
 
 

@@ -65,7 +65,7 @@ def decode_tile(data: bytes) -> tuple[tuple, list[np.ndarray]]:
         raise ValueError('Invalid terrain channel values')
     if np.any((validity & 1 != 0) & (bedrock > surface)) or np.any((validity & 2 != 0) & (water < 0)):
         raise ValueError('Invalid sediment or water depth')
-    if np.any((validity & 4 != 0) & (material != 1)):
+    if np.any((validity & 4 != 0) & ~np.isin(material, [1, 2])):
         raise ValueError('Unknown material ID')
     if (np.any((validity & 1 == 0) & (bedrock != 0)) or np.any((validity & 2 == 0) & (water != 0))
             or np.any((validity & 4 == 0) & (material != 0))):

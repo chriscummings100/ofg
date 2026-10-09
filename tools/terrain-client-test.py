@@ -21,6 +21,7 @@ def main():
     parser.add_argument('--executable', type=Path, default=Path('build/cpu-tests/ofg-terrain-test.exe'))
     parser.add_argument('--browser', action='store_true')
     parser.add_argument('--editor', action='store_true')
+    parser.add_argument('--soak', action='store_true')
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='ofg-terrain-client-') as temporary:
         root = Path(temporary)
@@ -28,7 +29,7 @@ def main():
         replacement = publish_revision(root, 'demo', generate_island(IslandParameters(seed='2', plateau_height=80)))
         following = publish_revision(root, 'demo', generate_island(IslandParameters(seed='3', plateau_height=120)))
         adopt_revision(root, 'demo', revision)
-        app = create_app(root, read_only=not args.editor)
+        app = create_app(root, read_only=not (args.editor or args.soak))
         online = True
         release = asyncio.Event()
 
@@ -86,13 +87,15 @@ def main():
                                OFG_TERRAIN_TEST_REPLACEMENT=f'/v1/islands/demo/revisions/{replacement}/manifest',
                                OFG_TERRAIN_TEST_FOLLOWING=f'/v1/islands/demo/revisions/{following}/manifest',
                                OFG_TERRAIN_TEST_CACHE=str(root / 'cache'))
-            if args.editor:
+            if args.editor or args.soak:
                 environment.update(OFG_TERRAIN_SERVICE=environment['OFG_TERRAIN_TEST_URL'], OFG_TERRAIN_REGENERATE='1')
-            if args.browser:
+            if args.soak:
+                command = [str(args.executable.resolve()), '--test-case=Terrain ten minute traversal retires obsolete allocations', '--no-skip', '--no-colors']
+            elif args.browser:
                 command = ['node', 'tools/terrain-regeneration-smoke.mjs' if args.editor else 'tools/terrain-service-smoke.mjs']
             else:
                 command = [str(args.executable.resolve()), '--test-case=Terrain laboratory renders asynchronously generated native geometry' if args.editor else '--test-suite=terrain-http', '--no-colors']
-            result = subprocess.run(command, env=environment, timeout=420 if args.browser else 90)
+            result = subprocess.run(command, env=environment, timeout=750 if args.soak else 420 if args.browser else 90)
         finally:
             server.should_exit = True
             thread.join(10)

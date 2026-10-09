@@ -302,14 +302,18 @@ static Result drawBrowserFrame(BrowserApp& app)
                             published : UTF8ToString($1),
                             state : UTF8ToString($2),
                             error : UTF8ToString($3),
-                            replacing : Boolean($4)
+                            replacing : Boolean($4),
+                            step : $5,
+                            years : $6
                         });
                     },
                     terrain->displayedRevision().c_str(),
                     generation->latestRevision.c_str(),
                     generation->state.c_str(),
                     generation->error.c_str(),
-                    terrain->replacing()
+                    terrain->replacing(),
+                    generation->step,
+                    generation->years
                 );
             EM_ASM(
                 {
@@ -371,6 +375,15 @@ static Result drawBrowserFrame(BrowserApp& app)
                 recipe.plateauHeight += 80;
                 terrain->regenerate(recipe);
             }
+            else if (command == 6 && terrain->generation())
+                terrain->startErosion();
+            else if (command >= 7 && command <= 10 && terrain->generation())
+                terrain->generation()->control(
+                    command == 7   ? "step"
+                    : command == 8 ? "resume"
+                    : command == 9 ? "pause"
+                                   : "cancel"
+                );
             if (command == 2)
             {
                 terrain->teleportToSurface({{}, {0, 0, -300}});

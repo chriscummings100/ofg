@@ -8,7 +8,9 @@ Verified on 2026-10-09 with Python 3.10.5: isolated dependency installation, edi
 `python -m terrain_service generate`, and the service's pytest suite with real loopback HTTP/spawned workers.
 Native D3D12 and browser WebGPU now stream service data, including persistent-cache replay, cache bypass,
 source-resolution inheritance and texture shading. Regeneration controls and coherent revision replacement
-are implemented; FastScape remains in progress.
+are implemented. The optional Linux FastScape worker adds progressive publication and Play/Pause/Step;
+see [erosion setup, measurements and numerical limits](docs/terrain-erosion.md). Its separate environment
+does not change native/browser build prerequisites.
 
 ```powershell
 # Run the service in its isolated environment (see its README for initial generation).

@@ -19,4 +19,6 @@ testpaths = ["tests"]
 [tool.coverage.run]
 branch = true
 source = ["terrain_service"]
+concurrency = ["multiprocessing", "thread"]
+parallel = true
 

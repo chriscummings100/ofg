@@ -72,6 +72,11 @@ TEST_SUITE("terrain-fast")
         source.surface[100] = 9876.543f;
         source.surface[101] = -1234.5678f;
         source.validity[101] = 0;
+        source.material[100] = 2;
+        const auto categories = encodeTerrainCategories(source);
+        CHECK(categories[100] == (source.validity[100] | 8));
+        CHECK(categories[101] == 0);
+        CHECK(categories[102] == source.validity[102]);
         const auto pixels = encodeTerrainTexture(source);
         CHECK(pixels.size() * sizeof(uint16_t) + source.validity.size() == terrainTextureBytes);
         for (size_t i = 0; i < source.surface.size(); ++i)

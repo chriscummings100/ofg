@@ -26,7 +26,6 @@ struct MaterialParameters
 #ifdef HAS_TERRAIN_TEXTURE
     Texture2D<float4> terrainTexture;
     Texture2D<float> terrainValidity;
-    SamplerState terrainSampler;
     float4 terrainMapping;
     float terrainSpacing;
     uint terrainChannel;

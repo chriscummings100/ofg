@@ -63,7 +63,8 @@ float3 mappedNormal(float3 texel, float scale, float3 n, float3 world, float2 uv
 // Samples the two-component height representation without requiring float32 texture filtering.
 float terrainHeight(float2 uv)
 {
-    float2 height = material.terrainTexture.SampleLevel(material.terrainSampler, uv, 0).xy;
+    // The pass owns this linear-clamp sampler. Per-node copies exhaust D3D12's 2048 sampler descriptors.
+    float2 height = material.terrainTexture.SampleLevel(scene.environmentSampler, uv, 0).xy;
     return (height.x + height.y) * 1024;
 }
 #endif
@@ -100,7 +101,7 @@ Surface evaluateSurface(VertexOutput input, bool front)
     float hz = terrainHeight(terrainUv + texel.yx) - terrainHeight(terrainUv - texel.yx);
     s.normal = normalize(float3(-hx, 2 * material.terrainSpacing, -hz));
     s.coatNormal = s.normal;
-    float4 attributes = material.terrainTexture.SampleLevel(material.terrainSampler, terrainUv, 0);
+    float4 attributes = material.terrainTexture.SampleLevel(scene.environmentSampler, terrainUv, 0);
     int2 coordinate = clamp(int2(floor(terrainUv * 259 - .5)), int2(0), int2(257));
     uint validity = uint(round(material.terrainValidity.Load(int3(coordinate, 0)) * 255)) &
                     uint(round(material.terrainValidity.Load(int3(coordinate + int2(1, 0), 0)) * 255)) &
@@ -123,9 +124,11 @@ Surface evaluateSurface(VertexOutput input, bool front)
         s.base = attributes.z < 0 ? float3(1, 0, 1) : float3(saturate(sediment / 10));
     if (material.terrainChannel == 3)
         s.base = attributes.w < 0 ? float3(1, 0, 1) : float3(0, saturate(water / 100), 1);
-    // V1's sole material is bare rock (ID 1); categorical validity uses nearest sampling, never filtering.
+    // Categorical material IDs and validity use nearest sampling, never interpolation.
     if (material.terrainChannel == 4)
-        s.base = (nearestValidity & 4) == 0 ? float3(1, 0, 1) : float3(.3, .32, .28);
+        s.base = (nearestValidity & 4) == 0   ? float3(1, 0, 1)
+                 : (nearestValidity & 8) != 0 ? float3(.32, .2, .09)
+                                              : float3(.3, .32, .28);
 #endif
 #ifdef HAS_NORMAL_TEXTURE
     s.normal = mappedNormal(

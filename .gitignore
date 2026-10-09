@@ -6,4 +6,5 @@ __pycache__/
 /.venv-terrain/
 .pytest_cache/
 .coverage
+.coverage.*
 *.egg-info/

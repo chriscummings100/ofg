@@ -289,12 +289,8 @@ std::shared_ptr<Material> createPbrMaterial(const PbrMaterialDesc& desc)
     material->setUniform("alphaCutoff", desc.alphaCutoff);
     if (desc.terrainTexture)
     {
-        SamplerDesc sampler;
-        sampler.addressU = sampler.addressV = TextureAddressMode::ClampToEdge;
-        sampler.useMipmaps = false;
         material->setTexture("terrainTexture", desc.terrainTexture);
         material->setTexture("terrainValidity", desc.terrainValidity);
-        material->setSampler("terrainSampler", Sampler::create(sampler));
         material->setUniform("terrainMapping", desc.terrainMapping);
         material->setUniform("terrainSpacing", desc.terrainSpacing);
         material->setUniform("terrainChannel", uint32_t(0));

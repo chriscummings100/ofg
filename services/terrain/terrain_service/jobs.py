@@ -8,15 +8,27 @@ import shutil
 import threading
 import uuid
 
-from .content import adopt_revision, atomic_json, publish_revision, validate_name
+from .content import Revision, adopt_revision, atomic_json, publish_revision, validate_name
+from .erosion import ErosionParameters, available, run_erosion
 from .island import IslandParameters, generate_island
 
 
-def generate_job(root: str, island: str, parameters: dict, cancelled, result, gate=None) -> None:
+def ensure_output_space(root: Path, limit: int, required: int) -> None:
+    """Check each publication against the output budget and physical free space."""
+    used = sum(path.stat().st_size for path in root.rglob('*') if path.is_file())
+    if used + required > limit or shutil.disk_usage(root).free < required:
+        raise RuntimeError('Terrain output storage budget exhausted; clean up while idle')
+
+
+def generate_job(root: str, island: str, parameters: dict, cancelled, result, gate=None,
+                 erosion=None, output_limit=4 << 30) -> None:
     """Own generation in a child process; return small status messages rather than terrain arrays."""
     try:
         if gate is not None:
             gate.wait()  # Explicit integration-test gate, never a production delay.
+        if erosion is not None:
+            run_erosion(Path(root), island, parameters, erosion, cancelled, result, output_limit)
+            return
         raster = generate_island(IslandParameters.model_validate(parameters), cancelled)
         revision = publish_revision(Path(root), island, raster, cancelled)
         result.send({'state': 'completed', 'revision': revision})
@@ -53,7 +65,7 @@ class JobManager:
         self.operations = {}
         for path in self.directory.glob('*.json'):
             job = json.loads(path.read_text(encoding='utf-8'))
-            if job['state'] in {'queued', 'running', 'cancelling'}:
+            if job['state'] in {'queued', 'running', 'paused', 'pausing', 'cancelling'}:
                 job.update(state='failed', error='Service restarted before the job completed')
                 atomic_json(path, job)
             self.jobs[job['id']] = job
@@ -65,7 +77,7 @@ class JobManager:
         return dict(job)
 
     def refresh(self) -> None:
-        """Collect one completed process and adopt its revision only if cancellation did not win."""
+        """Collect a bounded status message; acknowledge publications before the worker can export again."""
         with self.lock:
             active = self.active
             if active is None:
@@ -81,6 +93,23 @@ class JobManager:
             if outcome is None:
                 return
             job = self.jobs[active.identifier]
+            if outcome.get('event') == 'progress':
+                if active.cancelled.is_set():
+                    return
+                if outcome.pop('publication', False):
+                    try:
+                        adopt_revision(self.root, job['island'], outcome['revision'])
+                    except Exception as error:
+                        job.update(state='cancelling', error=f'Publication failed: {error}')
+                        active.cancelled.set()
+                        active.result.send({'action': 'cancel'})
+                        self.save(job)
+                        return
+                    active.result.send({'action': 'publication_adopted'})
+                outcome.pop('event')
+                job.update(outcome)
+                self.save(job)
+                return
             if active.cancelled.is_set():
                 outcome = {'state': 'cancelled'}
             if outcome['state'] == 'completed':
@@ -97,7 +126,8 @@ class JobManager:
                 active.process.join()
             self.active = None
 
-    def submit(self, island: str, operation_id: str, params: IslandParameters) -> dict:
+    def submit(self, island: str, operation_id: str, params: IslandParameters,
+               erosion: ErosionParameters | None = None) -> dict:
         """Start one job or return the original identical operation, refusing conflicting work."""
         with self.lock:
             self.refresh()
@@ -106,27 +136,34 @@ class JobManager:
             if island == 'jobs':
                 raise ValueError('Island name is reserved')
             parameters = params.model_dump()
+            recipe = erosion.model_dump() if erosion else None
             if operation_id in self.operations:
                 old = self.jobs[self.operations[operation_id]]
-                if old['island'] != island or old['parameters'] != parameters:
+                if old['island'] != island or old['parameters'] != parameters or old.get('erosion') != recipe:
                     raise RuntimeError('Operation ID already belongs to different input')
                 return dict(old)
             if self.active is not None:
                 raise RuntimeError('A generation job is already active')
+            if erosion:
+                if not available():
+                    raise RuntimeError('FastScape is unavailable; use the documented erosion service environment')
+                initial = Revision(self.root, island, erosion.initial_revision)
+                if initial.manifest['parameters'] != parameters:
+                    raise ValueError('Erosion parameters must match the selected initial revision')
             # Reserve a conservative upper bound including rasters, min/max hierarchy and diagnostics.
             required = (params.source_intervals + 1) ** 2 * 32 + (4 << 20)
-            used = sum(path.stat().st_size for path in self.root.rglob('*') if path.is_file())
-            if used + required > self.output_limit or shutil.disk_usage(self.root).free < required:
-                raise RuntimeError('Terrain output storage budget exhausted; clean up while idle')
+            ensure_output_space(self.root, self.output_limit, required)
             identifier = uuid.uuid4().hex
             job = {'id': identifier, 'operation_id': operation_id, 'island': island, 'parameters': parameters,
-                   'state': 'queued', 'phase': 'queued', 'progress': 0, 'revision': None, 'error': None}
+                   'erosion': recipe, 'state': 'queued', 'phase': 'queued', 'progress': 0,
+                   'revision': None, 'error': None}
             self.jobs[identifier], self.operations[operation_id] = job, identifier
             self.save(job)
-            reader, writer = self.context.Pipe(duplex=False)
+            reader, writer = self.context.Pipe(duplex=True)
             cancelled = self.context.Event()
             process = self.context.Process(target=generate_job, args=(str(self.root), island, parameters,
-                                                                     cancelled, writer, self.gate))
+                                                                     cancelled, writer, self.gate, recipe,
+                                                                     self.output_limit))
             try:
                 process.start()
             except Exception as error:
@@ -152,20 +189,49 @@ class JobManager:
             job = self.jobs[identifier]
             if self.active is not None and self.active.identifier == identifier:
                 self.active.cancelled.set()
+                if job.get('erosion'):
+                    self.active.result.send({'action': 'cancel'})
                 job.update(state='cancelling', phase='cancelling')
                 self.save(job)
             return dict(job)
+
+    def control(self, identifier: str, action: str) -> dict:
+        """Deliver pause/resume/single-step at the next solver boundary; status is the acknowledgement."""
+        with self.lock:
+            self.refresh()
+            job = self.jobs[identifier]
+            if (action not in {'pause', 'resume', 'step'} or not job.get('erosion') or
+                    self.active is None or self.active.identifier != identifier or
+                    job['state'] == 'cancelling'):
+                raise RuntimeError('Control requires an active erosion job')
+            if action == 'step' and job['state'] != 'paused':
+                raise RuntimeError('Single step requires an acknowledged paused simulation')
+            self.active.result.send({'action': action})
+            job.update(state='pausing' if action == 'pause' else 'running', phase=action+' requested')
+            return self.save(job)
 
     def close(self) -> None:
         """Stop only the owned worker, retaining completed data and recording interrupted work."""
         with self.lock:
             if self.active is not None:
                 self.active.cancelled.set()
+                if self.jobs[self.active.identifier].get('erosion'):
+                    try:
+                        self.active.result.send({'action': 'cancel'})
+                    except (BrokenPipeError, EOFError, OSError):
+                        pass  # A crashed worker has no receiver; shutdown still owns its handles.
                 if self.gate is not None:
                     self.gate.set()
                 self.active.process.join(timeout=5)
                 if self.active.process.is_alive():
                     self.active.process.terminate()
                     self.active.process.join()
-                self.refresh()
+                # Progress can remain queued ahead of the terminal reply. Shutdown deliberately
+                # discards it rather than adopting another preview or leaving the endpoint owned.
+                job = self.jobs[self.active.identifier]
+                job.update(state='cancelled', phase='cancelled', progress=0)
+                self.save(job)
+                self.active.result.close()
+                self.active.process.close()
+                self.active = None
 

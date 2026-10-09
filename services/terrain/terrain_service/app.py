@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict
 from .content import Revision, validate_name, validate_revision
 from .island import IslandParameters
 from .jobs import JobManager
+from .erosion import ErosionParameters, available
 from .protocol import encode_tile
 
 
@@ -22,6 +23,7 @@ class JobInput(BaseModel):
     island: str
     operation_id: str
     parameters: IslandParameters
+    erosion: ErosionParameters | None = None
 
 
 def create_app(root: Path, read_only: bool = False, output_limit: int = 4 << 30, gate=None) -> FastAPI:
@@ -91,7 +93,8 @@ def create_app(root: Path, read_only: bool = False, output_limit: int = 4 << 30,
     @app.get('/v1/health')
     def health():
         """Report capabilities without contacting the generator worker."""
-        return {'version': 1, 'generators': [] if read_only else ['flat-island'], 'read_only': read_only}
+        generators = [] if read_only else ['flat-island'] + (['fastscape'] if available() else [])
+        return {'version': 1, 'generators': generators, 'read_only': read_only}
 
     @app.get('/v1/islands/{island}/manifest')
     def latest(island: str):
@@ -117,7 +120,7 @@ def create_app(root: Path, read_only: bool = False, output_limit: int = 4 << 30,
         @app.post('/v1/jobs', status_code=202)
         def submit(body: JobInput):
             """Start an idempotently addressed generation operation."""
-            return manager.submit(body.island, body.operation_id, body.parameters)
+            return manager.submit(body.island, body.operation_id, body.parameters, body.erosion)
 
         @app.get('/v1/jobs/{identifier}')
         def status(identifier: str):
@@ -128,6 +131,11 @@ def create_app(root: Path, read_only: bool = False, output_limit: int = 4 << 30,
         def cancel(identifier: str):
             """Request cancellation without deleting the previous publication."""
             return manager.cancel(identifier)
+
+        @app.post('/v1/jobs/{identifier}/{action}')
+        def control(identifier: str, action: str):
+            """Control the current solver without recreating its internal state."""
+            return manager.control(identifier, action)
 
     return app
 

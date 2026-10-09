@@ -44,6 +44,8 @@ public:
     void frameIsland();
     // Submits an explicit editor recipe through the same asynchronous controls used by the panel.
     void regenerate(const terrain::IslandRecipe& recipe);
+    // Starts the editor's erosion experiment from the currently displayed immutable revision.
+    void startErosion();
     // Returns the revision actually adopted at a frame boundary, separately from job publication.
     std::string displayedRevision() const { return m_manifest ? m_manifest->revision : ""; }
     // Exposes control status to host diagnostics/tests; null for the procedural-noise fixture.

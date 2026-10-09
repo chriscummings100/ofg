@@ -48,6 +48,16 @@ std::vector<uint16_t> encodeTerrainTexture(const TerrainTile& source)
     return pixels;
 }
 
+std::vector<uint8_t> encodeTerrainCategories(const TerrainTile& source)
+{
+    if (source.material.size() != source.validity.size())
+        throw EngineError("Terrain categories require complete source channels.");
+    auto pixels = source.validity;
+    for (size_t i = 0; i < pixels.size(); ++i)
+        pixels[i] |= source.material[i] == 2 ? 8 : 0;
+    return pixels;
+}
+
 std::array<float, 4> terrainTextureMapping(const TerrainTile& source, NodeAddress node)
 {
     const auto origin = source.sourcePosition(node, 0, 0);

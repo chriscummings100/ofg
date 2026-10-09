@@ -61,21 +61,49 @@ void TerrainGenerationClient::request(std::string url, std::string body)
 }
 void TerrainGenerationClient::regenerate()
 {
+    submit(draft);
+}
+void TerrainGenerationClient::startErosion(std::string_view initialRevision, const IslandRecipe& initialRecipe)
+{
+    const auto& e = erosion;
+    const auto json = nlohmann::json{
+        {"initial_revision", initialRevision},
+        {"timestep_years", e.timestepYears},
+        {"steps", e.steps},
+        {"uplift_m_per_year", e.uplift},
+        {"incision", e.incision},
+        {"sediment_incision", e.sedimentIncision},
+        {"diffusivity", e.diffusivity},
+        {"deposition", e.deposition},
+        {"marine_diffusivity", e.marineDiffusivity},
+        {"precipitation", e.precipitation},
+        {"perturbation_m", e.perturbation},
+        {"preview_steps", e.previewSteps},
+        {"preview_seconds", e.previewSeconds},
+        {"preview_stride", e.previewStride},
+        {"start_paused", true}
+    }.dump();
+    submit(initialRecipe, json);
+}
+void TerrainGenerationClient::submit(const IslandRecipe& recipe, std::string_view erosionJson)
+{
     if (active())
         throw EngineError("Wait for or cancel the current generation job before regenerating.");
     std::random_device random;
     std::string operation;
     for (int i = 0; i < 32; ++i)
         operation += "0123456789abcdef"[random() & 15];
-    const auto body = nlohmann::json{
+    auto body = nlohmann::json{
         {"island", m_island},
         {"operation_id", operation},
-        {"parameters", nlohmann::json::parse(encodeIslandRecipe(draft))}
-    }.dump();
+        {"parameters", nlohmann::json::parse(encodeIslandRecipe(recipe))}
+    };
+    if (!erosionJson.empty())
+        body["erosion"] = nlohmann::json::parse(erosionJson);
     jobId.clear();
     state.clear();
     m_submitting = true;
-    request(m_baseUrl + "/v1/jobs", body);
+    request(m_baseUrl + "/v1/jobs", body.dump());
 }
 void TerrainGenerationClient::control(std::string_view action)
 {
@@ -85,13 +113,17 @@ void TerrainGenerationClient::control(std::string_view action)
 }
 void TerrainGenerationClient::retryRequest()
 {
-    if (!m_lastUrl.empty())
+    // Job creation has an operation ID. Controls do not: after an ambiguous Step response,
+    // observe status instead of accidentally advancing the live simulation a second time.
+    if (!jobId.empty() && m_lastUrl != m_baseUrl + "/v1/jobs")
+        request(m_baseUrl + "/v1/jobs/" + jobId);
+    else if (!m_lastUrl.empty())
         request(m_lastUrl, m_lastBody);
 }
 bool TerrainGenerationClient::active() const
 {
     return (m_submitting && m_request) || state == "queued" || state == "running" || state == "cancelling" ||
-           state == "paused" || state == "pauseRequested";
+           state == "paused" || state == "pausing";
 }
 void TerrainGenerationClient::update()
 {
@@ -127,6 +159,9 @@ void TerrainGenerationClient::update()
             phase = j.at("phase").get<std::string>();
             progress = j.at("progress").get<double>();
             accepted = decodeIslandRecipe(j.at("parameters").dump());
+            erosionJob = j.contains("erosion") && j["erosion"].is_object();
+            step = j.value("step", 0);
+            years = j.value("years", 0.0);
             if (j.contains("revision") && j["revision"].is_string())
                 latestRevision = decodeTerrainRevision(j.dump());
             if (j.contains("error") && j["error"].is_string())

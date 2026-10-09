@@ -1,6 +1,7 @@
 """Publication, sampling, conservative bounds and binary failure tests using actual revision files."""
 
 import json
+from dataclasses import replace
 import multiprocessing
 import struct
 import zlib
@@ -12,6 +13,31 @@ from terrain_service.content import (Revision, adopt_revision, build_bounds, pub
                                      query_bounds, validate_name, validate_revision)
 from terrain_service.island import IslandParameters, ROOT_WIDTH, generate_island
 from terrain_service.protocol import HEADER, PAYLOAD_BYTES, decode_tile, encode_tile
+
+
+def test_subsampled_preview_keeps_full_simulation_extrema_and_unknown_water(tmp_path):
+    """An unsampled summit remains in the certificate; unknown land water is distinct from dry water."""
+    raster = generate_island(IslandParameters())
+    full = raster.heights.copy()
+    full[255, 255] = 500
+    heights = full[::2, ::2].copy()
+    preview = replace(raster, heights=heights, params=raster.params.model_copy(
+        update={'source_intervals':256, 'source_spacing':64}))
+    channels = dict(surface=heights, bedrock=heights.copy(), water=np.zeros_like(heights),
+                    material=np.full(heights.shape,2,dtype='<u2'), validity=np.full(heights.shape,5,dtype='u1'))
+    revision = publish_revision(tmp_path, 'preview', preview, channels=channels,
+                                source_bounds=build_bounds(full)[1:])
+    source = Revision(tmp_path, 'preview', revision)
+    assert heights.max() < 500
+    assert source.manifest['height_max'] == 500
+    rx = (raster.origin_x+255*32)//ROOT_WIDTH
+    rz = (raster.origin_z+255*32)//ROOT_WIDTH
+    fields, bounds = source.sample(rx,rz,0,0,0)
+    assert bounds[1] >= 500
+    _, decoded = decode_tile(encode_tile(source,rx,rz,0,0,0))
+    unknown = decoded[4] & 2 == 0
+    assert unknown.any() and np.all(decoded[2][unknown] == 0)
+    assert np.any(decoded[3] == 2)
 
 
 @pytest.fixture(scope='module')

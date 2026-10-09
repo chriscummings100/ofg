@@ -1761,6 +1761,21 @@ TEST_CASE("Terrain source textures shade between mesh samples and preserve unkno
     CHECK(pixel[0] == 1);
     CHECK(pixel[1] == 0);
     CHECK(pixel[2] == 1);
+
+    // Aerial views can expose more nodes than D3D12's 2048-entry sampler heap. Each node has
+    // independent material data but the immutable linear-clamp sampler belongs to the pass.
+    list.items.clear();
+    for (size_t i = 0; i < 2200; ++i)
+    {
+        auto nodeMaterial = createPbrMaterial(desc);
+        nodeMaterial->setUniform("terrainChannel", uint32_t(3));
+        list.items.push_back({mesh, 0, nodeMaterial, math::mat4Translation({i == 2199 ? 0.f : 4.f, 0, .5f})});
+    }
+    Graphics::render(list, target);
+    pixel = floatPixel(fixture, target);
+    CHECK(pixel[0] == 0);
+    CHECK(pixel[1] == 0);
+    CHECK(pixel[2] == 1);
 }
 
 TEST_CASE("Imported glTF renders independent rest-pose instances with front-face culling")
@@ -2166,6 +2181,8 @@ TEST_CASE("Terrain laboratory renders asynchronously generated native geometry")
     auto folder = std::filesystem::path(OFG_SOURCE_DIR) / "artifacts/terrain/native";
     if (!launch.serviceUrl.empty())
         folder = std::filesystem::path(OFG_SOURCE_DIR) / "artifacts/terrain-service/stage-2/native";
+    if (std::getenv("OFG_TERRAIN_EROSION"))
+        folder = std::filesystem::path(OFG_SOURCE_DIR) / "artifacts/terrain-service/stage-4/native";
     if (std::getenv("OFG_TERRAIN_REGENERATE"))
         folder = std::filesystem::path(OFG_SOURCE_DIR) / "artifacts/terrain-service/stage-3/native";
     std::filesystem::create_directories(folder);
@@ -2203,6 +2220,52 @@ TEST_CASE("Terrain laboratory renders asynchronously generated native geometry")
             for (size_t x = 0; x < 960; ++x)
                 aerial.write(static_cast<const char*>(pixels->getBufferPointer()) + y * layout.rowPitch + x * 4, 3);
         REQUIRE(bool(aerial));
+        if (std::getenv("OFG_TERRAIN_EROSION"))
+        {
+            const auto camera = Game::terrain()->cameraPosition();
+            auto* client = Game::terrain()->generation();
+            Game::terrain()->startErosion();
+            for (int step = 0; step < 3; ++step)
+            {
+                if (step)
+                    client->control("step");
+                const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+                do
+                {
+                    Game::frame(1.f / 60, target);
+                }
+                while ((client->state != "paused" || client->step != step ||
+                        Game::terrain()->displayedRevision() != client->latestRevision ||
+                        Game::terrain()->replacing() || Game::terrain()->diagnostics().jobs ||
+                        !Game::terrain()->diagnostics().planningIdle) &&
+                       std::chrono::steady_clock::now() < end);
+                REQUIRE(client->error.empty());
+                REQUIRE(Game::terrain()->error().empty());
+                REQUIRE(client->state == "paused");
+                REQUIRE(client->step == step);
+                CHECK(client->years == step * client->erosion.timestepYears);
+                REQUIRE(Game::terrain()->displayedRevision() == client->latestRevision);
+                CHECK(Game::terrain()->cameraPosition().cell == camera.cell);
+                CHECK(Game::terrain()->cameraPosition().local == camera.local);
+                REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+                pixels.setNull();
+                REQUIRE(SLANG_SUCCEEDED(fixture.device->readTexture(target, 0, 0, pixels.writeRef(), &layout)));
+                std::ofstream image(folder / ("erosion-" + std::to_string(step) + ".ppm"), std::ios::binary);
+                image << "P6\n960 640\n255\n";
+                for (size_t y = 0; y < 640; ++y)
+                    for (size_t x = 0; x < 960; ++x)
+                        image.write(
+                            static_cast<const char*>(pixels->getBufferPointer()) + y * layout.rowPitch + x * 4,
+                            3
+                        );
+                REQUIRE(bool(image));
+            }
+            client->control("cancel");
+            const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+            while (client->active() && std::chrono::steady_clock::now() < end)
+                Game::frame(1.f / 60, target);
+            CHECK(client->state == "cancelled");
+        }
         if (std::getenv("OFG_TERRAIN_REGENERATE"))
         {
             const auto oldRevision = Game::terrain()->displayedRevision();
@@ -2260,24 +2323,49 @@ TEST_CASE("Terrain ten minute traversal retires obsolete allocations" * doctest:
 {
     GraphicsFixture fixture;
     Game::initialize(createTerrainScene());
-    Game::setTerrain(std::make_unique<TerrainLaboratory>(fixture.device, fixture.queue));
+    TerrainLaunchSettings launch;
+    if (const auto* url = std::getenv("OFG_TERRAIN_SERVICE"))
+        launch.serviceUrl = url;
+    Game::setTerrain(std::make_unique<TerrainLaboratory>(fixture.device, fixture.queue, launch));
     auto target = fixture.target(rhi::Format::RGBA8Unorm, 960, 640);
     const auto directory = std::filesystem::path(OFG_SOURCE_DIR) / "artifacts/terrain/native";
     std::filesystem::create_directories(directory);
     std::ofstream report(directory / "traversal.csv");
     report << "seconds,frames,roots,selected,jobs,cpu_bytes,gpu_bytes,retired_bytes,failed\n";
     const auto start = std::chrono::steady_clock::now();
-    double elapsed = 0, nextReport = 0;
+    double elapsed = 0, nextReport = 0, nextRegeneration = 60;
     uint64_t frames = 0;
+    size_t maximumRoots = 0, regenerations = 0;
     do
     {
-        Game::terrain()->traverse(elapsed);
+        if (!launch.serviceUrl.empty() && std::fmod(elapsed, 120) < 100)
+            Game::terrain()->teleportToSurface(
+                {{}, {2048 * std::cos(elapsed * .03), 0, 2048 * std::sin(elapsed * .03)}},
+                20
+            );
+        else
+            Game::terrain()->traverse(elapsed);
         Game::frame(1.f / 60, target);
+        if (!launch.serviceUrl.empty() && elapsed >= nextRegeneration && !Game::terrain()->generation()->active())
+        {
+            auto recipe = Game::terrain()->generation()->accepted;
+            recipe.seed += 1;
+            Game::terrain()->regenerate(recipe);
+            ++regenerations;
+            nextRegeneration += 120;
+        }
         ++frames;
         elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
         const auto d = Game::terrain()->diagnostics();
+        REQUIRE(Game::terrain()->error().empty());
+        if (auto* generation = Game::terrain()->generation())
+            REQUIRE(generation->error.empty());
+        maximumRoots = std::max(maximumRoots, d.admittedRoots);
         REQUIRE(d.failed == 0);
-        REQUIRE(d.residentCpuBytes + d.reservedCpuBytes + d.retiredCpuBytes <= (256ull << 20));
+        REQUIRE(
+            d.residentCpuBytes + d.reservedCpuBytes + d.retiredCpuBytes <=
+            ((launch.serviceUrl.empty() ? 256ull : 512ull) << 20)
+        );
         REQUIRE(d.residentGpuBytes + d.reservedGpuBytes + d.retiredGpuBytes <= (256ull << 20));
         if (elapsed >= nextReport)
         {
@@ -2290,6 +2378,9 @@ TEST_CASE("Terrain ten minute traversal retires obsolete allocations" * doctest:
         }
     }
     while (elapsed < 600);
+    CHECK(maximumRoots > 0);
+    if (!launch.serviceUrl.empty())
+        CHECK(regenerations >= 4);
     Game::terrain()->teleport({{0, 1000000, 0}, {}});
     const auto drainStart = std::chrono::steady_clock::now();
     for (;;)

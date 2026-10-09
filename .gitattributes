@@ -1,0 +1,2 @@
+# Linux erosion setup is invoked through WSL even from a Windows checkout.
+tools/setup-terrain-erosion.sh text eol=lf
