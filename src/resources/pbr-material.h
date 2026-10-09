@@ -49,6 +49,10 @@ struct PbrMaterialDesc
     AlphaMode alphaMode = AlphaMode::Opaque;
     bool doubleSided = false, unlit = false;
     std::array<PbrTexture, static_cast<size_t>(PbrSlot::Count)> textures{};
+    std::shared_ptr<Texture> terrainTexture;
+    std::shared_ptr<Texture> terrainValidity;
+    math::Vec4 terrainMapping{};
+    float terrainSpacing = 1;
 };
 // Validates factors and the portable 16-texture budget (four frame textures), then shares a source variant.
 // Recreate for texture-presence/unlit changes; factor edits use the returned material's named uniforms.

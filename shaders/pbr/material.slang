@@ -23,6 +23,14 @@ struct MaterialParameters
     float anisotropy;
     float anisotropyRotation;
     float alphaCutoff;
+#ifdef HAS_TERRAIN_TEXTURE
+    Texture2D<float4> terrainTexture;
+    Texture2D<float> terrainValidity;
+    SamplerState terrainSampler;
+    float4 terrainMapping;
+    float terrainSpacing;
+    uint terrainChannel;
+#endif
 #ifdef HAS_BASE_COLOR_TEXTURE
     float3 baseColorTransformX;
     float3 baseColorTransformY;

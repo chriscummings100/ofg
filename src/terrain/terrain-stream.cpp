@@ -1,6 +1,7 @@
 // Complete demand and availability passes select balanced coverage while retaining needed ancestor payloads.
 #include "terrain/terrain-profile.h"
 #include "terrain/terrain-stream.h"
+#include "terrain/terrain-content.h"
 #include "core/engine-error.h"
 
 #include <algorithm>
@@ -579,6 +580,11 @@ void TerrainStream::schedule()
             if (m_sequence == UINT64_MAX)
                 throw EngineError("Terrain request sequence exhausted.");
             BuildRequest request{{m_epoch, ++m_sequence}, address, m_settings.maximumPayloadBytes};
+            if (address.depth)
+            {
+                request.parentSource = slot(parentAddress(address)).payload->source;
+                request.parentCertifiedEmpty = slot(parentAddress(address)).payload->certifiedEmpty;
+            }
             jobs.emplace(request.id, Job{request});
             dispatch.push_back(request);
         }
@@ -619,7 +625,7 @@ void TerrainStream::retire(Slot& content)
 {
     if (content.payload)
     {
-        if (!content.payload->empty)
+        if (!content.payload->empty || content.payload->source)
         {
             const auto id = content.payload->id;
             // Reserve the message first so failed allocation cannot lose the release obligation.
@@ -801,8 +807,10 @@ bool TerrainStream::complete(RequestId id, ReadyContent payload)
         return false;
     }
     const auto& job = m_jobs.at(id);
-    if (payload.cpuBytes > job.request.byteLimit || payload.gpuBytes > job.request.byteLimit ||
-        (!payload.empty && !job.generated) || (payload.certifiedEmpty && !payload.empty))
+    if (payload.cpuBytes + payload.sourceGpuBytes + (payload.source ? payload.source->allocatedBytes() : 0) >
+            job.request.byteLimit ||
+        payload.gpuBytes + payload.sourceGpuBytes > job.request.byteLimit || (!payload.empty && !job.generated) ||
+        (payload.certifiedEmpty && !payload.empty))
     {
         fail(id, "Invalid prepared terrain payload or missing CPU completion.", FailureStage::Upload);
         return false;
@@ -944,6 +952,7 @@ StreamDiagnostics TerrainStream::diagnostics() const
 {
     OFG_TERRAIN_SCOPE(TerrainStream_diagnostics);
     StreamDiagnostics result;
+    std::unordered_set<const TerrainTile*> cpuSources, gpuSources;
     std::function<void(const Node&)> visit = [&](const Node& node)
     {
         ++result.nodes;
@@ -968,6 +977,17 @@ StreamDiagnostics TerrainStream::diagnostics() const
             {
                 result.residentCpuBytes += content.payload->cpuBytes;
                 result.residentGpuBytes += content.payload->gpuBytes;
+                if (content.payload->source && cpuSources.insert(content.payload->source.get()).second)
+                {
+                    result.residentCpuBytes += content.payload->source->allocatedBytes();
+                    result.sourceCpuBytes += content.payload->source->allocatedBytes();
+                }
+                if (content.payload->sourceGpuBytes && gpuSources.insert(content.payload->source.get()).second)
+                {
+                    result.residentGpuBytes += content.payload->sourceGpuBytes;
+                    result.residentCpuBytes += content.payload->sourceGpuBytes;
+                    result.sourceTextureBytes += content.payload->sourceGpuBytes;
+                }
             }
         }
         for (const auto& child : node.children)
@@ -1006,6 +1026,17 @@ StreamDiagnostics TerrainStream::diagnostics() const
     {
         result.retiredCpuBytes += payload->cpuBytes;
         result.retiredGpuBytes += payload->gpuBytes;
+        if (payload->source && cpuSources.insert(payload->source.get()).second)
+        {
+            result.retiredCpuBytes += payload->source->allocatedBytes();
+            result.sourceCpuBytes += payload->source->allocatedBytes();
+        }
+        if (payload->sourceGpuBytes && gpuSources.insert(payload->source.get()).second)
+        {
+            result.retiredGpuBytes += payload->sourceGpuBytes;
+            result.retiredCpuBytes += payload->sourceGpuBytes;
+            result.sourceTextureBytes += payload->sourceGpuBytes;
+        }
     }
     result.selected = m_cut.size();
     result.jobs = m_jobs.size();

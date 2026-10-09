@@ -1,6 +1,7 @@
 // Table-driven Transvoxel surface extraction; transition strips join fine/coarse contours on exact node faces.
 #include "terrain/terrain-profile.h"
 #include "terrain/terrain-generator.h"
+#include "terrain/terrain-content.h"
 #include "core/engine-error.h"
 
 #include <algorithm>
@@ -225,13 +226,15 @@ struct TerrainMesher::Work
         , origin{a.x * width, a.y * width, a.z * width}
     {
         const double y = double(a.cell.y) * s.rootWidth + origin[1];
-        if (y > s.heightOffset + s.amplitude || y + width < s.heightOffset - s.amplitude)
+        if (!s.source && (y > s.heightOffset + s.amplitude || y + width < s.heightOffset - s.amplitude))
         {
             geometry.certifiedEmpty = true;
             done = true;
             return;
         }
-        const auto range = heightRange(a, s);
+        if (s.source)
+            s.source->sourcePosition(a, 0, 0);
+        const auto range = s.source ? std::array{s.source->minimumHeight, s.source->maximumHeight} : heightRange(a, s);
         if (y > range[1] || y + width < range[0])
         {
             geometry.certifiedEmpty = true;
@@ -244,13 +247,24 @@ struct TerrainMesher::Work
         {
             for (int x = 0; x <= n; ++x)
             {
-                const double h = terrainHeight(a.cell, origin[0] + x * spacing, origin[2] + z * spacing, s);
+                const double h = sampleHeight(x * spacing, z * spacing);
                 for (int iy = 0; iy <= n; ++iy)
                 {
                     samples[pointId({x, iy, z})] = h - (y + iy * spacing);
                 }
             }
         }
+    }
+
+    // Samples immutable service input or the retained procedural diagnostic in node-local metres.
+    double sampleHeight(double x, double z) const
+    {
+        if (settings.source)
+        {
+            const auto position = settings.source->sourcePosition(address, x, z);
+            return settings.source->height(position[0], position[1]);
+        }
+        return terrainHeight(address.cell, origin[0] + x, origin[2] + z, settings);
     }
 
     // Gives a sample's compact local lattice identity, also used in canonical edge keys.
@@ -297,11 +311,9 @@ struct TerrainMesher::Work
         const double px = std::lerp(double(a[0]), double(b[0]), t) * spacing;
         const double py = std::lerp(double(a[1]), double(b[1]), t) * spacing;
         const double pz = std::lerp(double(a[2]), double(b[2]), t) * spacing;
-        const double x = origin[0] + px, z = origin[2] + pz;
-        const double dx =
-            (terrainHeight(address.cell, x + 1, z, settings) - terrainHeight(address.cell, x - 1, z, settings)) * .5;
-        const double dz =
-            (terrainHeight(address.cell, x, z + 1, settings) - terrainHeight(address.cell, x, z - 1, settings)) * .5;
+        const double sampleStep = settings.source ? std::ldexp(512.0, -settings.source->address.depth) : 1;
+        const double dx = (sampleHeight(px + sampleStep, pz) - sampleHeight(px - sampleStep, pz)) / (2 * sampleStep);
+        const double dz = (sampleHeight(px, pz + sampleStep) - sampleHeight(px, pz - sampleStep)) / (2 * sampleStep);
         const double inverseLength = 1 / std::sqrt(dx * dx + 1 + dz * dz);
         Vertex value{};
         value.position = {float(px), float(py), float(pz)};

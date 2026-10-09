@@ -153,6 +153,24 @@ def test_publication_cancellation_and_old_revision(source, tmp_path):
         adopt_revision(tmp_path, 'missing', 'a' * 32)
 
 
+def test_unknown_attributes_require_zero_storage(source):
+    """Unknown and known zero remain distinct, while ignored bytes cannot carry arbitrary data."""
+    data = bytearray(encode_tile(source[2], 0, 0, 0, 0, 0))
+    count = 259 * 259
+    data[192 + count * 14] = 0
+    struct.pack_into('<I', data, 136, 0)
+    struct.pack_into('<I', data, 136, zlib.crc32(data))
+    with pytest.raises(ValueError, match='canonical zero'):
+        decode_tile(bytes(data))
+    for offset in [192 + count * 4, 192 + count * 8]:
+        struct.pack_into('<f', data, offset, 0)
+    struct.pack_into('<H', data, 192 + count * 12, 0)
+    struct.pack_into('<I', data, 136, 0)
+    struct.pack_into('<I', data, 136, zlib.crc32(data))
+    _, fields = decode_tile(bytes(data))
+    assert fields[4][0, 0] == 0 and fields[4][0, 1] == 7
+
+
 @pytest.mark.parametrize('name', ['../escape', 'CON', 'AUX', 'LPT1', 'a/b', '', 'x' * 65])
 def test_path_components_are_bounded(name):
     """External identifiers cannot escape the service data root."""

@@ -30,7 +30,5 @@ public:
 private:
     math::Vec3 m_overview{0, -1.65f, -15};
     math::Vec3 m_closeup{0, 0, -5};
-    float m_yaw{0};
-    float m_pitch{0};
 };
 } // namespace ofg

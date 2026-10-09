@@ -1,5 +1,7 @@
 // Two persistent C++ threads mesh in shared CPU memory; the short queue lock never encloses generation.
 #include "terrain/terrain-workers.h"
+#include "terrain/terrain-shading.h"
+#include "terrain/terrain-content.h"
 #include "core/engine-error.h"
 
 #include <atomic>
@@ -59,6 +61,7 @@ struct TerrainWorkers::State
             WorkerResult result;
             result.request = task->request;
             result.worker = worker;
+            result.source = task->generator.source;
             try
             {
                 if (!task->cancelled)
@@ -67,7 +70,11 @@ struct TerrainWorkers::State
                     {
                         throw EngineError("Injected terrain generation failure.");
                     }
-                    TerrainMesher mesher(task->request.address, task->generator, task->request.byteLimit);
+                    const size_t sourceBytes =
+                        result.source ? result.source->allocatedBytes() + terrainTextureBytes : 0;
+                    if (sourceBytes >= task->request.byteLimit)
+                        throw EngineError("Terrain input exceeds its reserved build memory.");
+                    TerrainMesher mesher(task->request.address, task->generator, task->request.byteLimit - sourceBytes);
                     while (!task->cancelled && !mesher.step(256))
                     {
                     }

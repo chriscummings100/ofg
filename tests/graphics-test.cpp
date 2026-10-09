@@ -2,6 +2,7 @@
 #include "render/graphics.h"
 #include "render/shadow-renderer.h"
 #include "terrain/terrain-profile.h"
+#include "terrain/terrain-shading.h"
 #include "render/deformation.h"
 #include "ui/imgui-renderer.h"
 #include "ui/workspace.h"
@@ -1695,6 +1696,73 @@ TEST_CASE("PBR texture channels preserve sRGB color and linear metallic roughnes
     CHECK(pixel[2] == doctest::Approx(0.5 - 1 / std::sqrt(5.0)).epsilon(0.005));
 }
 
+TEST_CASE("Terrain source textures shade between mesh samples and preserve unknown channels")
+{
+    GraphicsFixture fixture;
+    auto target = fixture.target(rhi::Format::RGBA32Float);
+    terrain::TerrainTile source;
+    source.address.depth = 9;
+    const size_t count = terrain::terrainDataSamples * terrain::terrainDataSamples;
+    source.surface.resize(count);
+    source.water.resize(count);
+    source.validity.assign(count, 7);
+    for (size_t i = 0; i < count; ++i)
+    {
+        const auto x = (i % terrain::terrainDataSamples + 7) % 8;
+        source.surface[i] = float(std::min(x, 8 - x));
+    }
+    source.bedrock = source.surface;
+    // Every 32-interval mesh lattice column is zero, but the texture contains a four-metre triangular ridge.
+    for (size_t x = 1; x < 258; x += 8)
+        CHECK(source.surface[x] == 0);
+    const auto pixels = terrain::encodeTerrainTexture(source);
+    PbrMaterialDesc desc;
+    desc.metallic = 0;
+    desc.terrainTexture = Texture::create({259, 259, TextureFormat::RGBA16Float}, {std::as_bytes(std::span(pixels))});
+    desc.terrainValidity =
+        Texture::create({259, 259, TextureFormat::R8Unorm}, {std::as_bytes(std::span(source.validity))});
+    desc.terrainMapping = {0, 0, 3.5f / 259, 100.5f / 259};
+    desc.terrainSpacing = 1;
+    auto material = createPbrMaterial(desc);
+    auto mesh = pbrPlane(material);
+    DrawList list;
+    list.cameraPosition = {0, 0, -3};
+    list.lighting.hdr = true;
+    list.lighting.debugView = 1;
+    list.lighting.environment = createStudioEnvironment();
+    list.items = {{mesh, 0, material, math::mat4Translation({0, 0, .5f})}};
+    Graphics::render(list, target);
+    auto pixel = floatPixel(fixture, target);
+    CHECK(pixel[0] == doctest::Approx(.5 - .5 / std::sqrt(2.0)).epsilon(.002));
+    CHECK(pixel[1] == doctest::Approx(.5 + .5 / std::sqrt(2.0)).epsilon(.002));
+    CHECK(pixel[2] == doctest::Approx(.5).epsilon(.002));
+    // Changing only source data changes shading; the same two-triangle mesh remains in place.
+    auto flat = pixels;
+    std::fill(flat.begin(), flat.end(), uint16_t(0));
+    material->setTexture(
+        "terrainTexture",
+        Texture::create({259, 259, TextureFormat::RGBA16Float}, {std::as_bytes(std::span(flat))})
+    );
+    Graphics::render(list, target);
+    pixel = floatPixel(fixture, target);
+    CHECK(pixel[0] == doctest::Approx(.5).epsilon(.002));
+    CHECK(pixel[1] == doctest::Approx(1).epsilon(.002));
+    list.lighting.debugView = 4;
+    material->setUniform("terrainChannel", uint32_t(3));
+    Graphics::render(list, target);
+    CHECK(floatPixel(fixture, target)[0] == 0);
+    std::fill(source.validity.begin(), source.validity.end(), uint8_t(0));
+    material->setTexture(
+        "terrainValidity",
+        Texture::create({259, 259, TextureFormat::R8Unorm}, {std::as_bytes(std::span(source.validity))})
+    );
+    Graphics::render(list, target);
+    pixel = floatPixel(fixture, target);
+    CHECK(pixel[0] == 1);
+    CHECK(pixel[1] == 0);
+    CHECK(pixel[2] == 1);
+}
+
 TEST_CASE("Imported glTF renders independent rest-pose instances with front-face culling")
 {
     GraphicsFixture fixture;
@@ -2033,7 +2101,11 @@ TEST_CASE("Terrain laboratory renders asynchronously generated native geometry")
 {
     GraphicsFixture fixture;
     Game::initialize(createTerrainScene());
-    Game::setTerrain(std::make_unique<TerrainLaboratory>(fixture.device, fixture.queue));
+    TerrainLaunchSettings launch;
+    if (const auto* url = std::getenv("OFG_TERRAIN_SERVICE"))
+        launch.serviceUrl = url;
+    const unsigned expectedDepth = launch.serviceUrl.empty() ? 13 : 9;
+    Game::setTerrain(std::make_unique<TerrainLaboratory>(fixture.device, fixture.queue, launch));
     auto target = fixture.target(rhi::Format::RGBA8Unorm, 960, 640);
     auto start = std::chrono::steady_clock::now();
     size_t frames = 0;
@@ -2044,25 +2116,34 @@ TEST_CASE("Terrain laboratory renders asynchronously generated native geometry")
         ++frames;
         const double milliseconds =
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - before).count();
-        if (frames % 10 == 0)
+        if (frames % 1000 == 0)
         {
             const auto d = Game::terrain()->diagnostics();
             std::printf(
-                "Terrain frame %zu: %.1f ms, %zu roots, %zu cut, %zu jobs\n",
+                "Terrain frame %zu: %.1f ms, %zu roots, %zu cut, %zu jobs; depth %u failed %zu pending refinement %zu "
+                "CPU %.1f MiB budgetBlocked %d\n",
                 frames,
                 milliseconds,
                 d.admittedRoots,
                 d.selected,
-                d.jobs
+                d.jobs,
+                unsigned(d.deepestSurfaceDepth),
+                d.failed,
+                d.unresolvedRefinements,
+                double(d.residentCpuBytes + d.reservedCpuBytes + d.retiredCpuBytes) / (1 << 20),
+                int(d.budgetBlocked)
             );
+            if (!Game::terrain()->error().empty())
+                std::printf("Terrain error: %s\n", Game::terrain()->error().c_str());
         }
     }
-    while ((!Game::terrain()->diagnostics().planningIdle || Game::terrain()->diagnostics().deepestSurfaceDepth != 13 ||
+    while ((!Game::terrain()->diagnostics().planningIdle ||
+            Game::terrain()->diagnostics().deepestSurfaceDepth < expectedDepth ||
             Game::terrain()->diagnostics().unresolvedRefinements != 0) &&
            std::chrono::steady_clock::now() - start < std::chrono::seconds(90));
     const auto d = Game::terrain()->diagnostics();
     CHECK(d.admittedRoots > 0);
-    CHECK(d.deepestSurfaceDepth == 13);
+    CHECK(d.deepestSurfaceDepth >= expectedDepth);
     CHECK(d.unresolvedRefinements == 0);
     CHECK(d.planningIdle);
     CHECK(d.selected > d.admittedRoots);
@@ -2083,6 +2164,8 @@ TEST_CASE("Terrain laboratory renders asynchronously generated native geometry")
     rhi::SubresourceLayout layout{};
     REQUIRE(SLANG_SUCCEEDED(fixture.device->readTexture(target, 0, 0, pixels.writeRef(), &layout)));
     auto folder = std::filesystem::path(OFG_SOURCE_DIR) / "artifacts/terrain/native";
+    if (!launch.serviceUrl.empty())
+        folder = std::filesystem::path(OFG_SOURCE_DIR) / "artifacts/terrain-service/stage-2/native";
     std::filesystem::create_directories(folder);
     std::ofstream output(folder / "terrain.ppm", std::ios::binary);
     output << "P6\n960 640\n255\n";
@@ -2095,6 +2178,30 @@ TEST_CASE("Terrain laboratory renders asynchronously generated native geometry")
     }
     REQUIRE(bool(output));
     // Exercise actual renderer retirement after the complete depth-13 selection has been submitted.
+    output.close();
+    if (!launch.serviceUrl.empty())
+    {
+        const auto previous = Game::terrain()->diagnostics().publications;
+        Game::terrain()->frameIsland();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        do
+        {
+            Game::frame(1.f / 60, target);
+        }
+        while ((Game::terrain()->diagnostics().publications == previous || Game::terrain()->diagnostics().jobs ||
+                !Game::terrain()->diagnostics().planningIdle) &&
+               std::chrono::steady_clock::now() < deadline);
+        CHECK(Game::terrain()->diagnostics().jobs == 0);
+        REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+        pixels.setNull();
+        REQUIRE(SLANG_SUCCEEDED(fixture.device->readTexture(target, 0, 0, pixels.writeRef(), &layout)));
+        std::ofstream aerial(folder / "aerial.ppm", std::ios::binary);
+        aerial << "P6\n960 640\n255\n";
+        for (size_t y = 0; y < 640; ++y)
+            for (size_t x = 0; x < 960; ++x)
+                aerial.write(static_cast<const char*>(pixels->getBufferPointer()) + y * layout.rowPitch + x * 4, 3);
+        REQUIRE(bool(aerial));
+    }
     Game::terrain()->teleport({{0, 1000000, 0}, {}});
     const auto draining = std::chrono::steady_clock::now();
     for (;;)
@@ -2175,16 +2282,23 @@ TEST_CASE("Terrain stationary profile" * doctest::skip())
     const bool validation = std::getenv("OFG_TERRAIN_PROFILE_VALIDATION") != nullptr;
     GraphicsFixture fixture(validation);
     Game::initialize(createTerrainScene());
-    Game::setTerrain(std::make_unique<TerrainLaboratory>(fixture.device, fixture.queue));
+    TerrainLaunchSettings launch;
+    if (const auto* url = std::getenv("OFG_TERRAIN_SERVICE"))
+        launch.serviceUrl = url;
+    launch.skipCache = std::getenv("OFG_TERRAIN_PROFILE_SKIP_CACHE") != nullptr;
+    Game::setTerrain(std::make_unique<TerrainLaboratory>(fixture.device, fixture.queue, launch));
     auto target = fixture.target(rhi::Format::RGBA8Unorm, 1440, 1200);
     auto& scene = Game::scene();
     auto& terrain = *Game::terrain();
-    const auto directory = std::filesystem::path(OFG_SOURCE_DIR) / "artifacts/terrain/profile";
+    const auto* outputDirectory = std::getenv("OFG_TERRAIN_PROFILE_DIR");
+    const auto directory = outputDirectory ? std::filesystem::path(outputDirectory)
+                                           : std::filesystem::path(OFG_SOURCE_DIR) / "artifacts/terrain/profile";
     std::filesystem::create_directories(directory);
     const bool moving = std::getenv("OFG_TERRAIN_PROFILE_ROUTE") != nullptr;
     std::ofstream report(directory / (moving ? "moving.csv" : "stationary.csv"));
     report << "seconds,update_ms,extract_ms,render_ms,wait_ms,cut,jobs,cpu,blocked,draws,triangles,finest_depth,"
-              "unresolved,idle,nodes,coordinator_max_ms,snapshot_age_ms,gpu,retired_gpu\n";
+              "unresolved,idle,nodes,coordinator_max_ms,snapshot_age_ms,gpu,retired_gpu,source_cpu,texture_bytes,cache_"
+              "hits,cache_misses,cache_bypasses\n";
 #ifdef OFG_TERRAIN_FUNCTION_PROFILE
     terrainProfile::enabled = std::getenv("OFG_TERRAIN_PROFILE_FUNCTIONS") != nullptr;
     std::ofstream functions(directory / "functions.csv");
@@ -2195,9 +2309,16 @@ TEST_CASE("Terrain stationary profile" * doctest::skip())
     const auto start = std::chrono::steady_clock::now();
     double elapsed = 0, nextReport = 0;
     double nearestSurfaceDistance = 0;
+    bool sourcePositioned = launch.serviceUrl.empty();
     do
     {
         const auto before = std::chrono::steady_clock::now();
+        const auto acquired = terrain.cacheCounts();
+        if (!sourcePositioned && acquired[0] + acquired[1] + acquired[2] > 0)
+        {
+            terrain.teleportToSurface({{}, {1, 0, 1}}, 8);
+            sourcePositioned = true;
+        }
         if (moving)
         {
             terrain.traverse(elapsed);
@@ -2262,7 +2383,8 @@ TEST_CASE("Terrain stationary profile" * doctest::skip())
                << list.items.size() << ',' << triangles << ',' << unsigned(d.deepestSurfaceDepth) << ','
                << d.unresolvedRefinements << ',' << d.planningIdle << ',' << d.nodes << ','
                << terrain.maximumReconciliationMilliseconds() << ',' << terrain.snapshotAgeMilliseconds() << ','
-               << d.residentGpuBytes << ',' << d.retiredGpuBytes << '\n';
+               << d.residentGpuBytes << ',' << d.retiredGpuBytes << ',' << d.sourceCpuBytes << ','
+               << d.sourceTextureBytes << ',' << acquired[0] << ',' << acquired[1] << ',' << acquired[2] << '\n';
         if (elapsed >= nextReport)
         {
             std::printf(

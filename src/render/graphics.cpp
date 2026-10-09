@@ -770,6 +770,7 @@ void Graphics::prepareMaterial(Material& material)
     {
         return;
     }
+    prepareShader(*material.shader());
     OFG_TERRAIN_SCOPE(DrawBindings);
     auto data = std::make_shared<MaterialGpuData>();
     check(

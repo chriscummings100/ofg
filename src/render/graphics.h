@@ -36,12 +36,12 @@ public:
     static bool prepareStreamingMesh(Mesh& mesh, size_t& byteAllowance);
     // Returns currently allocated streaming buffer bytes, including buffers whose upload is incomplete.
     static size_t streamingMeshGpuBytes(const Mesh& mesh) noexcept;
+    // Compiles the shader and uploads material textures before publication; callers budget texture bytes.
+    static void prepareMaterial(Material& material);
 
 private:
     // Uploads immutable geometry once; publishes only after both buffer creations succeed.
     static void prepareMesh(Mesh& mesh);
-    // Prepares immutable material data and resolves instance fields once, publishing only on success.
-    static void prepareMaterial(Material& material);
     // Compiles source/entry points once and preserves compiler diagnostics on failure.
     static void prepareShader(Shader& shader);
 };

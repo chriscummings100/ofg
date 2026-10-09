@@ -88,7 +88,15 @@ static Result initializeBrowser(BrowserApp& app)
         if (EM_ASM_INT({ return Module.terrain ? 1 : 0; }))
         {
             ofg::Game::initialize(ofg::createTerrainScene());
-            ofg::Game::setTerrain(std::make_unique<ofg::TerrainLaboratory>(app.device, app.queue));
+            ofg::TerrainLaunchSettings source;
+            source.serviceUrl = emscripten_run_script_string(
+                "(function(){const v=new URLSearchParams(location.search).get('terrainService');return v?new "
+                "URL(v,location.origin).href:'';})()"
+            );
+            source.island =
+                emscripten_run_script_string("new URLSearchParams(location.search).get('island') || 'demo'");
+            source.skipCache = emscripten_run_script_int("new URLSearchParams(location.search).has('skipCache')") != 0;
+            ofg::Game::setTerrain(std::make_unique<ofg::TerrainLaboratory>(app.device, app.queue, std::move(source)));
         }
         else if (EM_ASM_INT({ return Module.character ? 1 : 0; }))
         {
@@ -285,6 +293,17 @@ static Result drawBrowserFrame(BrowserApp& app)
         if (auto* terrain = ofg::Game::terrain())
         {
             const auto stats = terrain->diagnostics();
+            const auto cache = terrain->cacheCounts();
+            EM_ASM(
+                {
+                    Module.terrainError = UTF8ToString($0);
+                    Module.terrainCache = ([ $1, $2, $3 ]);
+                },
+                terrain->error().c_str(),
+                cache[0],
+                cache[1],
+                cache[2]
+            );
             EM_ASM(
                 {
                     Module.terrainState = ({
@@ -324,6 +343,8 @@ static Result drawBrowserFrame(BrowserApp& app)
             {
                 terrain->teleportToSurface({{-1000000000, 0, -1000000000}, {512, 0, 512}});
             }
+            else if (command == 4)
+                terrain->frameIsland();
             if (command == 2)
             {
                 terrain->teleportToSurface({{}, {0, 0, -300}});

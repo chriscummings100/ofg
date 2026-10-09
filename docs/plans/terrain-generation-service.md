@@ -40,10 +40,17 @@ require the service to simulate or store every fine feature visible near the pla
 - [x] (2026-10-09) Adopted the user's selected 256-cell default: 257 edge-inclusive samples plus a one-sample
   apron on each side, giving 259x259 stored samples. Updated sizes, limits, examples and acceptance tests.
 - [x] (2026-10-09) Stage 1: Python service, bounded Voronoi island, immutable content and contract fixtures.
-  55 pytest cases pass, including real HTTP, spawned-process lifecycle, source bounds and corruption checks.
+  56 pytest cases pass, including real HTTP, spawned-process lifecycle, source bounds and corruption checks.
   Inspected `artifacts/terrain-service/data/demo/revisions/a292ddd152bd4500a8437ce1c4240ede/diagnostic.png`.
 - [x] (2026-10-09) Committed and pushed the existing streaming implementation and this plan as `40fbf5d`.
 - [ ] Stage 2: Native/browser HTTP terrain streaming and a saved-content playback proof.
+  Decoder, source meshing, native HTTP/persistent-cache and portable shading paths are implemented.
+  Native terrain-fast passes 60 cases / 103976 assertions. Real HTTP tests pass 2 cases / 19908 assertions,
+  including a regression proving zero acquisitions below the terminal source depth. Browser cold loading,
+  offline IndexedDB replay after reload, SkipCache with no terrain-storage calls, resize and aerial capture pass.
+  Native presentation resize/minimize/restore/close and intermediate-sample shading tests pass.
+  Final native regression passes all 9 CTest groups (68.06 s), Python passes 56 cases (7.20 s), and the
+  reviewed native sea-reference capture passes. Browser is being repeated for the final sea patch.
 - [ ] Stage 3: Editor parameters, regeneration and coherent revision replacement.
 - [ ] Stage 4: FastScape worker, progressive previews, numerical checks and measured terrain experiments.
 
@@ -73,6 +80,34 @@ clarified that intermediate samples are needed for shading. This changes both re
 lifetime: textures are rendered node content, not temporary meshing inputs that can all be discarded after a job.
 
 ## Decision Log
+
+2026-10-09: Keep one combined client CPU residency budget rather than a separate source-data allocator.
+Service terrain receives 256 MiB of additional CPU headroom (512 MiB total); noise remains 256 MiB and GPU
+terrain remains 256 MiB. Real integration saturated the old CPU budget at about 226 MiB of retained data,
+leaving insufficient room for a reserved 32 MiB sibling group and stopping at depth 4. Full-source empty
+certificates now discard their unnecessary input arrays immediately. A complete 16 m laboratory workload
+measured 419.0 MiB retained CPU, 189.8 MiB GPU, including 176.6 MiB decoded source and 105.9 MiB texture
+images on each host side. The original 128 MiB source allowance was insufficient; the real integration test
+now verifies convergence under the revised 512/256 MiB bounds. Retained decoded inputs, texture CPU
+images and GPU textures are deduplicated by source allocation across inherited descendants and retirement.
+Native/browser transport uses two dedicated I/O threads waiting on asynchronous host completions; the
+coordinator, mesh workers and render thread never wait on network/storage. Browser fetch is proxied to
+the main runtime and uses streaming size checks, AbortController and cache:'no-store' for bypass.
+
+2026-10-09: Face balancing can subdivide certified-empty nodes even though geometric demand cannot.
+Propagate the parent's empty certificate in BuildRequest instead of reacquiring a source tile for these
+children. A new actual-acquisition-depth assertion caught redundant requests hidden by address clamping;
+the real HTTP integration now proves no request is issued below the source cutoff.
+
+2026-10-09: Release timing evidence is in `artifacts/terrain-service/stage-2/profile/summary.json` and per-frame
+CSVs. i7-12700H / RTX 3050 Ti Laptop GPU, D3D12, validation off, scopes disabled, 1440x1200 offscreen with
+an explicit GPU wait, loopback saved content, 513x513 source at 32 m. Cold/warm/bypass reached 16 m in
+14.75/11.60/27.33 seconds; total-run update p95 was 1.21/1.27/1.18 ms. Warm loading alone had 3.00 ms p95,
+so the loading target is not uniformly met. Startup shader/layout/pipeline preparation still causes stalls
+(75-94 ms terrain update maxima, 676-851 ms full-frame maxima); this is not steady-state frame time.
+Settled cold/warm frame p95 was 9.62/9.35 ms. This measurement preceded the empty-certificate request fix
+and opaque sea-reference adjustment; preserve it as a baseline, not a final performance claim.
+OpenCppCoverage is not installed, so the proposed new C++ line-coverage percentage remains unmeasured.
 
 2026-10-08: Keep generation in a separate Python service, as requested. Use one FastAPI/Uvicorn HTTP process
 and one separately spawned generation process initially. Do not add a distributed task queue, database,
@@ -128,15 +163,15 @@ same sampling halo used below; GPU filtering/mip construction must preserve corr
 
 ## Outcomes & Retrospective
 
-Implementation started after checkpoint `40fbf5d`; stage 1 is implemented and tested. The Python service,
-content format and saved serving are working. Native/browser client transport, UI and erosion remain in progress.
+Implementation started after checkpoint `40fbf5d`; the Python service, content format, saved serving and
+native/browser client transport, inheritance and shading are working. Editor regeneration and erosion remain.
 The initial native CPU regression passed all six CTest groups (119.51 seconds). Stage-1 Python validation
 passed 55 tests (8.74 seconds), with coverage evidence in `artifacts/terrain-service/stage-1/coverage.json`.
 The coverage run instruments parent-process code; spawned worker behavior is additionally tested through
-real IPC plus direct worker failure-path checks. No viewer rendering or erosion result is claimed yet.
+real IPC plus direct worker failure-path checks. Viewer evidence is recorded above; no erosion result is claimed yet.
 Record actual commands, screenshots, numerical results and performance here as stages are delivered.
 The 2026-10-09 revisions simplify the planned client cache, specify richer data tiles and full-source bounds,
-and add corresponding acceptance tests. These remain documentation-only changes.
+and add corresponding acceptance tests. These contracts are now implemented.
 The shading clarification removes premature cross-node reuse and adds terminal-source inheritance,
 GPU texture lifetime and shading validation to stage 2. Memory defaults require remeasurement for this workload.
 The selected 256-cell default reduces the proposed uncompressed channel payload to approximately 0.96 MiB

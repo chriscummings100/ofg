@@ -74,3 +74,33 @@ A worker writes source arrays, bounds, metadata and a diagnostic to a temporary 
 to its UUID. The parent job owner atomically updates latest only after successful completion without cancellation.
 Old revisions never change. Interrupted temporary directories are unserved and count against the configured
 storage budget until explicit maintenance. Saved serving opens the same directory hierarchy without a generator.
+
+## Viewer integration
+
+The native viewer accepts `--terrain-service http://127.0.0.1:8765 --island demo`; the browser accepts
+`?demo=terrain&terrainService=/v1&island=demo` through the development host's fixed loopback proxy.
+Omitting the service retains the noise diagnostic. The viewer pins an immutable manifest before building.
+Builds acquire through two asynchronous cache I/O threads and resume on the existing two mesh threads.
+The coordinator and render thread do not wait for HTTP or persistent storage. Native uses WinHTTP and
+atomic files under `artifacts/terrain-cache`; web uses Fetch and IndexedDB `ofg-terrain-v1`.
+`--skip-terrain-cache` / `skipCache=1` bypass both local reads and writes and HTTP caching.
+Changing the UI checkbox affects subsequent acquisitions, not already loaded nodes.
+
+Each node acquires its own horizontal tile until source spacing is reached. Descendants then retain that
+ancestor's input and texture allocations and map their smaller footprint into it. Certified-empty branches
+discard input arrays; a merely empty coarse mesh retains its source so it can refine.
+
+Shading uses an RGBA16F texture plus point-sampled R8 validity. Height is stored as a half-float high part
+and residual, in units of 1024 m; tests bound reconstruction error below 1 mm over the supported elevation
+range. The other channels store sediment thickness and water depth in the same units. Unknown channels
+remain distinct from zero. Continuous attributes require all contributing samples valid; material uses
+nearest sampling. The initial palette has one known bare-rock ID. Base-level sampling uses the apron;
+mipmapped minification is not implemented. Intermediate source samples affect shading normals without
+adding geometry. The optional flat sea-level quad is a visual reference, not simulated water.
+
+Service terrain has a 512 MiB combined CPU residency budget and 256 MiB GPU budget. Shared decoded inputs
+and CPU/GPU textures are charged once across active and retired descendants. The complete 16 m fixture
+measured about 419 MiB CPU and 190 MiB GPU, including 176.6 MiB decoded sources and 105.9 MiB texture
+images on each side. Two meshers have separate scratch allowances; uploads have a 16 MiB staging cap.
+Texture conversion adds under 1 MiB transient scratch. Browser-managed transport buffers are outside the
+application's exact memory accounting. GPU resources retire only after selection changes and completion.

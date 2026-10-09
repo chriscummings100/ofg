@@ -148,7 +148,11 @@ void TextureRenderer::prepareTexture(Texture& texture)
         source.width * texturePixelSize(source.format),
         texture.m_pixels.size()
     };
-    encoder->uploadTextureData(data->texture, {0, 1, 0, 1}, {0, 0, 0}, {source.width, source.height, 1}, &pixels, 1);
+    check(
+        encoder
+            ->uploadTextureData(data->texture, {0, 1, 0, 1}, {0, 0, 0}, {source.width, source.height, 1}, &pixels, 1),
+        "Upload sampled texture"
+    );
     rhi::ComPtr<rhi::ICommandBuffer> commands;
     check(encoder->finish(commands.writeRef()), "Finish texture upload");
     check(m_queue->submit(commands), "Submit texture upload");

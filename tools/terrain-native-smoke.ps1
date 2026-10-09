@@ -1,5 +1,5 @@
 # Capture only the task-owned GLFW window, exercise resize/minimize/restore, then close.
-param([string]$Executable = 'build/native/ofg.exe', [string]$ArtifactDirectory = 'artifacts/terrain/native')
+param([string]$Executable = 'build/native/ofg.exe', [string]$ArtifactDirectory = 'artifacts/terrain/native', [string]$TerrainService = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $directory = Join-Path $root $ArtifactDirectory
@@ -33,7 +33,9 @@ function Save-TerrainWindow($handle, $name) {
 }
 $previousLocalAppData = $env:LOCALAPPDATA
 $env:LOCALAPPDATA = Join-Path $directory 'profile'
-$process = Start-Process -FilePath (Join-Path $root $Executable) -ArgumentList '--terrain' -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $directory 'window.stdout.log') -RedirectStandardError (Join-Path $directory 'window.stderr.log')
+$arguments = @('--terrain')
+if ($TerrainService) { $arguments += @('--terrain-service', $TerrainService) }
+$process = Start-Process -FilePath (Join-Path $root $Executable) -ArgumentList $arguments -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $directory 'window.stdout.log') -RedirectStandardError (Join-Path $directory 'window.stderr.log')
 # Retain the process handle so Windows PowerShell can read its exit code after it closes.
 $null = $process.Handle
 try {

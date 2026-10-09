@@ -35,6 +35,14 @@ TEST_CASE("Fly camera normalizes motion and preserves reset and frame delta cont
     CHECK(entity->localTransform().position.z == start.z);
     CHECK(entity->localTransform().rotation.w == 1);
     CHECK_THROWS_AS(camera.update(*entity, {}, -1), EngineError);
+    std::string error;
+    const auto framed = math::quatLookAtLh({}, {0, -1, 1}, {0, 1, 0}, error);
+    REQUIRE(framed);
+    entity->setLocalRotation(*framed);
+    camera.update(*entity, {}, .016f);
+    const auto preserved = math::mat4FromQuat(entity->localTransform().rotation)[2];
+    CHECK(preserved.y == doctest::Approx(-std::sqrt(.5)).epsilon(1e-5));
+    CHECK(preserved.z == doctest::Approx(std::sqrt(.5)).epsilon(1e-5));
 }
 
 TEST_CASE("Sphere has outward nondegenerate triangles and a continuous UV seam")

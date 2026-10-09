@@ -5,6 +5,36 @@ namespace ofg {
 void TerrainLaboratory::panel()
 {
     ImGui::Begin("Terrain streaming");
+    if (!m_launch.serviceUrl.empty())
+    {
+        ImGui::TextWrapped("Service: %s / %s", m_launch.serviceUrl.c_str(), m_launch.island.c_str());
+        if (ImGui::Checkbox("Skip terrain cache", &m_launch.skipCache) && m_service)
+            m_service->setSkipCache(m_launch.skipCache);
+        if (m_manifest)
+        {
+            if (ImGui::Button("Frame island"))
+                frameIsland();
+            ImGui::Checkbox("Sea-level reference", &m_seaReference);
+            ImGui::TextWrapped("Revision: %s; source %.0f m", m_manifest->revision.c_str(), m_manifest->sourceSpacing);
+            ImGui::Text("Cache: %zu hits / %zu misses / %zu bypasses", m_cacheHits, m_cacheMisses, m_cacheBypasses);
+            if (ImGui::Combo("Terrain channel", &m_terrainChannel, "Shaded\0Height\0Sediment\0Water depth\0Material\0"))
+                for (auto& [id, payload] : m_payloads)
+                    if (payload.texture)
+                        payload.material->setUniform("terrainChannel", uint32_t(m_terrainChannel));
+        }
+        if (!m_cacheWarning.empty())
+            ImGui::TextWrapped("Cache: %s", m_cacheWarning.c_str());
+    }
+    if (!m_service)
+    {
+        ImGui::TextUnformatted(m_manifestRequest ? "Connecting..." : "Terrain connection failed");
+        if (!m_error.empty())
+            ImGui::TextWrapped("%s", m_error.c_str());
+        if (!m_manifestRequest && ImGui::Button("Retry connection"))
+            requestManifest();
+        ImGui::End();
+        return;
+    }
     ImGui::Checkbox("Freeze observer", &m_freeze);
     ImGui::Checkbox("LOD colors", &m_lodColors);
     if (ImGui::IsItemHovered())
@@ -33,7 +63,7 @@ void TerrainLaboratory::panel()
     {
         teleportToSurface({{-1000000000, 0, -1000000000}, {512, 0, 512}});
     }
-    if (ImGui::Button("Reseed"))
+    if (!m_manifest && ImGui::Button("Reseed"))
     {
         ++m_generator.seed;
         m_service->reset(m_generator);
@@ -50,10 +80,17 @@ void TerrainLaboratory::panel()
     ImGui::TextWrapped("Roots %zu admitted / %zu loading; cut %zu", d.admittedRoots, d.loadingRoots, d.selected);
     ImGui::TextWrapped("Nodes %zu; jobs %zu; failed %zu", d.nodes, d.jobs, d.failed);
     ImGui::TextWrapped(
-        "CPU payload %.1f / 256 MiB",
-        double(d.residentCpuBytes + d.reservedCpuBytes + d.retiredCpuBytes) / (1 << 20)
+        "CPU payload %.1f / %zu MiB",
+        double(d.residentCpuBytes + d.reservedCpuBytes + d.retiredCpuBytes) / (1 << 20),
+        m_settings.cpuBudget >> 20
     );
     ImGui::TextUnformatted("Worker scratch: up to 32 MiB; upload staging: 16 MiB");
+    if (m_manifest)
+        ImGui::Text(
+            "Source %.1f MiB; texture %.1f MiB per CPU/GPU",
+            double(d.sourceCpuBytes) / (1 << 20),
+            double(d.sourceTextureBytes) / (1 << 20)
+        );
     ImGui::TextWrapped(
         "GPU %.1f MiB; retired %.1f MiB",
         double(d.residentGpuBytes + d.reservedGpuBytes + d.retiredGpuBytes) / (1 << 20),

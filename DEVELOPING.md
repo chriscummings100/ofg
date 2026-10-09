@@ -6,8 +6,24 @@ The independent Python flat-island service and saved-content HTTP mode are imple
 [service setup and commands](services/terrain/README.md) and the [binary content contract](docs/terrain-content.md).
 Verified on 2026-10-09 with Python 3.10.5: isolated dependency installation, editable package installation,
 `python -m terrain_service generate`, and the service's pytest suite with real loopback HTTP/spawned workers.
-The native/browser viewer connection, editor controls and FastScape integration are still in progress;
-service tests alone do not prove those features.
+Native D3D12 and browser WebGPU now stream service data, including persistent-cache replay, cache bypass,
+source-resolution inheritance and texture shading. Regeneration controls and FastScape remain in progress.
+
+```powershell
+# Run the service in its isolated environment (see its README for initial generation).
+.venv-terrain/Scripts/python -m terrain_service serve --data-dir artifacts/terrain-service/data --port 8765
+build/native-release/ofg.exe --terrain-service http://127.0.0.1:8765 --island demo
+# Real HTTP/cache/inheritance integration, owning its temporary server and files:
+.venv-terrain/Scripts/python tools/terrain-client-test.py --executable build/native-release/ofg-terrain-test.exe
+# Actual browser WebGPU, offline persistent replay, bypass and resize:
+.venv-terrain/Scripts/python tools/terrain-client-test.py --browser
+```
+
+For interactive browser use, `npm run serve:web` proxies `/v1/` to loopback port 8765. Open the printed
+URL with `?demo=terrain&terrainService=/v1&island=demo`. The default browser terrain mode still uses noise.
+Add `--skip-terrain-cache` natively or `&skipCache=1` in the browser to bypass storage and HTTP caches.
+Stage-2 evidence is under `artifacts/terrain-service/stage-2`; the native intermediate-sample shader check
+is included in the graphics suite. CPU tests cannot establish that shader behavior.
 
 The default application opens the [dockable laboratory workspace](docs/imgui.md), with a PBR Scene viewport, Scene Hierarchy and Render Settings. Native Windows D3D12 and browser WebGPU share the UI and scene renderer. --scene / ?demo=scene retain the checker-cube fixture. Select the original full-screen checkerboard using `--checkerboard` natively or `?demo=checkerboard` in the browser.
 

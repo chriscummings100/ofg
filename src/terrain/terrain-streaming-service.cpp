@@ -1,5 +1,6 @@
 // Persistent CPU coordinator publishes complete immutable selections and explicit renderer retirement obligations.
 #include "terrain/terrain-streaming-service.h"
+#include "terrain/terrain-data-cache.h"
 #include "core/engine-error.h"
 #include <algorithm>
 #include <atomic>
@@ -19,7 +20,8 @@ struct TerrainStreamingService::State
         Ready,
         Failed,
         Released,
-        Stop
+        Stop,
+        SkipCache
     };
     struct Message
     {
@@ -37,6 +39,16 @@ struct TerrainStreamingService::State
     StreamingBatch outbox;
     TerrainStream stream;
     std::unique_ptr<TerrainWorkers> workers;
+    std::unique_ptr<TerrainDataCache> cache;
+    TerrainSourceSettings source;
+    struct Acquisition
+    {
+        BuildRequest request;
+        bool hold = false, fail = false;
+    };
+    std::map<RequestId, Acquisition> acquiring;
+    size_t cacheHits = 0, cacheMisses = 0, cacheBypasses = 0;
+    uint8_t deepestAcquisitionDepth = 0;
     StreamSettings settings;
     GeneratorSettings generator;
     double viewRange;
@@ -48,7 +60,12 @@ struct TerrainStreamingService::State
     uint64_t published = UINT64_MAX;
 
     // Constructs CPU ownership before the coordinator starts; validation precedes worker creation.
-    State(StreamSettings settingsValue, GeneratorSettings generatorValue, double range)
+    State(
+        StreamSettings settingsValue,
+        GeneratorSettings generatorValue,
+        double range,
+        TerrainSourceSettings sourceValue
+    )
         : stream(settingsValue)
         , settings(settingsValue)
         , generator(generatorValue)
@@ -60,6 +77,13 @@ struct TerrainStreamingService::State
             throw EngineError("Invalid streaming service range, worker capacity or generator root width.");
         }
         workers = std::make_unique<TerrainWorkers>(wake);
+        source = std::move(sourceValue);
+        if (source.manifest)
+        {
+            if (source.manifest->rootWidth != settings.rootWidth)
+                throw EngineError("Service terrain root width does not match the stream.");
+            cache = std::make_unique<TerrainDataCache>(source.baseUrl, source.cacheDirectory, wake);
+        }
     }
 
     // Publishes a control/reply value before signalling, with no callback into the controller.
@@ -109,8 +133,16 @@ struct TerrainStreamingService::State
                         continue;
                     const CellAddress cell{observer.cell.x + x, observer.cell.y + y, observer.cell.z + z};
                     // The present height generator's full range is bounded by offset +/- amplitude.
-                    const auto lower = std::floor((generator.heightOffset - generator.amplitude) / settings.rootWidth);
-                    const auto upper = std::floor((generator.heightOffset + generator.amplitude) / settings.rootWidth);
+                    const auto lower = std::floor(
+                        (source.manifest ? source.manifest->minimumHeight
+                                         : generator.heightOffset - generator.amplitude) /
+                        settings.rootWidth
+                    );
+                    const auto upper = std::floor(
+                        (source.manifest ? source.manifest->maximumHeight
+                                         : generator.heightOffset + generator.amplitude) /
+                        settings.rootWidth
+                    );
                     if (cell.y < lower || cell.y > upper || roots.contains(cell))
                         continue;
                     const auto distance = distanceToNode({cell}, observer, settings.rootWidth);
@@ -153,6 +185,11 @@ struct TerrainStreamingService::State
                 break;
             case Kind::ReleaseHeld:
                 workers->releaseHeld();
+                for (auto& [id, task] : acquiring)
+                    task.hold = false;
+                break;
+            case Kind::SkipCache:
+                source.skipCache = message.hold;
                 break;
             case Kind::Pause:
                 paused = message.hold;
@@ -182,6 +219,43 @@ struct TerrainStreamingService::State
     // Validates worker values before handing CPU geometry to the render thread, preserving ownership on cancellation.
     void receiveResults(StreamingBatch& batch)
     {
+        if (cache)
+        {
+            for (auto& result : cache->takeResults())
+            {
+                auto found = acquiring.find(result.id);
+                if (found == acquiring.end())
+                    continue;
+                const auto task = std::move(found->second);
+                acquiring.erase(found);
+                if (result.cancelled || stream.request(task.request.address) != result.id)
+                {
+                    stream.acknowledgeCancellation(result.id);
+                    continue;
+                }
+                if (!result.error.empty())
+                {
+                    stream.fail(result.id, result.error);
+                    batch.error = result.error;
+                    continue;
+                }
+                cacheHits += result.hit;
+                cacheMisses += !result.hit && !result.bypassed;
+                cacheBypasses += result.bypassed;
+                if (!result.warning.empty())
+                    batch.cacheWarning = result.warning;
+                auto buildGenerator = generator;
+                buildGenerator.source = std::move(result.tile);
+                try
+                {
+                    workers->submit(task.request, std::move(buildGenerator), task.hold, task.fail);
+                } catch (const std::exception& error)
+                {
+                    stream.fail(result.id, error.what());
+                    batch.error = error.what();
+                }
+            }
+        }
         for (auto& result : workers->takeResults())
         {
             const auto id = result.request.id;
@@ -210,6 +284,9 @@ struct TerrainStreamingService::State
                 ReadyContent content;
                 content.empty = result.geometry.indices.empty();
                 content.certifiedEmpty = result.geometry.certifiedEmpty;
+                // Balancing may split empty space, but its children inherit the certificate without source arrays.
+                if (!content.certifiedEmpty)
+                    content.source = result.source;
                 if (content.empty)
                 {
                     stream.complete(id, content);
@@ -245,6 +322,12 @@ struct TerrainStreamingService::State
                 outbox.error = std::move(batch.error);
             outbox.stopped = batch.stopped;
             outbox.paused = batch.paused;
+            outbox.cacheHits = cacheHits;
+            outbox.cacheMisses = cacheMisses;
+            outbox.cacheBypasses = cacheBypasses;
+            outbox.deepestAcquisitionDepth = deepestAcquisitionDepth;
+            if (!batch.cacheWarning.empty())
+                outbox.cacheWarning = std::move(batch.cacheWarning);
         }
         // Wakes native teardown/test consumers as well as acknowledging input publication.
         wake->signal();
@@ -295,6 +378,8 @@ struct TerrainStreamingService::State
                         if (abandon)
                             stream.releasePayload(id);
                     }
+                    else if (cache && acquiring.contains(id))
+                        cache->cancel(id);
                     else
                         workers->cancel(id);
                 }
@@ -311,10 +396,54 @@ struct TerrainStreamingService::State
                     {
                         try
                         {
-                            workers->submit(request, generator, holdNext, failNext);
+                            if (request.parentCertifiedEmpty)
+                            {
+                                ReadyContent empty;
+                                empty.empty = empty.certifiedEmpty = true;
+                                stream.complete(request.id, empty);
+                                wake->signal();
+                            }
+                            else if (cache)
+                            {
+                                auto parent = request.parentSource;
+                                const auto width = std::ldexp(settings.rootWidth, -request.address.depth);
+                                const auto y =
+                                    double(request.address.cell.y) * settings.rootWidth + request.address.y * width;
+                                if (parent && (y > parent->maximumHeight || y + width < parent->minimumHeight))
+                                {
+                                    ReadyContent empty;
+                                    empty.empty = empty.certifiedEmpty = true;
+                                    stream.complete(request.id, empty);
+                                    wake->signal();
+                                }
+                                else if (parent && parent->terminal())
+                                {
+                                    auto buildGenerator = generator;
+                                    buildGenerator.source = std::move(parent);
+                                    workers->submit(request, std::move(buildGenerator), holdNext, failNext);
+                                }
+                                else
+                                {
+                                    acquiring.emplace(request.id, Acquisition{request, holdNext, failNext});
+                                    try
+                                    {
+                                        cache->request(request.id, source.manifest, request.address, source.skipCache);
+                                        deepestAcquisitionDepth =
+                                            std::max(deepestAcquisitionDepth, request.address.depth);
+                                    } catch (...)
+                                    {
+                                        acquiring.erase(request.id);
+                                        throw;
+                                    }
+                                }
+                            }
+                            else
+                                workers->submit(request, generator, holdNext, failNext);
                         } catch (const std::exception& error)
                         {
                             stream.fail(request.id, error.what());
+                            batch.error = error.what();
+                            wake->signal();
                         }
                         holdNext = failNext = false;
                     }
@@ -357,8 +486,13 @@ struct TerrainStreamingService::State
     }
 };
 
-TerrainStreamingService::TerrainStreamingService(StreamSettings settings, GeneratorSettings generator, double viewRange)
-    : m_state(std::make_shared<State>(settings, generator, viewRange))
+TerrainStreamingService::TerrainStreamingService(
+    StreamSettings settings,
+    GeneratorSettings generator,
+    double viewRange,
+    TerrainSourceSettings source
+)
+    : m_state(std::make_shared<State>(settings, generator, viewRange, std::move(source)))
     , m_thread(
           [state = m_state]
           {
@@ -401,6 +535,12 @@ void TerrainStreamingService::reset(GeneratorSettings generator)
 void TerrainStreamingService::retryFailures()
 {
     m_state->send({State::Kind::Retry});
+}
+void TerrainStreamingService::setSkipCache(bool skip)
+{
+    State::Message message{State::Kind::SkipCache};
+    message.hold = skip;
+    m_state->send(std::move(message));
 }
 void TerrainStreamingService::injectNext(bool hold, bool fail)
 {
@@ -456,6 +596,11 @@ StreamingBatch TerrainStreamingService::takeBatch()
     batch.maximumReconciliationMilliseconds = m_state->outbox.maximumReconciliationMilliseconds;
     batch.stopped = m_state->outbox.stopped;
     batch.paused = m_state->outbox.paused;
+    batch.cacheHits = m_state->outbox.cacheHits;
+    batch.cacheMisses = m_state->outbox.cacheMisses;
+    batch.cacheBypasses = m_state->outbox.cacheBypasses;
+    batch.deepestAcquisitionDepth = m_state->outbox.deepestAcquisitionDepth;
+    batch.cacheWarning.swap(m_state->outbox.cacheWarning);
     return batch;
 }
 uint64_t TerrainStreamingService::wakeSequence()

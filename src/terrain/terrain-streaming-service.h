@@ -1,9 +1,16 @@
 // Single-owner streaming coordinator. Only CPU values cross its mailboxes; graphics remain on the caller thread.
 #pragma once
 #include "terrain/terrain-workers.h"
+#include "terrain/terrain-content.h"
 #include <thread>
 
 namespace ofg::terrain {
+struct TerrainSourceSettings
+{
+    std::string baseUrl, cacheDirectory;
+    std::shared_ptr<const TerrainManifest> manifest;
+    bool skipCache = false;
+};
 struct RenderSnapshot
 {
     uint64_t revision = 0;
@@ -21,13 +28,23 @@ struct StreamingBatch
     std::string error;
     bool stopped = false;
     bool paused = false;
+    size_t cacheHits = 0, cacheMisses = 0, cacheBypasses = 0;
+    uint8_t deepestAcquisitionDepth = 0;
+    std::string cacheWarning;
 };
 
 class TerrainStreamingService
 {
 public:
     // Starts one coordinator and two meshers. Root/view dimensions are metres; generation agrees with rootWidth.
-    TerrainStreamingService(StreamSettings settings, GeneratorSettings generator, double viewRange = 4096);
+    TerrainStreamingService(
+        StreamSettings settings,
+        GeneratorSettings generator,
+        double viewRange = 4096,
+        TerrainSourceSettings source = {}
+    );
+    // Captures the new cache behavior for future acquisitions, leaving loaded terrain untouched.
+    void setSkipCache(bool skip);
     // Cancels CPU work; the caller retains/drains renderer resources independently of this CPU-only lifetime.
     ~TerrainStreamingService();
     TerrainStreamingService(const TerrainStreamingService&) = delete;

@@ -1,5 +1,5 @@
 // Serves allowlisted browser build outputs and fixture assets on loopback with explicit MIME types.
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -16,7 +16,7 @@ const files = {
 };
 
 // Returns a listening server; callers own close(). Port zero selects an unused port for smoke runs.
-export async function startWebServer(port = 8080) {
+export async function startWebServer(port = 8080, terrainPort = 8765) {
     await stat(resolve(buildDirectory, 'index.html'));
     // Explicit asset allowlist keeps requests inside the packaged build directory.
     files['/assets/checker.png'] = ['assets/checker.png', 'image/png'];
@@ -31,6 +31,19 @@ export async function startWebServer(port = 8080) {
     const server = createServer(async (request, response) => {
         response.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
         response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+        const path = new URL(request.url, 'http://localhost').pathname;
+        if (path.startsWith('/v1/') && ['GET', 'POST'].includes(request.method)) {
+            const upstream = httpRequest({ hostname: '127.0.0.1', port: terrainPort, path, method: request.method,
+                headers: { 'Content-Type': 'application/json', 'Cache-Control': request.headers['cache-control'] || '' } }, incoming => {
+                response.writeHead(incoming.statusCode, { 'Content-Type': incoming.headers['content-type'] || 'application/octet-stream',
+                    'Cache-Control': incoming.headers['cache-control'] || 'no-store' });
+                incoming.on('error', () => response.destroy()).pipe(response);
+            });
+            upstream.on('error', () => { if (!response.headersSent) response.writeHead(502); response.end('Terrain service unavailable'); });
+            response.on('close', () => upstream.destroy());
+            request.pipe(upstream);
+            return;
+        }
         const entry = files[new URL(request.url, 'http://localhost').pathname];
         if (!entry || !['GET', 'HEAD'].includes(request.method)) {
             response.writeHead(404).end();

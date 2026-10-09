@@ -7,8 +7,6 @@
 namespace ofg {
 void FlyCamera::reset(Entity& camera, bool closeup)
 {
-    m_yaw = 0;
-    m_pitch = 0;
     camera.setLocalPosition(closeup ? m_closeup : m_overview);
     camera.setLocalRotation(math::quatIdentity());
 }
@@ -25,10 +23,13 @@ void FlyCamera::update(Entity& camera, const FlyCameraInput& input, float deltaS
         reset(camera, input.closeup);
         return;
     }
-    m_yaw = std::remainder(m_yaw + input.lookPixels.x * 0.0025f, 6.283185307f);
-    m_pitch = std::clamp(m_pitch - input.lookPixels.y * 0.0025f, -1.553343f, 1.553343f);
-    const math::Vec3 forward{std::sin(m_yaw), 0, std::cos(m_yaw)};
-    const math::Vec3 right{std::cos(m_yaw), 0, -std::sin(m_yaw)};
+    // The entity is the authoritative pose, including changes made by Frame Island or other inspection tools.
+    const auto current = math::mat4FromQuat(camera.localTransform().rotation)[2];
+    const auto yaw = std::remainder(std::atan2(current.x, current.z) + input.lookPixels.x * 0.0025f, 6.283185307f);
+    const auto pitch =
+        std::clamp(std::asin(std::clamp(current.y, -1.f, 1.f)) - input.lookPixels.y * 0.0025f, -1.553343f, 1.553343f);
+    const math::Vec3 forward{std::sin(yaw), 0, std::cos(yaw)};
+    const math::Vec3 right{std::cos(yaw), 0, -std::sin(yaw)};
     auto movement = math::add(math::mul(right, input.movement.x), math::mul(forward, input.movement.z));
     movement.y = input.movement.y;
     const float length = math::length(movement);
@@ -38,7 +39,7 @@ void FlyCamera::update(Entity& camera, const FlyCameraInput& input, float deltaS
     }
     const auto position =
         math::add(camera.localTransform().position, math::mul(movement, deltaSeconds * (input.fast ? 12.f : 4.f)));
-    const math::Vec3 direction{forward.x * std::cos(m_pitch), std::sin(m_pitch), forward.z * std::cos(m_pitch)};
+    const math::Vec3 direction{forward.x * std::cos(pitch), std::sin(pitch), forward.z * std::cos(pitch)};
     std::string error;
     auto rotation = math::quatLookAtLh(position, math::add(position, direction), {0, 1, 0}, error);
     if (!rotation)

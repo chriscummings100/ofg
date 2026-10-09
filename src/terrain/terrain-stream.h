@@ -14,6 +14,7 @@
 #include <unordered_set>
 
 namespace ofg::terrain {
+struct TerrainTile;
 struct AddressHash
 {
     // Hashes exact root/local integers without converting large coordinates to floating point.
@@ -45,6 +46,8 @@ struct ReadyContent
     size_t cpuBytes = 0, gpuBytes = 0;
     bool empty = false;
     bool certifiedEmpty = false;
+    std::shared_ptr<const TerrainTile> source;
+    size_t sourceGpuBytes = 0; // Shared allocation, counted once across resident/retired descriptors.
 };
 
 struct BuildRequest
@@ -52,6 +55,8 @@ struct BuildRequest
     RequestId id;
     NodeAddress address;
     size_t byteLimit = 0;
+    std::shared_ptr<const TerrainTile> parentSource;
+    bool parentCertifiedEmpty = false;
 };
 
 struct CutEntry
@@ -79,6 +84,7 @@ struct StreamDiagnostics
     size_t selected = 0, admittedRoots = 0, loadingRoots = 0, jobs = 0;
     size_t residentCpuBytes = 0, residentGpuBytes = 0;
     size_t reservedCpuBytes = 0, reservedGpuBytes = 0, retiredCpuBytes = 0, retiredGpuBytes = 0;
+    size_t sourceCpuBytes = 0, sourceTextureBytes = 0; // Live shared allocations, including retirement.
     uint64_t publications = 0, staleResults = 0;
     size_t unresolvedRefinements = 0;
     uint8_t deepestSurfaceDepth = 0;

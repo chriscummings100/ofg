@@ -67,6 +67,9 @@ def decode_tile(data: bytes) -> tuple[tuple, list[np.ndarray]]:
         raise ValueError('Invalid sediment or water depth')
     if np.any((validity & 4 != 0) & (material != 1)):
         raise ValueError('Unknown material ID')
+    if (np.any((validity & 1 == 0) & (bedrock != 0)) or np.any((validity & 2 == 0) & (water != 0))
+            or np.any((validity & 4 == 0) & (material != 0))):
+        raise ValueError('Unknown attributes must have canonical zero values')
     core = surface[1:-1, 1:-1]
     if core.min() < low or core.max() > high:
         raise ValueError('Tile bounds exclude returned surface samples')

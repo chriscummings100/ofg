@@ -7,6 +7,7 @@
 #include <memory>
 
 namespace ofg::terrain {
+struct TerrainTile;
 struct GeneratorSettings
 {
     double rootWidth = 1024;
@@ -14,6 +15,7 @@ struct GeneratorSettings
     double amplitude = 180;
     uint64_t seed = 1;
     uint32_t intervals = 32;
+    std::shared_ptr<const TerrainTile> source;
 };
 
 struct TerrainGeometry

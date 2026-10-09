@@ -21,6 +21,7 @@ struct WorkerResult
     WorkerOutcome outcome = WorkerOutcome::Geometry;
     std::string error;
     uint32_t worker = 0;
+    std::shared_ptr<const TerrainTile> source;
 };
 
 class TerrainWorkers

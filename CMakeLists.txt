@@ -40,6 +40,10 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS assets/pbr-studio
 
 add_library(ofg-core STATIC
     src/terrain/terrain-address.cpp
+    src/terrain/terrain-content.cpp
+    src/terrain/terrain-shading.cpp
+    src/terrain/terrain-data-cache.cpp
+    src/platform/http-client.cpp
     src/terrain/terrain-generator.cpp
     src/terrain/terrain-stream.cpp
     src/scene/outdoor-lighting.cpp
@@ -84,13 +88,17 @@ add_library(ofg-core STATIC
 target_compile_features(ofg-core PUBLIC cxx_std_20)
 target_include_directories(ofg-core PUBLIC src PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_include_directories(ofg-core SYSTEM PRIVATE external/stb external/tinygltf)
+if(WIN32 AND NOT EMSCRIPTEN)
+    target_link_libraries(ofg-core PUBLIC winhttp)
+endif()
 target_sources(ofg-core PRIVATE src/terrain/terrain-workers.cpp src/terrain/terrain-streaming-service.cpp)
 
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS assets/checker.png assets/checker.jpg assets/README.md)
 file(COPY assets DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
-    add_executable(ofg-terrain-test tests/core-test-main.cpp tests/terrain-stream-test.cpp tests/terrain-band-test.cpp tests/terrain-generator-test.cpp tests/terrain-workers-test.cpp tests/terrain-streaming-service-test.cpp)
+    add_executable(ofg-terrain-test tests/core-test-main.cpp tests/terrain-content-test.cpp tests/terrain-http-test.cpp tests/terrain-stream-test.cpp tests/terrain-band-test.cpp tests/terrain-generator-test.cpp tests/terrain-workers-test.cpp tests/terrain-streaming-service-test.cpp)
+    target_compile_definitions(ofg-terrain-test PRIVATE OFG_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_executable(ofg-terrain-allocation-test tests/core-test-main.cpp tests/terrain-allocation-test.cpp
         src/terrain/terrain-stream.cpp src/terrain/terrain-address.cpp)
     target_link_libraries(ofg-terrain-allocation-test PRIVATE doctest)
@@ -240,7 +248,7 @@ if(EMSCRIPTEN)
         --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
         -fwasm-exceptions --export=__cpp_exception
         -sFETCH=1 -sASSERTIONS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576
-        -sPTHREAD_POOL_SIZE=3 -sALLOW_BLOCKING_ON_MAIN_THREAD=0
+        -sPTHREAD_POOL_SIZE=5 -sALLOW_BLOCKING_ON_MAIN_THREAD=0
         -sASYNCIFY=1 -sASYNCIFY_IGNORE_INDIRECT=1
         "-sASYNCIFY_ONLY=['*main*','*wait*','*initialize*','*create*','*map*','*readBuffer*','*ofg*','*rhi*','*Frame*','*dynCall*']"
     )

@@ -38,6 +38,14 @@ static_assert(std::size(pbrTextureBindings) == static_cast<size_t>(PbrSlot::Coun
 std::shared_ptr<Material> createPbrMaterial(const PbrMaterialDesc& desc)
 {
     uint32_t key = desc.unlit ? (1u << 15) : 0;
+    if (bool(desc.terrainTexture) != bool(desc.terrainValidity))
+        throw EngineError("Terrain shading requires both continuous and categorical textures.");
+    if (desc.terrainTexture && (!std::isfinite(desc.terrainSpacing) || desc.terrainSpacing <= 0 ||
+                                !std::isfinite(desc.terrainMapping.x) || !std::isfinite(desc.terrainMapping.y) ||
+                                !std::isfinite(desc.terrainMapping.z) || !std::isfinite(desc.terrainMapping.w)))
+        throw EngineError("Terrain texture coordinates and spacing must be finite, with positive spacing.");
+    if (desc.terrainTexture)
+        key |= 1u << 16;
     for (size_t i = 0; i < desc.textures.size(); ++i)
     {
         const auto& slot = desc.textures[i];
@@ -51,7 +59,7 @@ std::shared_ptr<Material> createPbrMaterial(const PbrMaterialDesc& desc)
             throw EngineError("PBR texture requires finite transform and UV0 or UV1.");
         }
     }
-    if (std::popcount(key & 0x7fff) > 12)
+    if (std::popcount(key & 0x17fff) + (desc.terrainTexture ? 1 : 0) > 12)
     {
         throw EngineError(
             "PBR material exceeds portable budget: at most 12 material textures plus four frame textures."
@@ -239,6 +247,8 @@ std::shared_ptr<Material> createPbrMaterial(const PbrMaterialDesc& desc)
     if (!shader)
     {
         std::string defines = "#define MATERIAL_ANISOTROPY 1\n";
+        if (desc.terrainTexture)
+            defines += "#define HAS_TERRAIN_TEXTURE 1\n";
         if (desc.unlit)
         {
             defines += "#define UNLIT 1\n";
@@ -277,6 +287,18 @@ std::shared_ptr<Material> createPbrMaterial(const PbrMaterialDesc& desc)
     material->setUniform("anisotropy", desc.anisotropy);
     material->setUniform("anisotropyRotation", desc.anisotropyRotation);
     material->setUniform("alphaCutoff", desc.alphaCutoff);
+    if (desc.terrainTexture)
+    {
+        SamplerDesc sampler;
+        sampler.addressU = sampler.addressV = TextureAddressMode::ClampToEdge;
+        sampler.useMipmaps = false;
+        material->setTexture("terrainTexture", desc.terrainTexture);
+        material->setTexture("terrainValidity", desc.terrainValidity);
+        material->setSampler("terrainSampler", Sampler::create(sampler));
+        material->setUniform("terrainMapping", desc.terrainMapping);
+        material->setUniform("terrainSpacing", desc.terrainSpacing);
+        material->setUniform("terrainChannel", uint32_t(0));
+    }
     for (const auto& binding : pbrTextureBindings)
     {
         const auto& slot = desc.textures[static_cast<size_t>(binding.slot)];

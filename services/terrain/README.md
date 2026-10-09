@@ -2,7 +2,9 @@
 
 Independent Python service for the flat-island generation milestone. Generation runs in one spawned process;
 the HTTP host serves immutable revisions and remains responsive while it runs. FastScape is not integrated yet.
-The viewer connection and editor controls are subsequent stages in the [active plan](../../docs/plans/terrain-generation-service.md).
+Both native and browser viewers can stream the published terrain; see [DEVELOPING.md](../../DEVELOPING.md)
+for launch and integration-test commands. Editor controls and erosion remain in progress in the
+[active plan](../../docs/plans/terrain-generation-service.md).
 
 From the repository root on Windows:
 

@@ -59,7 +59,15 @@ float3 mappedNormal(float3 texel, float scale, float3 n, float3 world, float2 uv
     tn.xy *= scale;
     return safeNormal(t * tn.x + b * tn.y + n * tn.z, n);
 }
-// Fully initializes factors before multiplying the glTF-defined texture channels.
+#ifdef HAS_TERRAIN_TEXTURE
+// Samples the two-component height representation without requiring float32 texture filtering.
+float terrainHeight(float2 uv)
+{
+    float2 height = material.terrainTexture.SampleLevel(material.terrainSampler, uv, 0).xy;
+    return (height.x + height.y) * 1024;
+}
+#endif
+// Evaluates glTF factors and optional terrain source detail in translation-only terrain coordinates.
 Surface evaluateSurface(VertexOutput input, bool front)
 {
     Surface s;
@@ -85,6 +93,40 @@ Surface evaluateSurface(VertexOutput input, bool front)
     float3 geometric = safeNormal(cross(qx, qy), float3(0, 0, -1));
     s.normal = dot(input.normal, input.normal) > 1e-12 ? normalize(input.normal) * (front ? 1 : -1) : geometric;
     s.coatNormal = s.normal;
+#ifdef HAS_TERRAIN_TEXTURE
+    float2 terrainUv = input.uv * material.terrainMapping.xy + material.terrainMapping.zw;
+    float2 texel = float2(1.0 / 259, 0);
+    float hx = terrainHeight(terrainUv + texel) - terrainHeight(terrainUv - texel);
+    float hz = terrainHeight(terrainUv + texel.yx) - terrainHeight(terrainUv - texel.yx);
+    s.normal = normalize(float3(-hx, 2 * material.terrainSpacing, -hz));
+    s.coatNormal = s.normal;
+    float4 attributes = material.terrainTexture.SampleLevel(material.terrainSampler, terrainUv, 0);
+    int2 coordinate = clamp(int2(floor(terrainUv * 259 - .5)), int2(0), int2(257));
+    uint validity = uint(round(material.terrainValidity.Load(int3(coordinate, 0)) * 255)) &
+                    uint(round(material.terrainValidity.Load(int3(coordinate + int2(1, 0), 0)) * 255)) &
+                    uint(round(material.terrainValidity.Load(int3(coordinate + int2(0, 1), 0)) * 255)) &
+                    uint(round(material.terrainValidity.Load(int3(coordinate + int2(1, 1), 0)) * 255));
+    uint nearestValidity = uint(
+        round(material.terrainValidity.Load(int3(clamp(int2(floor(terrainUv * 259)), int2(0), int2(258)), 0)) * 255)
+    );
+    if ((validity & 1) == 0)
+        attributes.z = -1;
+    if ((validity & 2) == 0)
+        attributes.w = -1;
+    float sediment = max(attributes.z * 1024, 0), water = max(attributes.w * 1024, 0);
+    s.base = lerp(float3(.3, .32, .28), float3(.32, .2, .09), saturate(sediment));
+    // Static submerged-ground tint makes the sea-level crossing inspectable without simulating water.
+    s.base = lerp(s.base, float3(.025, .18, .23), saturate(water / 8));
+    if (material.terrainChannel == 1)
+        s.base = float3(saturate(terrainHeight(terrainUv) / 100 + .5));
+    if (material.terrainChannel == 2)
+        s.base = attributes.z < 0 ? float3(1, 0, 1) : float3(saturate(sediment / 10));
+    if (material.terrainChannel == 3)
+        s.base = attributes.w < 0 ? float3(1, 0, 1) : float3(0, saturate(water / 100), 1);
+    // V1's sole material is bare rock (ID 1); categorical validity uses nearest sampling, never filtering.
+    if (material.terrainChannel == 4)
+        s.base = (nearestValidity & 4) == 0 ? float3(1, 0, 1) : float3(.3, .32, .28);
+#endif
 #ifdef HAS_NORMAL_TEXTURE
     s.normal = mappedNormal(
         material.normalTexture.Sample(material.normalSampler, normalUv(input.uv, input.uv1)).rgb,

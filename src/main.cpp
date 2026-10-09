@@ -262,7 +262,8 @@ static Result runWindow(
     int characterMode,
     bool ui,
     bool outdoor,
-    bool terrain
+    bool terrain,
+    ofg::TerrainLaunchSettings terrainLaunch
 )
 {
     ui = ui && !checkerboard;
@@ -324,7 +325,7 @@ static Result runWindow(
             if (terrain)
             {
                 ofg::Game::initialize(ofg::createTerrainScene());
-                ofg::Game::setTerrain(std::make_unique<ofg::TerrainLaboratory>(device, queue));
+                ofg::Game::setTerrain(std::make_unique<ofg::TerrainLaboratory>(device, queue, terrainLaunch));
                 glfwSetWindowTitle(window.get(), "OFG | Terrain Laboratory");
             }
             else if (characterMode)
@@ -431,6 +432,7 @@ static void reportWindowError(int code, const char* message)
 int main(int argc, char** argv)
 {
     bool checkDevice = false, checkerboard = false, scene = false, ui = true, outdoor = false, terrain = false;
+    ofg::TerrainLaunchSettings terrainLaunch;
     int character = 0;
     const char* modelPath = nullptr;
     for (int i = 1; i < argc; ++i)
@@ -447,6 +449,12 @@ int main(int argc, char** argv)
         {
             terrain = true;
         }
+        else if (std::strcmp(argv[i], "--terrain-service") == 0 && i + 1 < argc)
+            terrainLaunch.serviceUrl = argv[++i];
+        else if (std::strcmp(argv[i], "--island") == 0 && i + 1 < argc)
+            terrainLaunch.island = argv[++i];
+        else if (std::strcmp(argv[i], "--skip-terrain-cache") == 0)
+            terrainLaunch.skipCache = true;
         else if (std::strcmp(argv[i], "--outdoor") == 0)
         {
             outdoor = true;
@@ -504,7 +512,17 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    result = runWindow(device, checkerboard, !checkerboard && !scene, modelPath, character, ui, outdoor, terrain);
+    result = runWindow(
+        device,
+        checkerboard,
+        !checkerboard && !scene,
+        modelPath,
+        character,
+        ui,
+        outdoor,
+        terrain,
+        terrainLaunch
+    );
     glfwTerminate();
     if (SLANG_FAILED(result))
     {
