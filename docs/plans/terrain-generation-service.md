@@ -43,15 +43,23 @@ require the service to simulate or store every fine feature visible near the pla
   56 pytest cases pass, including real HTTP, spawned-process lifecycle, source bounds and corruption checks.
   Inspected `artifacts/terrain-service/data/demo/revisions/a292ddd152bd4500a8437ce1c4240ede/diagnostic.png`.
 - [x] (2026-10-09) Committed and pushed the existing streaming implementation and this plan as `40fbf5d`.
-- [ ] Stage 2: Native/browser HTTP terrain streaming and a saved-content playback proof.
+- [x] (2026-10-09) Stage 2: Native/browser HTTP terrain streaming and a saved-content playback proof.
   Decoder, source meshing, native HTTP/persistent-cache and portable shading paths are implemented.
   Native terrain-fast passes 60 cases / 103976 assertions. Real HTTP tests pass 2 cases / 19908 assertions,
   including a regression proving zero acquisitions below the terminal source depth. Browser cold loading,
   offline IndexedDB replay after reload, SkipCache with no terrain-storage calls, resize and aerial capture pass.
   Native presentation resize/minimize/restore/close and intermediate-sample shading tests pass.
   Final native regression passes all 9 CTest groups (68.06 s), Python passes 56 cases (7.20 s), and the
-  reviewed native sea-reference capture passes. Browser is being repeated for the final sea patch.
-- [ ] Stage 3: Editor parameters, regeneration and coherent revision replacement.
+  reviewed native sea-reference capture passes. Final browser checks and sea capture pass too.
+  Committed/pushed as `8445084`; performance/coverage limitations are recorded below.
+- [x] (2026-10-09) Stage 3: Editor parameters, regeneration and coherent revision replacement.
+  Native real-service regeneration passes 36 assertions including unchanged global camera coordinates.
+  The real HTTP suite passes 3 cases / 42138 assertions, covering cancellation, queued revisions, failure/retry
+  and minimal-budget refusal. Terrain-fast passes 62 cases / 104035 assertions; all 9 native CTest groups pass
+  in 59.54 s. Browser recording proves a held HTTP candidate preserves old coverage, release adopts the new
+  revision, and a later HTTP 503 candidate retains the old displayed revision. Inspected docked editor and
+  regeneration screenshots under `artifacts/terrain-service/stage-3`. The final added displayed-leaf counter
+  will be exercised in the next shared-host verification.
 - [ ] Stage 4: FastScape worker, progressive previews, numerical checks and measured terrain experiments.
 
 ## Surprises & Discoveries
@@ -98,6 +106,12 @@ the main runtime and uses streaming size checks, AbortController and cache:'no-s
 Propagate the parent's empty certificate in BuildRequest instead of reacquiring a source tile for these
 children. A new actual-acquisition-depth assertion caught redundant requests hidden by address clamping;
 the real HTTP integration now proves no request is issued below the source cutoff.
+
+2026-10-09: Revision replacement always coarsens to retained roots first. This intentionally simplifies
+ownership and headroom checks rather than maintaining two alternative handoff paths. The coordinator waits
+for explicit frame-boundary adoption and retirement acknowledgements, then resets the existing controller
+into the candidate epoch while pinning old root payloads. Cancellation restores those still-charged roots
+without HTTP or a second controller. Later publications occupy one pending slot until adoption completes.
 
 2026-10-09: Release timing evidence is in `artifacts/terrain-service/stage-2/profile/summary.json` and per-frame
 CSVs. i7-12700H / RTX 3050 Ti Laptop GPU, D3D12, validation off, scopes disabled, 1440x1200 offscreen with

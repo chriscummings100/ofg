@@ -1,6 +1,7 @@
 // Python-to-C++ content fixtures verify immutable identity, source inheritance and real mesher inputs.
 #include <doctest.h>
 #include "terrain/terrain-content.h"
+#include "terrain/terrain-generation-client.h"
 #include "terrain/terrain-generator.h"
 #include "terrain/terrain-shading.h"
 #include <cmath>
@@ -9,6 +10,29 @@
 #include <cstring>
 
 using namespace ofg::terrain;
+
+TEST_CASE(
+    "Generator recipes preserve exact world identifiers and independent draft values" *
+    doctest::test_suite("terrain-fast")
+)
+{
+    IslandRecipe recipe;
+    recipe.seed = UINT64_MAX;
+    recipe.regionX = INT64_MIN;
+    recipe.regionZ = INT64_MAX;
+    recipe.plateauHeight = 123.5;
+    const auto encoded = encodeIslandRecipe(recipe);
+    const auto decoded = decodeIslandRecipe(encoded);
+    CHECK(decoded.seed == UINT64_MAX);
+    CHECK(decoded.regionX == INT64_MIN);
+    CHECK(decoded.regionZ == INT64_MAX);
+    CHECK(decoded.plateauHeight == 123.5);
+    CHECK(encodeIslandRecipe(decoded) == encoded);
+    auto draft = decoded;
+    draft.seed = 7;
+    CHECK(decoded.seed == UINT64_MAX);
+    CHECK_THROWS(decodeIslandRecipe("{}"));
+}
 
 namespace {
 // Reads a checked-in Python-encoded fixture, failing visibly if its test data is absent.

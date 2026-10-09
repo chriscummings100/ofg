@@ -21,7 +21,10 @@ struct TerrainStreamingService::State
         Failed,
         Released,
         Stop,
-        SkipCache
+        SkipCache,
+        Replace,
+        CancelReplacement,
+        Adopted
     };
     struct Message
     {
@@ -31,6 +34,7 @@ struct TerrainStreamingService::State
         GeneratorSettings generator;
         std::string error;
         bool hold = false, fail = false;
+        std::shared_ptr<const TerrainManifest> manifest;
     };
     std::shared_ptr<StreamingWake> wake = std::make_shared<StreamingWake>();
     std::mutex mutex;
@@ -58,6 +62,133 @@ struct TerrainStreamingService::State
     bool paused = false;
     std::atomic<bool> abandon{false};
     uint64_t published = UINT64_MAX;
+    enum class Handoff
+    {
+        Viewing,
+        Coarsening,
+        WaitingForCoarse,
+        Preparing,
+        Adopting
+    };
+    Handoff handoff = Handoff::Viewing;
+    std::shared_ptr<const TerrainManifest> pendingRevision, candidateRevision, previousManifest;
+    std::vector<CutEntry> previousRoots;
+    std::vector<std::pair<RequestId, uint64_t>> pinnedRetirements;
+    uint64_t adopted = 0, handoffSerial = 0;
+
+    // Freezes the captured root set and redisplays its retained parents before reserving replacement memory.
+    void beginReplacement()
+    {
+        if (handoff != Handoff::Viewing || !pendingRevision)
+            return;
+        if (pendingRevision->revision == source.manifest->revision)
+        {
+            pendingRevision.reset();
+            return;
+        }
+        candidateRevision = std::move(pendingRevision);
+        previousManifest = source.manifest;
+        std::set<CellAddress> captured;
+        for (const auto& entry : stream.cut())
+            captured.insert(entry.address.cell);
+        for (const auto& cell : roots)
+            if (!captured.contains(cell))
+                stream.withdrawRoot(cell);
+        roots = std::move(captured);
+        for (const auto& cell : roots)
+            stream.setRefinement({cell}, false);
+        rootsDirty = false;
+        handoff = Handoff::Coarsening;
+    }
+
+    // Restores old coarse payloads while they are still charged and pinned; no network rollback is necessary.
+    void cancelReplacement()
+    {
+        pendingRevision.reset();
+        if (handoff == Handoff::Preparing)
+        {
+            stream.reset();
+            stream.restoreRoots(previousRoots);
+            source.manifest = previousManifest;
+            pinnedRetirements.clear();
+        }
+        // Once published, a replacement is committed; await its acknowledgement before resuming demand.
+        if (handoff == Handoff::Adopting)
+            return;
+        for (const auto& cell : roots)
+            stream.setRefinement({cell}, std::nullopt);
+        previousRoots.clear();
+        candidateRevision.reset();
+        previousManifest.reset();
+        handoff = Handoff::Viewing;
+        rootsDirty = true;
+        stream.setObserver(observer);
+    }
+
+    // Advances only complete coarse cuts, with explicit adoption and resource-release acknowledgements.
+    void advanceReplacement(StreamingBatch& batch)
+    {
+        const auto d = stream.diagnostics();
+        const bool coarseReady = stream.cut().size() == roots.size() && std::all_of(
+                                                                            stream.cut().begin(),
+                                                                            stream.cut().end(),
+                                                                            [](const auto& entry)
+                                                                            {
+                                                                                return entry.address.depth == 0;
+                                                                            }
+                                                                        );
+        if (handoff == Handoff::Coarsening && coarseReady && !d.jobs)
+        {
+            previousRoots = stream.cut();
+            handoffSerial = d.publications;
+            handoff = Handoff::WaitingForCoarse;
+            wake->signal();
+        }
+        else if (
+            handoff == Handoff::WaitingForCoarse && adopted >= handoffSerial && !d.jobs && !d.retiredCpuBytes &&
+            !d.retiredGpuBytes
+        )
+        {
+            const auto capacity = roots.size() * settings.maximumPayloadBytes;
+            if (capacity > settings.cpuBudget - d.residentCpuBytes ||
+                capacity > settings.gpuBudget - d.residentGpuBytes)
+            {
+                batch.error = "Revision replacement blocked: both minimal root cuts do not fit the terrain budget.";
+                cancelReplacement();
+                return;
+            }
+            stream.reset();
+            source.manifest = candidateRevision;
+            for (const auto& cell : roots)
+            {
+                if (!stream.requestRoot(cell))
+                    throw EngineError("Captured replacement roots exceed node budget.");
+                stream.setRefinement({cell}, false);
+            }
+            handoff = Handoff::Preparing;
+            wake->signal();
+        }
+        else if (handoff == Handoff::Preparing && coarseReady)
+        {
+            handoff = Handoff::Adopting;
+            handoffSerial = d.publications;
+            for (const auto& [id, serial] : pinnedRetirements)
+                batch.retirements.emplace_back(id, handoffSerial);
+            pinnedRetirements.clear();
+        }
+        else if (handoff == Handoff::Adopting && adopted >= handoffSerial)
+        {
+            previousRoots.clear();
+            candidateRevision.reset();
+            previousManifest.reset();
+            handoff = Handoff::Viewing;
+            for (const auto& cell : roots)
+                stream.setRefinement({cell}, std::nullopt);
+            stream.setObserver(observer);
+            rootsDirty = true;
+            wake->signal();
+        }
+    }
 
     // Constructs CPU ownership before the coordinator starts; validation precedes worker creation.
     State(
@@ -191,6 +322,17 @@ struct TerrainStreamingService::State
             case Kind::SkipCache:
                 source.skipCache = message.hold;
                 break;
+            case Kind::Replace:
+                if (!stopping)
+                    pendingRevision = std::move(message.manifest);
+                break;
+            case Kind::CancelReplacement:
+                if (!stopping)
+                    cancelReplacement();
+                break;
+            case Kind::Adopted:
+                adopted = std::max(adopted, message.id.sequence);
+                break;
             case Kind::Pause:
                 paused = message.hold;
                 break;
@@ -208,6 +350,9 @@ struct TerrainStreamingService::State
                 if (!stopping)
                 {
                     stopping = true;
+                    handoff = Handoff::Viewing;
+                    pendingRevision.reset();
+                    previousRoots.clear();
                     stream.reset();
                     roots.clear();
                 }
@@ -326,6 +471,8 @@ struct TerrainStreamingService::State
             outbox.cacheMisses = cacheMisses;
             outbox.cacheBypasses = cacheBypasses;
             outbox.deepestAcquisitionDepth = deepestAcquisitionDepth;
+            outbox.replacing = handoff != Handoff::Viewing;
+            outbox.replacementRevision = candidateRevision ? candidateRevision->revision : "";
             if (!batch.cacheWarning.empty())
                 outbox.cacheWarning = std::move(batch.cacheWarning);
         }
@@ -355,7 +502,8 @@ struct TerrainStreamingService::State
                 if (latest && !stopping)
                 {
                     observer = *latest;
-                    stream.setObserver(observer);
+                    if (handoff == Handoff::Viewing)
+                        stream.setObserver(observer);
                     rootsDirty = true;
                 }
                 if (paused && !stopping)
@@ -366,10 +514,14 @@ struct TerrainStreamingService::State
                     wake->wait(sequence + 1);
                     continue;
                 }
-                if (rootsDirty && !stopping)
+                if (!stopping)
+                    beginReplacement();
+                if (rootsDirty && !stopping && handoff == Handoff::Viewing)
                     updateRoots();
                 receiveResults(batch);
                 stream.update();
+                if (!stopping)
+                    advanceReplacement(batch);
                 for (const auto id : stream.takeCancellations())
                 {
                     if (stream.awaitingUpload(id))
@@ -386,6 +538,18 @@ struct TerrainStreamingService::State
                 auto retirements = stream.takeRetirements();
                 for (auto retirement : retirements)
                 {
+                    if (handoff == Handoff::Preparing && std::any_of(
+                                                             previousRoots.begin(),
+                                                             previousRoots.end(),
+                                                             [&](const auto& entry)
+                                                             {
+                                                                 return entry.payload->id == retirement.first;
+                                                             }
+                                                         ))
+                    {
+                        pinnedRetirements.push_back(retirement);
+                        continue;
+                    }
                     batch.retirements.push_back(retirement);
                     if (abandon)
                         stream.releasePayload(retirement.first);
@@ -450,13 +614,20 @@ struct TerrainStreamingService::State
                 }
                 if (stopping && abandon)
                     stream.abandonRenderer();
+                if (stopping)
+                {
+                    batch.retirements
+                        .insert(batch.retirements.end(), pinnedRetirements.begin(), pinnedRetirements.end());
+                    pinnedRetirements.clear();
+                }
                 batch.diagnostics = stream.diagnostics();
-                if (published != batch.diagnostics.publications)
+                if (handoff != Handoff::Preparing && published != batch.diagnostics.publications)
                 {
                     auto snapshot = std::make_shared<RenderSnapshot>();
                     snapshot->revision = batch.diagnostics.publications;
                     snapshot->created = std::chrono::steady_clock::now();
                     snapshot->leaves = stream.cut();
+                    snapshot->manifest = source.manifest;
                     batch.snapshot = std::move(snapshot);
                     published = batch.diagnostics.publications;
                 }
@@ -473,7 +644,8 @@ struct TerrainStreamingService::State
             batch.reconciliationMilliseconds =
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
             const bool done = batch.stopped;
-            const bool retryRoots = rootsDirty && !stopping && batch.diagnostics.nodes < settings.maximumNodes;
+            const bool retryRoots = rootsDirty && !stopping && handoff == Handoff::Viewing &&
+                                    batch.diagnostics.nodes < settings.maximumNodes;
             publish(std::move(batch));
             if (done)
                 return;
@@ -542,6 +714,24 @@ void TerrainStreamingService::setSkipCache(bool skip)
     message.hold = skip;
     m_state->send(std::move(message));
 }
+void TerrainStreamingService::replaceRevision(std::shared_ptr<const TerrainManifest> manifest)
+{
+    if (!manifest || !m_state->cache || manifest->rootWidth != m_state->settings.rootWidth)
+        throw EngineError("Replacement requires a compatible immutable service manifest.");
+    State::Message message{State::Kind::Replace};
+    message.manifest = std::move(manifest);
+    m_state->send(std::move(message));
+}
+void TerrainStreamingService::cancelReplacement()
+{
+    m_state->send({State::Kind::CancelReplacement});
+}
+void TerrainStreamingService::selectionAdopted(uint64_t revision)
+{
+    State::Message message{State::Kind::Adopted};
+    message.id.sequence = revision;
+    m_state->send(std::move(message));
+}
 void TerrainStreamingService::injectNext(bool hold, bool fail)
 {
     State::Message message{State::Kind::Inject};
@@ -601,6 +791,8 @@ StreamingBatch TerrainStreamingService::takeBatch()
     batch.cacheBypasses = m_state->outbox.cacheBypasses;
     batch.deepestAcquisitionDepth = m_state->outbox.deepestAcquisitionDepth;
     batch.cacheWarning.swap(m_state->outbox.cacheWarning);
+    batch.replacing = m_state->outbox.replacing;
+    batch.replacementRevision = m_state->outbox.replacementRevision;
     return batch;
 }
 uint64_t TerrainStreamingService::wakeSequence()

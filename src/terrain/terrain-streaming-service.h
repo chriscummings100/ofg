@@ -16,6 +16,7 @@ struct RenderSnapshot
     uint64_t revision = 0;
     std::chrono::steady_clock::time_point created;
     std::vector<CutEntry> leaves;
+    std::shared_ptr<const TerrainManifest> manifest;
 };
 struct StreamingBatch
 {
@@ -31,6 +32,8 @@ struct StreamingBatch
     size_t cacheHits = 0, cacheMisses = 0, cacheBypasses = 0;
     uint8_t deepestAcquisitionDepth = 0;
     std::string cacheWarning;
+    bool replacing = false;
+    std::string replacementRevision;
 };
 
 class TerrainStreamingService
@@ -45,6 +48,12 @@ public:
     );
     // Captures the new cache behavior for future acquisitions, leaving loaded terrain untouched.
     void setSkipCache(bool skip);
+    // Queues an immutable replacement; one latest-pending revision follows any active handoff.
+    void replaceRevision(std::shared_ptr<const TerrainManifest> manifest);
+    // Discards an uncommitted candidate and restores the retained old roots without HTTP.
+    void cancelReplacement();
+    // Acknowledges frame-boundary selection adoption, allowing coarsening/replacement retirement to progress.
+    void selectionAdopted(uint64_t revision);
     // Cancels CPU work; the caller retains/drains renderer resources independently of this CPU-only lifetime.
     ~TerrainStreamingService();
     TerrainStreamingService(const TerrainStreamingService&) = delete;

@@ -115,6 +115,9 @@ public:
     void retryFailures();
     // Withdraws all coverage, invalidates requests and advances the terrain epoch.
     void reset();
+    // Restores a cancelled handoff's retained coarse cut after reset, before any new update/dispatch.
+    // Nonempty payloads must still be charged in retirement; the renderer must not have released them.
+    void restoreRoots(const std::vector<CutEntry>& roots);
     // Reconciles demand, cancellation, complete-group reservations and prepared cut publication.
     void update();
     // Transfers newly dispatched immutable requests to the worker adapter.

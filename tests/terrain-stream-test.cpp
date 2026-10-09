@@ -11,6 +11,35 @@
 
 using namespace ofg::terrain;
 
+TEST_CASE("Cancelled revision handoff restores only retained roots" * doctest::test_suite("terrain-fast"))
+{
+    StreamSettings settings;
+    settings.maximumDepth = 0;
+    TerrainStream stream(settings);
+    REQUIRE(stream.requestRoot({}));
+    stream.update();
+    const auto first = stream.takeRequests().at(0);
+    REQUIRE(stream.acceptGenerated(first.id, 10));
+    REQUIRE(stream.complete(first.id, {first.id, 10, 20}));
+    stream.update();
+    const auto retained = stream.cut();
+    stream.reset();
+    CHECK(stream.diagnostics().retiredCpuBytes == 10);
+    stream.restoreRoots(retained);
+    stream.update();
+    REQUIRE(stream.cut().size() == 1);
+    CHECK(stream.cut()[0].payload->id == first.id);
+    CHECK(stream.takeRequests().empty());
+    CHECK(stream.takeRetirements().empty());
+    CHECK(stream.diagnostics().residentCpuBytes == 10);
+    CHECK(stream.diagnostics().retiredCpuBytes == 0);
+    CHECK_NOTHROW(stream.validate());
+    CHECK_THROWS(stream.restoreRoots(retained));
+    stream.reset();
+    stream.releasePayload(first.id);
+    CHECK_THROWS(stream.restoreRoots(retained));
+}
+
 namespace {
 // Small byte limits make reservation failures deterministic without allocating large fixtures.
 StreamSettings settings(size_t budget = 4096, uint8_t depth = 3)

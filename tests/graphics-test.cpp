@@ -2166,6 +2166,8 @@ TEST_CASE("Terrain laboratory renders asynchronously generated native geometry")
     auto folder = std::filesystem::path(OFG_SOURCE_DIR) / "artifacts/terrain/native";
     if (!launch.serviceUrl.empty())
         folder = std::filesystem::path(OFG_SOURCE_DIR) / "artifacts/terrain-service/stage-2/native";
+    if (std::getenv("OFG_TERRAIN_REGENERATE"))
+        folder = std::filesystem::path(OFG_SOURCE_DIR) / "artifacts/terrain-service/stage-3/native";
     std::filesystem::create_directories(folder);
     std::ofstream output(folder / "terrain.ppm", std::ios::binary);
     output << "P6\n960 640\n255\n";
@@ -2201,6 +2203,42 @@ TEST_CASE("Terrain laboratory renders asynchronously generated native geometry")
             for (size_t x = 0; x < 960; ++x)
                 aerial.write(static_cast<const char*>(pixels->getBufferPointer()) + y * layout.rowPitch + x * 4, 3);
         REQUIRE(bool(aerial));
+        if (std::getenv("OFG_TERRAIN_REGENERATE"))
+        {
+            const auto oldRevision = Game::terrain()->displayedRevision();
+            const auto camera = Game::terrain()->cameraPosition();
+            auto recipe = Game::terrain()->generation()->accepted;
+            recipe.seed += 5;
+            recipe.plateauHeight += 80;
+            Game::terrain()->regenerate(recipe);
+            const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(45);
+            do
+            {
+                Game::frame(1.f / 60, target);
+            }
+            while ((Game::terrain()->displayedRevision() == oldRevision || Game::terrain()->replacing() ||
+                    Game::terrain()->diagnostics().jobs || !Game::terrain()->diagnostics().planningIdle) &&
+                   std::chrono::steady_clock::now() < end);
+            CHECK(Game::terrain()->error().empty());
+            CHECK(Game::terrain()->generation()->error.empty());
+            CHECK(Game::terrain()->displayedRevision() != oldRevision);
+            CHECK(Game::terrain()->displayedRevision() == Game::terrain()->generation()->latestRevision);
+            CHECK_FALSE(Game::terrain()->replacing());
+            CHECK(Game::terrain()->cameraPosition().cell == camera.cell);
+            CHECK(Game::terrain()->cameraPosition().local == camera.local);
+            REQUIRE(SLANG_SUCCEEDED(fixture.queue->waitOnHost()));
+            pixels.setNull();
+            REQUIRE(SLANG_SUCCEEDED(fixture.device->readTexture(target, 0, 0, pixels.writeRef(), &layout)));
+            std::ofstream changed(folder / "regenerated.ppm", std::ios::binary);
+            changed << "P6\n960 640\n255\n";
+            for (size_t y = 0; y < 640; ++y)
+                for (size_t x = 0; x < 960; ++x)
+                    changed.write(
+                        static_cast<const char*>(pixels->getBufferPointer()) + y * layout.rowPitch + x * 4,
+                        3
+                    );
+            REQUIRE(bool(changed));
+        }
     }
     Game::terrain()->teleport({{0, 1000000, 0}, {}});
     const auto draining = std::chrono::steady_clock::now();

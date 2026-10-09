@@ -925,6 +925,34 @@ const std::vector<CutEntry>& TerrainStream::cut() const noexcept
     return m_cut;
 }
 
+void TerrainStream::restoreRoots(const std::vector<CutEntry>& roots)
+{
+    if (!m_wantedRoots.empty())
+        throw EngineError("Restore requires a reset stream.");
+    for (const auto& entry : roots)
+    {
+        if (entry.address.depth || !entry.payload ||
+            ((!entry.payload->empty || entry.payload->source) && !m_retired.contains(entry.payload->id)))
+            throw EngineError("Restore requires retained, unreleased root payloads.");
+    }
+    for (const auto& entry : roots)
+    {
+        if (!requestRoot(entry.address.cell))
+            throw EngineError("Restored root set exceeds the node budget.");
+        auto& content = slot(entry.address);
+        content.state = BuildState::Loaded;
+        content.payload = entry.payload;
+        m_retired.erase(entry.payload->id);
+        std::erase_if(
+            m_retirements,
+            [&](const auto& retirement)
+            {
+                return retirement.first == entry.payload->id;
+            }
+        );
+    }
+}
+
 std::vector<std::pair<RequestId, uint64_t>> TerrainStream::takeRetirements()
 {
     std::vector<std::pair<RequestId, uint64_t>> result;

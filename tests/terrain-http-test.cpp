@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 
 using namespace ofg;
 using namespace ofg::terrain;
@@ -38,6 +39,213 @@ TerrainDataResult result(TerrainDataCache& cache)
 
 TEST_SUITE("terrain-http")
 {
+    TEST_CASE("Revision handoff preserves complete coverage through delay cancellation failure and queued updates")
+    {
+        int scenario = 0;
+        SUBCASE("Held candidate cancels back to retained old roots")
+        {
+            scenario = 0;
+        }
+        SUBCASE("Newer publications wait for the active candidate")
+        {
+            scenario = 1;
+        }
+        SUBCASE("Failed candidate preserves old coverage and can retry")
+        {
+            scenario = 2;
+        }
+        SUBCASE("Insufficient minimal-cut budget preserves the old view")
+        {
+            scenario = 3;
+        }
+        const auto* base = std::getenv("OFG_TERRAIN_TEST_URL");
+        REQUIRE(base);
+        // Decode independently published revisions from the owned real HTTP service.
+        const auto manifest = [&](const char* variable)
+        {
+            REQUIRE(std::getenv(variable));
+            auto response = http(std::string(base) + std::getenv(variable));
+            REQUIRE(response.status == 200);
+            return std::make_shared<TerrainManifest>(
+                decodeTerrainManifest({reinterpret_cast<const char*>(response.bytes.data()), response.bytes.size()})
+            );
+        };
+        auto original = manifest("OFG_TERRAIN_TEST_MANIFEST");
+        auto replacement = manifest("OFG_TERRAIN_TEST_REPLACEMENT");
+        auto following = manifest("OFG_TERRAIN_TEST_FOLLOWING");
+        StreamSettings settings;
+        settings.rootWidth = original->rootWidth;
+        settings.maximumDepth = scenario == 3 ? 0 : 1;
+        settings.maximumPayloadBytes = 4 << 20;
+        settings.maximumJobs = 8;
+        settings.cpuBudget = settings.gpuBudget = (scenario == 3 ? 32ull : 96ull) << 20;
+        GeneratorSettings generator;
+        generator.rootWidth = settings.rootWidth;
+        generator.intervals = 4;
+        TerrainStreamingService
+            service(settings, generator, 0, {base, std::getenv("OFG_TERRAIN_TEST_CACHE"), original, false});
+        service.setObserver({{}, {0, 0, 0}});
+        StreamingBatch latest;
+        std::shared_ptr<const RenderSnapshot> active;
+        std::map<RequestId, uint64_t> retired;
+        std::set<RequestId> records;
+        std::vector<std::string> seen;
+        std::string failure;
+        size_t candidateUploads = 0;
+        // Model renderer adoption and completion independently of the coordinator's internal phase.
+        const auto pump = [&]
+        {
+            latest = service.takeBatch();
+            if (!latest.error.empty())
+                failure = latest.error;
+            for (auto& upload : latest.uploads)
+            {
+                candidateUploads += upload.source->revision == replacement->revisionBytes;
+                ReadyContent content;
+                content.id = upload.request.id;
+                content.cpuBytes = upload.geometry.allocatedBytes();
+                content.gpuBytes =
+                    upload.geometry.vertices.size() * sizeof(Vertex) + upload.geometry.indices.size() * 4;
+                content.source = upload.source;
+                content.sourceGpuBytes = terrainTextureBytes;
+                records.insert(content.id);
+                service.uploadReady(content.id, content);
+            }
+            if (latest.snapshot)
+            {
+                active = latest.snapshot;
+                service.selectionAdopted(active->revision);
+                if (seen.empty() || seen.back() != active->manifest->revision)
+                    seen.push_back(active->manifest->revision);
+            }
+            if (active)
+                for (const auto& entry : active->leaves)
+                {
+                    if (!entry.payload->empty)
+                        REQUIRE(records.contains(entry.payload->id));
+                    if (entry.payload->source)
+                        CHECK(entry.payload->source->revision == active->manifest->revisionBytes);
+                }
+            for (auto [id, serial] : latest.retirements)
+                retired[id] = serial;
+            for (auto i = retired.begin(); i != retired.end();)
+            {
+                if (active && active->revision >= i->second)
+                {
+                    for (const auto& entry : active->leaves)
+                        REQUIRE(entry.payload->id != i->first);
+                    records.erase(i->first);
+                    service.payloadReleased(i->first);
+                    i = retired.erase(i);
+                }
+                else
+                    ++i;
+            }
+            const auto d = latest.diagnostics;
+            REQUIRE(d.residentCpuBytes + d.reservedCpuBytes + d.retiredCpuBytes <= settings.cpuBudget);
+            REQUIRE(d.residentGpuBytes + d.reservedGpuBytes + d.retiredGpuBytes <= settings.gpuBudget);
+        };
+        // Explicit notifications drive progress; the deadline only detects a deadlock.
+        const auto until = [&](const std::function<bool()>& predicate)
+        {
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+            for (;;)
+            {
+                const auto sequence = service.wakeSequence();
+                pump();
+                if (predicate())
+                    return;
+                REQUIRE(std::chrono::steady_clock::now() < deadline);
+                REQUIRE(service.waitForChange(sequence, std::chrono::seconds(5)));
+            }
+        };
+        until(
+            [&]
+            {
+                return active && latest.diagnostics.admittedRoots == 8 && !latest.diagnostics.jobs &&
+                       latest.diagnostics.planningIdle;
+            }
+        );
+        service.injectNext(scenario < 2, scenario == 2);
+        service.replaceRevision(replacement);
+        if (scenario == 3)
+        {
+            until(
+                [&]
+                {
+                    return !failure.empty() && !latest.replacing;
+                }
+            );
+            CHECK(failure.find("both minimal root cuts") != std::string::npos);
+            CHECK(active->manifest->revision == original->revision);
+        }
+        else if (scenario == 2)
+        {
+            until(
+                [&]
+                {
+                    return latest.diagnostics.failed > 0;
+                }
+            );
+            CHECK(active->manifest->revision == original->revision);
+            service.retryFailures();
+            until(
+                [&]
+                {
+                    return active->manifest->revision == replacement->revision && !latest.replacing;
+                }
+            );
+        }
+        else
+        {
+            until(
+                [&]
+                {
+                    return candidateUploads && latest.diagnostics.jobs == 1;
+                }
+            );
+            REQUIRE(active->manifest->revision == original->revision);
+            REQUIRE(active->leaves.size() == 8);
+            service.setObserver({{1, 0, 1}, {0, 0, 0}});
+            if (scenario == 0)
+            {
+                service.cancelReplacement();
+                service.releaseHeld();
+                until(
+                    [&]
+                    {
+                        return !latest.replacing;
+                    }
+                );
+                CHECK(active->manifest->revision == original->revision);
+                CHECK(seen.size() == 1);
+            }
+            else
+            {
+                service.replaceRevision(following);
+                service.releaseHeld();
+                until(
+                    [&]
+                    {
+                        return active->manifest->revision == following->revision && !latest.replacing;
+                    }
+                );
+                REQUIRE(seen.size() == 3);
+                CHECK(seen[1] == replacement->revision);
+                CHECK(seen[2] == following->revision);
+            }
+        }
+        service.stop();
+        until(
+            [&]
+            {
+                return latest.stopped;
+            }
+        );
+        CHECK(records.empty());
+        CHECK(latest.diagnostics.retiredCpuBytes == 0);
+    }
+
     TEST_CASE("HTTP streaming acquires each coarse footprint and inherits terminal source allocations")
     {
         const auto* base = std::getenv("OFG_TERRAIN_TEST_URL");

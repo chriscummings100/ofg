@@ -65,6 +65,7 @@ TerrainLaboratory::TerrainLaboratory(rhi::IDevice* device, rhi::ICommandQueue* q
             m_launch.island.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") !=
                 std::string::npos)
             throw EngineError("Invalid terrain island name.");
+        m_generation = std::make_unique<terrain::TerrainGenerationClient>(m_launch.serviceUrl, m_launch.island);
         requestManifest();
     }
     teleportToSurface({{}, {0, 0, -300}});
@@ -226,6 +227,8 @@ void TerrainLaboratory::receiveResults()
     OFG_TERRAIN_SCOPE(TerrainLaboratory_receiveResults);
     auto batch = m_service->takeBatch();
     m_diagnostics = batch.diagnostics;
+    m_replacing = batch.replacing;
+    m_replacementRevision = batch.replacementRevision;
     m_reconciliationMilliseconds = batch.reconciliationMilliseconds;
     m_maximumReconciliationMilliseconds = batch.maximumReconciliationMilliseconds;
     m_cacheHits = batch.cacheHits;
@@ -302,6 +305,9 @@ void TerrainLaboratory::receiveResults()
         m_snapshot = batch.snapshot->leaves;
         m_revision = batch.snapshot->revision;
         m_snapshotCreated = batch.snapshot->created;
+        if (batch.snapshot->manifest)
+            m_manifest = batch.snapshot->manifest;
+        m_service->selectionAdopted(m_revision);
     }
     for (const auto& [id, revision] : batch.retirements)
     {
@@ -410,6 +416,27 @@ void TerrainLaboratory::requestManifest()
         HttpRequest::start(m_launch.serviceUrl + "/v1/islands/" + m_launch.island + "/manifest", 256 << 10, true);
 }
 
+void TerrainLaboratory::requestRevision(std::string revision)
+{
+    if (revision.size() != 32 || revision.find_first_not_of("0123456789abcdef") != std::string::npos)
+        throw EngineError("Invalid published terrain revision.");
+    m_requestedRevision = std::move(revision);
+    m_lastPublishedRequest = m_requestedRevision;
+    m_manifestRequest = HttpRequest::start(
+        m_launch.serviceUrl + "/v1/islands/" + m_launch.island + "/revisions/" + m_requestedRevision + "/manifest",
+        256 << 10,
+        true
+    );
+}
+
+void TerrainLaboratory::regenerate(const terrain::IslandRecipe& recipe)
+{
+    if (!m_generation)
+        throw EngineError("Regeneration requires a terrain service connection.");
+    m_generation->draft = recipe;
+    m_generation->regenerate();
+}
+
 void TerrainLaboratory::connect()
 {
     if (!m_manifestRequest)
@@ -427,23 +454,26 @@ void TerrainLaboratory::connect()
         const std::string_view json(reinterpret_cast<const char*>(response->bytes.data()), response->bytes.size());
         if (m_requestedRevision.empty())
         {
-            m_requestedRevision = terrain::decodeTerrainRevision(json);
-            m_manifestRequest = HttpRequest::start(
-                m_launch.serviceUrl + "/v1/islands/" + m_launch.island + "/revisions/" + m_requestedRevision +
-                    "/manifest",
-                256 << 10,
-                m_launch.skipCache
-            );
+            requestRevision(terrain::decodeTerrainRevision(json));
             return;
         }
         auto manifest = std::make_shared<terrain::TerrainManifest>(terrain::decodeTerrainManifest(json));
         if (manifest->revision != m_requestedRevision || manifest->island != m_launch.island)
             throw EngineError("Terrain manifest identity mismatch.");
+        if (m_service)
+        {
+            m_service->replaceRevision(std::move(manifest));
+            m_error.clear();
+            return;
+        }
         terrain::TerrainSourceSettings
             source{m_launch.serviceUrl, "artifacts/terrain-cache", manifest, m_launch.skipCache};
         m_service =
             std::make_unique<terrain::TerrainStreamingService>(m_settings, m_generator, 4096, std::move(source));
         m_manifest = std::move(manifest);
+        m_generation->draft = m_generation->accepted = terrain::decodeIslandRecipe(m_manifest->parametersJson);
+        if (m_generation->latestRevision.empty())
+            m_generation->latestRevision = m_manifest->revision;
         auto position = m_manifest->sourceOrigin;
         position.local[0] += m_manifest->sourceWidth * .5;
         position.local[2] += m_manifest->sourceWidth * .5 - 1800;
@@ -459,6 +489,12 @@ void TerrainLaboratory::update(Scene& scene)
 {
     OFG_TERRAIN_SCOPE(TerrainLaboratory_update);
     const auto updateStart = std::chrono::steady_clock::now();
+    if (m_generation)
+    {
+        m_generation->update();
+        if (!m_generation->latestRevision.empty() && m_generation->latestRevision != m_lastPublishedRequest)
+            requestRevision(m_generation->latestRevision);
+    }
     connect();
     auto* camera = scene.activeCamera();
     if (!camera)

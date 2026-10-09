@@ -6,6 +6,7 @@
 #include "render/draw-list.h"
 #include "scene/scene.h"
 #include "platform/http-client.h"
+#include "terrain/terrain-generation-client.h"
 
 #include <deque>
 
@@ -41,6 +42,18 @@ public:
     void teleportToSurface(terrain::WorldPosition position, double clearance = 8);
     // Frames the published island from above; ordinary regeneration preserves the camera instead.
     void frameIsland();
+    // Submits an explicit editor recipe through the same asynchronous controls used by the panel.
+    void regenerate(const terrain::IslandRecipe& recipe);
+    // Returns the revision actually adopted at a frame boundary, separately from job publication.
+    std::string displayedRevision() const { return m_manifest ? m_manifest->revision : ""; }
+    // Exposes control status to host diagnostics/tests; null for the procedural-noise fixture.
+    terrain::TerrainGenerationClient* generation() const { return m_generation.get(); }
+    // Reports whether old coverage is pinned for a candidate replacement.
+    bool replacing() const { return m_replacing; }
+    // Includes the pinned old cut while the coordinator builds a candidate revision.
+    size_t displayedLeafCount() const { return m_snapshot.size(); }
+    // Returns exact global camera coordinates for inspection and handoff continuity checks.
+    terrain::WorldPosition cameraPosition() const { return m_camera; }
     // Runs a reproducible moving-observer route with distant teleports every two minutes.
     void traverse(double elapsedSeconds);
     // Returns the controller's current diagnostic snapshot.
@@ -86,12 +99,19 @@ private:
     void connect();
     // Starts/retries fetching the mutable revision pointer through the same asynchronous transport.
     void requestManifest();
+    // Fetches a specific published manifest; completion queues replacement without altering displayed metadata.
+    void requestRevision(std::string revision);
+    // Edits draft physical parameters and exposes explicit asynchronous generation actions.
+    void generatorPanel();
 
     terrain::StreamSettings m_settings;
     TerrainLaunchSettings m_launch;
     std::shared_ptr<const terrain::TerrainManifest> m_manifest;
     std::unique_ptr<HttpRequest> m_manifestRequest;
     std::string m_requestedRevision;
+    std::unique_ptr<terrain::TerrainGenerationClient> m_generation;
+    std::string m_lastPublishedRequest, m_replacementRevision;
+    bool m_replacing = false, m_sourceBounds = false;
     std::map<const terrain::TerrainTile*, std::weak_ptr<SourceTexture>> m_sourceTextures;
     size_t m_cacheHits = 0, m_cacheMisses = 0, m_cacheBypasses = 0;
     std::string m_cacheWarning;

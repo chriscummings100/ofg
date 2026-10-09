@@ -294,6 +294,23 @@ static Result drawBrowserFrame(BrowserApp& app)
         {
             const auto stats = terrain->diagnostics();
             const auto cache = terrain->cacheCounts();
+            if (const auto* generation = terrain->generation())
+                EM_ASM(
+                    {
+                        Module.terrainGeneration = ({
+                            displayed : UTF8ToString($0),
+                            published : UTF8ToString($1),
+                            state : UTF8ToString($2),
+                            error : UTF8ToString($3),
+                            replacing : Boolean($4)
+                        });
+                    },
+                    terrain->displayedRevision().c_str(),
+                    generation->latestRevision.c_str(),
+                    generation->state.c_str(),
+                    generation->error.c_str(),
+                    terrain->replacing()
+                );
             EM_ASM(
                 {
                     Module.terrainError = UTF8ToString($0);
@@ -318,7 +335,8 @@ static Result drawBrowserFrame(BrowserApp& app)
                         publications : $8,
                         surfaceDepth : $9,
                         unresolved : $10,
-                        idle : $11
+                        idle : $11,
+                        displayedLeaves : $12
                     });
                 },
                 stats.admittedRoots,
@@ -332,7 +350,8 @@ static Result drawBrowserFrame(BrowserApp& app)
                 double(stats.publications),
                 int(stats.deepestSurfaceDepth),
                 int(stats.unresolvedRefinements),
-                int(stats.planningIdle)
+                int(stats.planningIdle),
+                terrain->displayedLeafCount()
             );
             const int command = EM_ASM_INT({
                 const value = Module.terrainCommand || 0;
@@ -345,6 +364,13 @@ static Result drawBrowserFrame(BrowserApp& app)
             }
             else if (command == 4)
                 terrain->frameIsland();
+            else if (command == 5 && terrain->generation())
+            {
+                auto recipe = terrain->generation()->accepted;
+                recipe.seed += 5;
+                recipe.plateauHeight += 80;
+                terrain->regenerate(recipe);
+            }
             if (command == 2)
             {
                 terrain->teleportToSurface({{}, {0, 0, -300}});

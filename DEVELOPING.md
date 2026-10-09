@@ -7,7 +7,8 @@ The independent Python flat-island service and saved-content HTTP mode are imple
 Verified on 2026-10-09 with Python 3.10.5: isolated dependency installation, editable package installation,
 `python -m terrain_service generate`, and the service's pytest suite with real loopback HTTP/spawned workers.
 Native D3D12 and browser WebGPU now stream service data, including persistent-cache replay, cache bypass,
-source-resolution inheritance and texture shading. Regeneration controls and FastScape remain in progress.
+source-resolution inheritance and texture shading. Regeneration controls and coherent revision replacement
+are implemented; FastScape remains in progress.
 
 ```powershell
 # Run the service in its isolated environment (see its README for initial generation).
@@ -24,6 +25,24 @@ URL with `?demo=terrain&terrainService=/v1&island=demo`. The default browser ter
 Add `--skip-terrain-cache` natively or `&skipCache=1` in the browser to bypass storage and HTTP caches.
 Stage-2 evidence is under `artifacts/terrain-service/stage-2`; the native intermediate-sample shader check
 is included in the graphics suite. CPU tests cannot establish that shader behavior.
+
+The docked Island generator panel keeps draft parameters separate from accepted job input. Apply / Regenerate
+submits explicitly; Cancel generation retains prior publications. Published and Displayed revisions are separate:
+the viewer first coarsens to retained roots, stages all replacement roots, then adopts one complete revision.
+Cancel replacement restores old roots without fetching them again. Retry failures retries candidate builds.
+Navigation remains responsive; only Frame island teleports the camera. Source height bounds and channel views
+are inspection aids. A low-resolution root mesh may miss small features during the temporary coarse handoff.
+
+Verified stage-3 checks, with owned temporary read/write services:
+
+```powershell
+.venv-terrain/Scripts/python tools/terrain-client-test.py --editor --executable build/native-release/ofg-render-test.exe
+.venv-terrain/Scripts/python tools/terrain-client-test.py --browser --editor
+```
+
+Native checks assert unchanged global camera coordinates after regeneration. Browser recordings under
+`artifacts/terrain-service/stage-3/web` hold one candidate HTTP response while old coverage remains displayed,
+release it for adoption, and then reject another candidate with HTTP 503 while preserving the old view.
 
 The default application opens the [dockable laboratory workspace](docs/imgui.md), with a PBR Scene viewport, Scene Hierarchy and Render Settings. Native Windows D3D12 and browser WebGPU share the UI and scene renderer. --scene / ?demo=scene retain the checker-cube fixture. Select the original full-screen checkerboard using `--checkerboard` natively or `?demo=checkerboard` in the browser.
 

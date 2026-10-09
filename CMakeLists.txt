@@ -42,6 +42,7 @@ add_library(ofg-core STATIC
     src/terrain/terrain-address.cpp
     src/terrain/terrain-content.cpp
     src/terrain/terrain-shading.cpp
+    src/terrain/terrain-generation-client.cpp
     src/terrain/terrain-data-cache.cpp
     src/platform/http-client.cpp
     src/terrain/terrain-generator.cpp

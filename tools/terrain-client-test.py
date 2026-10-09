@@ -20,12 +20,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--executable', type=Path, default=Path('build/cpu-tests/ofg-terrain-test.exe'))
     parser.add_argument('--browser', action='store_true')
+    parser.add_argument('--editor', action='store_true')
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='ofg-terrain-client-') as temporary:
         root = Path(temporary)
         revision = publish_revision(root, 'demo', generate_island(IslandParameters()))
+        replacement = publish_revision(root, 'demo', generate_island(IslandParameters(seed='2', plateau_height=80)))
+        following = publish_revision(root, 'demo', generate_island(IslandParameters(seed='3', plateau_height=120)))
         adopt_revision(root, 'demo', revision)
-        app = create_app(root, read_only=True)
+        app = create_app(root, read_only=not args.editor)
         online = True
         release = asyncio.Event()
 
@@ -80,8 +83,15 @@ def main():
                 raise RuntimeError('Terrain integration server did not become ready')
             environment = dict(os.environ, OFG_TERRAIN_TEST_URL=f'http://127.0.0.1:{sock.getsockname()[1]}',
                                OFG_TERRAIN_TEST_MANIFEST=f'/v1/islands/demo/revisions/{revision}/manifest',
+                               OFG_TERRAIN_TEST_REPLACEMENT=f'/v1/islands/demo/revisions/{replacement}/manifest',
+                               OFG_TERRAIN_TEST_FOLLOWING=f'/v1/islands/demo/revisions/{following}/manifest',
                                OFG_TERRAIN_TEST_CACHE=str(root / 'cache'))
-            command = ['node', 'tools/terrain-service-smoke.mjs'] if args.browser else [str(args.executable.resolve()), '--test-suite=terrain-http', '--no-colors']
+            if args.editor:
+                environment.update(OFG_TERRAIN_SERVICE=environment['OFG_TERRAIN_TEST_URL'], OFG_TERRAIN_REGENERATE='1')
+            if args.browser:
+                command = ['node', 'tools/terrain-regeneration-smoke.mjs' if args.editor else 'tools/terrain-service-smoke.mjs']
+            else:
+                command = [str(args.executable.resolve()), '--test-case=Terrain laboratory renders asynchronously generated native geometry' if args.editor else '--test-suite=terrain-http', '--no-colors']
             result = subprocess.run(command, env=environment, timeout=420 if args.browser else 90)
         finally:
             server.should_exit = True

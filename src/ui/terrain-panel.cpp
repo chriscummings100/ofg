@@ -1,13 +1,106 @@
 // Terrain inspection controls; this translation unit keeps ImGui out of the rendering library.
 #include "lab/terrain-laboratory.h"
 #include <imgui.h>
+#include <algorithm>
+#include <cmath>
 namespace ofg {
+void TerrainLaboratory::generatorPanel()
+{
+    if (!m_generation)
+        return;
+    auto& client = *m_generation;
+    if (ImGui::CollapsingHeader("Island generator", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        auto& r = client.draft;
+        ImGui::PushItemWidth(110);
+        ImGui::InputScalar("World seed", ImGuiDataType_U64, &r.seed);
+        ImGui::InputScalar("Region X", ImGuiDataType_S64, &r.regionX);
+        ImGui::InputScalar("Region Z", ImGuiDataType_S64, &r.regionZ);
+        ImGui::InputInt("Seed spacing (m)", &r.seedSpacing);
+        const struct
+        {
+            const char* label;
+            const char* field;
+            double* value;
+        } fields[] = {
+            {"Jitter (m)", "jitter", &r.jitter},
+            {"Ocean clearance (m)", "ocean_clearance", &r.oceanClearance},
+            {"Contour rounding", "contour_rounding", &r.contourRounding},
+            {"Contour variation", "contour_variation", &r.contourVariation},
+            {"Plateau height (m)", "plateau_height", &r.plateauHeight},
+            {"Sea level (m)", "sea_level", &r.seaLevel},
+            {"Seabed height (m)", "seabed_height", &r.seabedHeight},
+            {"Coast width (m)", "coast_width", &r.coastWidth}
+        };
+        for (const auto& field : fields)
+        {
+            ImGui::InputDouble(field.label, field.value, 0, 0, "%.3f");
+            if (client.fieldErrors.contains(field.field))
+                ImGui::TextWrapped("%s", client.fieldErrors.at(field.field).c_str());
+        }
+        ImGui::InputInt("Source spacing (m)", &r.sourceSpacing);
+        ImGui::InputInt("Source intervals", &r.sourceIntervals);
+        ImGui::PopItemWidth();
+        ImGui::TextWrapped(
+            "Source spacing and intervals must be powers of two. The domain must contain the island and a seabed "
+            "margin."
+        );
+        ImGui::BeginDisabled(client.active());
+        if (ImGui::Button("Apply / Regenerate"))
+            try
+            {
+                client.regenerate();
+            } catch (const std::exception& error)
+            {
+                client.error = error.what();
+            }
+        ImGui::EndDisabled();
+        if (ImGui::Button("Restore accepted parameters"))
+            client.draft = client.accepted;
+        if (client.active() && !client.jobId.empty() && ImGui::Button("Cancel generation"))
+            client.control("cancel");
+        if (!client.state.empty())
+        {
+            ImGui::TextWrapped("Job: %s (%s)", client.state.c_str(), client.phase.c_str());
+            ImGui::ProgressBar(float(client.progress));
+        }
+        if (!client.error.empty())
+        {
+            ImGui::TextWrapped("%s", client.error.c_str());
+            if (ImGui::Button("Retry control request"))
+                client.retryRequest();
+        }
+    }
+    ImGui::TextWrapped("Published: %s", client.latestRevision.c_str());
+    ImGui::TextWrapped("Displayed: %s", displayedRevision().c_str());
+    if (m_replacing)
+    {
+        ImGui::TextWrapped("Preparing replacement: %s", m_replacementRevision.c_str());
+        if (ImGui::Button("Cancel replacement"))
+            m_service->cancelReplacement();
+    }
+    if (ImGui::Button("Load latest publication"))
+        requestManifest();
+    ImGui::Checkbox("Source height bounds", &m_sourceBounds);
+    if (m_manifest)
+        ImGui::TextWrapped(
+            "Source %.1f m; finest data %.1f m; finest mesh %.2f m",
+            m_manifest->sourceSpacing,
+            std::max(
+                m_manifest->sourceSpacing,
+                std::ldexp(m_settings.rootWidth / 256, -m_diagnostics.deepestSurfaceDepth)
+            ),
+            std::ldexp(m_settings.rootWidth / m_generator.intervals, -m_diagnostics.deepestSurfaceDepth)
+        );
+}
+
 void TerrainLaboratory::panel()
 {
     ImGui::Begin("Terrain streaming");
     if (!m_launch.serviceUrl.empty())
     {
         ImGui::TextWrapped("Service: %s / %s", m_launch.serviceUrl.c_str(), m_launch.island.c_str());
+        generatorPanel();
         if (ImGui::Checkbox("Skip terrain cache", &m_launch.skipCache) && m_service)
             m_service->setSkipCache(m_launch.skipCache);
         if (m_manifest)
@@ -77,7 +170,12 @@ void TerrainLaboratory::panel()
         d.unresolvedRefinements,
         d.planningIdle ? "; planner idle" : ""
     );
-    ImGui::TextWrapped("Roots %zu admitted / %zu loading; cut %zu", d.admittedRoots, d.loadingRoots, d.selected);
+    ImGui::TextWrapped(
+        "Builder roots %zu ready / %zu loading; displayed leaves %zu",
+        d.admittedRoots,
+        d.loadingRoots,
+        m_snapshot.size()
+    );
     ImGui::TextWrapped("Nodes %zu; jobs %zu; failed %zu", d.nodes, d.jobs, d.failed);
     ImGui::TextWrapped(
         "CPU payload %.1f / %zu MiB",
@@ -119,7 +217,7 @@ void TerrainLaboratory::panel()
 namespace ofg {
 void TerrainLaboratory::boundsOverlay(math::Vec4 rectangle)
 {
-    if (!m_bounds)
+    if (!m_bounds && !m_sourceBounds)
     {
         return;
     }
@@ -129,6 +227,12 @@ void TerrainLaboratory::boundsOverlay(math::Vec4 rectangle)
     {
         const auto origin = terrain::relativeMinimum(entry.address, m_camera, m_settings.rootWidth);
         const float width = float(m_settings.rootWidth) / float(1u << entry.address.depth);
+        if (m_sourceBounds && !entry.payload->source)
+            continue;
+        const auto source = entry.payload->source;
+        const double cameraHeight = double(m_camera.cell.y) * m_settings.rootWidth + m_camera.local[1];
+        const float minimumY = m_sourceBounds ? float(source->minimumHeight - cameraHeight) : float(origin[1]);
+        const float maximumY = m_sourceBounds ? float(source->maximumHeight - cameraHeight) : float(origin[1]) + width;
         std::array<math::Vec4, 8> corners;
         for (unsigned i = 0; i < 8; ++i)
         {
@@ -136,7 +240,7 @@ void TerrainLaboratory::boundsOverlay(math::Vec4 rectangle)
                 m_clipFromWorld,
                 math::Vec4{
                     float(origin[0]) + (i & 1 ? width : 0),
-                    float(origin[1]) + (i & 2 ? width : 0),
+                    i & 2 ? maximumY : minimumY,
                     float(origin[2]) + (i & 4 ? width : 0),
                     1
                 }

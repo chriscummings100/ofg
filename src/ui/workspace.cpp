@@ -139,6 +139,7 @@ void Workspace::buildDockspace()
         auto left = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Left, 0.23f, nullptr, &centre);
         auto right = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.30f, nullptr, &centre);
         ImGui::DockBuilderDockWindow("Scene Hierarchy", left);
+        ImGui::DockBuilderDockWindow("Terrain streaming", left);
         ImGui::DockBuilderDockWindow("Render Settings", right);
         ImGui::DockBuilderDockWindow("Animation", right);
         ImGui::DockBuilderDockWindow("Scene", centre);
@@ -336,6 +337,14 @@ void Workspace::begin(Scene& scene, float deltaSeconds, float styleScale)
     scenePanel();
     if (Game::terrain())
     {
+        if (!m_terrainDocked)
+        {
+            if (auto* hierarchyWindow = ImGui::FindWindowByName("Scene Hierarchy");
+                hierarchyWindow && hierarchyWindow->DockId)
+                ImGui::DockBuilderDockWindow("Terrain streaming", hierarchyWindow->DockId);
+            ImGui::SetNextWindowFocus();
+            m_terrainDocked = true;
+        }
         Game::terrain()->panel();
         if (m_sceneVisible)
         {

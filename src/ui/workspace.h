@@ -60,6 +60,7 @@ private:
     bool m_showScene = true, m_showHierarchy = true, m_showSettings = true, m_showHelp = false;
     bool m_resetLayout = false, m_sceneVisible = false, m_sceneFocused = false;
     bool m_showAnimation = true;
+    bool m_terrainDocked = false;
     ImVec4 m_sceneRectangle{};
     ImGuiWindow* m_sceneWindow{};
     float m_styleScale = 0;
