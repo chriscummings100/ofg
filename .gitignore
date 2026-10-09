@@ -1,3 +1,9 @@
 /build/
 /artifacts/
 /node_modules/
+__pycache__/
+*.py[cod]
+/.venv-terrain/
+.pytest_cache/
+.coverage
+*.egg-info/

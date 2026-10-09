@@ -24,9 +24,9 @@ StreamSettings settings(size_t budget = 4096, uint8_t depth = 3)
 }
 
 // Provides a symbolic renderer-prepared payload; real geometry is covered by meshing/GPU integration tests.
-std::shared_ptr<PreparedPayload> payload(bool empty = false, bool certified = false)
+std::shared_ptr<ReadyContent> payload(bool empty = false, bool certified = false)
 {
-    auto result = std::make_shared<PreparedPayload>();
+    auto result = std::make_shared<ReadyContent>();
     result->cpuBytes = result->gpuBytes = empty ? 0 : 1;
     result->empty = empty;
     result->certifiedEmpty = certified;
@@ -40,7 +40,7 @@ void finish(TerrainStream& stream, const BuildRequest& request, bool empty = fal
     {
         REQUIRE(stream.acceptGenerated(request.id, 1));
     }
-    REQUIRE(stream.complete(request.id, payload(empty, certified)));
+    REQUIRE(stream.complete(request.id, *payload(empty, certified)));
 }
 
 // Counts finest-grid coverage without following controller nodes or using its ancestry helper.
@@ -97,6 +97,59 @@ bool coverageValid(
     return grids.size() == expectedRoots.size();
 }
 
+// Independently compares exact finest-grid AABBs; no production adjacency or ancestry helpers are used.
+bool topologyValid(const std::vector<CutEntry>& snapshot, unsigned maximumDepth)
+{
+    struct Box
+    {
+        std::array<int64_t, 3> minimum, maximum;
+    };
+    std::vector<Box> boxes;
+    const int64_t side = int64_t(1) << maximumDepth;
+    for (const auto& entry : snapshot)
+    {
+        if (!entry.payload || entry.address.depth > maximumDepth)
+            return false;
+        const int64_t scale = int64_t(1) << (maximumDepth - entry.address.depth);
+        const auto& a = entry.address;
+        Box box{{a.cell.x * side + a.x * scale, a.cell.y * side + a.y * scale, a.cell.z * side + a.z * scale}, {}};
+        for (unsigned axis = 0; axis < 3; ++axis)
+            box.maximum[axis] = box.minimum[axis] + scale;
+        boxes.push_back(box);
+    }
+    std::vector<uint8_t> masks(snapshot.size());
+    for (size_t i = 0; i < boxes.size(); ++i)
+        for (size_t j = i + 1; j < boxes.size(); ++j)
+        {
+            const auto& a = boxes[i];
+            const auto& b = boxes[j];
+            std::array<bool, 3> overlap;
+            for (unsigned axis = 0; axis < 3; ++axis)
+                overlap[axis] = std::max(a.minimum[axis], b.minimum[axis]) < std::min(a.maximum[axis], b.maximum[axis]);
+            if (overlap[0] && overlap[1] && overlap[2])
+                return false;
+            for (unsigned axis = 0; axis < 3; ++axis)
+            {
+                if (!overlap[(axis + 1) % 3] || !overlap[(axis + 2) % 3])
+                    continue;
+                const bool positive = a.maximum[axis] == b.minimum[axis];
+                if (!positive && a.minimum[axis] != b.maximum[axis])
+                    continue;
+                const int delta = int(snapshot[i].address.depth) - int(snapshot[j].address.depth);
+                if (std::abs(delta) > 1)
+                    return false;
+                if (delta == 1)
+                    masks[i] |= uint8_t(1u << (2 * axis + positive));
+                if (delta == -1)
+                    masks[j] |= uint8_t(1u << (2 * axis + !positive));
+            }
+        }
+    for (size_t i = 0; i < snapshot.size(); ++i)
+        if (snapshot[i].transitionFaces != masks[i])
+            return false;
+    return true;
+}
+
 // Combines the independent spatial oracle with controller ownership/accounting checks after each event.
 void checkCoverage(const TerrainStream& stream, unsigned maximumDepth = 3)
 {
@@ -106,6 +159,7 @@ void checkCoverage(const TerrainStream& stream, unsigned maximumDepth = 3)
         roots.insert(entry.address.cell);
     }
     REQUIRE(coverageValid(stream.cut(), roots, maximumDepth));
+    REQUIRE(topologyValid(stream.cut(), maximumDepth));
     CHECK(roots.size() == stream.diagnostics().admittedRoots);
     CHECK_NOTHROW(stream.validate());
 }
@@ -131,6 +185,8 @@ void settle(TerrainStream& stream, unsigned limit = 64)
     for (unsigned i = 0; i < limit; ++i)
     {
         stream.update();
+        for (auto [id, revision] : stream.takeRetirements())
+            stream.releasePayload(id);
         for (auto id : stream.takeCancellations())
         {
             stream.acknowledgeCancellation(id);
@@ -165,6 +221,36 @@ std::vector<BuildRequest> split(TerrainStream& stream, NodeAddress address)
 
 TEST_SUITE("terrain-fast")
 {
+    TEST_CASE("S9 a full generation queue cannot truncate demand after observer movement")
+    {
+        auto config = settings(4096, 1);
+        config.maximumJobs = 8;
+        TerrainStream stream(config);
+        const auto a = root(stream);
+        const auto b = root(stream, {5, 0, 0});
+        stream.setRefinement(b, {});
+        const auto held = split(stream, a);
+        REQUIRE(held.size() == 8);
+        stream.setObserver({{5, 0, 0}, {4, 4, 4}});
+        stream.update();
+        CHECK(stream.takeRequests().empty());
+        CHECK(stream.takeCancellations().empty());
+        CHECK(stream.diagnostics().nodes == 18);
+        for (const auto& child : childAddresses(b))
+            CHECK(stream.state(child) == BuildState::Pending);
+        for (const auto& job : held)
+            finish(stream, job);
+        stream.update();
+        const auto next = stream.takeRequests();
+        REQUIRE(next.size() == 8);
+        for (const auto& job : next)
+        {
+            CHECK(parentAddress(job.address) == b);
+            finish(stream, job);
+        }
+        settle(stream);
+        CHECK(stream.cut().size() == 16);
+    }
     TEST_CASE("S01 S05 S06 root requires prepared geometry")
     {
         TerrainStream stream(settings());
@@ -180,7 +266,7 @@ TEST_SUITE("terrain-fast")
         stream.update();
         CHECK(stream.cut().empty());
         CHECK(stream.takeRequests().empty());
-        CHECK(stream.complete(jobs[0].id, payload()));
+        CHECK(stream.complete(jobs[0].id, *payload()));
         stream.update();
         REQUIRE(stream.cut().size() == 1);
         checkCoverage(stream);
@@ -270,7 +356,7 @@ TEST_SUITE("terrain-fast")
         stream.update();
         const auto fresh = stream.takeRequests().at(0);
         CHECK_FALSE(old.id == fresh.id);
-        CHECK_FALSE(stream.complete(old.id, payload(true)));
+        CHECK_FALSE(stream.complete(old.id, *payload(true)));
         CHECK(stream.request({}) == fresh.id);
         stream.fail(fresh.id, "injected failure");
         CHECK(stream.state({}) == BuildState::Failed);
@@ -282,7 +368,7 @@ TEST_SUITE("terrain-fast")
         stream.fail(fresh.id, "duplicate old failure");
         CHECK(stream.request({}) == retry.id);
         finish(stream, retry);
-        CHECK_FALSE(stream.complete(retry.id, payload(true)));
+        CHECK_FALSE(stream.complete(retry.id, *payload(true)));
         stream.update();
         checkCoverage(stream);
     }
@@ -328,12 +414,17 @@ TEST_SUITE("terrain-fast")
         }
         for (size_t budget : {size_t(64), size_t(65)})
         {
-            TerrainStream stream(settings(budget));
-            auto parent = root(stream);
-            auto jobs = split(stream, parent);
-            CHECK(jobs.size() == (budget == 65 ? 8 : 0));
-            CHECK(stream.diagnostics().jobs == jobs.size());
-            checkCoverage(stream);
+            for (bool constrainCpu : {false, true})
+            {
+                auto config = settings();
+                (constrainCpu ? config.cpuBudget : config.gpuBudget) = budget;
+                TerrainStream stream(config);
+                auto parent = root(stream);
+                auto jobs = split(stream, parent);
+                CHECK(jobs.size() == (budget == 65 ? 8 : 0));
+                CHECK(stream.diagnostics().jobs == jobs.size());
+                checkCoverage(stream);
+            }
         }
     }
 
@@ -349,23 +440,27 @@ TEST_SUITE("terrain-fast")
         CHECK(stream.cut().empty());
     }
 
-    TEST_CASE("S31 S32 S33 S34 retirement waits for GPU completion and snapshot ownership")
+    TEST_CASE("S31 retirement charges survive skipped snapshots until renderer release")
     {
         TerrainStream stream(settings());
         root(stream);
         auto snapshot = stream.cut();
-        std::weak_ptr<PreparedPayload> weak = snapshot[0].payload;
-        stream.submitted(snapshot, 1);
+        const auto id = snapshot[0].payload->id;
         stream.withdrawRoot({});
         stream.update();
         CHECK(stream.cut().empty());
         CHECK(stream.diagnostics().retiredGpuBytes == 1);
-        stream.completedSubmission(1);
-        CHECK_FALSE(weak.expired());
-        snapshot.clear();
-        stream.completedSubmission(1);
-        CHECK(weak.expired());
+        const auto removedRevision = stream.diagnostics().publications;
+        root(stream, {2, 0, 0}); // Renderer may skip the removal-only snapshot and adopt this later one.
+        CHECK(stream.diagnostics().publications > removedRevision);
+        const auto retirements = stream.takeRetirements();
+        REQUIRE(retirements.size() == 1);
+        CHECK(retirements[0].first == id);
+        CHECK(retirements[0].second == removedRevision);
+        stream.releasePayload(id);
+        stream.releasePayload(id);
         CHECK(stream.diagnostics().retiredGpuBytes == 0);
+        CHECK(snapshot[0].payload->id == id); // Old metadata remains readable without retaining GPU resources.
     }
 
     TEST_CASE("S27 S36 reset isolates epochs and settled terrain performs no work")
@@ -383,6 +478,8 @@ TEST_SUITE("terrain-fast")
         stream.update();
         CHECK(stream.diagnostics().nodes == 0);
         CHECK(stream.diagnostics().residentCpuBytes == 0);
+        for (auto [id, revision] : stream.takeRetirements())
+            stream.releasePayload(id);
         CHECK(stream.diagnostics().retiredCpuBytes == 0);
     }
 
@@ -447,6 +544,8 @@ TEST_SUITE("terrain-fast")
         stream.fail(job.id, "upload allocation failure", FailureStage::Upload);
         CHECK(stream.state({}) == BuildState::Failed);
         CHECK(stream.cut().empty());
+        CHECK(stream.diagnostics().jobs == 1);
+        stream.releasePayload(job.id);
         CHECK(stream.diagnostics().jobs == 0);
     }
 
@@ -475,7 +574,19 @@ TEST_SUITE("terrain-fast")
             finish(stream, jobs[i]);
         }
         stream.update();
-        CHECK(stream.cut().size() == 9);
+        // The complete coarse neighbour group can display independently; the held fine group keeps its parent.
+        CHECK(stream.cut().size() == 16);
+        CHECK(stream.state(rightChild) == BuildState::Loaded);
+        CHECK(
+            std::any_of(
+                stream.cut().begin(),
+                stream.cut().end(),
+                [&](const auto& entry)
+                {
+                    return entry.address == rightChild;
+                }
+            )
+        );
         checkCoverage(stream);
         finish(stream, jobs.back());
         settle(stream);
@@ -581,7 +692,7 @@ TEST_SUITE("terrain-fast")
         CHECK(stream.diagnostics().admittedRoots == 1);
         for (const auto& job : held)
         {
-            CHECK_FALSE(stream.complete(job.id, payload(true)));
+            CHECK_FALSE(stream.complete(job.id, *payload(true)));
         }
         REQUIRE(stream.cut().size() == 1);
         CHECK(stream.cut()[0].address.cell == destination);
@@ -600,6 +711,7 @@ TEST_SUITE("terrain-exhaustive")
         {
             TerrainStream stream(settings(4096, 1));
             const auto parent = root(stream);
+            const auto retained = stream.cut().front().payload;
             const auto jobs = split(stream, parent);
             REQUIRE(jobs.size() == 8);
             for (size_t i = 0; i < 8; ++i)
@@ -609,6 +721,12 @@ TEST_SUITE("terrain-exhaustive")
                 REQUIRE(stream.cut().size() == (i == 7 ? 8 : 1));
                 checkCoverage(stream, 1);
             }
+            CHECK(stream.state(parent) == BuildState::Loaded);
+            stream.setRefinement(parent, false);
+            stream.update();
+            REQUIRE(stream.cut().size() == 1);
+            CHECK(stream.cut().front().payload == retained);
+            CHECK(stream.takeRequests().empty());
             ++permutations;
         }
         while (std::next_permutation(order.begin(), order.end()));
@@ -625,7 +743,7 @@ TEST_SUITE("terrain-randomized")
             BuildRequest request;
             bool generated = false;
         };
-        for (uint32_t seed = 0; seed < 32; ++seed)
+        for (uint32_t seed = 1; seed <= 32; ++seed)
         {
             CAPTURE(seed);
             const auto directory =
@@ -696,7 +814,7 @@ TEST_SUITE("terrain-randomized")
                     {
                         if (job.generated || stream.acceptGenerated(job.request.id, 1))
                         {
-                            stream.complete(job.request.id, payload());
+                            stream.complete(job.request.id, *payload());
                         }
                         jobs.erase(entry);
                     }
@@ -713,8 +831,16 @@ TEST_SUITE("terrain-randomized")
                     jobs.erase(cancelled.back());
                     cancelled.pop_back();
                 }
+                else if (choice == 7)
+                {
+                    const double x = double(random() % 64) - 24;
+                    trace << " observer " << x << ",4,4";
+                    stream.setObserver({{}, {x, 4, 4}});
+                }
                 trace << '\n';
                 stream.update();
+                for (auto [id, revision] : stream.takeRetirements())
+                    stream.releasePayload(id);
                 for (const auto& job : stream.takeRequests())
                 {
                     jobs.emplace(job.id, ExternalJob{job});
@@ -723,6 +849,7 @@ TEST_SUITE("terrain-randomized")
                 {
                     cancelled.push_back(id);
                 }
+                CHECK(stream.diagnostics().admittedRoots == 2);
                 checkCoverage(stream);
             }
             for (const auto& address : touched)
@@ -748,13 +875,22 @@ TEST_SUITE("terrain-randomized")
                 {
                     if (job.generated || stream.acceptGenerated(id, 1))
                     {
-                        stream.complete(id, payload());
+                        stream.complete(id, *payload());
                     }
                 }
             }
             settle(stream, 1024);
             CHECK(stream.cut().size() == 2);
             CHECK(stream.diagnostics().jobs == 0);
+            stream.withdrawRoot({});
+            stream.withdrawRoot({1, 0, 0});
+            settle(stream);
+            CHECK(stream.cut().empty());
+            CHECK(stream.diagnostics().nodes == 0);
+            CHECK(stream.diagnostics().residentCpuBytes == 0);
+            CHECK(stream.diagnostics().residentGpuBytes == 0);
+            CHECK(stream.diagnostics().retiredCpuBytes == 0);
+            CHECK(stream.diagnostics().retiredGpuBytes == 0);
             CHECK(bool(trace));
         }
     }
@@ -765,7 +901,6 @@ TEST_SUITE("terrain-fast")
     TEST_CASE("Bounded planning preserves held dependencies and progresses independent roots")
     {
         auto config = settings();
-        config.maximumPlansPerUpdate = 1;
         TerrainStream stream(config);
         const auto a = root(stream);
         auto held = split(stream, a);
@@ -791,24 +926,21 @@ TEST_SUITE("terrain-fast")
         CHECK(stream.cut().size() == 9);
     }
 
-    TEST_CASE("S18 S34 partial upload failure retains submitted memory until actual completion")
+    TEST_CASE("S18 partial upload failure keeps reservation until renderer release")
     {
         TerrainStream stream(settings());
         auto a = root(stream);
         const auto jobs = split(stream, a);
-        auto partial = payload();
-        REQUIRE(stream.acceptGenerated(jobs[0].id, partial->cpuBytes));
-        stream.submitted({{jobs[0].address, partial}}, 1);
-        stream.failUpload(jobs[0].id, partial, "injected partial upload allocation failure");
-        stream.failUpload(jobs[0].id, partial, "duplicate upload failure");
-        partial.reset();
+        REQUIRE(stream.acceptGenerated(jobs[0].id, 1));
+        stream.fail(jobs[0].id, "partial upload failure", FailureStage::Upload);
+        stream.fail(jobs[0].id, "duplicate failure", FailureStage::Upload);
         stream.update();
         CHECK(stream.cut().size() == 1);
-        CHECK(stream.diagnostics().retiredGpuBytes == 1);
-        stream.completedSubmission(0);
-        CHECK(stream.diagnostics().retiredGpuBytes == 1);
-        stream.completedSubmission(1);
-        CHECK(stream.diagnostics().retiredGpuBytes == 0);
+        CHECK(stream.diagnostics().jobs == 8);
+        stream.releasePayload(jobs[0].id);
+        CHECK(stream.diagnostics().jobs == 7);
+        stream.releasePayload(jobs[0].id);
+        CHECK(stream.diagnostics().jobs == 7);
         checkCoverage(stream);
     }
 }
@@ -920,7 +1052,6 @@ TEST_SUITE("terrain-fast")
     TEST_CASE("Root dispatch proceeds outward after each completion changes the candidate list")
     {
         auto config = settings();
-        config.maximumPlansPerUpdate = 1;
         TerrainStream stream(config);
         const WorldPosition observer{{}, {4, 4, 4}};
         stream.setObserver(observer);
@@ -951,7 +1082,6 @@ TEST_SUITE("terrain-fast")
     TEST_CASE("Refinement dispatch proceeds outward in complete sibling groups as nearby cuts publish")
     {
         auto config = settings();
-        config.maximumPlansPerUpdate = 1;
         config.maximumJobs = 8;
         TerrainStream stream(config);
         const WorldPosition observer{{}, {4, 4, 4}};
@@ -1057,7 +1187,6 @@ TEST_SUITE("terrain-fast")
     TEST_CASE("Continuous observer motion cannot starve bottom up merges behind an ineligible ancestor")
     {
         auto config = settings();
-        config.maximumPlansPerUpdate = 1;
         TerrainStream stream(config);
         const auto parent = root(stream);
         for (const auto& job : split(stream, parent))
@@ -1093,7 +1222,7 @@ TEST_CASE("Function timers count nested scopes and ignore disabled scopes" * doc
 {
     using namespace ofg::terrainProfile;
     auto& parent = counters[size_t(Function::TerrainStream_reconcile)];
-    auto& child = counters[size_t(Function::TerrainStream_makePlan)];
+    auto& child = counters[size_t(Function::TerrainStream_discoverDemand)];
     const auto beforeParent = parent.calls.load(), beforeChild = child.calls.load();
     const auto beforeInclusive = parent.inclusive.load(), beforeExclusive = parent.exclusive.load();
     const auto beforeChildInclusive = child.inclusive.load();
@@ -1101,12 +1230,12 @@ TEST_CASE("Function timers count nested scopes and ignore disabled scopes" * doc
     {
         Scope outer(Function::TerrainStream_reconcile);
         {
-            Scope inner(Function::TerrainStream_makePlan);
+            Scope inner(Function::TerrainStream_discoverDemand);
         }
     }
     enabled = false;
     {
-        Scope ignored(Function::TerrainStream_makePlan);
+        Scope ignored(Function::TerrainStream_discoverDemand);
     }
     CHECK(parent.calls.load() == beforeParent + 1);
     CHECK(child.calls.load() == beforeChild + 1);
@@ -1116,3 +1245,220 @@ TEST_CASE("Function timers count nested scopes and ignore disabled scopes" * doc
     );
 }
 #endif
+
+TEST_SUITE("terrain-fast")
+{
+    TEST_CASE("L1 L2 depth 13 sparse negative-root coverage retains all fourteen size levels")
+    {
+        auto config = settings(1 << 20, 13);
+        config.rootWidth = 131072;
+        config.maximumNodes = 4096;
+        TerrainStream stream(config);
+        const CellAddress cell{-1000000000, 0, -1000000000};
+        NodeAddress address{cell};
+        stream.requestRoot(cell);
+        for (unsigned depth = 0; depth < 13; ++depth)
+        {
+            CHECK(std::ldexp(config.rootWidth, -int(depth)) == double(131072u >> depth));
+            stream.setRefinement(address, true);
+            for (auto child : childAddresses(address))
+                stream.setRefinement(child, false);
+            address = childAddresses(address)[0];
+        }
+        CHECK(std::ldexp(config.rootWidth, -int(address.depth)) == 16);
+        for (unsigned pass = 0; pass < 40; ++pass)
+        {
+            stream.update();
+            auto jobs = stream.takeRequests();
+            for (const auto& job : jobs)
+                finish(stream, job);
+            if (jobs.empty() && stream.diagnostics().planningIdle)
+                break;
+        }
+        REQUIRE(stream.state(address) == BuildState::Loaded);
+        CHECK(stream.diagnostics().nodes == 1 + 8 * 13);
+        CHECK(stream.diagnostics().unresolvedRefinements == 0);
+        uint64_t volume = 0;
+        for (const auto& entry : stream.cut())
+            volume += uint64_t(1) << (3 * (13 - entry.address.depth));
+        CHECK(volume == (uint64_t(1) << 39));
+        CHECK(topologyValid(stream.cut(), 13));
+        while (address.depth)
+        {
+            address = parentAddress(address);
+            CHECK(stream.state(address) == BuildState::Loaded);
+        }
+        stream.setRefinement(address, false);
+        stream.update();
+        CHECK(stream.cut().size() == 1);
+        CHECK(stream.takeRequests().empty());
+    }
+    TEST_CASE("S11 seven remaining slots cannot partially dispatch an eight-child group")
+    {
+        auto config = settings();
+        config.maximumJobs = 8;
+        TerrainStream stream(config);
+        auto parent = root(stream);
+        const CellAddress other{10, 0, 0};
+        stream.requestRoot(other);
+        stream.setRefinement({other}, false);
+        stream.update();
+        const auto held = stream.takeRequests();
+        REQUIRE(held.size() == 1);
+        CHECK(split(stream, parent).empty());
+        CHECK(stream.diagnostics().jobs == 1);
+        finish(stream, held[0]);
+        stream.update();
+        CHECK(stream.takeRequests().size() == 8);
+    }
+    TEST_CASE("S12 metadata cap never installs seven children and unchanged blocked inputs remain idle")
+    {
+        auto config = settings();
+        config.maximumNodes = 8;
+        TerrainStream stream(config);
+        const auto parent = root(stream);
+        CHECK(split(stream, parent).empty());
+        CHECK(stream.diagnostics().nodes == 1);
+        CHECK(stream.cut().size() == 1);
+        const auto revision = stream.diagnostics().publications;
+        for (int i = 0; i < 10; ++i)
+            stream.update();
+        CHECK(stream.diagnostics().publications == revision);
+        CHECK(stream.diagnostics().budgetBlocked);
+    }
+    TEST_CASE("Metadata refusal remains visible when unrelated readiness wakes selection")
+    {
+        auto config = settings();
+        config.maximumNodes = 8;
+        TerrainStream stream(config);
+        const auto parent = root(stream);
+        CHECK(split(stream, parent).empty());
+        REQUIRE(stream.requestRoot({1, 0, 0}));
+        stream.setRefinement(NodeAddress{{1, 0, 0}}, false);
+        stream.update();
+        const auto jobs = stream.takeRequests();
+        REQUIRE(jobs.size() == 1);
+        finish(stream, jobs.front());
+        stream.update();
+        CHECK(stream.diagnostics().budgetBlocked);
+        CHECK(stream.diagnostics().nodes == 2);
+    }
+    TEST_CASE("S8 exact hysteresis boundaries retain both prior demand states")
+    {
+        constexpr double width = 8, epsilon = 1e-6 * width;
+        for (bool previouslySplit : {false, true})
+        {
+            for (double distance :
+                 {2 * width - epsilon,
+                  2 * width,
+                  2 * width + epsilon,
+                  2.5 * width - epsilon,
+                  2.5 * width,
+                  2.5 * width + epsilon})
+            {
+                CAPTURE(previouslySplit);
+                CAPTURE(distance);
+                TerrainStream stream(settings());
+                const auto parent = root(stream);
+                for (const auto& child : childAddresses(parent))
+                    stream.setRefinement(child, false);
+                stream.setRefinement(parent, {});
+                stream.setObserver({{}, {previouslySplit ? 9. : 100., 4, 4}});
+                settle(stream);
+                stream.setObserver({{}, {width + distance, 4, 4}});
+                settle(stream);
+                const bool expected = previouslySplit ? distance <= 2.5 * width : distance < 2 * width;
+                CHECK(stream.cut().size() == (expected ? 8 : 1));
+            }
+        }
+    }
+}
+
+TEST_SUITE("terrain-fast")
+{
+    TEST_CASE("S4 ready fine children remain hidden beside delayed coarse coverage without rebuilding parents")
+    {
+        TerrainStream stream(settings(8192));
+        const auto a = root(stream);
+        const auto b = root(stream, {1, 0, 0});
+        for (auto child : childAddresses(b))
+            stream.setRefinement(child, false);
+        for (auto job : split(stream, a))
+            finish(stream, job);
+        settle(stream);
+        const auto parent = childAddresses(a)[1];
+        auto old = std::find_if(
+                       stream.cut().begin(),
+                       stream.cut().end(),
+                       [&](const auto& entry)
+                       {
+                           return entry.address == parent;
+                       }
+        )->payload;
+        const auto requests = split(stream, parent);
+        REQUIRE(requests.size() == 16);
+        for (auto job : requests)
+            if (job.address.depth == 2)
+                finish(stream, job);
+        stream.update();
+        REQUIRE(stream.cut().size() == 9);
+        CHECK(stream.state(parent) == BuildState::Loaded);
+        CHECK(
+            std::find_if(
+                stream.cut().begin(),
+                stream.cut().end(),
+                [&](const auto& entry)
+                {
+                    return entry.address == parent;
+                }
+            )->payload == old
+        );
+        checkCoverage(stream);
+        for (auto job : requests)
+            if (job.address.depth == 1)
+                finish(stream, job);
+        settle(stream);
+        CHECK(stream.cut().size() == 23);
+        CHECK(stream.takeRequests().empty());
+    }
+    TEST_CASE("S12 failed boundary closure coarsens the target and does not recreate discarded groups at rest")
+    {
+        auto config = settings(8192);
+        config.maximumNodes = 18;
+        TerrainStream stream(config);
+        const auto a = root(stream);
+        const auto b = root(stream, {1, 0, 0});
+        for (auto child : childAddresses(b))
+            stream.setRefinement(child, false);
+        for (auto job : split(stream, a))
+            finish(stream, job);
+        settle(stream);
+        CHECK(split(stream, childAddresses(a)[1]).empty());
+        REQUIRE(stream.cut().size() == 9);
+        CHECK(stream.diagnostics().nodes == 10);
+        const auto revision = stream.diagnostics().publications;
+        for (int i = 0; i < 20; ++i)
+        {
+            stream.update();
+            CHECK(stream.takeRequests().empty());
+            CHECK(stream.diagnostics().nodes == 10);
+            CHECK(stream.diagnostics().publications == revision);
+        }
+        checkCoverage(stream);
+    }
+    TEST_CASE("S13 renderer release resumes an otherwise affordable sibling group without camera movement")
+    {
+        TerrainStream stream(settings(65));
+        const auto a = root(stream);
+        const auto b = root(stream, {10, 0, 0});
+        CHECK(split(stream, a).empty()); // Two resident bytes plus 64 reserved bytes exceed 65.
+        stream.withdrawRoot(b.cell);
+        stream.update();
+        CHECK(stream.takeRequests().empty());
+        const auto retirements = stream.takeRetirements();
+        REQUIRE(retirements.size() == 1);
+        stream.releasePayload(retirements[0].first);
+        stream.update();
+        CHECK(stream.takeRequests().size() == 8);
+    }
+}

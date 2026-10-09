@@ -1,5 +1,5 @@
 // Focused browser proof of the shared C++ worker contract; the page polls without blocking its UI thread.
-#include "terrain/terrain-workers.h"
+#include "terrain/terrain-streaming-service.h"
 #include "core/engine-error.h"
 
 #include <emscripten.h>
@@ -11,6 +11,8 @@ std::unique_ptr<TerrainWorkers> workers;
 GeneratorSettings settings;
 unsigned stage = 0;
 uint32_t firstWorker = 0;
+std::unique_ptr<TerrainStreamingService> service;
+std::map<RequestId, ReadyContent> rendererRecords;
 
 // Fails the browser proof with an observable diagnostic rather than continuing after a broken contract.
 void require(bool condition, const char* message)
@@ -21,11 +23,83 @@ void require(bool condition, const char* message)
     }
 }
 
+// Starts a small real coordinator workload, reusing the same pthread heap and lifecycle as the application.
+void startService(bool held)
+{
+    StreamSettings stream;
+    stream.rootWidth = 8;
+    stream.maximumDepth = 2;
+    stream.maximumPayloadBytes = 1 << 20;
+    stream.maximumJobs = 8;
+    stream.cpuBudget = stream.gpuBudget = 32 << 20;
+    GeneratorSettings generator;
+    generator.rootWidth = 8;
+    generator.heightOffset = 3;
+    generator.amplitude = 0;
+    generator.intervals = 4;
+    service = std::make_unique<TerrainStreamingService>(stream, generator, 0);
+    if (held)
+        service->injectNext(true, false);
+    service->setObserver({{}, {4, 4, 4}});
+}
+
+// Models immediate GPU acknowledgements for CPU service lifecycle proof; real fences are tested by the application.
+void pollService()
+{
+    auto batch = service->takeBatch();
+    require(batch.error.empty(), batch.error.c_str());
+    for (auto& upload : batch.uploads)
+    {
+        ReadyContent content;
+        content.id = upload.request.id;
+        content.cpuBytes = upload.geometry.allocatedBytes();
+        content.gpuBytes = content.cpuBytes;
+        rendererRecords[content.id] = content;
+        service->uploadReady(content.id, content);
+    }
+    for (auto [id, revision] : batch.retirements)
+    {
+        rendererRecords.erase(id);
+        service->payloadReleased(id);
+    }
+    if (stage == 5 && batch.diagnostics.selected > 1 && batch.diagnostics.planningIdle)
+    {
+        service->stop();
+        stage = 6;
+    }
+    else if (stage == 6 && batch.stopped)
+    {
+        require(rendererRecords.empty(), "Service leaked renderer leases");
+        service.reset();
+        startService(true);
+        stage = 7;
+    }
+    else if (stage == 7 && batch.diagnostics.jobs)
+    {
+        service->stop();
+        stage = 8;
+    }
+    else if (stage == 8 && batch.stopped)
+    {
+        require(rendererRecords.empty(), "Held service shutdown leaked renderer leases");
+        service.reset();
+        stage = 9;
+        emscripten_cancel_main_loop();
+        EM_ASM({ Module.workerProof.done = true; });
+    }
+    EM_ASM({ Module.workerProof.stage = $0; }, stage);
+}
+
 // Advances only after actual terminal results, exercising independent progress and the real geometry buffers.
 void poll()
 {
     try
     {
+        if (stage >= 5)
+        {
+            pollService();
+            return;
+        }
         auto results = workers->takeResults();
         if (results.empty())
         {
@@ -100,8 +174,7 @@ void poll()
                 "Restart received stale result or failed"
             );
             workers.reset();
-            emscripten_cancel_main_loop();
-            EM_ASM({ Module.workerProof.done = true; });
+            startService(false);
         }
         ++stage;
         EM_ASM({ Module.workerProof.stage = $0; }, stage);
@@ -109,6 +182,7 @@ void poll()
     {
         emscripten_cancel_main_loop();
         workers.reset();
+        service.reset();
         EM_ASM({ Module.workerProof = {error : UTF8ToString($0)}; }, error.what());
     }
 }

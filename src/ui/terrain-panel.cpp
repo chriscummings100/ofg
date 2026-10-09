@@ -9,23 +9,19 @@ void TerrainLaboratory::panel()
     ImGui::Checkbox("LOD colors", &m_lodColors);
     if (ImGui::IsItemHovered())
     {
-        ImGui::SetTooltip("Cell widths: 1024, 512, 256, 128, 64, 32, 16 metres (coarse to fine)");
+        ImGui::SetTooltip("Cell widths halve from 131072 m to 16 m across 14 levels");
     }
     ImGui::Checkbox("Node bounds", &m_bounds);
     ImGui::Checkbox("Hold next job", &m_holdNext);
     ImGui::Checkbox("Fail next job", &m_failNext);
     if (ImGui::Button("Release held jobs"))
     {
-        m_workers.releaseHeld();
+        m_service->releaseHeld();
     }
     ImGui::SameLine();
     if (ImGui::Button("Retry failures"))
     {
-        for (auto key : m_failures)
-        {
-            m_stream.retry(key);
-        }
-        m_failures.clear();
+        m_service->retryFailures();
         m_error.clear();
     }
     if (ImGui::Button("Origin"))
@@ -40,28 +36,24 @@ void TerrainLaboratory::panel()
     if (ImGui::Button("Reseed"))
     {
         ++m_generator.seed;
-        m_stream.reset();
-        m_roots.clear();
+        m_service->reset(m_generator);
     }
     const auto d = diagnostics();
     ImGui::TextWrapped("%.1f fps; terrain update %.2f ms", double(ImGui::GetIO().Framerate), m_updateMilliseconds);
+    ImGui::TextWrapped("Streaming worker %.2f ms; refinement radius 4096 m", m_reconciliationMilliseconds);
     ImGui::TextWrapped(
         "Finest surface cell %u m; %zu leaves want refinement%s",
-        1024u >> d.deepestSurfaceDepth,
+        unsigned(m_settings.rootWidth) >> d.deepestSurfaceDepth,
         d.unresolvedRefinements,
         d.planningIdle ? "; planner idle" : ""
     );
-    if (m_admissionBlocked)
-    {
-        ImGui::TextUnformatted("Waiting for root metadata capacity");
-    }
     ImGui::TextWrapped("Roots %zu admitted / %zu loading; cut %zu", d.admittedRoots, d.loadingRoots, d.selected);
     ImGui::TextWrapped("Nodes %zu; jobs %zu; failed %zu", d.nodes, d.jobs, d.failed);
     ImGui::TextWrapped(
         "CPU payload %.1f / 256 MiB",
         double(d.residentCpuBytes + d.reservedCpuBytes + d.retiredCpuBytes) / (1 << 20)
     );
-    ImGui::TextUnformatted("Scratch/transport allowance: 128 MiB");
+    ImGui::TextUnformatted("Worker scratch: up to 32 MiB; upload staging: 16 MiB");
     ImGui::TextWrapped(
         "GPU %.1f MiB; retired %.1f MiB",
         double(d.residentGpuBytes + d.reservedGpuBytes + d.retiredGpuBytes) / (1 << 20),
@@ -98,8 +90,8 @@ void TerrainLaboratory::boundsOverlay(math::Vec4 rectangle)
     draw->PushClipRect({rectangle.x, rectangle.y}, {rectangle.z, rectangle.w});
     for (const auto& entry : m_snapshot)
     {
-        const auto origin = terrain::relativeMinimum(entry.address, m_camera, 1024);
-        const float width = 1024.f / float(1u << entry.address.depth);
+        const auto origin = terrain::relativeMinimum(entry.address, m_camera, m_settings.rootWidth);
+        const float width = float(m_settings.rootWidth) / float(1u << entry.address.depth);
         std::array<math::Vec4, 8> corners;
         for (unsigned i = 0; i < 8; ++i)
         {
@@ -113,7 +105,9 @@ void TerrainLaboratory::boundsOverlay(math::Vec4 rectangle)
                 }
             );
         }
-        const auto color = ImGui::ColorConvertFloat4ToU32(ImColor::HSV(entry.address.depth / 6.f, .8f, 1.f));
+        const auto color = ImGui::ColorConvertFloat4ToU32(
+            ImColor::HSV(entry.address.depth / float(m_settings.maximumDepth), .8f, 1.f)
+        );
         for (unsigned i = 0; i < 8; ++i)
         {
             for (unsigned bit : {1u, 2u, 4u})

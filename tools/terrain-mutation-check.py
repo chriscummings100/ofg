@@ -34,17 +34,18 @@ def replace(text, old, new):
 
 
 faults = {
-    "seven-children": [("if (slot(key).state != BuildState::Loaded)",
-                         "if (slot(key).state != BuildState::Loaded && !(key.depth && (key.x & 1) && (key.y & 1) && (key.z & 1)))")],
-    "cpu-ready-admission": [("job.generated = true;", "job.generated = true; content->state = BuildState::Loaded; content->payload = std::make_shared<PreparedPayload>();")],
+    "seven-children": [("return child->content.state == BuildState::Loaded;",
+                         "return child->content.state == BuildState::Loaded || ((child->address.x & 1) && (child->address.y & 1) && (child->address.z & 1));")],
+    "cpu-ready-admission": [("job.generated = true;", "job.generated = true; content->state = BuildState::Loaded; content->payload = std::make_shared<const ReadyContent>();")],
     "address-only-owner": [("job == m_jobs.end() || job->second.cancelled", "job == m_jobs.end()"),
                            ("!node || node->content.request != id || node->content.state != BuildState::Loading", "!node")],
     "early-cancel-release": [("result.reservedCpuBytes += job.request.byteLimit;", "if (job.cancelled) continue; result.reservedCpuBytes += job.request.byteLimit;")],
     "early-parent-removal": [("m_dispatch.push_back(request);", "m_dispatch.push_back(request); std::erase_if(m_cut, [&](const auto& e) { return isAncestor(e.address, request.address); });")],
     "stale-seams": [("mask |= uint8_t(1u << face);", "mask |= 0;")],
-    "submission-retirement": [("payload->lastSubmission <= serial && payload.use_count() == 1", "payload.use_count() == 1")],
-    "partial-group-reservation": [("m_budgetBlocked = true;\n            continue;\n        }\n        missing.insert", "m_budgetBlocked = true;\n            missing.push_back(group.front());\n            continue;\n        }\n        missing.insert")],
+    "early-retirement-release": [("m_retired.emplace(id, content.payload);", "(void)id;")],
+    "job-limit-overcommit": [("count > m_settings.maximumJobs - std::min(m_settings.maximumJobs, m_jobs.size())", "false")],
 }
+
 report = {}
 try:
     assert command(["cmake", "-S", str(folder), "-B", str(folder / "build"), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release"], "configure") == 0

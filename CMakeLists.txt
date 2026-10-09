@@ -84,13 +84,13 @@ add_library(ofg-core STATIC
 target_compile_features(ofg-core PUBLIC cxx_std_20)
 target_include_directories(ofg-core PUBLIC src PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_include_directories(ofg-core SYSTEM PRIVATE external/stb external/tinygltf)
-target_sources(ofg-core PRIVATE src/terrain/terrain-workers.cpp)
+target_sources(ofg-core PRIVATE src/terrain/terrain-workers.cpp src/terrain/terrain-streaming-service.cpp)
 
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS assets/checker.png assets/checker.jpg assets/README.md)
 file(COPY assets DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
-    add_executable(ofg-terrain-test tests/core-test-main.cpp tests/terrain-stream-test.cpp tests/terrain-band-test.cpp tests/terrain-generator-test.cpp tests/terrain-workers-test.cpp)
+    add_executable(ofg-terrain-test tests/core-test-main.cpp tests/terrain-stream-test.cpp tests/terrain-band-test.cpp tests/terrain-generator-test.cpp tests/terrain-workers-test.cpp tests/terrain-streaming-service-test.cpp)
     add_executable(ofg-terrain-allocation-test tests/core-test-main.cpp tests/terrain-allocation-test.cpp
         src/terrain/terrain-stream.cpp src/terrain/terrain-address.cpp)
     target_link_libraries(ofg-terrain-allocation-test PRIVATE doctest)
@@ -223,7 +223,7 @@ if(EMSCRIPTEN)
     set_target_properties(ofg-terrain-workers-proof PROPERTIES OUTPUT_NAME terrain-workers-proof SUFFIX .js)
     # The lifecycle proof deliberately overlaps an old draining pair with its replacement pair.
     target_link_options(ofg-terrain-workers-proof PRIVATE
-        -fwasm-exceptions -sPTHREAD_POOL_SIZE=4 -sALLOW_MEMORY_GROWTH=1 -sASSERTIONS=1
+        -fwasm-exceptions -sPTHREAD_POOL_SIZE=6 -sALLOW_MEMORY_GROWTH=1 -sASSERTIONS=1
         -sEXPORTED_RUNTIME_METHODS=HEAPU8 -sALLOW_BLOCKING_ON_MAIN_THREAD=0
         -sASYNCIFY=1 -sASYNCIFY_IGNORE_INDIRECT=1
         "-sASYNCIFY_ONLY=['*main*','*wait*','*create*','*map*','*ofg*','*dynCall*']")
@@ -240,7 +240,7 @@ if(EMSCRIPTEN)
         --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
         -fwasm-exceptions --export=__cpp_exception
         -sFETCH=1 -sASSERTIONS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576
-        -sPTHREAD_POOL_SIZE=2 -sALLOW_BLOCKING_ON_MAIN_THREAD=0
+        -sPTHREAD_POOL_SIZE=3 -sALLOW_BLOCKING_ON_MAIN_THREAD=0
         -sASYNCIFY=1 -sASYNCIFY_IGNORE_INDIRECT=1
         "-sASYNCIFY_ONLY=['*main*','*wait*','*initialize*','*create*','*map*','*readBuffer*','*ofg*','*rhi*','*Frame*','*dynCall*']"
     )

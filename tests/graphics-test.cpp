@@ -2057,10 +2057,14 @@ TEST_CASE("Terrain laboratory renders asynchronously generated native geometry")
             );
         }
     }
-    while (Game::terrain()->diagnostics().selected < 200 &&
+    while ((!Game::terrain()->diagnostics().planningIdle || Game::terrain()->diagnostics().deepestSurfaceDepth != 13 ||
+            Game::terrain()->diagnostics().unresolvedRefinements != 0) &&
            std::chrono::steady_clock::now() - start < std::chrono::seconds(90));
     const auto d = Game::terrain()->diagnostics();
     CHECK(d.admittedRoots > 0);
+    CHECK(d.deepestSurfaceDepth == 13);
+    CHECK(d.unresolvedRefinements == 0);
+    CHECK(d.planningIdle);
     CHECK(d.selected > d.admittedRoots);
     CHECK(d.failed == 0);
     // Frustum extraction changes only draws; the admitted spatial cut and its shadow casters remain intact.
@@ -2090,6 +2094,21 @@ TEST_CASE("Terrain laboratory renders asynchronously generated native geometry")
         }
     }
     REQUIRE(bool(output));
+    // Exercise actual renderer retirement after the complete depth-13 selection has been submitted.
+    Game::terrain()->teleport({{0, 1000000, 0}, {}});
+    const auto draining = std::chrono::steady_clock::now();
+    for (;;)
+    {
+        Game::frame(1.f / 60, target);
+        const auto retired = Game::terrain()->diagnostics();
+        if (!retired.nodes && !retired.jobs && !retired.retiredCpuBytes && !retired.retiredGpuBytes)
+        {
+            CHECK(retired.residentCpuBytes == 0);
+            CHECK(retired.residentGpuBytes == 0);
+            break;
+        }
+        REQUIRE(std::chrono::steady_clock::now() - draining < std::chrono::seconds(30));
+    }
 }
 
 TEST_CASE("Terrain ten minute traversal retires obsolete allocations" * doctest::skip())
@@ -2165,7 +2184,7 @@ TEST_CASE("Terrain stationary profile" * doctest::skip())
     const bool moving = std::getenv("OFG_TERRAIN_PROFILE_ROUTE") != nullptr;
     std::ofstream report(directory / (moving ? "moving.csv" : "stationary.csv"));
     report << "seconds,update_ms,extract_ms,render_ms,wait_ms,cut,jobs,cpu,blocked,draws,triangles,finest_depth,"
-              "unresolved,idle\n";
+              "unresolved,idle,nodes,coordinator_max_ms,snapshot_age_ms,gpu,retired_gpu\n";
 #ifdef OFG_TERRAIN_FUNCTION_PROFILE
     terrainProfile::enabled = std::getenv("OFG_TERRAIN_PROFILE_FUNCTIONS") != nullptr;
     std::ofstream functions(directory / "functions.csv");
@@ -2225,7 +2244,8 @@ TEST_CASE("Terrain stationary profile" * doctest::skip())
 #endif
         const auto d = terrain.diagnostics();
 #ifdef OFG_TERRAIN_FUNCTION_PROFILE
-        if (!convergedCheckpoint && d.planningIdle && d.unresolvedRefinements == 0 && d.jobs == 0)
+        if (!convergedCheckpoint && d.deepestSurfaceDepth == 13 && d.planningIdle && d.unresolvedRefinements == 0 &&
+            d.jobs == 0)
         {
             terrainProfile::checkpoint(functions, "converged", frames, elapsed);
             convergedCheckpoint = true;
@@ -2240,7 +2260,9 @@ TEST_CASE("Terrain stationary profile" * doctest::skip())
         report << elapsed << ',' << updateMs << ',' << extractMs << ',' << renderMs << ',' << waitMs << ','
                << d.selected << ',' << d.jobs << ',' << d.residentCpuBytes << ',' << d.budgetBlocked << ','
                << list.items.size() << ',' << triangles << ',' << unsigned(d.deepestSurfaceDepth) << ','
-               << d.unresolvedRefinements << ',' << d.planningIdle << '\n';
+               << d.unresolvedRefinements << ',' << d.planningIdle << ',' << d.nodes << ','
+               << terrain.maximumReconciliationMilliseconds() << ',' << terrain.snapshotAgeMilliseconds() << ','
+               << d.residentGpuBytes << ',' << d.retiredGpuBytes << '\n';
         if (elapsed >= nextReport)
         {
             std::printf(
@@ -2264,7 +2286,7 @@ TEST_CASE("Terrain stationary profile" * doctest::skip())
     terrainProfile::enabled = false;
     terrainProfile::checkpoint(functions, "total", frames, elapsed);
 #endif
-    CHECK(terrain.diagnostics().deepestSurfaceDepth >= (moving ? 4 : 6));
+    CHECK(terrain.diagnostics().deepestSurfaceDepth >= (moving ? 4 : 13));
     CHECK(nearestSurfaceDistance < 64); // The cut must actually follow the observer, not merely retain old fine tiles.
     if (!moving)
     {

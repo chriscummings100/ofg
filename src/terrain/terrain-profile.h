@@ -12,14 +12,13 @@ namespace ofg::terrainProfile {
 enum class Function
 {
     TerrainLaboratory_update,
-    TerrainLaboratory_updateRoots,
     TerrainLaboratory_receiveResults,
     TerrainLaboratory_upload,
     TerrainLaboratory_append,
     TerrainStream_reconcile,
-    TerrainStream_makePlan,
+    TerrainStream_discoverDemand,
     TerrainStream_schedule,
-    TerrainStream_publish,
+    TerrainStream_selectReady,
     TerrainStream_prune,
     TerrainStream_diagnostics,
     TerrainMesher_step,
@@ -47,14 +46,13 @@ enum class Function
 };
 inline constexpr std::array names{
     "TerrainLaboratory::update",
-    "TerrainLaboratory::updateRoots",
     "TerrainLaboratory::receiveResults",
     "TerrainLaboratory::upload",
     "TerrainLaboratory::append",
     "TerrainStream::reconcile",
-    "TerrainStream::makePlan",
+    "TerrainStream::discoverDemand",
     "TerrainStream::schedule",
-    "TerrainStream::publish",
+    "TerrainStream::selectReady",
     "TerrainStream::prune",
     "TerrainStream::diagnostics",
     "TerrainMesher::step",

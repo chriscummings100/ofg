@@ -1,16 +1,24 @@
-// Application-thread octree streaming: demand, request identity and atomic prepared display cuts.
+// Single-owner CPU octree streaming: complete demand, immutable readiness and balanced display selection.
 #pragma once
 
 #include "terrain/terrain-address.h"
-#include "resources/mesh.h"
+#include <memory>
 
 #include <map>
+#include <limits>
 #include <optional>
 #include <set>
 #include <string>
 #include <vector>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace ofg::terrain {
+struct AddressHash
+{
+    // Hashes exact root/local integers without converting large coordinates to floating point.
+    size_t operator()(const NodeAddress& address) const noexcept;
+};
 enum class BuildState
 {
     Pending,
@@ -31,15 +39,12 @@ struct RequestId
     auto operator<=>(const RequestId&) const = default;
 };
 
-struct PreparedPayload
+struct ReadyContent
 {
-    std::shared_ptr<Mesh> mesh;
+    RequestId id;
     size_t cpuBytes = 0, gpuBytes = 0;
-    // Nonempty parts map to Mesh submeshes; -1 means this regular/face part has no triangles.
-    std::array<int8_t, 7> partSubMeshes{-1, -1, -1, -1, -1, -1, -1};
     bool empty = false;
     bool certifiedEmpty = false;
-    uint64_t lastSubmission = 0;
 };
 
 struct BuildRequest
@@ -52,7 +57,7 @@ struct BuildRequest
 struct CutEntry
 {
     NodeAddress address;
-    std::shared_ptr<PreparedPayload> payload;
+    std::shared_ptr<const ReadyContent> payload;
     uint8_t transitionFaces = 0; // Draw selection only; never part of a build identity.
 };
 
@@ -65,7 +70,7 @@ struct StreamSettings
     size_t maximumPayloadBytes = 16ull << 20;
     size_t maximumJobs = 64;
     size_t maximumNodes = 8192;
-    size_t maximumPlansPerUpdate = 64;
+    double refinementRange = std::numeric_limits<double>::infinity();
 };
 
 struct StreamDiagnostics
@@ -100,6 +105,8 @@ public:
     void setRefinement(NodeAddress node, std::optional<bool> refine);
     // Clears a terminal content failure; future dispatch receives a fresh request ID.
     void retry(NodeAddress address);
+    // Retries every current terminal failure, without reviving cancelled identities.
+    void retryFailures();
     // Withdraws all coverage, invalidates requests and advances the terrain epoch.
     void reset();
     // Reconciles demand, cancellation, complete-group reservations and prepared cut publication.
@@ -111,19 +118,21 @@ public:
     // Accepts a worker's validated nonempty CPU result once; true permits upload, not display.
     bool acceptGenerated(RequestId request, size_t cpuBytes);
     // Publishes an ordered/prepared upload or explicit empty result, rejecting obsolete identities.
-    bool complete(RequestId request, std::shared_ptr<PreparedPayload> payload);
+    bool complete(RequestId request, ReadyContent payload);
     // Records a terminal generation/upload error without replacing displayed fallback.
     void fail(RequestId request, std::string error, FailureStage stage = FailureStage::Generation);
-    // Retires buffers from a failed partial upload before releasing its job reservation.
-    void failUpload(RequestId request, std::shared_ptr<PreparedPayload> payload, std::string error);
     // Finalizes a cancelled job; repeated acknowledgement is harmless.
     void acknowledgeCancellation(RequestId request);
-    // Returns the selected cut; copy its entries to retain a render snapshot independently of later updates.
+    // Returns the selected immutable CPU descriptors; copying entries never retains graphics objects.
     const std::vector<CutEntry>& cut() const noexcept;
-    // Records actual use of a retaining snapshot; submissions must be monotonically numbered.
-    void submitted(const std::vector<CutEntry>& snapshot, uint64_t serial);
-    // Advances actual GPU completion and releases retired data after other owners disappear.
-    void completedSubmission(uint64_t serial);
+    // Transfers retirement obligations; renderer acknowledges only after adoption and actual GPU completion.
+    std::vector<std::pair<RequestId, uint64_t>> takeRetirements();
+    // Releases renderer-owned payload charges exactly once, including cancelled or failed partial uploads.
+    void releasePayload(RequestId id);
+    // Distinguishes renderer-owned requests from worker-owned requests when routing cancellation.
+    bool awaitingUpload(RequestId id) const;
+    // Drops CPU accounting only after shutdown when the renderer has taken independent retirement ownership.
+    void abandonRenderer();
     // Reports live content, reservations and retirement without counting the same allocation twice.
     StreamDiagnostics diagnostics() const;
     // Observes a node's build state; an absent node returns nullopt.
@@ -134,20 +143,13 @@ public:
     void validate() const;
 
 private:
-    enum class Operation
-    {
-        Admit,
-        Split,
-        Merge,
-        Withdraw
-    };
+    using LeafSet = std::unordered_set<NodeAddress, AddressHash>;
     struct Slot;
     struct Node;
     struct Job;
-    struct Plan;
-    // Reconciles one bounded pass; update invalidates attempted work if allocation interrupts this pass.
+    // Reconciles complete demand and ready cuts; no partial selection escapes.
     void reconcile();
-    // Resolves an address from its root without allocating missing nodes.
+    // Resolves exact addresses through a non-owning hash index without creating nodes.
     Node* find(NodeAddress address) const;
     // Allocates all eight children together and derives their initial distance demand.
     bool createChildren(Node& node);
@@ -157,36 +159,43 @@ private:
     Slot* owner(RequestId request);
     // Computes effective distance/override demand; a certificate or depth cap forbids splitting.
     bool wantsChildren(const Node& node) const;
-    // Builds a balanced candidate and its missing node/ancestor dependencies for one local operation.
-    std::optional<Plan> makePlan(NodeAddress seed, Operation operation);
-    // Dispatches bounded dependency groups; sibling bases reserve together and publication still waits for all.
-    bool schedule(Plan& plan);
-    // Commits a prepared plan against the current cut; publication uses a no-throw swap.
-    bool publish(const Plan& plan);
+    // Computes complete distance demand and closes target face boundaries within the metadata cap.
+    void discoverDemand();
+    // Repairs every face violation; desired cuts may refine, ready cuts only coarsen.
+    void balance(LeafSet& leaves, bool allowRefinement);
+    // Derives and publishes available coverage, retaining every needed ancestor payload.
+    void selectReady();
+    // Reserves whole eligible sibling groups, coarse first and nearest within a level.
+    void schedule();
+    // Removes non-owning index entries before destroying a complete unused subtree.
+    void unindex(Node& node);
     // Invalidates work outside required content, retaining cancelled job accounting.
     void cancelUnused(const std::set<NodeAddress>& required);
     // Retires unused payloads and entire child groups after cut/dependency ownership is established.
     void prune(const std::set<NodeAddress>& required);
-    // Transfers a payload to retirement; a snapshot may still retain it.
+    // Transfers renderer residency charges to retirement; snapshots retain only immutable CPU metadata.
     void retire(Slot& slot);
 
     StreamSettings m_settings;
     WorldPosition m_observer;
     std::map<CellAddress, std::unique_ptr<Node>> m_roots;
+    std::unordered_map<NodeAddress, Node*, AddressHash> m_index;
     std::set<CellAddress> m_wantedRoots;
     std::map<NodeAddress, bool> m_overrides;
     std::map<RequestId, Job> m_jobs;
     std::vector<BuildRequest> m_dispatch;
     std::vector<RequestId> m_cancellations;
     std::vector<CutEntry> m_cut;
-    std::vector<std::shared_ptr<PreparedPayload>> m_retired;
-    std::map<std::pair<NodeAddress, Operation>, std::set<NodeAddress>> m_pendingRequirements;
-    // Wakes blocked/held planning after an input changes, preserving nearest-first order on every new pass.
-    void invalidatePlans() noexcept;
-    std::set<std::pair<NodeAddress, Operation>> m_attemptedOperations;
+    std::map<RequestId, std::shared_ptr<const ReadyContent>> m_retired;
+    std::vector<std::pair<RequestId, uint64_t>> m_retirements;
+    LeafSet m_desired;
+    std::set<NodeAddress> m_required;
+    // Marks availability dirty; demand is independently invalidated by observer/topology inputs.
+    void invalidateSelection() noexcept;
     uint64_t m_epoch = 1, m_sequence = 0, m_publications = 0, m_staleResults = 0;
-    uint64_t m_completedSubmission = 0, m_lastSubmission = 0;
     bool m_budgetBlocked = false;
+    bool m_metadataBlocked = false;
     bool m_idle = false;
+    bool m_demandDirty = true;
 };
 } // namespace ofg::terrain

@@ -119,21 +119,23 @@ layouts, the pinned WebGPU adaptations, numerical approximations and validation 
 
 The [terrain laboratory](terrain-streaming.md) adds a GPU-independent octree controller and deterministic volume
 mesher to `ofg-core`, a concrete preparation/retirement adapter to `ofg-render`, and diagnostics to `ofg-ui`.
-`Game` owns the optional terrain mode. Both hosts use the same two persistent C++ generation threads. Browser
-pthreads share the application WASM heap and require cross-origin isolation; graphics/UI stay on the application
-thread. Browser teardown cancels detached workers, which retain their CPU state until they exit without accessing
-the destroyed laboratory. Native teardown joins. Terrain draws and shadow
-casters use the same camera-relative transforms, while physical atmosphere altitude remains independent.
+`Game` owns the optional terrain mode. Both hosts run one C++ streaming coordinator and two persistent generation
+threads. The coordinator owns the mutable tree and computes complete demand, boundary and availability passes.
+Parents stay loaded while their branches are needed. Immutable CPU descriptors/IDs cross to the renderer; meshes,
+materials, GPU preparation and submission tracking stay exclusively on the application thread. Browser pthreads
+share the application WASM heap and require cross-origin isolation.
 
-Atomic cuts, immutable request identities and retained ancestors protect visible coverage. Explicit upload preparation
-prevents lazy mesh allocation from being mistaken for readiness. Actual GPU completion protects retired buffers; the
-browser uses WebGPU queue completion callbacks because the pinned RHI fence only tracks submission there. See the
-terrain contract and its validation evidence before extending generation or interpreting residency counters.
+Atomic cuts, immutable request identities and retained ancestors protect coverage. Explicit upload readiness prevents
+lazy GPU allocation from being mistaken for availability. Retirement messages name the first revision excluding a
+payload; the renderer releases it only after adopting that or a later cut and observing actual GPU completion.
+Browser work-done callbacks and asynchronous application-thread teardown retain graphics ownership until safe;
+detached workers own CPU state only. Native teardown drains and joins. Terrain/shadow transforms use the live camera.
 
-The [sparse streaming plan](plans/sparse-terrain-streaming.md) records the proposed complete demand/boundary/display
-passes and future single-owner streaming thread. The current threading migration does not implement those passes
-or increase world/render size. The browser Slang library is rebuilt at the same pinned version with pthread support
-because the release WASM archive is not shared-memory compatible; see DEVELOPING.md.
+The laboratory now uses 131,072 m roots and depth 13 (16 m leaves), independently of a 4,096 m refinement/admission
+radius and 16,000 m camera far plane. The existing noise fixture scales its wavelengths with root width; hydrology
+and island generation remain separate. The [sparse streaming plan](archived/sparse-terrain-streaming.md) records the
+implementation and acceptance evidence. Slang is rebuilt at the same pinned version with pthread support because
+the release WASM archive is not shared-memory compatible; see DEVELOPING.md.
 
 ## Shadow binding ownership
 

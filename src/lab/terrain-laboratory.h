@@ -1,7 +1,7 @@
 // Shared terrain inspection mode owns workers, uploads and cut snapshots; scene entities stay small.
 #pragma once
 
-#include "terrain/terrain-workers.h"
+#include "terrain/terrain-streaming-service.h"
 #include "render/queue-completion.h"
 #include "render/draw-list.h"
 #include "scene/scene.h"
@@ -17,9 +17,9 @@ class TerrainLaboratory
 public:
     // Starts concrete background workers and completion tracking on the shared graphics queue.
     TerrainLaboratory(rhi::IDevice* device, rhi::ICommandQueue* queue);
-    // Native caller drains the graphics queue before destruction; worker destruction joins CPU tasks.
+    // Native caller drains its graphics queue; browser teardown retains retirement state asynchronously.
     ~TerrainLaboratory();
-    // Reconciles camera motion, demand, worker results and bounded uploads on the application thread.
+    // Posts the live observer, adopts complete service selections and prepares bounded uploads.
     void update(Scene& scene);
     // Appends retaining, camera-relative terrain draws and independent shadow casters.
     void append(DrawList& list);
@@ -36,37 +36,52 @@ public:
     // Runs a reproducible moving-observer route with distant teleports every two minutes.
     void traverse(double elapsedSeconds);
     // Returns the controller's current diagnostic snapshot.
-    terrain::StreamDiagnostics diagnostics() const { return m_stream.diagnostics(); }
+    terrain::StreamDiagnostics diagnostics() const { return m_diagnostics; }
+    // Returns the worst completed coordinator reconciliation since service startup, in host milliseconds.
+    double maximumReconciliationMilliseconds() const { return m_maximumReconciliationMilliseconds; }
+    // Returns the age of the adopted selection, including intentional reuse while stationary, in milliseconds.
+    double snapshotAgeMilliseconds() const
+    {
+        return m_snapshotCreated == std::chrono::steady_clock::time_point{}
+                   ? 0
+                   : std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - m_snapshotCreated)
+                         .count();
+    }
 
 private:
-    struct Upload
+    struct RenderPayload
     {
-        terrain::BuildRequest request;
-        std::shared_ptr<terrain::PreparedPayload> payload;
+        terrain::ReadyContent content;
+        std::shared_ptr<Mesh> mesh;
+        std::array<int8_t, 7> partSubMeshes{-1, -1, -1, -1, -1, -1, -1};
+        uint64_t lastSubmission = 0;
+        std::optional<uint64_t> retireAfter;
     };
-    // Reconciles a spherical root demand with a larger retention radius.
-    void updateRoots();
-    // Converts terminal worker messages into validated empty payloads or queued geometry uploads.
+    struct Shutdown;
+    // Converts service output into renderer-owned mesh records, then adopts the latest complete selection.
     void receiveResults();
-    // Advances at most four MiB of uploads while limiting incomplete staging to sixteen MiB.
+    // Advances bounded uploads and releases retired resources after actual GPU completion.
     void upload();
 
-    terrain::TerrainStream m_stream;
-    terrain::TerrainWorkers m_workers;
-    QueueCompletion m_completion;
+    terrain::StreamSettings m_settings;
+    std::unique_ptr<terrain::TerrainStreamingService> m_service;
+    std::unique_ptr<QueueCompletion> m_completion;
+    std::map<terrain::RequestId, RenderPayload> m_payloads;
+    std::deque<terrain::RequestId> m_uploads;
+    terrain::StreamDiagnostics m_diagnostics;
+    uint64_t m_revision = 0;
+    double m_reconciliationMilliseconds = 0;
+    double m_maximumReconciliationMilliseconds = 0;
+    std::chrono::steady_clock::time_point m_snapshotCreated;
     terrain::GeneratorSettings m_generator;
     terrain::WorldPosition m_camera{}, m_observer{};
-    std::set<terrain::CellAddress> m_roots;
-    std::deque<Upload> m_uploads;
     std::deque<std::pair<uint64_t, size_t>> m_staging;
     std::vector<terrain::CutEntry> m_snapshot;
-    std::vector<terrain::NodeAddress> m_failures;
     std::shared_ptr<Material> m_material;
-    std::array<std::shared_ptr<Material>, 7> m_lodMaterials;
+    std::array<std::shared_ptr<Material>, 14> m_lodMaterials;
     bool m_freeze = false, m_lodColors = false, m_holdNext = false, m_failNext = false, m_bounds = false;
     math::Mat4 m_clipFromWorld = math::mat4Identity();
     bool m_teleported = true;
-    bool m_admissionBlocked = false;
     double m_updateMilliseconds = 0;
     std::string m_error;
 };

@@ -1,16 +1,15 @@
 # Simplify sparse terrain streaming and share C++ workers across hosts
 
 This ExecPlan follows [PLANS.md](../../PLANS.md). The browser C++ threading migration is complete.
-The streaming redesign below is a concrete proposal, refined at the user's request on 2026-10-07;
-its implementation is separate work. Existing implementation and verification are preserved in
-commit `eadecbf`, pushed to `origin/main`. Do not confuse the completed migration with the proposed tree redesign.
+The user authorized execution of the streaming redesign on 2026-10-07. Implementation and verification are complete. The pre-redesign implementation is preserved in
+commit `eadecbf`, pushed to `origin/main`; the approved design is preserved in `9eacd6e`.
 
 ## Purpose / Big Picture
 
 Support sparse, roughly 128 km islands with 16 m finest cells, while keeping streaming understandable
 and rendering independent of traversal latency. Replace repeated per-operation replacement planning
 with complete demand, boundary and display-selection passes. Give a single streaming thread ownership
-of the mutable tree in a later milestone. The prerequisite shared-memory C++ generation threads now
+of the mutable tree, independently of rendering and the two meshers. The prerequisite shared-memory C++ generation threads now
 work on web and native; the separate browser generator WASM and JavaScript copy transport are removed.
 
 The organising rule is **what do we need, and what do we have?** Keep parents while their branches are
@@ -38,12 +37,28 @@ can run every frame; the worker may reuse its previous answer when neither deman
   worker wake-up and deterministic acceptance fixtures. This is documentation, not implemented behavior.
 - [x] (2026-10-07) Incorporated the user's clarification: parents remain resident for needed branches;
   selection is a fresh availability/demand query, independent of completion history.
-- [ ] Future authorization: implement complete sparse demand and boundary traversals.
-- [ ] Future authorization: implement balanced ready display selection and remove replacement plans.
-- [ ] Future authorization: move tree ownership to a streaming thread and publish immutable selections.
-- [ ] Future authorization: exercise depth 13 and configure large-island generation/render ranges.
+- [x] (2026-10-07) Implemented complete sparse demand and boundary traversals with an address hash index.
+- [x] (2026-10-07) Implemented balanced availability selection with retained parents; removed the old planner.
+- [x] (2026-10-07) Moved tree ownership to one coordinator and published immutable CPU selections; GPU ownership stays on the application thread.
+- [x] (2026-10-07) Configured 131,072 m roots, depth 13, 4,096 m refinement/admission and 16,000 m far plane; native/WebGPU reach 16 m detail.
+
+- [x] (2026-10-07) Established synchronous availability passes first, then separated CPU identity and renderer retirement.
+- [x] (2026-10-07) Completed native Release, browser lifecycle/rendering/route, mutation, radial-map, profiling,
+  formatting and documentation checks. Reviewed ownership, obsolete planner removal and failure paths; archived this plan.
 
 ## Surprises & Discoveries
+
+Implementation findings (2026-10-07): retaining parents makes completion ordering irrelevant to selection, but
+renderer retirement still needs durable messages even when snapshots coalesce. Browser teardown therefore
+retains a small application-thread retirement state until GPU work completes. Coordinator and mesher state
+remain CPU-only. Review caught cancelled uploads behind an exhausted per-frame upload allowance: all queued
+IDs must still be visited before retiring their renderer records. Metadata refusal must also survive unrelated
+readiness notifications; a focused regression verifies the diagnostic.
+
+The existing generator scales its noise wavelength with root width. The larger root makes the local fixture
+flatter; changing island shape or fine surface features is deliberately separate generation work.
+
+The following paragraphs describe the pre-redesign starting point and the prerequisite browser migration.
 
 Before the migration, the web implementation had two dedicated workers, each with an independent generator WASM
 heap. It copied geometry out of that heap into transferable buffers, then into the application heap.
@@ -76,7 +91,7 @@ queried an obsolete Emscripten runningWorkers field; current runtime tracks live
   snapshots isolate rendering; no per-node locking or general task framework is required.
 - 2026-10-07: Reuse ordinary C++ threads on web through Emscripten pthreads and shared WASM memory.
   Cross-origin isolation becomes a deployment requirement. Keep graphics/UI calls on their existing
-  application context. Moving the streaming controller off-thread remains a separate future milestone.
+  application context. The later coordinator milestone now implements off-thread traversal as well.
 - 2026-10-07: Web worker threads detach and capture shared CPU State. Destruction cancels and wakes them;
   their last reference releases state on exit. This avoids UI-thread joins or Asyncify teardown and never
   exposes laboratory/GPU pointers to detached work. Native destruction retains synchronous joins.
@@ -94,7 +109,18 @@ queried an obsolete Emscripten runningWorkers field; current runtime tracks live
 
 ## Outcomes & Retrospective
 
-Design saved and shared C++ threading migration complete. Native Release and browser functional checks,
+The redesigned controller, coordinator and renderer handoff are implemented. Root/child groups own nodes;
+a non-owning hash index routes lookups. Complete demand/boundary/selection passes replace per-operation plans.
+Parent payloads survive child completion. Rendering can reuse its previous immutable selection while traversal
+continues, with transforms rebased against the live camera. Real native and browser runs converge through depth 13.
+The synchronous controller remains directly testable without a GPU or service thread.
+
+The implementation uses shared immutable ReadyContent descriptors in CutEntry rather than duplicating IDs/empty
+flags into a second leaf type. No graphics object crosses that boundary. There is no speculative ensureNode API:
+current callers need only indexed lookup and complete child creation. A concrete reconciliation gate supports
+deterministic service tests; it is not a general scheduling framework.
+
+Prior migration/refinement outcome (before this execution): design saved and shared C++ threading migration complete. Native Release and browser functional checks,
 moving-route drainage and final review pass. No new streaming algorithm, larger render
 range or traversal performance improvement is claimed. The primary additional build cost is preparing
 threaded Slang from the same pinned source version once; incremental application builds reuse it.
@@ -121,7 +147,7 @@ Loaded hidden nodes support fallback, incomplete sibling groups or pending retir
 Request identity includes epoch and sequence: cancelled/stale results never overwrite current content.
 Memory budgets include queued/running reservations, resident payloads and pending GPU retirement.
 
-The proposed controller must implement these transitions explicitly:
+The controller implements these transitions explicitly:
 
 | Event | State and ownership effect |
 | --- | --- |
@@ -148,11 +174,12 @@ samples or a separately proven transition scheme. A deeper octree does not settl
 ## Context and Orientation
 
 `src/terrain/terrain-address.{h,cpp}` provides exact integer root/local coordinates, parent/child
-addresses and camera-relative conversion. `terrain-stream.{h,cpp}` currently owns nodes and implements
-per-operation candidate plans. A cut means a non-overlapping set of leaves covering admitted roots.
+addresses and camera-relative conversion. `terrain-stream.{h,cpp}` owns nodes and implements
+complete demand, boundary and availability passes. A cut means a non-overlapping set of leaves covering admitted roots.
 `terrain-workers.cpp` implements the two persistent C++ generation threads on both hosts. The old native/web
 split, separate generator executable, wire header and JavaScript transport have been removed.
-`src/lab/terrain-laboratory.cpp` currently schedules, uploads and renders the stream on the application thread.
+`src/terrain/terrain-streaming-service.cpp` owns tree mutation and mesher dispatch on its coordinator thread.
+`src/lab/terrain-laboratory.cpp` uploads, renders and retires graphics on the application thread.
 
 Build prerequisites and exact environment setup are in DEVELOPING.md and the build-native/build-web
 skills. At migration start Slang RHI is pinned to 16324a68af477baaede620e713644f5e9613b1a2,
@@ -178,7 +205,7 @@ independent completion with a held job, cancellation, failure, release, shutdown
 memory and page responsiveness, then run real terrain rendering, motion, retirement and reload checks.
 Keep the complete doctest suite native. Record compiler and runtime limitations honestly.
 
-### Milestone 2: Demand and boundary closure (proposal)
+### Milestone 2: Demand and boundary closure (implemented)
 
 Keep TerrainStream synchronous and GPU-independent during this milestone. A call reconciles a finite
 set of inputs completely. Tests supply results explicitly; the laboratory still calls it on the main
@@ -190,7 +217,8 @@ Use existing NodeAddress: signed 64-bit root coordinates, integer local coordina
 is coarsest; increasing depth means finer detail. Width is rootWidth / 2^depth. A cut is a set of leaves
 covering whole admitted roots, including empty leaves. It is not a list filtered by camera visibility.
 
-The following is a proposed shape, not a second implementation to keep alongside the existing controller:
+The following is the approved illustrative shape. The implementation groups state/request/content/error in a
+Slot, uses a required-address set instead of a per-node needed flag, and omits the unnecessary parent pointer:
 
 ```cpp
 // CPU-only metadata; the renderer owns resources identified by id.
@@ -222,12 +250,10 @@ Root owners and child unique_ptrs own nodes. An unordered_map<NodeAddress, Node*
 non-owning index. Direct child pointers serve traversal; the index serves lookup and result routing.
 Maintain node count as groups enter/leave. Creating a group allocates and registers all eight before
 attaching it; allocation failure leaves no partial group or dangling index entry. Deletion removes
-index entries before owners. No node pointer crosses the future streaming thread boundary.
+index entries before owners. No node pointer crosses the streaming thread boundary.
 
-Provide find(address) and ensureChildren(parent); neither submits jobs. A convenience ensureNode(address)
-walks the root-to-node path and ensures complete sibling groups at each missing level. It may leave
-valid ancestor groups if a later group hits the cap, but never creates a lone child. Do not call it from
-read-only neighbour queries. Root/local integer arithmetic must check INT64 boundaries before crossing roots.
+Provide find(address) and ensureChildren(parent); neither submits jobs. Traversal ensures complete child groups as it descends; no separate ensureNode API is needed by current callers.
+Read-only neighbour queries never create nodes. Root/local integer arithmetic must check INT64 boundaries before crossing roots.
 
 #### Pass A: distance demand
 
@@ -329,7 +355,7 @@ Visible result and proof: the current 1,024 m laboratory keeps complete coverage
 with deterministic coarse/near dispatch. Tests must cover full queues, metadata refusal during closure,
 allocation failure during group creation and eventual convergence after capacity returns.
 
-### Milestone 3: Ready display selection (proposal)
+### Milestone 3: Ready display selection (implemented)
 
 Run selection after demand changes, relevant readiness/failure events or root admission/withdrawal.
 Keep every loaded ancestor of the desired/selected branches available as fallback. A loaded root may
@@ -384,9 +410,9 @@ when the replacement is proven. Do not retain a selectable old planner. Visible 
 every published cut passes coverage/readiness/balance/mask checks under deliberately reordered uploads;
 settled coverage converges to the desired cut when content, metadata and memory are sufficient.
 
-### Milestone 4: Single-owner streaming worker (proposal)
+### Milestone 4: Single-owner streaming worker (implemented)
 
-Add a concrete TerrainStreamingService in proposed src/terrain/terrain-streaming-service.{h,cpp}, owning
+The concrete TerrainStreamingService in src/terrain/terrain-streaming-service.{h,cpp} owns
 TerrainStream and TerrainWorkers. It runs one persistent coordinator thread alongside the two generation
 threads. The controller remains synchronously testable. Do not put locks in Node or introduce a task graph.
 
@@ -517,7 +543,7 @@ is asynchronous; retained CPU service state outlives its detached coordinator/ge
 retains renderer retirement state until drainage. No detached thread retains a laboratory or GPU pointer.
 Closing the page terminates its worker environment; laboratory restart must drain without relying on closure.
 
-The web app needs three prewarmed pthread slots (coordinator + two generators), replacing today's two.
+The web app uses three prewarmed pthread slots (coordinator + two generators), replacing the previous two.
 A lifecycle proof permitting old/new overlap needs six; retain the existing generator-only proof too.
 Prove startup, held-work cancellation, reset/restart, zero live runtime threads after shutdown and a
 responsive browser frame loop. Do not change pool size or claim off-thread traversal in milestone 2.
@@ -526,7 +552,7 @@ Visible result and proof: camera/UI updates continue while a test gate holds a w
 releasing it yields one valid snapshot, not partial coverage. Native synchronous and threaded executions
 of the same scripted inputs converge to identical normalized cuts and resource counts.
 
-### Milestone 5: Large-root proof (proposal)
+### Milestone 5: Large-root proof (implemented)
 
 Configure root size/depth rather than retaining laboratory 1,024 m literals. Exercise 131,072 m roots
 with 16 m leaves, including crossing roots and distant negative addresses. Independently choose render
@@ -569,11 +595,9 @@ git diff --check
 ```
 
 The worker proof is implemented as ofg-terrain-workers-proof and built by the ofg-web dependency.
-For future CPU-only controller milestones use the existing cpu-tests configure/build/test presets;
-no GPU device is needed. Add the proposed service tests to the existing ofg-terrain-test target and
-its terrain-fast/terrain-randomized suites before claiming those tests run. Use installed clang-format
-22.1.3 for touched C++ files. The following additional commands are existing interfaces, but have not
-been rerun for this documentation-only refinement:
+CPU-only work can use the existing cpu-tests configure/build/test presets without a GPU. The new service
+tests are registered in ofg-terrain-test and terrain-fast. Use installed clang-format 22.1.3 for touched
+C++ files. The native-release suite also executes every GPU-independent group. Additional CPU commands:
 
 ```text
 cmake --preset cpu-tests
@@ -582,10 +606,10 @@ ctest --preset cpu-tests --output-on-failure
 ctest --preset native-release -L terrain --output-on-failure
 ```
 
-Implementation order within milestones 2-4: establish CPU-only payload identity/messages first; replace
-planning with synchronous passes and keep tests passing; remove old planner state; then add the service
-thread and renderer handoff. Update docs/terrain-streaming.md, docs/architecture.md and DEVELOPING.md at
-each implemented boundary. They must continue describing current behavior until that boundary ships.
+Execution order: first replaced the synchronous planning algorithm with complete passes while keeping the
+main-thread adapter working; then separated CPU identity from GPU ownership and introduced the coordinator.
+The old planner was removed rather than retained as a selectable path. docs/terrain-streaming.md,
+docs/architecture.md and DEVELOPING.md describe the resulting implementation.
 
 ## Validation and Acceptance
 
@@ -597,11 +621,11 @@ teleport, renders, responds to UI/resize/reload and drains resources after a mov
 console errors or unexpected validation warnings fail the smoke. Native worker tests and integration
 groups remain passing. No measured speedup is claimed from migration alone.
 
-For the future algorithm, the following are mandatory test cases, not evidence that they currently pass.
-Extend tests/terrain-stream-test.cpp and tests/terrain-band-test.cpp for synchronous behavior; add proposed
-tests/terrain-streaming-service-test.cpp for ownership/wake-up, registered with the existing terrain test
-target. Extend terrain integration cases in tests/graphics-test.cpp for renderer fence behavior,
-and tools/terrain-smoke.mjs for actual browser diagnostics.
+The following is the approved acceptance matrix. Controller/band/allocation tests implement the synchronous
+contracts; terrain-streaming-service-test.cpp exercises real coordinator and mesher threads in terrain-fast.
+Graphics tests and browser scripts cover actual uploads, rendering, completion and drainage. Case labels in the
+older tests predate this matrix; use descriptive test names and the mapping below rather than interpreting an
+older S-number alone as coverage of a new row.
 
 Every published cut in state-machine fixtures must pass an independent oracle: rasterize selected AABBs
 onto a finest-depth integer grid for roots of depth at most 3 and require each admitted voxel covered
@@ -664,6 +688,20 @@ Set numeric performance acceptance after baseline measurements, not from an unme
 
 ## Milestone Review
 
+Implementation review (2026-10-07): removed Operation/Plan, makePlan, attemptedOperations, pendingRequirements,
+maximumPlansPerUpdate and shared mutable PreparedPayload. Tree ownership is confined to one thread. GPU records
+and actual submission completion are confined to the application thread, including asynchronous browser teardown.
+Readiness is independent of visibility, and loaded ancestors remain available. Whole-group metadata/dispatch
+creation has rollback on allocation failure. Boundary repair terminates by switching permanently to coarsening
+after metadata refusal. Reconciliation does at most one cleanup retry; idle blocked inputs do no work.
+
+Review fixes include preserving metadata-block diagnostics across readiness, deterministic depth/distance closure
+ordering, rejecting incompatible root width on reset, retrying unadmitted roots after capacity returns, and removing
+cancelled upload IDs even after the frame upload budget runs out. Tests use an independent coverage/topology oracle,
+all 40,320 sibling orders, seeds 1..32 with 5,000 events each, allocation failures, real thread handshakes and real GPU
+completion. Existing native/browser dependency pins and shader sampling contracts are unchanged.
+
+
 Migration review completed 2026-10-07. The existing concrete queue/mesher implementation is shared rather
 than introducing another worker interface. The only platform lifetime branch detaches web threads, with
 shared State retaining all data they touch; native joins are preserved. Worker code never owns renderer
@@ -677,8 +715,8 @@ subsequently committed together with the migration in `eadecbf`.
 
 Plan refinement review (2026-10-07): retained one owner per mutable domain, replaced ambiguous budget
 closure with a terminating algorithm, specified skipped-snapshot/fence retirement, and separated target
-and readiness balance. Runtime implementation remains proposed. The next implementation must delete
-old plan scaffolding as it replaces it; these new tests are requirements, not claimed passing tests.
+and readiness balance. At that earlier revision runtime implementation remained proposed; it is now implemented as recorded above. That revision required the later implementation to delete
+old planner scaffolding and establish executable tests; both are now recorded above.
 Documentation checks passed: Markdown code fences pair, local links and named existing implementation/test
 paths resolve, and git diff --check passes. No runtime tests were rerun for this documentation-only change.
 
@@ -729,3 +767,85 @@ Use the existing TerrainWorkers value-request/owned-result interface. C++ vector
 queues without serialization; synchronization still guards publication. Keep raw mutable tree pointers
 off the render thread. Shared CPU memory does not eliminate GPU uploads or resource retirement.
 Threading reference: https://emscripten.org/docs/porting/pthreads.html (consulted 2026-10-07).
+
+
+## Implementation acceptance evidence (2026-10-07)
+
+All evidence below belongs to execution of the new controller/coordinator, not the prerequisite threading migration.
+Artifacts are under `artifacts/terrain/sparse-streaming` unless a different path is named.
+
+- Native Release build succeeded. All nine CTest groups passed in 73.37 s, including real GPU convergence to depth 13
+  and drainage to zero. Later test-only extensions passed all five terrain groups in 9.66 s; the synchronous/threaded
+  equivalence test then passed in terrain-fast (0.24 s). `native-ctest.log` and `terrain-final.log` preserve those runs.
+- `python tools/terrain-mutation-check.py` detected all eight injected faults and the restored controller passed.
+  Logs remain in `artifacts/terrain/mutations`; production sources are not mutated by that tool.
+- Native window startup, resize, minimize/restore and close passed; `native-final` contains inspected captures/logs.
+- Web build succeeded with the two documented Emscripten warnings retained. The stage-9 worker proof verifies
+  shared memory, held jobs, identity, cancellation, failure, coordinator convergence, stop/restart, heartbeat and
+  zero remaining pthreads. The real app uses three live C++ threads.
+- The fourteen-level flat-plane fixture independently checks 64 angular samples across near/far radial distances,
+  both off-centre and near-centre observers, and every width down to 16 m. `python tools/terrain-band-map.py --large`
+  produces the inspected labelled `artifacts/terrain/bands/large-bands.png`. Its refinement range is unlimited to
+  exhibit all levels; the interactive lab independently uses a 4,096 m detail radius.
+
+Acceptance mapping (descriptive names take precedence over historical S-number prefixes):
+
+| Matrix rows | Assertions and fixtures |
+| --- | --- |
+| S1-S3 | All readiness subsets, all 40,320 permutations, retained parent ID/no rebuild, each failed child, empty content, worker-vs-upload failure and partial-upload retirement. |
+| S4-S7 | Delayed coarse coverage, recursive coarsening, adjacent-root admission/withdrawal, independent AABB topology/mask oracle, and prebuilt-face toggling without regeneration. |
+| S8-S10 | Both prior hysteresis states at all six epsilon/equality positions, held dependencies/independent roots, complete demand separate from dispatch, outward root/sibling ordering and ready-parent assertions. |
+| S11-S13 | Seven/eight slots, independently constrained CPU/GPU bytes at 64/65, seven/eight metadata capacity, injected allocation/index/publication failure, closure fallback/idle behavior, and renderer release resuming refinement without motion. |
+| S14-S16 | Ordinary/certified empty distinction, stale/duplicate incarnations, cancellation/partial uploads, monotonic reset revisions and epoch separation. |
+| T1-T2 | Skipped removal revisions with delayed release, retained immutable CPU snapshots, held reconciliation while observer changes, and application-side rebasing. |
+| T3-T5 | Sequence notification before/beside wait, real coalesced observer gates, transfer/reset ownership, held-job cancellation, browser stage-9 shutdown/restart and zero live workers. |
+| L1-L3 | Exact 14 widths, sparse depth-13 negative-root path, integer coverage volume, negative/limit address tests, real distant WebGPU/native rendering, and independently sampled/exported radial bands. |
+
+The randomized suite runs seeds 1..32 with 5,000 events each, including observer movement, desired splits/merges,
+result reordering, failures, cancellations and pressure. Every step checks independent coverage/topology; each seed
+settles and then withdraws both roots with zero node/job/residency counts. Replay traces are saved under
+`artifacts/terrain/traces`. Synchronous and real threaded small-plane runs converge to equal addresses, masks,
+empty flags, node counts and CPU/GPU residency for a three-position observer sequence.
+
+Limitations: the flat noise fixture is not an island-generation result. A short route does not prove arbitrary
+long-duration stability. Timing scopes measure host elapsed time and overlap across threads; they are not GPU
+timestamps. Snapshot age grows intentionally when settled content is reused. Broader scheduling optimization
+should be based on the recorded new baseline, not comparisons to the old 1,024 m root workload.
+
+
+Final browser acceptance: origin/distant cuts contain 2,066/1,996 leaves, reach depth 13, and settle with zero jobs,
+failures or unresolved detail. Shared heap/isolation and three app threads are verified. UI toggles, resize/reload and
+texture/checkerboard smoke pass in Chrome 154.0.8037.98, with no errors or unexpected validation messages. Browser
+reports/screenshots are in `browser`; the fifteen-second route has 16 samples, maximum tracked CPU payload plus
+reservations/retirement 237,329,792 bytes and GPU 191,764,052 bytes, below the 256 MiB budgets. Final roots, selected,
+jobs, CPU, GPU and retired counts are zero. The 1200x800 browser viewport is recorded at 900x600 in traversal.webm;
+inspected motion-52/58.png show continuous terrain during movement; motion-63.png is after the deliberate
+high-altitude unload, with no scene geometry remaining. Browser adapter identity was not reported by this
+terrain run; no browser performance comparison is claimed. This machine has an i7-12700H and RTX 3050 Ti Laptop GPU;
+that does not establish which GPU Chrome chose.
+
+Final isolated Release baseline: i7-12700H, NVIDIA GeForce RTX 3050 Ti Laptop GPU, D3D12, 1440x1200 offscreen,
+validation disabled, function scopes enabled, stationary origin, 131072 m roots, 4096 m detail radius. The sixty-second
+run converged at 6.606 s. During seconds 45..60, mean main-thread terrain update was 0.509 ms, median measured frame
+8.147 ms and sampled p99 11.954 ms. Worst completed coordinator reconciliation was 38.990 ms, on its worker. This is
+not a comparative speedup claim: the terrain extent, shape and selected geometry differ from the old root workload.
+
+The run held at most 5,752 allocated nodes and settled at 2,360 nodes / 2,066 selected leaves, with 155,647,872 CPU
+payload bytes and 86,341,272 GPU payload bytes, zero pending retirement. Reconciliation totals stop changing after
+convergence: 222 reconciliations, 204 demand passes (4,998 ms inclusive total), and 222 selections (253 ms total).
+The two meshers performed 2,528 constructions and 118,572 bounded steps, with 234/1,463 ms cumulative host time
+respectively; overlapping worker times cannot be added to frame times. There were about 383 mesher starts per second
+until convergence; this includes speculative/cancelled construction and is not a completed-mesh throughput claim.
+The last selection was intentionally reused for 53.4 seconds, so its age is not a stalled worker. Raw per-frame and
+function CSVs plus summary.json are in `profile`.
+
+Demand rediscovery as empty certificates arrive is the measured startup CPU bottleneck. This implementation keeps
+complete passes and a single owner as planned; caching/incremental closure remains future measured optimization.
+No arbitrary latency threshold or invented performance pass criterion was introduced. The functional acceptance
+requires correct convergence, responsive independent rendering and bounded/drained ownership, all verified here.
+
+Final review/checks: clang-format 22.1.3 dry-run passes for all touched/new C++ sources; JavaScript syntax checks,
+local documentation links, Markdown fences and git diff --check pass. The final profile rerun also fixed the
+profiling checkpoint to require actual depth-13 convergence rather than accepting the initial empty diagnostics.
+
+The final explicit full-queue regression fills all eight slots, moves the observer, verifies the complete new target exists without dispatch/cancellation, and converges after capacity returns. The final terrain-fast rerun passes (0.26 s); fast-final.log preserves it.

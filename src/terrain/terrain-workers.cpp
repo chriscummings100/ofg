@@ -20,6 +20,7 @@ struct TerrainWorkers::State
     };
     std::mutex mutex;
     std::condition_variable changed, finished;
+    std::shared_ptr<StreamingWake> wake;
     bool stopping = false;
     std::map<RequestId, std::shared_ptr<Task>> tasks;
     std::deque<std::shared_ptr<Task>> queued;
@@ -89,13 +90,16 @@ struct TerrainWorkers::State
                 results.push_back(std::move(result));
             }
             finished.notify_one();
+            if (wake)
+                wake->signal();
         }
     }
 };
 
-TerrainWorkers::TerrainWorkers()
+TerrainWorkers::TerrainWorkers(std::shared_ptr<StreamingWake> wake)
     : m_state(std::make_shared<State>())
 {
+    m_state->wake = std::move(wake);
     try
     {
         for (uint32_t i = 0; i < m_state->threads.size(); ++i)
@@ -195,6 +199,8 @@ void TerrainWorkers::cancel(RequestId id)
     }
     m_state->changed.notify_all();
     m_state->finished.notify_one();
+    if (m_state->wake)
+        m_state->wake->signal();
 }
 
 void TerrainWorkers::releaseHeld()

@@ -57,10 +57,10 @@ namespace {
 // Completes a symbolic one-byte payload through both production phases.
 void finish(TerrainStream& stream, BuildRequest request)
 {
-    auto payload = std::make_shared<PreparedPayload>();
+    auto payload = std::make_shared<ReadyContent>();
     payload->cpuBytes = payload->gpuBytes = 1;
     REQUIRE(stream.acceptGenerated(request.id, 1));
-    REQUIRE(stream.complete(request.id, std::move(payload)));
+    REQUIRE(stream.complete(request.id, *payload));
 }
 } // namespace
 

@@ -3,6 +3,7 @@
 
 #include "terrain/terrain-generator.h"
 #include "terrain/terrain-stream.h"
+#include "terrain/streaming-wake.h"
 
 #include <chrono>
 
@@ -26,7 +27,7 @@ class TerrainWorkers
 {
 public:
     // Starts two persistent CPU workers; queued plus running plus unclaimed results are limited to 64.
-    TerrainWorkers();
+    explicit TerrainWorkers(std::shared_ptr<StreamingWake> wake = {});
     // Cancels work; native joins, browser workers finish independently while retaining their shared CPU state.
     ~TerrainWorkers();
     TerrainWorkers(const TerrainWorkers&) = delete;

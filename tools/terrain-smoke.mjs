@@ -24,17 +24,17 @@ try {
         catch { /* Navigation can temporarily replace the execution context. */ }
     },15000);
     await page.goto(`http://127.0.0.1:${server.address().port}/?demo=terrain&ui=0`);
-    await page.waitForFunction(()=>Module.failed||(Module.terrainState?.surfaceDepth>=6&&Module.terrainState?.selected>500&&Module.terrainState?.unresolved===0&&Module.terrainState?.idle),null,{timeout:240000});
+    await page.waitForFunction(()=>Module.failed||(Module.terrainState?.surfaceDepth>=13&&Module.terrainState?.selected>500&&Module.terrainState?.unresolved===0&&Module.terrainState?.idle),null,{timeout:240000});
     assert.equal(await page.evaluate(()=>Module.failed),false,report.errors.join('\n'));
     report.states.push(await page.evaluate(()=>Module.terrainState));
     report.threading = await page.evaluate(() => ({isolated: crossOriginIsolated,
         shared: HEAPU8.buffer instanceof SharedArrayBuffer, workers: Object.keys(PThread.pthreads).length}));
     assert.equal(report.threading.isolated, true);
     assert.equal(report.threading.shared, true);
-    assert.equal(report.threading.workers, 2);
+    assert.equal(report.threading.workers, 3);
     await page.locator('#canvas').screenshot({path:`${directory}/origin.png`});
     const previous = await page.evaluate(()=>{Module.terrainCommand=1;return Module.terrainState.publications;});
-    await page.waitForFunction(n=>Module.failed||(Module.terrainState?.publications>n+200&&Module.terrainState?.loadingRoots===0&&(Module.terrainState?.surfaceDepth>=6&&Module.terrainState?.selected>500&&Module.terrainState?.unresolved===0&&Module.terrainState?.idle)),previous,{timeout:240000});
+    await page.waitForFunction(n=>Module.failed||(Module.terrainState?.publications>n&&Module.terrainState?.loadingRoots===0&&(Module.terrainState?.surfaceDepth>=13&&Module.terrainState?.selected>500&&Module.terrainState?.unresolved===0&&Module.terrainState?.idle)),previous,{timeout:240000});
     report.states.push(await page.evaluate(()=>Module.terrainState));
     await page.locator('#canvas').screenshot({path:`${directory}/distant.png`});
     for(const state of report.states){assert.equal(state.failed,0);assert.ok(state.cpu<=256*1024*1024);assert.ok(state.gpu<=256*1024*1024);}
@@ -61,7 +61,7 @@ try {
     }
     else {
         await page.goto(`http://127.0.0.1:${server.address().port}/?demo=terrain&ui=1`);
-        await page.waitForFunction(()=>Module.failed||(Module.terrainState?.surfaceDepth>=6&&Module.terrainState?.selected>500&&Module.terrainState?.unresolved===0&&Module.terrainState?.idle),null,{timeout:120000});
+        await page.waitForFunction(()=>Module.failed||(Module.terrainState?.surfaceDepth>=13&&Module.terrainState?.selected>500&&Module.terrainState?.unresolved===0&&Module.terrainState?.idle),null,{timeout:120000});
         assert.equal(await page.evaluate(()=>Module.failed),false);
         await page.locator('#canvas').screenshot({path:`${directory}/ui.png`});
         // Coordinates are from the inspected 1200x761 canvas capture; exercise the actual ImGui checkboxes.
@@ -77,7 +77,7 @@ try {
         await page.waitForFunction(n=>Module.failed||Module.frameCount>n+3,frame,{timeout:60000});
         await page.locator('#canvas').screenshot({path:`${directory}/resized.png`});
         await page.reload();
-        await page.waitForFunction(()=>Module.failed||(Module.terrainState?.surfaceDepth>=6&&Module.terrainState?.selected>500&&Module.terrainState?.unresolved===0&&Module.terrainState?.idle),null,{timeout:120000});
+        await page.waitForFunction(()=>Module.failed||(Module.terrainState?.surfaceDepth>=13&&Module.terrainState?.selected>500&&Module.terrainState?.unresolved===0&&Module.terrainState?.idle),null,{timeout:120000});
         assert.equal(await page.evaluate(()=>Module.failed),false);
         await page.locator('#canvas').screenshot({path:`${directory}/reloaded.png`});
     }

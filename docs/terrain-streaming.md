@@ -1,165 +1,148 @@
 # Terrain streaming
 
-The noise terrain prototype is selected with `--terrain` or `?demo=terrain`. Generation supplies immutable values;
-`TerrainStream` owns demand, node groups, asynchronous identities and atomic display cuts on the application thread.
-`TerrainLaboratory` owns worker transport, validation, bounded uploads and retaining render snapshots. The scene owns
-one inspection camera rather than one entity per tile. Hydrology, editing, caves, foliage and variable sample counts
-per node are future generation work; this prototype uses 32 sample intervals at every depth.
+Run `--terrain` natively or `?demo=terrain` in the browser. `TerrainStreamingService` owns one coordinator
+thread and two generation threads on both hosts. `TerrainStream` is the synchronous, GPU-independent
+controller owned by that coordinator. `TerrainLaboratory` owns meshes, uploads, rendering and GPU retirement
+on the application thread. The scene contains an inspection camera rather than an entity per terrain node.
 
-## Addressing and surface boundaries
+The rule is **what do we need, and what do we have?** Parents remain loaded while their branches are needed,
+including while their children are displayed. Completion adds available content; it never discards a parent.
+The next selection is computed from desired detail and current readiness, independently of completion history.
 
-Roots are 1024-metre cells addressed by three signed 64-bit integers. Integer octree coordinates identify descendants,
-through depth six (16 metres). The seven cell widths are 1024, 512, 256, 128, 64, 32 and 16 metres.
-Octree depth increases toward finer cells; conventional LOD numbers run the other way (LOD 6 to LOD 0). Positions combine cell identity with double local metres. Root subtraction happens
-before float conversion. Rendering uses node-local vertices plus camera-relative translations; terrain and shadow
-casters share these transforms. Atmosphere altitude remains separate from the rebased render origin.
+## Addressing and distance
 
-Four deterministic noise octaves define a height surface. A conservative global height bound omits root layers that
-cannot contain a surface; local per-octave extrema also certify empty nodes within that global range; every admitted nonempty root still uses a full 3D octree. Meshes stay inside all six node
-faces. Transvoxel tables join different sample spacings on the fine side, including multiple simultaneous faces.
-This version uses zero-width transition strips on the common face, without secondary-vertex displacement or skirts.
-Geometric popping is expected. Neighbor depth differs by at most one. CPU tests independently weld shared positions
-within 1e-5 of sample spacing and check edge incidence, including six faces and corner junctions.
+Laboratory roots are 131,072 m cubes addressed by three signed 64-bit integers. Integer local octree coordinates
+identify descendants through depth 13, reaching 16 m cells. Widths halve across fourteen levels. The controller
+supports depth 16; it allocates demanded branches, not a dense 8^13 grid. A non-owning address hash index serves
+lookup, while roots and complete eight-child groups own nodes. Negative-root crossings use checked integer arithmetic.
 
-## State and publication
+Positions combine root identity with double local metres. Render transforms subtract the live camera before
+conversion to float; snapshots never freeze a camera-relative transform. Shadow casters use the same transforms.
+Atmosphere altitude remains independent of the rebased rendering origin.
 
-A nonexistent child group is unloaded. Each node has one build slot: Pending, Loading, Loaded or Failed. Loading includes CPU
-work and incremental GPU preparation. Visibility is membership in the published cut, not another mutable node flag.
-A loaded node can be hidden by descendants, waiting for sibling preparation, or retained until retirement.
-Empty output is a successful payload. Only a conservative emptiness certificate suppresses further subdivision.
+Distance is observer-to-AABB distance. Split below two widths, coarsen above 2.5 widths, and preserve history at
+equality/in between. Detailed demand is limited to 4,096 m. Root admission uses that radius; retention extends
+one root width beyond it. Root coverage is whole-root coverage, so the admission radius is not a hard draw cutoff
+inside a 131 km root. The camera far plane remains 16,000 m. Frustum/shadow culling filters draws, not ownership.
+Observer freeze changes demand independently of the moving camera.
 
-| Event | Build state and observable result |
+The height prototype still uses four noise octaves whose wavelengths scale with root width. Increasing root size
+therefore makes this fixture locally flatter. This is not an island/hydrology generator or a promise of added fine
+surface features. Meshing retains 32 intervals per node (4,096 m to 0.5 m sample spacing across these levels).
+Independent fine-node tessellation, caves, editing and foliage remain generation work.
+
+## State and complete selection
+
+Absent metadata is unloaded. Each existing node is Pending, Loading, Loaded or Failed. Visibility is membership
+in a published cut: a non-overlapping set of leaves covering each admitted root, including empty leaves.
+Loading includes queued generation, CPU generation and renderer preparation. A successful empty mesh is ready
+without GPU work; only a conservative certificate suppresses further distance subdivision.
+
+| Event | Result |
 | --- | --- |
-| Create root or complete child group | New node slots are Pending; the current cut is unchanged. |
-| Reserve a missing sibling group | Pending slots become Loading with fresh request identities; dispatch follows reservation. |
-| Accept validated CPU geometry | Remains Loading while bounded GPU preparation advances. |
-| Accept prepared geometry or explicit empty result | Becomes Loaded; publication still waits for the complete compatible replacement. |
-| Generation or upload fails | Becomes Failed; existing displayed coverage remains. Explicit retry returns the slot to Pending. |
-| Demand becomes obsolete | Invalidate the request owner; keep its job charged until terminal acknowledgement and retain submitted data until completion. |
-| Candidate is complete and still required | Atomically replace the display cut; build states remain Loaded. |
-| Prune unused content | Remove complete unused groups; payload ownership transfers to retirement where necessary. |
+| Create a child group | All eight Pending nodes are attached/indexed together, or none are. |
+| Reserve an eligible group | All its Pending members become Loading with fresh epoch/sequence IDs. |
+| Receive valid nonempty geometry | Transfer owned CPU vectors to the renderer; remain Loading. |
+| Receive upload-ready acknowledgement | Become Loaded; recompute availability selection. |
+| Complete children | Keep the parent Loaded; selection may descend when all eight children are ready. |
+| Fail generation/upload | Become Failed until explicit retry; partial upload charges survive renderer retirement. |
+| Lose demand | Detach obsolete request ownership; release charges only after the responsible owner acknowledges. |
+| Change neighbours | Select prebuilt transition ranges; no regeneration or upload. |
 
-Loaded and visible are therefore separate facts. An empty selected payload participates in coverage without issuing a
-draw. A parent can remain Loaded throughout child generation, publication and later coarsening.
-
-```cpp
-// Handle each worker result once. CPU completion alone does not admit geometry.
-if (stream.acceptGenerated(request.id, geometry.allocatedBytes()))
-{
-    uploads.push_back({request, payload});
-}
-
-// Advance this queue on subsequent frames, without accepting the CPU result again.
-while (!uploads.empty() && uploadAllowance >= 4)
-{
-    auto& upload = uploads.front();
-    const auto before = uploadAllowance;
-    const bool ready = Graphics::prepareStreamingMesh(*upload.payload->mesh, uploadAllowance);
-    if (before != uploadAllowance)
-    {
-        stream.submitted({{upload.request.address, upload.payload}}, completion.mark());
-    }
-    if (!ready) break;
-    stream.complete(upload.request.id, upload.payload);
-    uploads.pop_front();
-}
-```
-
-The full adapter implementation handles cancellation, errors and partial-buffer retirement around this basic sequence.
-Every request has an epoch and monotonically increasing sequence. Old results cannot overwrite a recreated node or a
-retry. Cancellation invalidates the owner immediately but retains its reservation until a terminal acknowledgement.
-Failure is terminal until explicit retry. Worker callbacks enqueue values and never access scene/node/GPU pointers.
+A reconciliation has three spatial passes, followed by bounded scheduling/cleanup:
 
 ```text
-for a proposed split, merge, root admission or withdrawal:
-    reconstruct a candidate from the current published cut
-    balance coarse neighbors to at most a 2:1 spacing ratio
-    require missing candidate nodes and their retained ancestors
-    wait for each node's parent to become Loaded before dispatching the node
-    reserve each missing sibling group together; build larger balanced replacements in bounded waves
-    once all required nodes are Loaded, derive the active faces from the candidate topology
-    allocate the next snapshot before changing admission flags
-    swap nodes and their face masks together, then prune obsolete content
+1. Discover desired detail breadth first, marking the complete target and ancestor dependencies.
+2. Balance desired face neighbours to at most one depth difference.
+3. Starting at ready roots, descend only through complete ready child groups wanted by the target.
+   Balance this available cut by selecting retained coarser ancestors where necessary.
+   Derive transition masks and publish the complete immutable selection if it changed.
+4. Cancel/prune content required by neither target nor selection; keep their ancestors.
+   Reserve and submit eligible groups within job and memory limits.
 ```
 
-All eight siblings are created and reserved together; their parent is prepared before dispatch. After publication, one sibling may refine independently.
-Merges proceed bottom-up and reuse retained parents. Every generated payload contains regular triangles followed by
-all six transition faces in a shared vertex/index buffer. Eight offsets delimit seven contiguous ranges, including empty
-ranges. Nonempty ranges map to existing Mesh submeshes; no shader or graphics wrapper is needed. The request identity
-contains only the node address and epoch/sequence, never a neighbor mask. CPU/GPU readiness covers the entire payload.
+Face lookup steps to the same-depth adjacent address and checks its ancestors in a leaf hash set. Every fine leaf
+checks its coarse neighbours; this handles one-to-many faces without pairwise production scans. Target closure
+refines coarse leaves where metadata fits. After a refusal, that closure only coarsens, so it terminates. Display
+closure always coarsens to loaded ancestors, replacing all their selected descendants. Failed/held jobs leave valid
+fallback coverage. A ready adjacent root can cause existing coverage to coarsen at its boundary.
 
-The cut stores a six-bit face mask separately from payload ownership. A change of neighbors updates that mask at atomic
-publication and reuses the same payload; it creates no mesh variant, generation job or upload. Color and shadow draws
-select the same regular/active-face submeshes. All faces are generated even if currently unused; this deliberately trades
-some upfront geometry/storage for simpler switching. An entirely empty result has seven empty ranges and no Mesh.
-A newly admitted root still waits for balanced neighboring node coverage before appearing. Culling affects draw extraction only, never spatial coverage or demand.
+Dispatch is coarse depth first, then distance to the sibling group's parent, then exact address. A parent must be
+ready before dispatching its children. Reserve every Pending member of an eligible group together; skip groups that
+do not fit without stopping demand traversal. Two workers may finish in any order. Failures await explicit retry.
+Unchanged settled/blocked inputs perform no traversal. Metadata cleanup permits one additional complete retry;
+otherwise capacity changes or new input wake blocked work.
 
-Distance uses the observer-to-AABB metric: below two node widths requests children; above 2.5 widths requests the
-parent. Equality and the intervening band preserve demand. Root demand is 4096 metres with 5120-metre retention.
-Observer freeze separates demand from the moving render camera. Coarse coverage loads outward first, followed by
-refinement in distance order. Runtime planning considers two candidates per update; a held or blocked candidate yields
-to the next nearest candidate until demand, readiness, topology or capacity changes. Idle and blocked passes do no
-planning work. Pending dependencies remain owned, but publication always reconstructs the candidate against the current
-cut. Balancing visits the cut once and follows new children rather than repeatedly scanning the complete cut; unchanged
-cut entries reuse their prepared payloads. The frame adapter reconciles twice, before results and after uploads.
+## Prebuilt faces
 
-Cell boundaries quantize the distance bands; they are approximately circular on a flat surface, not smooth circles.
-The terrain-bands test checks 64 directions and twelve radii against an independent distance calculation, all seven
-cell widths and parent-before-child dispatch. It exports the actual cut for `tools/terrain-band-map.py`. The default
-camera starts eight metres above the local surface so the finest 16-metre cells can be inspected; R selects the high
-overview and F returns near the surface.
+Each payload contains its regular triangles and all six Transvoxel transition faces in one vertex/index buffer.
+Eight offsets delimit seven ranges, including empty ones. The cut's six-bit mask activates fine-side faces toward
+selected neighbours exactly one depth coarser. Colour and shadow passes select the same parts. Neighbour changes
+never create another mesh variant. Face balance and compatible 2:1 boundary sample spacing are required; corner-only
+contacts do not impose a face rule. Zero-width transition strips use the common face, without skirts or secondary
+vertex displacement. Geometric LOD popping is expected. Generator tests weld positions within 1e-5 sample spacing.
 
-Mesh sample count remains 32 intervals per node in this streaming proof: spacing ranges from 32 m to 0.5 m. A higher
-vertex count per fine node is still future meshing work. Changing that count requires balancing by sample spacing and
-supporting the resulting boundary ratios; the current Transvoxel path supports a 2:1 spacing change.
+## Thread and graphics ownership
 
-## Residency and renderer ownership
+The coordinator alone mutates nodes, requests and cuts. Meshers own scratch/output until moving terminal results
+through a protected queue. The application owns every Mesh, Material, GPU handle and last-submission serial.
+`ReadyContent` is immutable CPU metadata containing the request/payload ID, byte counts and empty flags. Cut entries
+share these descriptors; retaining an old descriptor never retains a graphics object or permits redrawing an old cut.
 
-The runtime reserves up to 4 MiB for each of at most 32 outstanding payloads. CPU payloads have a 256 MiB budget;
-another 128 MiB is an allowance for worker storage, scratch, transport and metadata. These counters are not process RSS
-or exact allocator/driver residency. Each job's scratch allocator has a hard 16 MiB limit. Browser C++ workers now
-share the application heap rather than each having a separate 48 MiB heap; payload and scratch limits still apply,
-but there is no independent per-worker heap cap. GPU payloads have a 256 MiB budget. Upload submission is limited to 4 MiB per frame
-and 16 MiB of incomplete staging. Counts include retained ancestors, cancelled requests and retired payloads.
-Driver allocation alignment and the preexisting renderer's lighting resources are outside the terrain payload ledger.
+Observer values and complete snapshots coalesce. Reset/retry/stop, upload results and retirement commands do not.
+Short mutex-protected swaps transfer batches; locks never surround traversal, meshing or GPU preparation. A shared
+notification sequence captured before draining queues prevents a lost wake-up. A new observer does not restart a
+running pass. The renderer uses its previous complete selection without waiting and rebases it against the live camera.
 
-`Graphics::prepareStreamingMesh` creates immutable destination buffers and submits aligned chunks. Rendering rejects
-partially prepared meshes. Prepared means uploads are ordered before draws on the same graphics queue; it does not
-mean the CPU waited for the GPU. Terrain snapshots retain their meshes independently of topology.
+```text
+stream: publish revision R without payload P, then send Retire(P, R)
+render: adopt the latest snapshot at the frame boundary
+        retain P until applied revision >= R, P is absent from the active cut,
+        and its last upload/draw submission has actually completed
+render: drop P's record and acknowledge PayloadReleased(P)
+stream: release P's budget charge exactly once
+```
 
-The last upload or draw serial protects each payload. Native D3D12 uses a real queue fence. The pinned WebGPU RHI
-fence signals submission, so the browser path uses `wgpuQueueOnSubmittedWorkDone` instead. Callback state outlives the
-laboratory when needed and contains no terrain pointer. Retirement releases a payload only after real completion and
-after external snapshots have dropped ownership. Native shutdown drains the queue before destroying terrain ownership;
-browser command buffers retain submitted resources. Browser worker shutdown cancels tasks and detaches lifetime:
-workers retain only shared CPU queue state until they exit, never a pointer to the destroyed laboratory or GPU objects.
+Skipping revision R is safe when the renderer adopts a later revision. Once retirement is requested, that ID cannot
+reappear; renewed demand gets a fresh ID. A cancelled upload remains renderer-owned even if it never became visible.
+Old epoch replies cannot update a recreated node. Native uses a real queue fence; WebGPU uses work-done callbacks
+because the pinned RHI WebGPU fence reports submission rather than actual completion.
+
+Native shutdown drains the graphics queue, then coordinates CPU cancellation and retirement acknowledgements before
+joining. Browser shutdown retains a small retirement state and services it on the application event loop; detached
+threads retain CPU state only. No callback accesses the destroyed laboratory. The app prewarms three pthread slots;
+the focused lifecycle proof uses six to permit old/replacement overlap. Browser hosting requires COOP/COEP isolation.
+
+## Residency
+
+CPU and GPU payload budgets are each 256 MiB, including retained ancestors, outstanding reservations and retirement.
+At most 32 requests reserve up to 4 MiB each. The controller caps metadata at 32,768 nodes. Each of two meshers caps
+scratch at 16 MiB. Uploads submit at most 4 MiB per frame with at most 16 MiB incomplete staging. Shared-memory vectors
+move between owners without wire serialization or cross-heap copies.
+
+These are tracked payload budgets, not process RSS or exact driver residency: metadata, container overhead, staging,
+allocator alignment and other renderer resources are separate. Insufficient memory preserves coarser coverage and
+reports a block. GPU-ready means uploads precede draws on the same queue, not that the CPU waits for them.
 
 ## Verification
 
-Fast doctest cases exercise the state machine, boundaries, cancellation, retries, budgets and native workers. Separate
-executables sweep allocation failures and verify settled updates allocate nothing. Exhaustive checks cover all 256
-readiness subsets and 40320 child completion permutations. Generated schedules use 32 seeds and 5000 operations each,
-checking independent finest-grid coverage plus ownership, balance and byte-accounting invariants after each update.
-Eight isolated mutations demonstrate that the assertions detect the intended defects. Native GPU tests check actual
-partial uploads, complete rendering, completion markers and culling separation. Browser smoke exercises real dedicated
-workers and WebGPU; long native/browser routes check bounded payload residency and eventual drainage.
-
 | Contract | Executable specification |
 | --- | --- |
-| Readiness, identity, atomic cuts, balance and accounting | [Controller tests](../tests/terrain-stream-test.cpp); S01-S40 scenario IDs map to the plan. |
-| Allocation failure and allocation-free settled updates | [Allocation tests](../tests/terrain-allocation-test.cpp), with a separate container ABI. |
-| Seven radial detail bands and parent-before-child dispatch | [Band tests](../tests/terrain-band-test.cpp); outward root/refinement priority is in the controller tests. |
-| Noise samples, bounds, empty certificates and six-face/corner joins | [Generator tests](../tests/terrain-generator-test.cpp). |
-| Native cancellation, held work and teardown | [Worker tests](../tests/terrain-workers-test.cpp). |
-| Uploads, GPU completion, culling and long traversal | Terrain cases in [graphics tests](../tests/graphics-test.cpp). |
-| Browser presentation and real worker isolation | [Terrain smoke](../tools/terrain-smoke.mjs) and [worker smoke](../tools/terrain-workers-smoke.mjs). |
-| Sensitivity to the eight specified faults | [Mutation runner](../tools/terrain-mutation-check.py). |
+| Availability, retained parents, boundaries, identity and budgets | [Controller tests](../tests/terrain-stream-test.cpp), including 256 subsets and all 40,320 child completion permutations. |
+| Strong group/publication allocation boundaries and idle allocation behavior | [Allocation tests](../tests/terrain-allocation-test.cpp). |
+| Seven-level legacy and fourteen-level large-root radial bands | [Band tests](../tests/terrain-band-test.cpp), with independent distance expectations and exported cuts. |
+| Real coordinator/meshers, held traversal, coalescing, reset, shutdown and release ownership | [Service tests](../tests/terrain-streaming-service-test.cpp). |
+| Actual geometry, emptiness certificates and face/corner continuity | [Generator tests](../tests/terrain-generator-test.cpp). |
+| Mesher cancellation and held work | [Worker tests](../tests/terrain-workers-test.cpp). |
+| Uploads, GPU completion, 16 m convergence, culling and retirement | Terrain cases in [graphics tests](../tests/graphics-test.cpp). |
+| Browser shared heap, coordinator restart/drainage and real WebGPU rendering | [Worker smoke](../tools/terrain-workers-smoke.mjs) and [terrain smoke](../tools/terrain-smoke.mjs). |
+| Sensitivity to eight seeded controller defects | [Mutation runner](../tools/terrain-mutation-check.py). |
 
-Commands and evidence locations are in [DEVELOPING.md](../DEVELOPING.md). The [original completed plan](archived/terrain-streaming.md)
-records the initial implementation checks; the repair plan below records subsequent checks. Documentation of a test is not a passing result.
-The implementation is a terrain laboratory, and the explicit metadata/worker allowance is not a claim of exact total
-process memory accounting. Shared-edge tests establish the defined geometric tolerance, not pixel identity across GPUs.
+Randomized tests use 32 seeds and 5,000 operations each, saving replay traces. Small fixtures independently rasterize
+coverage and compare integer AABBs for overlap, balance and masks. Sparse depth-13 fixtures use exact integer volumes.
+Thread tests use explicit gates/notifications, not sleeps. Browser smoke also exercises UI, resize/reload, teleports
+and a moving route with final zero tracked residency. See [DEVELOPING.md](../DEVELOPING.md) for commands and the
+[sparse streaming execution plan](archived/sparse-terrain-streaming.md) for current validation evidence.
 
-The [streaming repair plan](archived/terrain-streaming-repair.md) records the subsequent priority, LOD-band and frame-cost fixes.
-
-The [completed prebuilt transition plan](archived/terrain-prebuilt-transitions.md) records the node-owned seven-part mesh simplification.
+The [original plan](archived/terrain-streaming.md), [repair plan](archived/terrain-streaming-repair.md) and
+[prebuilt transition plan](archived/terrain-prebuilt-transitions.md) preserve earlier implementation evidence.

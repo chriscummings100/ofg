@@ -46,14 +46,14 @@ TEST_SUITE("terrain-bands")
                 const double width = std::ldexp(1024., -a.depth);
                 const double y = a.y * width;
                 const bool empty = y > surfaceY || y + width < surfaceY;
-                auto payload = std::make_shared<PreparedPayload>();
+                auto payload = std::make_shared<ReadyContent>();
                 payload->empty = payload->certifiedEmpty = empty;
                 payload->cpuBytes = payload->gpuBytes = empty ? 0 : 1;
                 if (!empty)
                 {
                     REQUIRE(stream.acceptGenerated(request.id, 1));
                 }
-                REQUIRE(stream.complete(request.id, std::move(payload)));
+                REQUIRE(stream.complete(request.id, *payload));
             }
             for (const auto& id : stream.takeCancellations())
             {
@@ -154,5 +154,167 @@ TEST_SUITE("terrain-bands")
             }
         }
         CHECK(bool(output));
+    }
+    TEST_CASE("L3 fourteen radial bands span a 131072 metre root down to 16 metre cells")
+    {
+        for (double observerX : {123.0, 65536.0})
+        {
+            StreamSettings settings;
+            settings.rootWidth = 131072;
+            settings.maximumDepth = 13;
+            settings.maximumNodes = 32768;
+            settings.maximumPayloadBytes = 4 << 20;
+            settings.cpuBudget = 128 << 20;
+            settings.maximumJobs = 32;
+            TerrainStream stream(settings);
+            const WorldPosition observer{{}, {observerX, 5, observerX + 108}};
+            constexpr double surfaceY = 3;
+            stream.setObserver(observer);
+            for (int z = -4; z <= 4; ++z)
+            {
+                for (int x = -4; x <= 4; ++x)
+                {
+                    stream.requestRoot({x, 0, z});
+                }
+            }
+            bool settled = false;
+            for (unsigned step = 0; step < 2000; ++step)
+            {
+                stream.update();
+                const auto requests = stream.takeRequests();
+                // Check the entire dispatch before completing anything: ordering within one batch cannot hide a
+                // violation.
+                for (const auto& request : requests)
+                {
+                    if (request.address.depth)
+                    {
+                        REQUIRE(stream.state(parentAddress(request.address)) == BuildState::Loaded);
+                    }
+                }
+                for (const auto& request : requests)
+                {
+                    const auto& a = request.address;
+                    const double width = std::ldexp(settings.rootWidth, -a.depth);
+                    const double y = a.y * width;
+                    const bool empty = y > surfaceY || y + width < surfaceY;
+                    auto payload = std::make_shared<ReadyContent>();
+                    payload->empty = payload->certifiedEmpty = empty;
+                    payload->cpuBytes = payload->gpuBytes = empty ? 0 : 1;
+                    if (!empty)
+                    {
+                        REQUIRE(stream.acceptGenerated(request.id, 1));
+                    }
+                    REQUIRE(stream.complete(request.id, *payload));
+                }
+                for (const auto& id : stream.takeCancellations())
+                {
+                    stream.acknowledgeCancellation(id);
+                }
+                const auto d = stream.diagnostics();
+                if (!d.jobs && !d.loadingRoots && !d.unresolvedRefinements)
+                {
+                    settled = true;
+                    break;
+                }
+            }
+            REQUIRE(settled);
+            CHECK_NOTHROW(stream.validate());
+            std::set<unsigned> depths;
+            const auto directory =
+                std::filesystem::path(__FILE__).parent_path().parent_path() / "artifacts/terrain/bands";
+            std::filesystem::create_directories(directory);
+            std::ofstream output(directory / (observerX == 123 ? "large-offset.csv" : "large-centred.csv"));
+            output << "x,z,width,depth\n";
+            for (const auto& entry : stream.cut())
+            {
+                if (entry.payload->empty)
+                {
+                    continue;
+                }
+                const auto& a = entry.address;
+                const double width = std::ldexp(settings.rootWidth, -a.depth);
+                depths.insert(a.depth);
+                output << double(a.cell.x) * settings.rootWidth + a.x * width << ','
+                       << double(a.cell.z) * settings.rootWidth + a.z * width << ',' << width << ','
+                       << unsigned(a.depth) << '\n';
+            }
+            REQUIRE(depths == std::set<unsigned>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13});
+            std::vector<double> radii{0, 8, 16};
+            for (double radius = 32; radius <= settings.rootWidth * 2; radius *= 2)
+                radii.push_back(radius);
+            radii.push_back(settings.rootWidth * 3.90625);
+            for (unsigned angle = 0; angle < 64; ++angle)
+            {
+                for (double radius : radii)
+                {
+                    const double direction = angle * 6.283185307179586 / 64;
+                    const auto point = normalizePosition(
+                        {{},
+                         {observerX + radius * std::cos(direction),
+                          surfaceY,
+                          observerX + 108 + radius * std::sin(direction)}},
+                        settings.rootWidth
+                    );
+                    unsigned matches = 0, actualDepth = 0;
+                    for (const auto& entry : stream.cut())
+                    {
+                        const auto& a = entry.address;
+                        if (a.cell != point.cell)
+                        {
+                            continue;
+                        }
+                        const double width = std::ldexp(settings.rootWidth, -a.depth);
+                        if (point.local[0] >= a.x * width && point.local[0] < (a.x + 1) * width &&
+                            point.local[1] >= a.y * width && point.local[1] < (a.y + 1) * width &&
+                            point.local[2] >= a.z * width && point.local[2] < (a.z + 1) * width)
+                        {
+                            ++matches;
+                            actualDepth = a.depth;
+                        }
+                    }
+                    REQUIRE(matches == 1);
+                    // Independent analytic AABB-distance subdivision along this sample's path. Balancing may add
+                    // one finer level at a neighbor boundary, but coarse holes inside the required band are forbidden.
+                    unsigned expectedDepth = 0;
+                    for (unsigned depth = 0; depth < 13; ++depth)
+                    {
+                        const double width = std::ldexp(settings.rootWidth, -int(depth));
+                        double squared = 0;
+                        for (unsigned axis = 0; axis < 3; ++axis)
+                        {
+                            const int64_t cell = axis == 0 ? point.cell.x : axis == 1 ? point.cell.y : point.cell.z;
+                            const double minimum =
+                                double(cell) * settings.rootWidth + std::floor(point.local[axis] / width) * width;
+                            const double value = observer.local[axis];
+                            const double distance = value < minimum           ? minimum - value
+                                                    : value > minimum + width ? value - minimum - width
+                                                                              : 0;
+                            squared += distance * distance;
+                        }
+                        if (squared >= 4 * width * width)
+                        {
+                            break;
+                        }
+                        expectedDepth = depth + 1;
+                    }
+                    CAPTURE(angle);
+                    CAPTURE(radius);
+                    CAPTURE(actualDepth);
+                    CAPTURE(expectedDepth);
+                    CHECK(actualDepth >= expectedDepth);
+                    CHECK(actualDepth <= expectedDepth + 1);
+                    if (radius <= 16)
+                    {
+                        CHECK(actualDepth == 13);
+                    }
+                    // Beyond 2 root widths plus a root diagonal, no containing root intersects the refinement sphere.
+                    if (radius >= settings.rootWidth * 3.90625)
+                    {
+                        CHECK(actualDepth == 0);
+                    }
+                }
+            }
+            CHECK(bool(output));
+        }
     }
 }

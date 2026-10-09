@@ -8,17 +8,23 @@
 #include <algorithm>
 #include <cmath>
 #include <chrono>
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 namespace ofg {
 namespace {
-// Fits seven noise LOD bands plus complete sibling reservations; worker/transport allowance is separate.
+// A 131 km root reaches 16 m at depth 13; refinement/view distance is independent of world extent.
 terrain::StreamSettings runtimeSettings()
 {
     terrain::StreamSettings settings;
+    settings.rootWidth = 131072;
+    settings.maximumDepth = 13;
+    settings.maximumNodes = 32768;
+    settings.refinementRange = 4096;
     settings.cpuBudget = 256ull << 20;
     settings.maximumPayloadBytes = 4ull << 20;
     settings.maximumJobs = 32;
-    settings.maximumPlansPerUpdate = 2;
     return settings;
 }
 } // namespace
@@ -39,9 +45,11 @@ std::unique_ptr<Scene> createTerrainScene()
 }
 
 TerrainLaboratory::TerrainLaboratory(rhi::IDevice* device, rhi::ICommandQueue* queue)
-    : m_stream(runtimeSettings())
-    , m_completion(device, queue)
+    : m_settings(runtimeSettings())
+    , m_completion(std::make_unique<QueueCompletion>(device, queue))
 {
+    m_generator.rootWidth = m_settings.rootWidth;
+    m_service = std::make_unique<terrain::TerrainStreamingService>(m_settings, m_generator);
     teleportToSurface({{}, {0, 0, -300}});
     m_observer = m_camera;
     PbrMaterialDesc desc;
@@ -60,22 +68,87 @@ TerrainLaboratory::TerrainLaboratory(rhi::IDevice* device, rhi::ICommandQueue* q
     };
     for (size_t i = 0; i < m_lodMaterials.size(); ++i)
     {
-        desc.baseColor = colors[i];
+        desc.baseColor = colors[i % 7];
         m_lodMaterials[i] = createPbrMaterial(desc);
     }
 }
 
-TerrainLaboratory::~TerrainLaboratory() = default;
+struct TerrainLaboratory::Shutdown
+{
+    std::unique_ptr<terrain::TerrainStreamingService> service;
+    std::unique_ptr<QueueCompletion> completion;
+    std::map<terrain::RequestId, RenderPayload> payloads;
+
+    // Runs only on the application thread, allowing CPU shutdown and GPU retirement to progress independently.
+    bool step()
+    {
+        auto batch = service->takeBatch();
+        for (auto& upload : batch.uploads)
+        {
+            service->uploadFailed(upload.request.id, "Terrain shutdown cancelled queued upload.");
+            service->payloadReleased(upload.request.id);
+        }
+        for (const auto& [id, revision] : batch.retirements)
+        {
+            if (!payloads.contains(id))
+                service->payloadReleased(id);
+        }
+        const auto completed = completion->completed();
+        for (auto i = payloads.begin(); i != payloads.end();)
+        {
+            if (i->second.lastSubmission <= completed)
+            {
+                const auto id = i->first;
+                i = payloads.erase(i);
+                service->payloadReleased(id);
+            }
+            else
+                ++i;
+        }
+        return batch.stopped && payloads.empty();
+    }
+#ifdef __EMSCRIPTEN__
+    // Browser teardown retains only CPU channel/GPU retirement ownership; no callback touches a destroyed lab.
+    static void tick(void* pointer)
+    {
+        auto* state = static_cast<Shutdown*>(pointer);
+        if (state->step())
+            delete state;
+        else
+            emscripten_async_call(tick, state, 16);
+    }
+#endif
+};
+
+TerrainLaboratory::~TerrainLaboratory()
+{
+    m_service->stop();
+    auto shutdown = std::make_unique<Shutdown>();
+    shutdown->service = std::move(m_service);
+    shutdown->completion = std::move(m_completion);
+    shutdown->payloads = std::move(m_payloads);
+#ifdef __EMSCRIPTEN__
+    emscripten_async_call(Shutdown::tick, shutdown.release(), 0);
+#else
+    for (;;)
+    {
+        const auto sequence = shutdown->service->wakeSequence();
+        if (shutdown->step())
+            break;
+        shutdown->service->waitForChange(sequence);
+    }
+#endif
+}
 
 void TerrainLaboratory::teleport(terrain::WorldPosition position)
 {
-    m_camera = terrain::normalizePosition(position, 1024);
+    m_camera = terrain::normalizePosition(position, m_settings.rootWidth);
     m_teleported = true;
 }
 
 void TerrainLaboratory::teleportToSurface(terrain::WorldPosition position, double clearance)
 {
-    position = terrain::normalizePosition(position, 1024);
+    position = terrain::normalizePosition(position, m_settings.rootWidth);
     position.cell.y = 0;
     position.local[1] =
         terrain::terrainHeight(position.cell, position.local[0], position.local[2], m_generator) + clearance;
@@ -92,91 +165,24 @@ void TerrainLaboratory::traverse(double elapsedSeconds)
     teleportToSurface({{distant, 0, distant}, {elapsedSeconds * 96, 0, 2048 * std::sin(elapsedSeconds * .03)}}, 8);
 }
 
-void TerrainLaboratory::updateRoots()
-{
-    OFG_TERRAIN_SCOPE(TerrainLaboratory_updateRoots);
-    m_admissionBlocked = false;
-    // Candidate offsets are small: global cell arithmetic stays exact before conversion to metres.
-    for (int z = -4; z <= 4; ++z)
-    {
-        for (int y = -4; y <= 4; ++y)
-        {
-            for (int x = -4; x <= 4; ++x)
-            {
-                terrain::WorldPosition candidate = m_observer;
-                candidate.local[0] += x * 1024;
-                candidate.local[1] += y * 1024;
-                candidate.local[2] += z * 1024;
-                auto cell = terrain::normalizePosition(candidate, 1024).cell;
-                // This height generator certifies every other root as air/solid, so the sparse grid omits them.
-                if (cell.y < -1 || cell.y > 0)
-                {
-                    continue;
-                }
-                if (terrain::distanceToNode({cell}, m_observer, 1024) <= 4096 && !m_roots.contains(cell))
-                {
-                    if (m_stream.requestRoot(cell))
-                    {
-                        m_roots.insert(cell);
-                    }
-                    else
-                    {
-                        m_admissionBlocked = true;
-                    }
-                }
-            }
-        }
-    }
-    for (auto i = m_roots.begin(); i != m_roots.end();)
-    {
-        if (terrain::distanceToNode({*i}, m_observer, 1024) > 5120)
-        {
-            m_stream.withdrawRoot(*i);
-            i = m_roots.erase(i);
-        }
-        else
-        {
-            ++i;
-        }
-    }
-}
-
 void TerrainLaboratory::receiveResults()
 {
     OFG_TERRAIN_SCOPE(TerrainLaboratory_receiveResults);
-    for (auto& result : m_workers.takeResults())
+    auto batch = m_service->takeBatch();
+    m_diagnostics = batch.diagnostics;
+    m_reconciliationMilliseconds = batch.reconciliationMilliseconds;
+    m_maximumReconciliationMilliseconds = batch.maximumReconciliationMilliseconds;
+    if (!batch.error.empty())
+        m_error = batch.error;
+    for (auto& result : batch.uploads)
     {
-        if (result.outcome == terrain::WorkerOutcome::Cancelled)
-        {
-            m_stream.acknowledgeCancellation(result.request.id);
-            continue;
-        }
-        if (result.outcome == terrain::WorkerOutcome::Failed)
-        {
-            m_error = result.error;
-            m_failures.push_back(result.request.address);
-            m_stream.fail(result.request.id, result.error);
-            continue;
-        }
+        auto& payload = m_payloads[result.request.id];
+        payload.content.id = result.request.id;
+        payload.content.cpuBytes = result.geometry.allocatedBytes();
+        payload.content.gpuBytes =
+            result.geometry.vertices.size() * sizeof(Vertex) + result.geometry.indices.size() * sizeof(uint32_t);
         try
         {
-            const auto& address = result.request.address;
-            terrain::validateGeometry(result.geometry, 1024.0 / (1u << address.depth), result.request.byteLimit);
-            auto payload = std::make_shared<terrain::PreparedPayload>();
-            payload->empty = result.geometry.indices.empty();
-            payload->certifiedEmpty = result.geometry.certifiedEmpty;
-            if (payload->empty)
-            {
-                m_stream.complete(result.request.id, std::move(payload));
-                continue;
-            }
-            payload->cpuBytes = result.geometry.allocatedBytes();
-            payload->gpuBytes =
-                result.geometry.vertices.size() * sizeof(Vertex) + result.geometry.indices.size() * sizeof(uint32_t);
-            if (!m_stream.acceptGenerated(result.request.id, payload->cpuBytes))
-            {
-                continue;
-            }
             std::vector<SubMesh> parts;
             for (size_t part = 0; part < 7; ++part)
             {
@@ -184,84 +190,105 @@ void TerrainLaboratory::receiveResults()
                 const auto count = result.geometry.partOffsets[part + 1] - first;
                 if (count)
                 {
-                    payload->partSubMeshes[part] = int8_t(parts.size());
+                    payload.partSubMeshes[part] = int8_t(parts.size());
                     parts.push_back({first, count, m_material});
                 }
             }
-            payload->mesh =
+            payload.mesh =
                 Mesh::create(std::move(result.geometry.vertices), std::move(result.geometry.indices), std::move(parts));
-            m_uploads.push_back({result.request, std::move(payload)});
+            m_uploads.push_back(result.request.id);
         } catch (const std::exception& error)
         {
             m_error = error.what();
-            m_failures.push_back(result.request.address);
-            m_stream.fail(result.request.id, m_error, terrain::FailureStage::Upload);
+            payload.retireAfter = 0;
+            m_service->uploadFailed(result.request.id, m_error);
         }
+    }
+    if (batch.snapshot)
+    {
+        m_snapshot = batch.snapshot->leaves;
+        m_revision = batch.snapshot->revision;
+        m_snapshotCreated = batch.snapshot->created;
+    }
+    for (const auto& [id, revision] : batch.retirements)
+    {
+        const auto record = m_payloads.find(id);
+        if (record != m_payloads.end())
+            record->second.retireAfter = revision;
+        else
+            m_service->payloadReleased(id);
     }
 }
 
 void TerrainLaboratory::upload()
 {
     OFG_TERRAIN_SCOPE(TerrainLaboratory_upload);
-    const auto completed = m_completion.completed();
-    m_stream.completedSubmission(completed);
+    const auto completed = m_completion->completed();
     while (!m_staging.empty() && m_staging.front().first <= completed)
-    {
         m_staging.pop_front();
-    }
     size_t staging = 0;
     for (const auto& item : m_staging)
-    {
         staging += item.second;
-    }
     size_t allowance = std::min(size_t(4 << 20), size_t(16 << 20) - staging);
     for (auto i = m_uploads.begin(); i != m_uploads.end();)
     {
-        if (m_stream.request(i->request.address) != i->request.id)
+        auto& payload = m_payloads.at(*i);
+        if (payload.retireAfter)
         {
-            i->payload->gpuBytes = Graphics::streamingMeshGpuBytes(*i->payload->mesh);
-            m_stream.complete(i->request.id, i->payload); // Obsolete payload enters retirement, never the cut.
             i = m_uploads.erase(i);
             continue;
         }
         if (!allowance)
         {
-            break;
+            // Still visit later cancelled uploads before the retirement pass destroys their records.
+            ++i;
+            continue;
         }
         const auto before = allowance;
         bool ready = false;
         std::string error;
         try
         {
-            ready = Graphics::prepareStreamingMesh(*i->payload->mesh, allowance);
+            ready = Graphics::prepareStreamingMesh(*payload.mesh, allowance);
         } catch (const std::exception& failure)
         {
             error = failure.what();
         }
-        // Even a failed preparation can have submitted an earlier chunk.
         if (before != allowance)
         {
-            i->payload->lastSubmission = m_completion.mark();
-            m_stream.submitted({{i->request.address, i->payload}}, i->payload->lastSubmission);
-            m_staging.push_back({i->payload->lastSubmission, before - allowance});
+            payload.lastSubmission = m_completion->mark();
+            m_staging.push_back({payload.lastSubmission, before - allowance});
         }
         if (!error.empty())
         {
-            i->payload->gpuBytes = Graphics::streamingMeshGpuBytes(*i->payload->mesh);
             m_error = error;
-            m_failures.push_back(i->request.address);
-            m_stream.failUpload(i->request.id, i->payload, error);
+            payload.retireAfter = 0;
+            m_service->uploadFailed(*i, error);
             i = m_uploads.erase(i);
         }
         else if (ready)
         {
-            m_stream.complete(i->request.id, i->payload);
+            m_service->uploadReady(*i, payload.content);
             i = m_uploads.erase(i);
         }
         else
-        {
             ++i;
+    }
+    std::set<terrain::RequestId> active;
+    for (const auto& entry : m_snapshot)
+        active.insert(entry.payload->id);
+    for (auto i = m_payloads.begin(); i != m_payloads.end();)
+    {
+        const auto& payload = i->second;
+        if (payload.retireAfter && *payload.retireAfter <= m_revision && !active.contains(i->first) &&
+            payload.lastSubmission <= completed)
+        {
+            const auto id = i->first;
+            i = m_payloads.erase(i);
+            m_service->payloadReleased(id);
         }
+        else
+            ++i;
     }
 }
 
@@ -280,7 +307,7 @@ void TerrainLaboratory::update(Scene& scene)
         m_camera.local[0] += displacement.x;
         m_camera.local[1] += displacement.y;
         m_camera.local[2] += displacement.z;
-        m_camera = terrain::normalizePosition(m_camera, 1024);
+        m_camera = terrain::normalizePosition(m_camera, m_settings.rootWidth);
     }
     m_teleported = false;
     camera->entity()->setLocalPosition({});
@@ -288,33 +315,14 @@ void TerrainLaboratory::update(Scene& scene)
     {
         m_observer = m_camera;
     }
-    m_stream.setObserver(m_observer);
-    updateRoots();
-    m_stream.update();
-    for (auto id : m_stream.takeCancellations())
+    m_service->setObserver(m_observer);
+    if (m_holdNext || m_failNext)
     {
-        const auto upload = std::find_if(
-            m_uploads.begin(),
-            m_uploads.end(),
-            [id](const Upload& value)
-            {
-                return value.request.id == id;
-            }
-        );
-        if (upload == m_uploads.end())
-        {
-            m_workers.cancel(id);
-        }
+        m_service->injectNext(m_holdNext, m_failNext);
+        m_holdNext = m_failNext = false;
     }
     receiveResults();
     upload();
-    m_stream.update();
-    for (auto request : m_stream.takeRequests())
-    {
-        m_workers.submit(request, m_generator, m_holdNext, m_failNext);
-        m_holdNext = m_failNext = false;
-    }
-    m_snapshot = m_stream.cut();
     m_updateMilliseconds =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - updateStart).count();
 }
@@ -323,7 +331,8 @@ void TerrainLaboratory::append(DrawList& list)
 {
     OFG_TERRAIN_SCOPE(TerrainLaboratory_append);
     m_clipFromWorld = list.clipFromWorld;
-    list.atmosphereHeight = float(std::clamp(double(m_camera.cell.y) * 1024 + m_camera.local[1], -1000.0, 1000000.0));
+    list.atmosphereHeight =
+        float(std::clamp(double(m_camera.cell.y) * m_settings.rootWidth + m_camera.local[1], -1000.0, 1000000.0));
     if (list.lighting.outdoor)
     {
         list.outdoor = evaluateOutdoorLighting(*list.lighting.outdoor, list.atmosphereHeight);
@@ -336,15 +345,15 @@ void TerrainLaboratory::append(DrawList& list)
         {
             continue;
         }
-        const auto minimum = terrain::relativeMinimum(entry.address, m_camera, 1024);
+        const auto& payload = m_payloads.at(entry.payload->id);
+        const auto minimum = terrain::relativeMinimum(entry.address, m_camera, m_settings.rootWidth);
         auto transform = math::mat4Identity();
         transform[3] = {float(minimum[0]), float(minimum[1]), float(minimum[2]), 1};
-        DrawItem
-            item{entry.payload->mesh, 0, m_lodColors ? m_lodMaterials[entry.address.depth] : m_material, transform, {}};
+        DrawItem item{payload.mesh, 0, m_lodColors ? m_lodMaterials[entry.address.depth] : m_material, transform, {}};
         const bool visible = boundsVisible(item.mesh->bounds(), math::mul(list.clipFromWorld, transform));
         for (unsigned part = 0; part < 7; ++part)
         {
-            const auto subMesh = entry.payload->partSubMeshes[part];
+            const auto subMesh = payload.partSubMeshes[part];
             if (subMesh < 0 || (part && !(entry.transitionFaces & (1u << (part - 1)))))
             {
                 continue;
@@ -361,7 +370,12 @@ void TerrainLaboratory::append(DrawList& list)
 
 void TerrainLaboratory::submitted()
 {
-    m_stream.submitted(m_snapshot, m_completion.mark());
+    const auto serial = m_completion->mark();
+    for (const auto& entry : m_snapshot)
+    {
+        if (!entry.payload->empty)
+            m_payloads.at(entry.payload->id).lastSubmission = serial;
+    }
 }
 
 } // namespace ofg

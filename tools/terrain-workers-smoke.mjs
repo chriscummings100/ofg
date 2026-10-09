@@ -31,7 +31,7 @@ try {
     assert.equal(report.proof.done, true);
     assert.equal(report.proof.shared, true);
     assert.equal(report.proof.isolated, true);
-    assert.equal(report.proof.stage, 5);
+    assert.equal(report.proof.stage, 9);
     assert.ok(report.proof.heartbeat >= 3);
     assert.ok(report.proof.indices > 0 && report.proof.vertices > 0);
     // Detached shutdown must return both generations of workers to the runtime pool.

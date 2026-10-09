@@ -394,21 +394,25 @@ Launch `build/native/ofg.exe --terrain`, or open `?demo=terrain` in the browser 
 observer freeze, depth colors, projected node bounds, origin/distant teleports, reseeding, held jobs, injected worker
 failure, explicit retry and live payload/reservation/retirement counters. Right-drag and WASD/QE inspect terrain;
 movement is 128 m/s (384 m/s with Shift), R returns to the origin overview and F places the camera eight metres above
-the local surface. The default spawn is near the surface. Cell widths span 16 through 1024 metres.
+the local surface. The default spawn is near the surface. Cell widths span 16 through 131,072 metres across fourteen levels.
 New roots visibly load. Existing root coverage stays represented until compatible replacements are prepared.
 
 The streaming controller and noise/Transvoxel generator build in the GPU-independent CPU preset. Both hosts use
-two persistent C++ threads from `src/terrain/terrain-workers.cpp`. Browser pthreads share the application WASM heap;
+one coordinator from `src/terrain/terrain-streaming-service.cpp` and two persistent meshers from
+`src/terrain/terrain-workers.cpp`. Browser pthreads share the application WASM heap;
 geometry vectors move through the protected queue without serialization or cross-heap copies. Graphics and UI
 remain on the existing application thread. Native teardown joins; browser teardown cancels and releases ownership,
-and detached workers retain only shared CPU state until they stop. Main-thread blocking waits are disabled on web.
+and detached workers retain only shared CPU state until they stop. Browser GPU retirement continues on the
+application event loop without accessing the destroyed laboratory. Main-thread blocking waits are disabled on web.
 The separate generator WASM, wire protocol and JavaScript worker transport have been removed.
 
 The pinned Slang 2026.17.1 release WASM archives lack atomics/bulk-memory support and cannot link into shared memory.
 Before configuring web, build that same version with pthread support using `tools/build-slang-web.ps1` (requires the
 existing MSVC x64 tools plus EMSDK). This builds host generators and browser static libraries under `build/`, reuses
 them on subsequent runs, and does not change the native Slang dependency. First-time compilation is substantial.
-The focused worker proof is a separate small browser executable; the full doctest suite stays native.
+The focused worker proof is a separate small browser executable and now covers the coordinator too: stage 9
+means normal and held coordinator shutdown/restart completed. It prewarms six pthread slots for overlapping
+lifetimes; the app uses three. The full doctest suite stays native.
 
 Verified commands (from the repository root, with the appropriate development environment above):
 
@@ -463,7 +467,8 @@ powershell -ExecutionPolicy Bypass -File tools/terrain-native-smoke.ps1 -Executa
 ```
 
 The flat-plane band test checks actual published coverage against analytic distance demand along 64 radial directions,
-including every width from 16 to 1024 metres. Its PNG has three zoom levels. It deliberately isolates streaming policy
+including every width from 16 to 1024 metres. The same test suite also exports `large-offset.csv` and
+`large-centred.csv` for fourteen-level 131,072 m roots. Its PNG has three zoom levels. It deliberately isolates streaming policy
 from noise: the native/browser terrain captures establish the real noise rendering separately. The terrain panel reports
 frame rate, terrain-update time, finest surface cell width, remaining refinement demand and budget/idle state.
 
@@ -471,8 +476,8 @@ The [completed streaming repair](docs/archived/terrain-streaming-repair.md) reco
 native timing comparisons, browser checks and remaining limitations verified on 2026-10-05.
 
 Terrain nodes now generate a regular mesh and all six transition faces in one job. The published cut selects face
-submeshes without rebuilding or reuploading a node when neighbors change. The worker WASM, worker scripts and main
-browser application must be deployed together because the result protocol includes eight index-range boundaries.
+submeshes without rebuilding or reuploading a node when neighbors change. Geometry carries eight index-range boundaries
+through the shared C++ queues on both hosts.
 `Terrain GPU prebuilt parts*` in the native rendering suite checks draw-range toggling without further uploads;
 the CPU terrain-fast suite checks payload identity, no regeneration, range validation and six-face/corner continuity.
 The [completed prebuilt transition plan](docs/archived/terrain-prebuilt-transitions.md) records native and browser
@@ -524,3 +529,23 @@ Parameter-block verification (2026-10-07): all 9 native Release CTests, native p
 The shadow shader imports `ofg_shadow_pass`, embedded alongside `depth.slang`; CMake tracks both sources. Shadow materials cache alpha/UV/resources until edited, each cascade shares its own pass block, and each instance writes only its world transform through a cached cursor. The native test `Shadow parameter blocks preserve cascade instance and edited material snapshots` reads all four depth layers, including masked texture/UV edits, mirrored instances, clones and renderer replacement. `node tools/outdoor-smoke.mjs` verifies the shared shaders on WebGPU. Native presentation evidence and the browser report are under `artifacts/terrain/shadow-parameter-blocks`; the completed [shadow binding plan](docs/archived/shadow-parameter-blocks.md) records validation and the isolated Release comparison.
 
 Shadow-block Release result (2026-10-07): mean shadow host time 3.8392 ms versus 6.0722 ms before, median measured frame 7.3440 ms versus 10.8438 ms, with the same 1440x1200 D3D12 terrain workload on RTX 3050 Ti Laptop GPU and zero material rebuilds after warm-up. Raw captures are in `artifacts/terrain/release-profile/shadow-parameter-blocks`. All native groups pass after correcting the new test fixture; `ctest --preset native-release --rerun-failed --output-on-failure` passed the complete scene group. Outdoor WebGPU and native presentation checks passed.
+
+## Sparse streaming coordinator (2026-10-07)
+
+`TerrainStream` is synchronously testable; its mutable state is owned by `TerrainStreamingService` in the application.
+The render thread consumes immutable CPU snapshots and prepares bounded uploads. The renderer keeps graphics objects
+and actual submission serials; release acknowledgements unblock residency budgets. Parents survive child completion.
+The panel reports main-thread adapter time separately from the most recent worker reconciliation time.
+
+Run `ctest --preset native-release --output-on-failure` for the complete native suite, `node tools/terrain-workers-smoke.mjs`
+for thread lifecycle, `node tools/terrain-smoke.mjs` for settled depth-13 rendering and UI, and
+`node tools/terrain-smoke.mjs --stress-seconds 15` for a short moving route and complete resource drainage.
+Evidence for this change is preserved under `artifacts/terrain/sparse-streaming`; the completed
+[sparse streaming plan](docs/archived/sparse-terrain-streaming.md) records exact outcomes and limitations.
+The noise fixture is flatter because its wavelength scales with root width; it is not the future island generator.
+
+
+`python tools/terrain-band-map.py --large` renders the exported fourteen-level centred/off-centre cuts after
+terrain-bands passes. The map labels all cell widths and distinguishes the unlimited-range test fixture from the
+interactive 4,096 m refinement radius. The Release CSV additionally records allocated nodes, maximum coordinator
+reconciliation time, adopted snapshot age, and live/retired GPU bytes. Snapshot age includes deliberate stationary reuse.
